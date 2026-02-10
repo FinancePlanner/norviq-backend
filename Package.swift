@@ -22,7 +22,8 @@ let package = Package(
         .package(url: "https://github.com/apple/swift-openapi-generator", from: "1.0.0"),
         .package(url: "https://github.com/apple/swift-openapi-runtime", from: "1.0.0"),
         .package(url: "https://github.com/swift-server/swift-openapi-vapor.git", from: "1.0.0"),
-        .package(url: "https://github.com/apple/swift-log.git", from: "1.5.0")
+        .package(url: "https://github.com/apple/swift-log.git", from: "1.5.0"),
+        .package(url: "https://github.com/vapor/redis.git", from: "4.8.0")
     ],
     targets: [
         .executableTarget(
@@ -39,6 +40,8 @@ let package = Package(
                 .product(name: "OpenAPIVapor", package: "swift-openapi-vapor"),
                 // Telemetry
                 .product(name: "Logging", package: "swift-log"),
+                // Optional Redis cache integration.
+                .product(name: "Redis", package: "redis"),
             ],
             resources: [
                 .copy("openapi.yaml"),

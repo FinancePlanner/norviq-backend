@@ -12,27 +12,34 @@ struct MarketDataController: RouteCollection {
 
     @Sendable
     func quote(req: Request) async throws -> QuoteResponse {
-        let symbol = req.parameters.get("symbol") ?? "UNKNOWN"
-        return QuoteResponse(symbol: symbol, price: 0, currency: "USD", asOf: "1970-01-01")
+        guard let symbol = req.parameters.get("symbol") else {
+            throw Abort(.badRequest, reason: "Missing symbol.")
+        }
+        return try await req.application.marketDataService.quote(symbol: symbol, on: req)
     }
 
     @Sendable
     func history(req: Request) async throws -> HistoryResponse {
-        let symbol = req.parameters.get("symbol") ?? "UNKNOWN"
-        return HistoryResponse(symbol: symbol, currency: "USD", bars: [])
+        guard let symbol = req.parameters.get("symbol") else {
+            throw Abort(.badRequest, reason: "Missing symbol.")
+        }
+
+        let from = req.query[String.self, at: "from"]
+        let to = req.query[String.self, at: "to"]
+        return try await req.application.marketDataService.history(symbol: symbol, from: from, to: to, on: req)
     }
 
     @Sendable
     func search(req: Request) async throws -> [SearchResultResponse] {
-        _ = req.query[String.self, at: "q"]
-        return []
+        guard let query = req.query[String.self, at: "q"] else {
+            throw Abort(.badRequest, reason: "Missing query parameter `q`.")
+        }
+        return try await req.application.marketDataService.search(query: query, on: req)
     }
 
     @Sendable
     func fx(req: Request) async throws -> FxRateResponse {
-        let pairRaw = (req.query[String.self, at: "pair"] ?? "EURUSD").replacingOccurrences(of: "/", with: "")
-        let base = String(pairRaw.prefix(3))
-        let quote = String(pairRaw.suffix(3))
-        return FxRateResponse(base: base, quote: quote, rate: 1.0, date: "1970-01-01")
+        let pair = req.query[String.self, at: "pair"] ?? "EURUSD"
+        return try await req.application.marketDataService.fx(pair: pair, on: req)
     }
 }

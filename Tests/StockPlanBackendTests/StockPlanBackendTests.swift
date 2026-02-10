@@ -3,6 +3,7 @@ import VaporTesting
 import Testing
 import Fluent
 import NIOCore
+import Foundation
 
 @Suite("App Tests with DB", .serialized)
 struct StockPlanBackendTests {
@@ -39,7 +40,26 @@ struct StockPlanBackendTests {
         }
         return (response.token, response.userId)
     }
-    
+
+    private func makeTestMarketService(
+        state: TestMarketProviderState,
+        quoteTTLSeconds: Int = 3_600,
+        historyTTLSeconds: Int = 3_600,
+        searchTTLSeconds: Int = 3_600,
+        fxTTLSeconds: Int = 3_600
+    ) -> any MarketDataService {
+        DefaultMarketDataService(
+            provider: TestMarketDataProvider(state: state),
+            cacheConfig: .init(
+                quoteTTLSeconds: quoteTTLSeconds,
+                historyTTLSeconds: historyTTLSeconds,
+                searchTTLSeconds: searchTTLSeconds,
+                fxTTLSeconds: fxTTLSeconds,
+                defaultCurrency: "USD"
+            )
+        )
+    }
+
     @Test("Test Hello World Route")
     func helloWorld() async throws {
         try await withApp { app in
@@ -49,61 +69,154 @@ struct StockPlanBackendTests {
             })
         }
     }
-    
-    @Test("Getting all the Todos")
-    func getAllTodos() async throws {
+
+    @Test("Market quote endpoint requires authentication")
+    func quoteRequiresAuth() async throws {
         try await withApp { app in
-            let (token, userId) = try await registerTestUser(app: app)
-            let sampleTodos = [
-                Todo(userId: userId, title: "sample1"),
-                Todo(userId: userId, title: "sample2"),
-            ]
-            try await sampleTodos.create(on: app.db)
-            
-            try await app.testing().test(.GET, "todos", beforeRequest: { req in
-                req.headers.bearerAuthorization = .init(token: token)
-            }, afterResponse: { res async throws in
-                #expect(res.status == .ok)
-                #expect(try
-                    res.content.decode([TodoDTO].self).sorted(by: { $0.title < $1.title }) ==
-                    sampleTodos.map { $0.toDTO() }.sorted(by: { $0.title < $1.title })
-                )
+            let state = TestMarketProviderState()
+            app.marketDataService = makeTestMarketService(state: state)
+
+            try await app.testing().test(.GET, "quote/AAPL", afterResponse: { res async in
+                #expect(res.status == .unauthorized)
             })
         }
     }
-    
-    @Test("Creating a Todo")
-    func createTodo() async throws {
-        let newDTO = TodoDTO(id: nil, title: "test")
-        
+
+    @Test("Quote uses cache after first fetch")
+    func quoteUsesCache() async throws {
         try await withApp { app in
+            let state = TestMarketProviderState()
+            app.marketDataService = makeTestMarketService(state: state)
             let (token, _) = try await registerTestUser(app: app)
 
-            try await app.testing().test(.POST, "todos", beforeRequest: { req in
+            var first: QuoteResponse?
+            var second: QuoteResponse?
+
+            try await app.testing().test(.GET, "quote/AAPL", beforeRequest: { req in
                 req.headers.bearerAuthorization = .init(token: token)
-                try req.content.encode(newDTO)
             }, afterResponse: { res async throws in
                 #expect(res.status == .ok)
-                let models = try await Todo.query(on: app.db).all()
-                #expect(models.map({ $0.toDTO().title }) == [newDTO.title])
+                first = try res.content.decode(QuoteResponse.self)
             })
-        }
-    }
-    
-    @Test("Deleting a Todo")
-    func deleteTodo() async throws {
-        try await withApp { app in
-            let (token, userId) = try await registerTestUser(app: app)
-            let testTodos = [Todo(userId: userId, title: "test1"), Todo(userId: userId, title: "test2")]
-            try await testTodos.create(on: app.db)
-            
-            try await app.testing().test(.DELETE, "todos/\(testTodos[0].requireID())", beforeRequest: { req in
+
+            try await app.testing().test(.GET, "quote/AAPL", beforeRequest: { req in
                 req.headers.bearerAuthorization = .init(token: token)
             }, afterResponse: { res async throws in
-                #expect(res.status == .noContent)
-                let model = try await Todo.find(testTodos[0].id, on: app.db)
-                #expect(model == nil)
+                #expect(res.status == .ok)
+                second = try res.content.decode(QuoteResponse.self)
             })
+
+            #expect(first?.symbol == "AAPL")
+            #expect(second?.symbol == "AAPL")
+            #expect(first?.price == second?.price)
+            #expect(await state.quoteCalls() == 1)
+        }
+    }
+
+    @Test("History uses cache after first fetch")
+    func historyUsesCache() async throws {
+        try await withApp { app in
+            let state = TestMarketProviderState()
+            app.marketDataService = makeTestMarketService(
+                state: state,
+                quoteTTLSeconds: 3_600,
+                historyTTLSeconds: 86_400,
+                searchTTLSeconds: 3_600,
+                fxTTLSeconds: 3_600
+            )
+            let (token, _) = try await registerTestUser(app: app)
+
+            var first: HistoryResponse?
+            var second: HistoryResponse?
+
+            try await app.testing().test(.GET, "history/AAPL", beforeRequest: { req in
+                req.headers.bearerAuthorization = .init(token: token)
+            }, afterResponse: { res async throws in
+                #expect(res.status == .ok)
+                first = try res.content.decode(HistoryResponse.self)
+            })
+
+            try await app.testing().test(.GET, "history/AAPL", beforeRequest: { req in
+                req.headers.bearerAuthorization = .init(token: token)
+            }, afterResponse: { res async throws in
+                #expect(res.status == .ok)
+                second = try res.content.decode(HistoryResponse.self)
+            })
+
+            #expect(first?.symbol == "AAPL")
+            #expect(second?.symbol == "AAPL")
+            #expect(first?.bars.count == 1)
+            #expect(second?.bars.count == 1)
+            #expect(await state.historyCalls() == 1)
+        }
+    }
+
+    @Test("Search uses cache after first fetch")
+    func searchUsesCache() async throws {
+        try await withApp { app in
+            let state = TestMarketProviderState()
+            app.marketDataService = makeTestMarketService(state: state)
+            let (token, _) = try await registerTestUser(app: app)
+
+            var first: [SearchResultResponse] = []
+            var second: [SearchResultResponse] = []
+
+            try await app.testing().test(.GET, "search?q=AAPL", beforeRequest: { req in
+                req.headers.bearerAuthorization = .init(token: token)
+            }, afterResponse: { res async throws in
+                #expect(res.status == .ok)
+                first = try res.content.decode([SearchResultResponse].self)
+            })
+
+            try await app.testing().test(.GET, "search?q=AAPL", beforeRequest: { req in
+                req.headers.bearerAuthorization = .init(token: token)
+            }, afterResponse: { res async throws in
+                #expect(res.status == .ok)
+                second = try res.content.decode([SearchResultResponse].self)
+            })
+
+            #expect(first.count == 1)
+            #expect(second.count == 1)
+            #expect(first.first?.symbol == "AAPL")
+            #expect(second.first?.symbol == "AAPL")
+            #expect(await state.searchCalls() == 1)
+        }
+    }
+
+    @Test("Quote returns stale DB cache if provider fails")
+    func quoteFallsBackToStaleDatabaseCache() async throws {
+        try await withApp { app in
+            let state = TestMarketProviderState()
+            app.marketDataService = makeTestMarketService(
+                state: state,
+                quoteTTLSeconds: 1,
+                historyTTLSeconds: 3_600,
+                searchTTLSeconds: 3_600,
+                fxTTLSeconds: 3_600
+            )
+            let (token, _) = try await registerTestUser(app: app)
+
+            let stale = QuoteCache(
+                provider: "ibkr",
+                symbol: "AAPL",
+                currency: "USD",
+                price: 123.45,
+                asOf: Date().addingTimeInterval(-3_600)
+            )
+            try await stale.save(on: app.db)
+            await state.setFailQuote(true)
+
+            var response: QuoteResponse?
+            try await app.testing().test(.GET, "quote/AAPL", beforeRequest: { req in
+                req.headers.bearerAuthorization = .init(token: token)
+            }, afterResponse: { res async throws in
+                #expect(res.status == .ok)
+                response = try res.content.decode(QuoteResponse.self)
+            })
+
+            #expect(response?.symbol == "AAPL")
+            #expect(response?.price == 123.45)
+            #expect(await state.quoteCalls() == 1)
         }
     }
 
@@ -156,8 +269,110 @@ struct StockPlanBackendTests {
     }
 }
 
-extension TodoDTO: Equatable {
-    public static func == (lhs: Self, rhs: Self) -> Bool {
-        lhs.id == rhs.id && lhs.title == rhs.title
+actor TestMarketProviderState {
+    private var quoteCallCount: Int = 0
+    private var historyCallCount: Int = 0
+    private var searchCallCount: Int = 0
+    private var fxCallCount: Int = 0
+    private var failQuoteRequests: Bool = false
+
+    func nextQuoteCall() -> Int {
+        quoteCallCount += 1
+        return quoteCallCount
+    }
+
+    func nextHistoryCall() -> Int {
+        historyCallCount += 1
+        return historyCallCount
+    }
+
+    func nextSearchCall() -> Int {
+        searchCallCount += 1
+        return searchCallCount
+    }
+
+    func nextFxCall() -> Int {
+        fxCallCount += 1
+        return fxCallCount
+    }
+
+    func setFailQuote(_ value: Bool) {
+        failQuoteRequests = value
+    }
+
+    func shouldFailQuote() -> Bool {
+        failQuoteRequests
+    }
+
+    func quoteCalls() -> Int {
+        quoteCallCount
+    }
+
+    func historyCalls() -> Int {
+        historyCallCount
+    }
+
+    func searchCalls() -> Int {
+        searchCallCount
+    }
+
+    func fxCalls() -> Int {
+        fxCallCount
+    }
+}
+
+struct TestMarketDataProvider: MarketDataProvider {
+    let state: TestMarketProviderState
+
+    var name: String { "ibkr" }
+
+    func quote(symbol: String, on req: Request) async throws -> MarketProviderQuote {
+        _ = await state.nextQuoteCall()
+        if await state.shouldFailQuote() {
+            throw Abort(.badGateway, reason: "Forced quote failure")
+        }
+
+        return MarketProviderQuote(
+            symbol: symbol,
+            price: 101.25,
+            currency: "USD",
+            asOf: Date()
+        )
+    }
+
+    func history(symbol: String, from: Date?, to: Date?, on req: Request) async throws -> MarketProviderHistory {
+        _ = await state.nextHistoryCall()
+        let bar = MarketProviderPriceBar(
+            date: Date(),
+            open: 100,
+            high: 103,
+            low: 99,
+            close: 101,
+            volume: 1_000_000
+        )
+
+        return MarketProviderHistory(
+            symbol: symbol,
+            currency: "USD",
+            bars: [bar]
+        )
+    }
+
+    func search(query: String, on req: Request) async throws -> [MarketProviderSearchResult] {
+        _ = await state.nextSearchCall()
+        return [
+            .init(
+                symbol: query,
+                name: "\(query) Inc",
+                exchange: "NASDAQ",
+                currency: "USD",
+                conid: "265598"
+            )
+        ]
+    }
+
+    func fx(base: String, quote: String, on req: Request) async throws -> MarketProviderFxRate {
+        _ = await state.nextFxCall()
+        return .init(base: base, quote: quote, rate: 1.1, asOf: Date())
     }
 }

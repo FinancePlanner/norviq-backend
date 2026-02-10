@@ -48,11 +48,4 @@ final class Todo: Model, @unchecked Sendable {
             .filter(\.$id == id)
             .first()
     }
-    
-    func toDTO() -> TodoDTO {
-        .init(
-            id: self.id,
-            title: self.title
-        )
-    }
 }

@@ -18,7 +18,6 @@ func routes(_ app: Application) throws {
     try app.register(collection: MarketDataController())
     try app.register(collection: PortfolioController())
     try app.register(collection: BrokerController())
-    try app.register(collection: TodoController())
 }
 
 private func registerOpenAPIDocsRoutes(_ app: Application) throws {

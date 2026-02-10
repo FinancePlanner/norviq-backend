@@ -156,6 +156,19 @@ All data endpoints require authentication. Get a token from auth endpoints and s
 - `GET /portfolio/summary` - Total value, gains/losses, allocation
 - `GET /portfolio/performance` - Historical performance metrics
 
+## Statistics Ideas for the App
+
+- Stock-level scorecard: Position value, cost basis, unrealized PnL, realized PnL, and daily/weekly/monthly change per symbol.
+- Stock allocation: Portfolio weight by symbol, concentration ratio (top 5 holdings), and diversification score.
+- Sector allocation: Weight and PnL split by sector to see overexposure and which sectors are driving returns.
+- Calendar performance: Daily up/down heatmap by month, best/worst day, and streaks of green/red days.
+- Contribution analysis: Which stocks contributed most to gains/losses over selected periods.
+- Winners vs losers: Count and percentage of profitable positions vs losing positions.
+- Volatility snapshot: Price-change dispersion across holdings and simple drawdown view.
+- Currency split: Portfolio exposure by currency and FX impact estimate when base currency is not USD.
+- Scenario tracking: Base/bear/bull target progress and distance-to-target for each tracked stock.
+- Notes quality metrics: Coverage of thesis/risks/catalysts per position to find research gaps.
+
 ## CSV Import (MVP): Export from Broker, Import from App
 
 Enable users to keep their StockPlan portfolio in sync by exporting holdings from their broker as a CSV file and importing it directly in the app.

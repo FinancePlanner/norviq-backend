@@ -4,6 +4,7 @@ import FluentPostgresDriver
 import Vapor
 import JWT
 import JWTKit
+import Redis
 
 // configures your application
 public func configure(_ app: Application) async throws {
@@ -23,6 +24,10 @@ public func configure(_ app: Application) async throws {
         tls: .prefer(try .init(configuration: .clientDefault)))
     ), as: .psql)
 
+    if let redisURL = Environment.get("REDIS_URL"), !redisURL.isEmpty {
+        app.redis.configuration = try RedisConfiguration(url: redisURL)
+    }
+
     let jwtSecret = Environment.get("JWT_SECRET") ?? "dev-secret"
     await app.jwt.keys.add(hmac: HMACKey(from: jwtSecret), digestAlgorithm: .sha256)
     app.authRepository = DatabaseAuthRepository()
@@ -32,6 +37,10 @@ public func configure(_ app: Application) async throws {
     app.stocksService = StockServiceImpl(repo: app.stocksRepository)
     app.brokersRepository = DatabaseBrokersRepository()
     app.brokersService = DefaultBrokersService(repo: app.brokersRepository)
+    app.marketDataService = DefaultMarketDataService(
+        provider: IBKRMarketDataProvider(),
+        cacheConfig: MarketDataCacheConfig.fromEnvironment()
+    )
 
     let cleanupIntervalMinutes = Environment.get("AUTH_TOKEN_CLEANUP_INTERVAL_MINUTES").flatMap(Int.init(_:)) ?? 60
     app.lifecycle.use(AuthTokenCleanup(interval: TimeInterval(cleanupIntervalMinutes * 60)))
@@ -53,6 +62,9 @@ public func configure(_ app: Application) async throws {
     app.migrations.add(CreateResearchNote())
     app.migrations.add(CreateTarget())
     app.migrations.add(CreatePriceHistory())
+    app.migrations.add(CreateQuoteCache())
+    app.migrations.add(CreateSearchCache())
+    app.migrations.add(CreateStatisticsSnapshot())
     app.migrations.add(CreateBrokerConnection())
     app.migrations.add(AddUserScopedQueryIndexes())
 
