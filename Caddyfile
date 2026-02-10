@@ -1,0 +1,31 @@
+# Caddyfile for StockPlanBackend
+#
+# For local development, use: http://localhost
+# For production, replace with your domain: api.yourdomain.com
+#
+# Caddy automatically obtains HTTPS certificates from Let's Encrypt
+# when using a real domain name.
+
+{$DOMAIN:localhost} {
+    # Reverse proxy to Vapor app
+    reverse_proxy app:8080
+
+    # Security headers
+    header {
+        X-Content-Type-Options nosniff
+        X-Frame-Options DENY
+        X-XSS-Protection "1; mode=block"
+        Referrer-Policy strict-origin-when-cross-origin
+        # Remove server header
+        -Server
+    }
+
+    # Enable compression
+    encode gzip zstd
+
+    # Logging
+    log {
+        output stdout
+        format json
+    }
+}

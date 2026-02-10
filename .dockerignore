@@ -1,0 +1,33 @@
+# Build artifacts
+.build/
+.swiftpm/
+.swiftpm-config/
+.cache/
+.home/
+DerivedData/
+*.xcodeproj
+Packages/
+
+# Git
+.git/
+.gitignore
+
+# IDE
+.vscode/
+*.xcuserdata
+
+# Documentation
+docs/
+README.md
+
+# Environment files (secrets - don't bake into image)
+.env
+.env.*
+!.env.example
+
+# macOS
+.DS_Store
+
+# Misc
+*.profraw
+db.sqlite

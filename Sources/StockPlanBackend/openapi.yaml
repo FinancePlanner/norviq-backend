@@ -1,0 +1,1316 @@
+openapi: 3.0.3
+info:
+  title: StockPlanBackend
+  description: Stock planner backend
+  version: 1.0.0
+servers:
+  - url: http://localhost:8080
+    description: Local (docker-compose)
+  - url: /
+    description: Relative base URL
+tags:
+  - name: Health
+  - name: Auth
+  - name: Stocks
+  - name: Watchlist
+  - name: Research
+  - name: Targets
+  - name: MarketData
+  - name: Portfolio
+  - name: Brokers
+paths:
+  /:
+    get:
+      operationId: root
+      tags: [Health]
+      summary: Health check root
+      responses:
+        '200':
+          description: OK
+          content:
+            text/plain:
+              schema:
+                type: string
+  /hello:
+    get:
+      operationId: hello
+      tags: [Health]
+      summary: Hello world
+      responses:
+        '200':
+          description: OK
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /auth/register:
+    post:
+      operationId: authRegister
+      tags: [Auth]
+      summary: Register a new user
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AuthRegisterRequest'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+  /auth/login:
+    post:
+      operationId: authLogin
+      tags: [Auth]
+      summary: Login and receive tokens
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AuthLoginRequest'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+  /auth/forgot-password:
+    post:
+      operationId: authForgotPassword
+      tags: [Auth]
+      summary: Issue a password reset code
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AuthForgotPasswordRequest'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthForgotPasswordResponse'
+  /auth/resend-reset:
+    post:
+      operationId: authResendReset
+      tags: [Auth]
+      summary: Resend a password reset code
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AuthForgotPasswordRequest'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthForgotPasswordResponse'
+  /auth/reset-password:
+    post:
+      operationId: authResetPassword
+      tags: [Auth]
+      summary: Reset password using a reset code
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AuthResetPasswordRequest'
+      responses:
+        '204':
+          description: No Content
+  /auth/refresh:
+    post:
+      operationId: authRefresh
+      tags: [Auth]
+      summary: Refresh tokens using a refresh token
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AuthRefreshRequest'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+  /auth/me:
+    get:
+      operationId: authMe
+      tags: [Auth]
+      summary: Get current user
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthUserResponse'
+        '401':
+          description: Unauthorized
+
+  /stocks:
+    get:
+      operationId: listStocks
+      tags: [Stocks]
+      summary: List stocks
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/StockResponse'
+        '401':
+          description: Unauthorized
+    post:
+      operationId: createStock
+      tags: [Stocks]
+      summary: Create a stock holding
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/StockRequest'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StockResponse'
+        '401':
+          description: Unauthorized
+  /stocks/{stockId}:
+    parameters:
+      - name: stockId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    get:
+      operationId: getStock
+      tags: [Stocks]
+      summary: Get a stock holding by id
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StockResponse'
+        '404':
+          description: Not Found
+        '401':
+          description: Unauthorized
+    put:
+      operationId: updateStock
+      tags: [Stocks]
+      summary: Update a stock holding
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/StockRequest'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StockResponse'
+        '404':
+          description: Not Found
+        '401':
+          description: Unauthorized
+    delete:
+      operationId: deleteStock
+      tags: [Stocks]
+      summary: Delete a stock holding
+      security:
+        - bearerAuth: []
+      responses:
+        '204':
+          description: No Content
+        '404':
+          description: Not Found
+        '401':
+          description: Unauthorized
+
+  /watchlist:
+    get:
+      operationId: listWatchlist
+      tags: [Watchlist]
+      summary: List watchlist items
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/WatchlistItemResponse'
+        '401':
+          description: Unauthorized
+    post:
+      operationId: createWatchlistItem
+      tags: [Watchlist]
+      summary: Add a symbol to the watchlist
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/WatchlistItemRequest'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WatchlistItemResponse'
+        '401':
+          description: Unauthorized
+  /watchlist/{watchlistId}:
+    parameters:
+      - name: watchlistId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    delete:
+      operationId: deleteWatchlistItem
+      tags: [Watchlist]
+      summary: Delete a watchlist item
+      security:
+        - bearerAuth: []
+      responses:
+        '204':
+          description: No Content
+        '404':
+          description: Not Found
+        '401':
+          description: Unauthorized
+
+  /research:
+    get:
+      operationId: listResearch
+      tags: [Research]
+      summary: List research notes
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ResearchNoteResponse'
+        '401':
+          description: Unauthorized
+    post:
+      operationId: createResearch
+      tags: [Research]
+      summary: Create a research note
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ResearchNoteRequest'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ResearchNoteResponse'
+        '401':
+          description: Unauthorized
+  /research/{researchId}:
+    parameters:
+      - name: researchId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    get:
+      operationId: getResearch
+      tags: [Research]
+      summary: Get a research note by id
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ResearchNoteResponse'
+        '404':
+          description: Not Found
+        '401':
+          description: Unauthorized
+    put:
+      operationId: updateResearch
+      tags: [Research]
+      summary: Update a research note
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ResearchNoteRequest'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ResearchNoteResponse'
+        '404':
+          description: Not Found
+        '401':
+          description: Unauthorized
+    delete:
+      operationId: deleteResearch
+      tags: [Research]
+      summary: Delete a research note
+      security:
+        - bearerAuth: []
+      responses:
+        '204':
+          description: No Content
+        '404':
+          description: Not Found
+        '401':
+          description: Unauthorized
+
+  /targets:
+    get:
+      operationId: listTargets
+      tags: [Targets]
+      summary: List targets
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/TargetResponse'
+        '401':
+          description: Unauthorized
+    post:
+      operationId: createTarget
+      tags: [Targets]
+      summary: Create a target
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TargetRequest'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TargetResponse'
+        '401':
+          description: Unauthorized
+  /targets/{targetId}:
+    parameters:
+      - name: targetId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    put:
+      operationId: updateTarget
+      tags: [Targets]
+      summary: Update a target
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TargetRequest'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TargetResponse'
+        '404':
+          description: Not Found
+        '401':
+          description: Unauthorized
+    delete:
+      operationId: deleteTarget
+      tags: [Targets]
+      summary: Delete a target
+      security:
+        - bearerAuth: []
+      responses:
+        '204':
+          description: No Content
+        '404':
+          description: Not Found
+        '401':
+          description: Unauthorized
+
+  /quote/{symbol}:
+    parameters:
+      - name: symbol
+        in: path
+        required: true
+        schema:
+          type: string
+    get:
+      operationId: getQuote
+      tags: [MarketData]
+      summary: Get a quote for a symbol
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/QuoteResponse'
+  /history/{symbol}:
+    parameters:
+      - name: symbol
+        in: path
+        required: true
+        schema:
+          type: string
+    get:
+      operationId: getHistory
+      tags: [MarketData]
+      summary: Get price history for a symbol
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HistoryResponse'
+  /search:
+    get:
+      operationId: searchSymbols
+      tags: [MarketData]
+      summary: Search symbols/companies
+      parameters:
+        - name: q
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/SearchResultResponse'
+  /fx:
+    get:
+      operationId: getFxRate
+      tags: [MarketData]
+      summary: Get an FX rate
+      parameters:
+        - name: pair
+          in: query
+          required: false
+          description: Currency pair like EURUSD or EUR/USD
+          schema:
+            type: string
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FxRateResponse'
+
+  /portfolio/summary:
+    get:
+      operationId: portfolioSummary
+      tags: [Portfolio]
+      summary: Portfolio summary
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PortfolioSummaryResponse'
+  /portfolio/performance:
+    get:
+      operationId: portfolioPerformance
+      tags: [Portfolio]
+      summary: Portfolio performance points
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PortfolioPerformanceResponse'
+  /transactions:
+    get:
+      operationId: listTransactions
+      tags: [Portfolio]
+      summary: List transactions
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/TransactionResponse'
+  /lots:
+    get:
+      operationId: listLots
+      tags: [Portfolio]
+      summary: List lots
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/LotResponse'
+  /pnl:
+    get:
+      operationId: getPnl
+      tags: [Portfolio]
+      summary: Profit and loss by symbol
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PnlResponse'
+
+  /brokers:
+    get:
+      operationId: listBrokers
+      tags: [Brokers]
+      summary: List broker connections
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/BrokerConnectionResponse'
+  /brokers/{provider}:
+    get:
+      operationId: getBroker
+      tags: [Brokers]
+      summary: Get a broker connection
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: provider
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BrokerConnectionResponse'
+  /brokers/holdings:
+    get:
+      operationId: listBrokerHoldings
+      tags: [Brokers]
+      summary: List broker holdings
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/BrokerHoldingResponse'
+  /brokers/import/csv:
+    post:
+      operationId: importBrokersCsvPreview
+      tags: [Brokers]
+      summary: Upload a CSV and preview parsed rows
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: provider
+          in: query
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          text/csv:
+            schema:
+              type: string
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                file:
+                  type: string
+                  format: binary
+              required: [file]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CsvImportPreviewResponse'
+  /brokers/import/csv/commit:
+    post:
+      operationId: importBrokersCsvCommit
+      tags: [Brokers]
+      summary: Upload a CSV and upsert stocks
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: provider
+          in: query
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          text/csv:
+            schema:
+              type: string
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                file:
+                  type: string
+                  format: binary
+              required: [file]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CsvImportCommitResponse'
+  /brokers/ibkr/sync:
+    post:
+      operationId: syncIbkr
+      tags: [Brokers]
+      summary: Trigger an IBKR sync run
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BrokerSyncResponse'
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  schemas:
+    AuthRegisterRequest:
+      type: object
+      properties:
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+      required: [email, password]
+    AuthLoginRequest:
+      type: object
+      properties:
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+      required: [email, password]
+    AuthResponse:
+      type: object
+      properties:
+        token:
+          type: string
+        userId:
+          type: string
+          format: uuid
+        expiresIn:
+          type: integer
+          format: int32
+        refreshToken:
+          type: string
+        refreshExpiresIn:
+          type: integer
+          format: int32
+      required: [token, userId, expiresIn, refreshToken, refreshExpiresIn]
+    AuthUserResponse:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        email:
+          type: string
+          format: email
+      required: [id, email]
+    AuthForgotPasswordRequest:
+      type: object
+      properties:
+        email:
+          type: string
+          format: email
+      required: [email]
+    AuthForgotPasswordResponse:
+      type: object
+      properties:
+        message:
+          type: string
+        resetCode:
+          type: string
+      required: [message]
+    AuthResetPasswordRequest:
+      type: object
+      properties:
+        email:
+          type: string
+          format: email
+        code:
+          type: string
+        newPassword:
+          type: string
+      required: [email, code, newPassword]
+    AuthRefreshRequest:
+      type: object
+      properties:
+        refreshToken:
+          type: string
+      required: [refreshToken]
+
+    StockRequest:
+      type: object
+      properties:
+        symbol:
+          type: string
+        shares:
+          type: number
+          format: double
+        buyPrice:
+          type: number
+          format: double
+        buyDate:
+          type: string
+          format: date
+        notes:
+          type: string
+      required: [symbol, shares, buyPrice, buyDate]
+    StockResponse:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        symbol:
+          type: string
+        shares:
+          type: number
+          format: double
+        buyPrice:
+          type: number
+          format: double
+        buyDate:
+          type: string
+          format: date
+        notes:
+          type: string
+      required: [id, symbol, shares, buyPrice, buyDate]
+
+    WatchlistItemRequest:
+      type: object
+      properties:
+        symbol:
+          type: string
+      required: [symbol]
+    WatchlistItemResponse:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        symbol:
+          type: string
+      required: [id, symbol]
+
+    ResearchNoteRequest:
+      type: object
+      properties:
+        symbol:
+          type: string
+        title:
+          type: string
+        thesis:
+          type: string
+        risks:
+          type: string
+        catalysts:
+          type: string
+        referenceLinks:
+          type: array
+          items:
+            type: string
+      required: [symbol, thesis]
+    ResearchNoteResponse:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        symbol:
+          type: string
+        title:
+          type: string
+        thesis:
+          type: string
+        risks:
+          type: string
+        catalysts:
+          type: string
+        referenceLinks:
+          type: array
+          items:
+            type: string
+      required: [id, symbol, thesis]
+
+    TargetRequest:
+      type: object
+      properties:
+        symbol:
+          type: string
+        scenario:
+          type: string
+        targetPrice:
+          type: number
+          format: double
+        targetDate:
+          type: string
+          format: date
+        rationale:
+          type: string
+      required: [symbol, scenario, targetPrice]
+    TargetResponse:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        symbol:
+          type: string
+        scenario:
+          type: string
+        targetPrice:
+          type: number
+          format: double
+        targetDate:
+          type: string
+          format: date
+        rationale:
+          type: string
+      required: [id, symbol, scenario, targetPrice]
+
+    QuoteResponse:
+      type: object
+      properties:
+        symbol:
+          type: string
+        price:
+          type: number
+          format: double
+        currency:
+          type: string
+        asOf:
+          type: string
+      required: [symbol, price, currency, asOf]
+    PriceBarResponse:
+      type: object
+      properties:
+        date:
+          type: string
+          format: date
+        open:
+          type: number
+          format: double
+        high:
+          type: number
+          format: double
+        low:
+          type: number
+          format: double
+        close:
+          type: number
+          format: double
+        volume:
+          type: integer
+          format: int64
+      required: [date, open, high, low, close]
+    HistoryResponse:
+      type: object
+      properties:
+        symbol:
+          type: string
+        currency:
+          type: string
+        bars:
+          type: array
+          items:
+            $ref: '#/components/schemas/PriceBarResponse'
+      required: [symbol, currency, bars]
+    SearchResultResponse:
+      type: object
+      properties:
+        symbol:
+          type: string
+        name:
+          type: string
+        exchange:
+          type: string
+        currency:
+          type: string
+        conid:
+          type: string
+      required: [symbol, name, exchange, currency, conid]
+    FxRateResponse:
+      type: object
+      properties:
+        base:
+          type: string
+        quote:
+          type: string
+        rate:
+          type: number
+          format: double
+        date:
+          type: string
+      required: [base, quote, rate, date]
+
+    AllocationItem:
+      type: object
+      properties:
+        symbol:
+          type: string
+        value:
+          type: number
+          format: double
+        currency:
+          type: string
+      required: [symbol, value, currency]
+    PortfolioSummaryResponse:
+      type: object
+      properties:
+        baseCurrency:
+          type: string
+        totalValue:
+          type: number
+          format: double
+        totalCost:
+          type: number
+          format: double
+        unrealizedPnl:
+          type: number
+          format: double
+        realizedPnl:
+          type: number
+          format: double
+        allocation:
+          type: array
+          items:
+            $ref: '#/components/schemas/AllocationItem'
+      required: [baseCurrency, totalValue, totalCost, unrealizedPnl, realizedPnl, allocation]
+    PerformancePoint:
+      type: object
+      properties:
+        date:
+          type: string
+          format: date
+        value:
+          type: number
+          format: double
+      required: [date, value]
+    PortfolioPerformanceResponse:
+      type: object
+      properties:
+        baseCurrency:
+          type: string
+        points:
+          type: array
+          items:
+            $ref: '#/components/schemas/PerformancePoint'
+      required: [baseCurrency, points]
+    TransactionResponse:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        accountId:
+          type: string
+          format: uuid
+        instrumentId:
+          type: string
+          format: uuid
+        type:
+          type: string
+        quantity:
+          type: number
+          format: double
+        price:
+          type: number
+          format: double
+        currency:
+          type: string
+        tradeDate:
+          type: string
+          format: date
+        settleDate:
+          type: string
+          format: date
+        fees:
+          type: number
+          format: double
+      required: [id, accountId, instrumentId, type, currency, tradeDate]
+    LotResponse:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        accountId:
+          type: string
+          format: uuid
+        instrumentId:
+          type: string
+          format: uuid
+        openDate:
+          type: string
+          format: date
+        closeDate:
+          type: string
+          format: date
+        openQuantity:
+          type: number
+          format: double
+        remainingQuantity:
+          type: number
+          format: double
+        openPrice:
+          type: number
+          format: double
+        currency:
+          type: string
+        realizedPnl:
+          type: number
+          format: double
+        status:
+          type: string
+      required: [id, accountId, instrumentId, openDate, openQuantity, remainingQuantity, openPrice, currency, status]
+    PnlBySymbol:
+      type: object
+      properties:
+        symbol:
+          type: string
+        currency:
+          type: string
+        realizedPnl:
+          type: number
+          format: double
+        unrealizedPnl:
+          type: number
+          format: double
+      required: [symbol, currency, realizedPnl, unrealizedPnl]
+    PnlResponse:
+      type: object
+      properties:
+        baseCurrency:
+          type: string
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/PnlBySymbol'
+      required: [baseCurrency, items]
+
+    BrokerConnectionResponse:
+      type: object
+      properties:
+        id:
+          type: string
+        provider:
+          type: string
+        status:
+          type: string
+      required: [id, provider, status]
+    BrokerHoldingResponse:
+      type: object
+      properties:
+        symbol:
+          type: string
+        quantity:
+          type: number
+          format: double
+        currency:
+          type: string
+      required: [symbol, quantity, currency]
+    BrokerSyncResponse:
+      type: object
+      properties:
+        runId:
+          type: string
+        status:
+          type: string
+      required: [runId, status]
+    CsvImportPreviewItem:
+      type: object
+      properties:
+        line:
+          type: integer
+          format: int32
+        symbol:
+          type: string
+        shares:
+          type: number
+          format: double
+          nullable: true
+        buyPrice:
+          type: number
+          format: double
+          nullable: true
+        buyDate:
+          type: string
+          nullable: true
+        notes:
+          type: string
+          nullable: true
+      required: [line, symbol]
+    CsvImportPreviewError:
+      type: object
+      properties:
+        line:
+          type: integer
+          format: int32
+        message:
+          type: string
+      required: [line, message]
+    CsvImportPreviewResponse:
+      type: object
+      properties:
+        provider:
+          type: string
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/CsvImportPreviewItem'
+        errors:
+          type: array
+          items:
+            $ref: '#/components/schemas/CsvImportPreviewError'
+      required: [provider, items, errors]
+    CsvImportCommitResponse:
+      type: object
+      properties:
+        provider:
+          type: string
+        inserted:
+          type: array
+          items:
+            $ref: '#/components/schemas/StockResponse'
+        updated:
+          type: array
+          items:
+            $ref: '#/components/schemas/StockResponse'
+        errors:
+          type: array
+          items:
+            $ref: '#/components/schemas/CsvImportPreviewError'
+      required: [provider, inserted, updated, errors]

@@ -1,0 +1,91 @@
+# Docker Compose for Production Deployment
+#
+# Usage:
+#   1. Copy .env.example to .env and set production values
+#   2. Build:    docker compose -f docker-compose.production.yml build
+#   3. Start DB: docker compose -f docker-compose.production.yml up -d db
+#   4. Migrate:  docker compose -f docker-compose.production.yml run --rm migrate
+#   5. Deploy:   docker compose -f docker-compose.production.yml up -d
+#
+
+volumes:
+  db_data:
+  caddy_data:
+  caddy_config:
+
+networks:
+  internal:
+  external:
+
+services:
+  # Caddy reverse proxy - handles HTTPS automatically
+  caddy:
+    image: caddy:2.11-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"  # HTTP/3
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    environment:
+      DOMAIN: ${DOMAIN:-localhost}
+    networks:
+      - external
+      - internal
+    depends_on:
+      - app
+
+  # Vapor application
+  app:
+    image: stockplanbackend:latest
+    build:
+      context: .
+    env_file: .env
+    environment:
+      DATABASE_HOST: db
+    restart: unless-stopped
+    expose:
+      - "8080"
+    networks:
+      - internal
+    depends_on:
+      db:
+        condition: service_healthy
+
+  # PostgreSQL database
+  db:
+    image: postgres:18-alpine
+    restart: unless-stopped
+    volumes:
+      - db_data:/var/lib/postgresql/data
+    environment:
+      POSTGRES_USER: ${DATABASE_USERNAME:-stockplan_user}
+      POSTGRES_PASSWORD: ${DATABASE_PASSWORD:?DATABASE_PASSWORD is required}
+      POSTGRES_DB: ${DATABASE_NAME:-stockplan_prod}
+    networks:
+      - internal
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DATABASE_USERNAME:-stockplan_user} -d ${DATABASE_NAME:-stockplan_prod}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # Migration runner (run manually with: docker compose run --rm migrate)
+  migrate:
+    image: stockplanbackend:latest
+    build:
+      context: .
+    env_file: .env
+    environment:
+      DATABASE_HOST: db
+    command: ["migrate", "--yes"]
+    networks:
+      - internal
+    depends_on:
+      db:
+        condition: service_healthy
+    profiles:
+      - tools
