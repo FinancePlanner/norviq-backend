@@ -48,6 +48,8 @@ struct StockStatisticsSummary: Sendable {
     let marketValue: Double
     let weightPercent: Double
     let dailyChangePercent: Double?
+    let weeklyChangePercent: Double?
+    let monthlyChangePercent: Double?
     let unrealizedPnl: Double
 }
 

@@ -28,6 +28,8 @@ struct StockStatisticsSummaryDTO: Content {
     let marketValue: Double
     let weightPercent: Double
     let dailyChangePercent: Double?
+    let weeklyChangePercent: Double?
+    let monthlyChangePercent: Double?
     let unrealizedPnl: Double
 }
 
@@ -124,6 +126,8 @@ private extension ImportedStocksStatisticsDTO {
                 marketValue: $0.marketValue,
                 weightPercent: $0.weightPercent,
                 dailyChangePercent: $0.dailyChangePercent,
+                weeklyChangePercent: $0.weeklyChangePercent,
+                monthlyChangePercent: $0.monthlyChangePercent,
                 unrealizedPnl: $0.unrealizedPnl
             )
         }

@@ -14,6 +14,8 @@ public func configure(_ app: Application) async throws {
 
     // uncomment to serve files from /Public folder
     // app.middleware.use(FileMiddleware(publicDirectory: app.directory.publicDirectory))
+    app.traceAutoPropagation = true
+    app.middleware.use(TracingMiddleware())
 
     app.databases.use(DatabaseConfigurationFactory.postgres(configuration: .init(
         hostname: Environment.get("DATABASE_HOST") ?? "localhost",
@@ -41,6 +43,8 @@ public func configure(_ app: Application) async throws {
         provider: IBKRMarketDataProvider(),
         cacheConfig: MarketDataCacheConfig.fromEnvironment()
     )
+    app.statisticsRepository = DatabaseStatisticsRepository()
+    app.statisticsService = DefaultStatisticsService(repo: app.statisticsRepository)
 
     let cleanupIntervalMinutes = Environment.get("AUTH_TOKEN_CLEANUP_INTERVAL_MINUTES").flatMap(Int.init(_:)) ?? 60
     app.lifecycle.use(AuthTokenCleanup(interval: TimeInterval(cleanupIntervalMinutes * 60)))
