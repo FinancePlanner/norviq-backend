@@ -18,6 +18,7 @@ tags:
   - name: MarketData
   - name: Portfolio
   - name: Brokers
+  - name: Statistics
 paths:
   /:
     get:
@@ -786,6 +787,291 @@ paths:
               schema:
                 $ref: '#/components/schemas/BrokerSyncResponse'
 
+  /statistics/overview:
+    get:
+      operationId: statisticsOverview
+      tags: [Statistics]
+      summary: Overview statistics for the authenticated user
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StatisticsDTO'
+        '401':
+          description: Unauthorized
+        '501':
+          description: Not Implemented
+
+  /statistics/imported-stocks:
+    get:
+      operationId: statisticsImportedStocks
+      tags: [Statistics]
+      summary: Statistics for imported stocks
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StatisticsDTO'
+        '401':
+          description: Unauthorized
+        '501':
+          description: Not Implemented
+
+  /statistics/watchlist:
+    get:
+      operationId: statisticsWatchlist
+      tags: [Statistics]
+      summary: Statistics for watchlist symbols
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StatisticsDTO'
+        '401':
+          description: Unauthorized
+        '501':
+          description: Not Implemented
+
+  /statistics/looklist:
+    get:
+      operationId: statisticsLooklist
+      tags: [Statistics]
+      summary: Statistics for looklist ideas
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StatisticsDTO'
+        '401':
+          description: Unauthorized
+        '501':
+          description: Not Implemented
+
+  /statistics/market:
+    get:
+      operationId: statisticsMarket
+      tags: [Statistics]
+      summary: Market statistics for tracked symbols
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StatisticsDTO'
+        '401':
+          description: Unauthorized
+        '501':
+          description: Not Implemented
+
+  /statistics/stocks/scorecard:
+    get:
+      operationId: statisticsStockScorecard
+      tags: [Statistics]
+      summary: Stock-level scorecard statistics
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StatisticsDTO'
+        '401':
+          description: Unauthorized
+        '501':
+          description: Not Implemented
+
+  /statistics/stocks/allocation:
+    get:
+      operationId: statisticsStockAllocation
+      tags: [Statistics]
+      summary: Stock allocation statistics
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StatisticsDTO'
+        '401':
+          description: Unauthorized
+        '501':
+          description: Not Implemented
+
+  /statistics/stocks/sector-allocation:
+    get:
+      operationId: statisticsSectorAllocation
+      tags: [Statistics]
+      summary: Sector allocation statistics
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StatisticsDTO'
+        '401':
+          description: Unauthorized
+        '501':
+          description: Not Implemented
+
+  /statistics/stocks/calendar-performance:
+    get:
+      operationId: statisticsCalendarPerformance
+      tags: [Statistics]
+      summary: Calendar performance statistics
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StatisticsDTO'
+        '401':
+          description: Unauthorized
+        '501':
+          description: Not Implemented
+
+  /statistics/stocks/contribution-analysis:
+    get:
+      operationId: statisticsContributionAnalysis
+      tags: [Statistics]
+      summary: Contribution analysis statistics
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StatisticsDTO'
+        '401':
+          description: Unauthorized
+        '501':
+          description: Not Implemented
+
+  /statistics/stocks/winners-losers:
+    get:
+      operationId: statisticsWinnersLosers
+      tags: [Statistics]
+      summary: Winners vs losers statistics
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StatisticsDTO'
+        '401':
+          description: Unauthorized
+        '501':
+          description: Not Implemented
+
+  /statistics/stocks/volatility-snapshot:
+    get:
+      operationId: statisticsVolatilitySnapshot
+      tags: [Statistics]
+      summary: Volatility snapshot statistics
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StatisticsDTO'
+        '401':
+          description: Unauthorized
+        '501':
+          description: Not Implemented
+
+  /statistics/stocks/currency-split:
+    get:
+      operationId: statisticsCurrencySplit
+      tags: [Statistics]
+      summary: Currency split statistics
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StatisticsDTO'
+        '401':
+          description: Unauthorized
+        '501':
+          description: Not Implemented
+
+  /statistics/stocks/scenario-tracking:
+    get:
+      operationId: statisticsScenarioTracking
+      tags: [Statistics]
+      summary: Scenario tracking statistics
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StatisticsDTO'
+        '401':
+          description: Unauthorized
+        '501':
+          description: Not Implemented
+
+  /statistics/stocks/notes-quality:
+    get:
+      operationId: statisticsNotesQuality
+      tags: [Statistics]
+      summary: Notes quality metrics
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StatisticsDTO'
+        '401':
+          description: Unauthorized
+        '501':
+          description: Not Implemented
+
 components:
   securitySchemes:
     bearerAuth:
@@ -1314,3 +1600,198 @@ components:
           items:
             $ref: '#/components/schemas/CsvImportPreviewError'
       required: [provider, inserted, updated, errors]
+
+    StatisticsDTO:
+      type: object
+      properties:
+        generatedAt:
+          type: string
+        importedStocks:
+          $ref: '#/components/schemas/ImportedStocksStatisticsDTO'
+        watchlist:
+          $ref: '#/components/schemas/WatchlistStatisticsDTO'
+        looklist:
+          $ref: '#/components/schemas/LooklistStatisticsDTO'
+        market:
+          $ref: '#/components/schemas/MarketStatisticsDTO'
+      required: [generatedAt, importedStocks, watchlist, looklist, market]
+    ImportedStocksStatisticsDTO:
+      type: object
+      properties:
+        totalPositions:
+          type: integer
+          format: int32
+        totalMarketValue:
+          type: number
+          format: double
+        totalCostBasis:
+          type: number
+          format: double
+        totalUnrealizedPnl:
+          type: number
+          format: double
+        totalRealizedPnl:
+          type: number
+          format: double
+        stockSummaries:
+          type: array
+          items:
+            $ref: '#/components/schemas/StockStatisticsSummaryDTO'
+        stockAllocations:
+          type: array
+          items:
+            $ref: '#/components/schemas/StockAllocationDTO'
+        sectorAllocations:
+          type: array
+          items:
+            $ref: '#/components/schemas/SectorAllocationDTO'
+        calendarPerformance:
+          type: array
+          items:
+            $ref: '#/components/schemas/CalendarPerformanceDTO'
+      required: [totalPositions, totalMarketValue, totalCostBasis, totalUnrealizedPnl, totalRealizedPnl, stockSummaries, stockAllocations, sectorAllocations, calendarPerformance]
+    StockStatisticsSummaryDTO:
+      type: object
+      properties:
+        symbol:
+          type: string
+        marketValue:
+          type: number
+          format: double
+        weightPercent:
+          type: number
+          format: double
+        dailyChangePercent:
+          type: number
+          format: double
+          nullable: true
+        unrealizedPnl:
+          type: number
+          format: double
+      required: [symbol, marketValue, weightPercent, unrealizedPnl]
+    StockAllocationDTO:
+      type: object
+      properties:
+        symbol:
+          type: string
+        value:
+          type: number
+          format: double
+        weightPercent:
+          type: number
+          format: double
+      required: [symbol, value, weightPercent]
+    SectorAllocationDTO:
+      type: object
+      properties:
+        sector:
+          type: string
+        value:
+          type: number
+          format: double
+        weightPercent:
+          type: number
+          format: double
+      required: [sector, value, weightPercent]
+    CalendarPerformanceDTO:
+      type: object
+      properties:
+        date:
+          type: string
+        pnl:
+          type: number
+          format: double
+        pnlPercent:
+          type: number
+          format: double
+        isUpDay:
+          type: boolean
+      required: [date, pnl, pnlPercent, isUpDay]
+    WatchlistStatisticsDTO:
+      type: object
+      properties:
+        totalSymbols:
+          type: integer
+          format: int32
+        symbolsWithNotes:
+          type: integer
+          format: int32
+        sectorAllocations:
+          type: array
+          items:
+            $ref: '#/components/schemas/SectorAllocationDTO'
+        topWatched:
+          type: array
+          items:
+            $ref: '#/components/schemas/WatchlistSymbolDTO'
+      required: [totalSymbols, symbolsWithNotes, sectorAllocations, topWatched]
+    WatchlistSymbolDTO:
+      type: object
+      properties:
+        symbol:
+          type: string
+        mentionCount:
+          type: integer
+          format: int32
+      required: [symbol, mentionCount]
+    LooklistStatisticsDTO:
+      type: object
+      properties:
+        totalIdeas:
+          type: integer
+          format: int32
+        activeIdeas:
+          type: integer
+          format: int32
+        ideasWithTarget:
+          type: integer
+          format: int32
+        ideasByConviction:
+          type: array
+          items:
+            $ref: '#/components/schemas/LooklistConvictionDTO'
+      required: [totalIdeas, activeIdeas, ideasWithTarget, ideasByConviction]
+    LooklistConvictionDTO:
+      type: object
+      properties:
+        conviction:
+          type: string
+        count:
+          type: integer
+          format: int32
+      required: [conviction, count]
+    MarketStatisticsDTO:
+      type: object
+      properties:
+        benchmarkSymbol:
+          type: string
+        benchmarkChange1D:
+          type: number
+          format: double
+          nullable: true
+        benchmarkChange1W:
+          type: number
+          format: double
+          nullable: true
+        benchmarkChange1M:
+          type: number
+          format: double
+          nullable: true
+        benchmarkChangeYtd:
+          type: number
+          format: double
+          nullable: true
+        heatmap:
+          type: array
+          items:
+            $ref: '#/components/schemas/MarketHeatmapDTO'
+      required: [benchmarkSymbol, heatmap]
+    MarketHeatmapDTO:
+      type: object
+      properties:
+        symbol:
+          type: string
+        changePercent:
+          type: number
+          format: double
+      required: [symbol, changePercent]

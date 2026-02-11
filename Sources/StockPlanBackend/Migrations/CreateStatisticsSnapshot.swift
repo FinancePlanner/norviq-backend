@@ -5,22 +5,19 @@ struct CreateStatisticsSnapshot: AsyncMigration {
         try await database.schema("statistics_snapshots")
             .id()
             .field("user_id", .uuid, .required, .references("users", "id", onDelete: .cascade))
+            .field("kind", .string, .required)
             .field("as_of_date", .date, .required)
             .field("generated_at", .datetime, .required)
-            .field("total_market_value", .double, .required)
-            .field("total_cost_basis", .double, .required)
-            .field("total_unrealized_pnl", .double, .required)
-            .field("total_realized_pnl", .double, .required)
-            .field("payload", .string)
+            .field("payload", .string, .required)
             .field("created_at", .datetime, .required)
             .field("updated_at", .datetime)
-            .unique(on: "user_id", "as_of_date")
+            .unique(on: "user_id", "kind", "as_of_date")
             .create()
 
         try await database.createIndex(
             on: "statistics_snapshots",
-            columns: ["user_id", "generated_at"],
-            name: "idx_statistics_snapshots_user_generated_at"
+            columns: ["user_id", "kind", "generated_at"],
+            name: "idx_statistics_snapshots_user_kind_generated_at"
         )
     }
 
