@@ -6,6 +6,7 @@ struct NewsController: RouteCollection {
 
         let news = protected.grouped("news")
         news.get(use: listNews)
+        news.get("feed", use: feedNews)
         news.post(use: createNews)
         news.post("sync", use: syncNews)
         news.group(":newsId") { item in
@@ -20,6 +21,13 @@ struct NewsController: RouteCollection {
         let session = try req.auth.require(SessionToken.self)
         let symbol = req.query[String.self, at: "symbol"]
         return try await req.application.newsService.list(userId: session.userId, symbol: symbol, on: req.db)
+    }
+
+    @Sendable
+    func feedNews(req: Request) async throws -> [NewsItemResponse] {
+        let session = try req.auth.require(SessionToken.self)
+        let limit = req.query[Int.self, at: "limit"]
+        return try await req.application.newsService.feed(userId: session.userId, limit: limit, on: req.db)
     }
 
     @Sendable

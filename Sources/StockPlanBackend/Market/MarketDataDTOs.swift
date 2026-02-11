@@ -36,3 +36,7 @@ struct FxRateResponse: Content {
     let rate: Double
     let date: String
 }
+
+struct QuoteBatchResponse: Content {
+    let quotes: [QuoteResponse]
+}

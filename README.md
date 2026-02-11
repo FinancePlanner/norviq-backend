@@ -169,6 +169,104 @@ All data endpoints require authentication. Get a token from auth endpoints and s
 - Scenario tracking: Base/bear/bull target progress and distance-to-target for each tracked stock.
 - Notes quality metrics: Coverage of thesis/risks/catalysts per position to find research gaps.
 
+## Product Improvement Ideas
+
+### Technical & Architecture Improvements
+- **Rate Limiting & Abuse Prevention**: Add per-user rate limiting on API endpoints (especially auth and market data) to prevent abuse and protect external API quotas
+- **API Versioning**: Prefix all routes with `/v1/` now so breaking changes can be introduced cleanly via `/v2/` later
+- **Request Validation Layer**: Centralize input validation beyond what Fluent provides — e.g., symbol format checks, price range sanity, date bounds
+- **Background Job System**: Replace ad-hoc scheduled tasks with a proper job queue (e.g., Vapor Queues + Redis) for CSV processing, market data refresh, and IBKR sync
+- **Health Check Endpoint**: Add `GET /health` returning app version, uptime, DB connectivity, and Redis status — useful for monitoring and Docker health checks
+- **Structured Logging & Observability**: Integrate distributed tracing IDs across requests; emit structured JSON logs for easier log aggregation (ELK, Loki)
+- **OpenAPI-Driven Client SDK Generation**: Already generating `openapi.yaml` — publish auto-generated Swift client SDKs for the iOS app to stay in sync
+- **Database Connection Pooling Tuning**: Configure connection pool sizes for production workloads and add pool exhaustion alerting
+
+### User Experience & Feature Improvements
+- **Onboarding Wizard**: Guided first-run experience — add first stock, set a watchlist, import CSV — to reduce time-to-value
+- **Multi-Portfolio Support**: Let users create named portfolios (e.g., "Retirement", "Growth", "Dividend") instead of one flat list
+- **Tagging & Filtering**: Allow custom tags on stocks and research notes for flexible organization (e.g., "tech", "dividend", "speculative")
+- **Export Capabilities**: Export portfolio data, research notes, and performance reports as PDF or CSV for tax prep or personal records
+- **Activity Feed / Audit Log**: Show a timeline of portfolio changes — buys, sells, target hits, price alerts — for accountability and review
+- **Collaboration Features**: Share research notes or portfolio snapshots with other users via read-only links
+- **Dark Mode API Support**: Provide theme-preference endpoints so the iOS/macOS app can sync theme across devices
+- **Offline-First Sync**: Design the API to support conflict resolution for offline edits on the iOS app (last-write-wins or merge strategy)
+
+### Data & Analytics Improvements
+- **Dividend Tracking**: Track dividend payments, yield, and DRIP reinvestment to give a complete income picture
+- **Benchmark Comparison**: Compare portfolio performance against S&P 500, NASDAQ, or custom benchmarks
+- **Risk Metrics Dashboard**: Sharpe ratio, max drawdown, beta, and correlation matrix across holdings
+- **Earnings Calendar Integration**: Automatically flag upcoming earnings dates for held stocks
+- **AI-Powered Insights** (future): Use an LLM to summarize research notes, generate DD templates, or flag conflicting thesis/target pairs
+
+---
+
+## Monetization & Revenue Strategy
+
+### Subscription Tiers
+
+| Feature | **Free** | **Pro** ($7.99/mo) | **Premium** ($14.99/mo) |
+|---------|----------|---------------------|--------------------------|
+| Holdings tracked | Up to 10 | Unlimited | Unlimited |
+| Watchlist symbols | Up to 15 | Unlimited | Unlimited |
+| Research notes | 5 notes | Unlimited | Unlimited |
+| CSV import | 1 per month | Unlimited | Unlimited |
+| Market data refresh | End-of-day | 15-min delayed | Near real-time |
+| Historical data | 1 year | 5 years | 10 years |
+| Portfolios | 1 | 3 | Unlimited |
+| Price alerts | — | 10 active | Unlimited |
+| Analytics & reports | Basic PnL | Full stats suite | Full + export PDF |
+| Benchmark comparison | — | S&P 500 | Custom benchmarks |
+| Dividend tracking | — | ✓ | ✓ |
+| Priority support | — | — | ✓ |
+| API access | — | — | ✓ |
+
+### Revenue Channels
+
+1. **Freemium Subscriptions (Primary)**
+   - Free tier with meaningful limits that still deliver value (validates the product)
+   - Pro tier for active investors who outgrow the free limits
+   - Premium tier for power users, traders, and finance enthusiasts who want everything
+
+2. **Annual Pricing Discount**
+   - Pro: $59.99/year (save 37%)
+   - Premium: $119.99/year (save 33%)
+   - Annual plans reduce churn and improve LTV
+
+3. **One-Time Lifetime Deal** (launch promo)
+   - Offer a lifetime Pro access for $99.99 during launch to seed early adopters and reviews
+   - Cap at 500 licenses to create urgency
+
+4. **Affiliate / Broker Referrals**
+   - Partner with developer-friendly brokers (Interactive Brokers, Alpaca, Webull)
+   - Earn referral fees when users open brokerage accounts through StockPlan links
+   - Non-intrusive: surface as "Connect a Broker" in settings
+
+5. **Data Export Add-On**
+   - Tax-ready export packages ($4.99 one-time per tax year)
+   - Generate realized gains/losses reports formatted for Schedule D / Form 8949
+
+6. **B2B / Team Plans** (future)
+   - Small fund managers or investment clubs ($29.99/mo per team)
+   - Shared portfolios, collaborative research notes, role-based access
+
+### Implementation Notes (Backend)
+
+- **Subscription Management**: Use [RevenueCat](https://www.revenuecat.com/) for App Store subscription handling — it manages receipts, trials, and grace periods with a Swift SDK
+- **Entitlement Middleware**: Add a Vapor middleware that reads the user's subscription tier from the DB and enforces feature gates (e.g., max holdings, refresh frequency)
+- **Usage Tracking**: Store monthly usage counters (CSV imports, API calls, alerts created) to enforce free-tier limits and surface upgrade prompts
+- **Webhook Receiver**: Add a `POST /webhooks/revenuecat` endpoint to receive subscription lifecycle events (new purchase, renewal, cancellation, billing issue)
+
+### Go-to-Market Ideas
+
+- **Product Hunt Launch**: Submit with a compelling tagline — "The stock tracker for investors who actually do research"
+- **Finance Subreddits & Communities**: Share on r/investing, r/stocks, r/SwiftUI with a genuine "I built this" post
+- **App Store Optimization**: Use the marketing copy already in this README; add screenshots showing DD notes and target scenarios
+- **Content Marketing**: Write blog posts about building a full-stack Swift finance app — appeals to both investors and developers
+- **Indie Hacker Channels**: Post on IndieHackers, Hacker News (Show HN), and Twitter/X with build-in-public updates
+- **TestFlight Beta Program**: Launch a private beta with 100 users to get feedback and App Store reviews ready for day one
+
+---
+
 ## CSV Import (MVP): Export from Broker, Import from App
 
 Enable users to keep their StockPlan portfolio in sync by exporting holdings from their broker as a CSV file and importing it directly in the app.

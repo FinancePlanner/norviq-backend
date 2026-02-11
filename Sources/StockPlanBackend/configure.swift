@@ -53,13 +53,17 @@ public func configure(_ app: Application) async throws {
     app.stocksService = StockServiceImpl(repo: app.stocksRepository)
     app.brokersRepository = DatabaseBrokersRepository()
     app.brokersService = DefaultBrokersService(repo: app.brokersRepository)
+    app.marketDataRepository = DatabaseMarketDataRepository()
     app.marketDataService = DefaultMarketDataService(
         provider: IBKRMarketDataProvider(),
         cacheConfig: MarketDataCacheConfig.fromEnvironment()
     )
     app.statisticsRepository = DatabaseStatisticsRepository()
     app.statisticsService = DefaultStatisticsService(repo: app.statisticsRepository)
-    app.newsService = DefaultNewsService()
+    app.newsRepository = DatabaseNewsRepository()
+    app.newsService = DefaultNewsService(repo: app.newsRepository)
+    app.dashboardRepository = DatabaseDashboardRepository()
+    app.dashboardService = DefaultDashboardService(repo: app.dashboardRepository)
 
     let cleanupIntervalMinutes = Environment.get("AUTH_TOKEN_CLEANUP_INTERVAL_MINUTES").flatMap(Int.init(_:)) ?? 60
     app.lifecycle.use(AuthTokenCleanup(interval: TimeInterval(cleanupIntervalMinutes * 60)))

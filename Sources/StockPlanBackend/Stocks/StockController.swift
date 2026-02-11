@@ -130,12 +130,20 @@ struct StockController: RouteCollection {
     @Sendable
     func listResearch(req: Request) async throws -> [ResearchNoteResponse] {
         let session = try req.auth.require(SessionToken.self)
+        let symbolFilter = req.query[String.self, at: "symbol"]?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .uppercased()
 
-        let notes = try await ResearchNote.query(on: req.db)
+        let query = ResearchNote.query(on: req.db)
             .filter(\.$userId == session.userId)
             .sort(\.$updatedAt, .descending)
             .sort(\.$createdAt, .descending)
-            .all()
+
+        if let symbolFilter, !symbolFilter.isEmpty {
+            query.filter(\.$symbol == symbolFilter)
+        }
+
+        let notes = try await query.all()
 
         return try notes.map(makeResearchNoteResponse)
     }

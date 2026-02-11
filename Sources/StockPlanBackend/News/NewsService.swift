@@ -38,6 +38,7 @@ extension NewsServiceError: AbortError {
 
 protocol NewsService: Sendable {
     func list(userId: UUID, symbol: String?, on db: any Database) async throws -> [NewsItemResponse]
+    func feed(userId: UUID, limit: Int?, on db: any Database) async throws -> [NewsItemResponse]
     func get(id: UUID, userId: UUID, on db: any Database) async throws -> NewsItemResponse
     func create(payload: NewsItemRequest, userId: UUID, on db: any Database) async throws -> NewsItemResponse
     func update(id: UUID, payload: NewsItemRequest, userId: UUID, on db: any Database) async throws -> NewsItemResponse
@@ -46,32 +47,30 @@ protocol NewsService: Sendable {
 }
 
 struct DefaultNewsService: NewsService {
+    let repo: any NewsRepository
     let provider: (any NewsProvider)?
 
-    init(provider: (any NewsProvider)? = nil) {
+    init(repo: any NewsRepository = DatabaseNewsRepository(), provider: (any NewsProvider)? = nil) {
+        self.repo = repo
         self.provider = provider
     }
 
     func list(userId: UUID, symbol: String?, on db: any Database) async throws -> [NewsItemResponse] {
-        let query = NewsItem.query(on: db)
-            .filter(\.$userId == userId)
-            .sort(\.$publishedAt, .descending)
-            .sort(\.$createdAt, .descending)
+        let normalized = normalizedSymbolValue(symbol)
+        let items = try await repo.list(userId: userId, symbol: normalized, limit: nil, on: db)
+        return try items.map(makeResponse)
+    }
 
-        if let symbol, !symbol.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            let normalizedSymbol = try normalizeSymbol(symbol)
-            query.filter(\.$symbol == normalizedSymbol)
-        }
-
-        let items = try await query.all()
+    func feed(userId: UUID, limit: Int?, on db: any Database) async throws -> [NewsItemResponse] {
+        let clampedLimit = max(1, min(limit ?? 50, 200))
+        let tracked = try await repo.trackedSymbols(userId: userId, on: db)
+            .compactMap { normalizedSymbolValue($0) }
+        let items = try await repo.listFeed(userId: userId, trackedSymbols: tracked, limit: clampedLimit, on: db)
         return try items.map(makeResponse)
     }
 
     func get(id: UUID, userId: UUID, on db: any Database) async throws -> NewsItemResponse {
-        guard let item = try await NewsItem.query(on: db)
-            .filter(\.$id == id)
-            .filter(\.$userId == userId)
-            .first()
+        guard let item = try await repo.find(id: id, userId: userId, on: db)
         else {
             throw NewsServiceError.notFound
         }
@@ -89,15 +88,12 @@ struct DefaultNewsService: NewsService {
             publishedAt: try parsePublishedAt(payload.publishedAt)
         )
 
-        try await model.save(on: db)
+        try await repo.save(model, on: db)
         return try makeResponse(from: model)
     }
 
     func update(id: UUID, payload: NewsItemRequest, userId: UUID, on db: any Database) async throws -> NewsItemResponse {
-        guard let model = try await NewsItem.query(on: db)
-            .filter(\.$id == id)
-            .filter(\.$userId == userId)
-            .first()
+        guard let model = try await repo.find(id: id, userId: userId, on: db)
         else {
             throw NewsServiceError.notFound
         }
@@ -109,19 +105,16 @@ struct DefaultNewsService: NewsService {
         model.summary = trimToNil(payload.summary)
         model.publishedAt = try parsePublishedAt(payload.publishedAt)
 
-        try await model.save(on: db)
+        try await repo.save(model, on: db)
         return try makeResponse(from: model)
     }
 
     func delete(id: UUID, userId: UUID, on db: any Database) async throws {
-        guard let model = try await NewsItem.query(on: db)
-            .filter(\.$id == id)
-            .filter(\.$userId == userId)
-            .first()
+        guard let model = try await repo.find(id: id, userId: userId, on: db)
         else {
             throw NewsServiceError.notFound
         }
-        try await model.delete(on: db)
+        try await repo.delete(model, on: db)
     }
 
     func syncNews(userId: UUID, on req: Request) async throws -> NewsSyncResponse {
@@ -132,7 +125,8 @@ struct DefaultNewsService: NewsService {
             )
         }
 
-        let symbols = try await trackedSymbols(userId: userId, on: req.db)
+        let symbols = try await repo.trackedSymbols(userId: userId, on: req.db)
+            .compactMap { normalizedSymbolValue($0) }
         let fetched = try await provider.fetch(symbols: symbols, on: req)
 
         // Scaffolding phase: provider fetch is wired, persistence/upsert logic comes next.
@@ -148,20 +142,6 @@ struct DefaultNewsService: NewsService {
 }
 
 private extension DefaultNewsService {
-    func trackedSymbols(userId: UUID, on db: any Database) async throws -> [String] {
-        let stocks = try await Stock.query(on: db)
-            .filter(\.$userId == userId)
-            .all()
-            .compactMap { normalizedSymbolValue($0.symbol) }
-
-        let watchlist = try await WatchlistItem.query(on: db)
-            .filter(\.$userId == userId)
-            .all()
-            .compactMap { normalizedSymbolValue($0.symbol) }
-
-        return Array(Set(stocks + watchlist)).sorted()
-    }
-
     func makeResponse(from model: NewsItem) throws -> NewsItemResponse {
         guard let id = model.id else {
             throw Abort(.internalServerError, reason: "News id missing")
@@ -188,7 +168,8 @@ private extension DefaultNewsService {
         return normalized
     }
 
-    func normalizedSymbolValue(_ raw: String) -> String? {
+    func normalizedSymbolValue(_ raw: String?) -> String? {
+        guard let raw else { return nil }
         let normalized = raw.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
         return normalized.isEmpty ? nil : normalized
     }

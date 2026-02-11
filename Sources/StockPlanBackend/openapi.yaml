@@ -20,6 +20,7 @@ tags:
   - name: Brokers
   - name: Statistics
   - name: News
+  - name: Dashboard
 paths:
   /:
     get:
@@ -336,6 +337,12 @@ paths:
       summary: List research notes
       security:
         - bearerAuth: []
+      parameters:
+        - name: symbol
+          in: query
+          required: false
+          schema:
+            type: string
       responses:
         '200':
           description: OK
@@ -559,6 +566,31 @@ paths:
                 $ref: '#/components/schemas/NewsItemResponse'
         '401':
           description: Unauthorized
+  /news/feed:
+    get:
+      operationId: listNewsFeed
+      tags: [News]
+      summary: List feed news for tracked symbols
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            format: int32
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/NewsItemResponse'
+        '401':
+          description: Unauthorized
   /news/sync:
     post:
       operationId: syncNews
@@ -639,6 +671,29 @@ paths:
         '404':
           description: Not Found
 
+  /quote/batch:
+    get:
+      operationId: getQuoteBatch
+      tags: [MarketData]
+      summary: Get quotes for multiple symbols
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: symbols
+          in: query
+          required: true
+          description: Comma-separated symbols, e.g. AAPL,MSFT,NVDA
+          schema:
+            type: string
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/QuoteBatchResponse'
+        '401':
+          description: Unauthorized
   /quote/{symbol}:
     parameters:
       - name: symbol
@@ -714,6 +769,23 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/FxRateResponse'
+
+  /dashboard:
+    get:
+      operationId: dashboardHome
+      tags: [Dashboard]
+      summary: Aggregated home dashboard data
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DashboardResponse'
+        '401':
+          description: Unauthorized
 
   /portfolio/summary:
     get:
@@ -1488,6 +1560,14 @@ components:
         asOf:
           type: string
       required: [symbol, price, currency, asOf]
+    QuoteBatchResponse:
+      type: object
+      properties:
+        quotes:
+          type: array
+          items:
+            $ref: '#/components/schemas/QuoteResponse'
+      required: [quotes]
     PriceBarResponse:
       type: object
       properties:
@@ -1694,6 +1774,74 @@ components:
           items:
             $ref: '#/components/schemas/PnlBySymbol'
       required: [baseCurrency, items]
+    DashboardResponse:
+      type: object
+      properties:
+        generatedAt:
+          type: string
+        portfolio:
+          $ref: '#/components/schemas/DashboardPortfolioSummary'
+        topHoldings:
+          type: array
+          items:
+            $ref: '#/components/schemas/DashboardHolding'
+        recentNews:
+          type: array
+          items:
+            $ref: '#/components/schemas/DashboardNewsItem'
+      required: [generatedAt, portfolio, topHoldings, recentNews]
+    DashboardPortfolioSummary:
+      type: object
+      properties:
+        totalPositions:
+          type: integer
+          format: int32
+        totalCostBasis:
+          type: number
+          format: double
+        totalMarketValue:
+          type: number
+          format: double
+        totalUnrealizedPnl:
+          type: number
+          format: double
+        watchlistCount:
+          type: integer
+          format: int32
+        researchCount:
+          type: integer
+          format: int32
+        targetsCount:
+          type: integer
+          format: int32
+      required: [totalPositions, totalCostBasis, totalMarketValue, totalUnrealizedPnl, watchlistCount, researchCount, targetsCount]
+    DashboardHolding:
+      type: object
+      properties:
+        symbol:
+          type: string
+        marketValue:
+          type: number
+          format: double
+        weightPercent:
+          type: number
+          format: double
+      required: [symbol, marketValue, weightPercent]
+    DashboardNewsItem:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        symbol:
+          type: string
+        headline:
+          type: string
+        source:
+          type: string
+        publishedAt:
+          type: string
+      required: [id, symbol, headline, publishedAt]
 
     BrokerConnectionResponse:
       type: object

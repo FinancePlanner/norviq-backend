@@ -5,6 +5,7 @@ import Redis
 
 protocol MarketDataService: Sendable {
     func quote(symbol: String, on req: Request) async throws -> QuoteResponse
+    func quoteBatch(symbols: [String], on req: Request) async throws -> QuoteBatchResponse
     func history(symbol: String, from: String?, to: String?, on req: Request) async throws -> HistoryResponse
     func search(query: String, on req: Request) async throws -> [SearchResultResponse]
     func fx(pair: String, on req: Request) async throws -> FxRateResponse
@@ -74,6 +75,30 @@ struct DefaultMarketDataService: MarketDataService {
             }
             throw mapProviderError(error, operation: "quote")
         }
+    }
+
+    func quoteBatch(symbols rawSymbols: [String], on req: Request) async throws -> QuoteBatchResponse {
+        var seen: Set<String> = []
+        let normalized = try rawSymbols
+            .map(normalizeSymbol)
+            .filter { seen.insert($0).inserted }
+
+        guard !normalized.isEmpty else {
+            throw Abort(.badRequest, reason: "At least one symbol is required.")
+        }
+
+        guard normalized.count <= 100 else {
+            throw Abort(.badRequest, reason: "Maximum 100 symbols per batch request.")
+        }
+
+        var quotes: [QuoteResponse] = []
+        quotes.reserveCapacity(normalized.count)
+        for symbol in normalized {
+            let quote = try await quote(symbol: symbol, on: req)
+            quotes.append(quote)
+        }
+
+        return QuoteBatchResponse(quotes: quotes)
     }
 
     func history(symbol rawSymbol: String, from rawFrom: String?, to rawTo: String?, on req: Request) async throws -> HistoryResponse {

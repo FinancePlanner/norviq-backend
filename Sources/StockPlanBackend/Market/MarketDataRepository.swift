@@ -11,3 +11,5 @@ import Foundation
 import Vapor
 
 public protocol MarketDataRepository: Sendable {}
+
+struct DatabaseMarketDataRepository: MarketDataRepository {}
