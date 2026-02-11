@@ -59,6 +59,7 @@ public func configure(_ app: Application) async throws {
     )
     app.statisticsRepository = DatabaseStatisticsRepository()
     app.statisticsService = DefaultStatisticsService(repo: app.statisticsRepository)
+    app.newsService = DefaultNewsService()
 
     let cleanupIntervalMinutes = Environment.get("AUTH_TOKEN_CLEANUP_INTERVAL_MINUTES").flatMap(Int.init(_:)) ?? 60
     app.lifecycle.use(AuthTokenCleanup(interval: TimeInterval(cleanupIntervalMinutes * 60)))
@@ -84,6 +85,7 @@ public func configure(_ app: Application) async throws {
     app.migrations.add(CreateSearchCache())
     app.migrations.add(CreateStatisticsSnapshot())
     app.migrations.add(CreateBrokerConnection())
+    app.migrations.add(CreateNewsItem())
     app.migrations.add(AddUserScopedQueryIndexes())
 
     // register routes

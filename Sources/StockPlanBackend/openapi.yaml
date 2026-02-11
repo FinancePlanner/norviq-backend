@@ -19,6 +19,7 @@ tags:
   - name: Portfolio
   - name: Brokers
   - name: Statistics
+  - name: News
 paths:
   /:
     get:
@@ -512,6 +513,131 @@ paths:
           description: Not Found
         '401':
           description: Unauthorized
+
+  /news:
+    get:
+      operationId: listNews
+      tags: [News]
+      summary: List saved news items
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: symbol
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/NewsItemResponse'
+        '401':
+          description: Unauthorized
+    post:
+      operationId: createNews
+      tags: [News]
+      summary: Save a news item
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/NewsItemRequest'
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NewsItemResponse'
+        '401':
+          description: Unauthorized
+  /news/sync:
+    post:
+      operationId: syncNews
+      tags: [News]
+      summary: Sync news items from configured provider
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NewsSyncResponse'
+        '401':
+          description: Unauthorized
+        '501':
+          description: Not Implemented
+  /news/{newsId}:
+    parameters:
+      - name: newsId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    get:
+      operationId: getNews
+      tags: [News]
+      summary: Get a news item by id
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NewsItemResponse'
+        '401':
+          description: Unauthorized
+        '404':
+          description: Not Found
+    put:
+      operationId: updateNews
+      tags: [News]
+      summary: Update a news item
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/NewsItemRequest'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NewsItemResponse'
+        '401':
+          description: Unauthorized
+        '404':
+          description: Not Found
+    delete:
+      operationId: deleteNews
+      tags: [News]
+      summary: Delete a news item
+      security:
+        - bearerAuth: []
+      responses:
+        '204':
+          description: No Content
+        '401':
+          description: Unauthorized
+        '404':
+          description: Not Found
 
   /quote/{symbol}:
     parameters:
@@ -1286,6 +1412,68 @@ components:
         rationale:
           type: string
       required: [id, symbol, scenario, targetPrice]
+
+    NewsItemRequest:
+      type: object
+      properties:
+        symbol:
+          type: string
+        headline:
+          type: string
+        source:
+          type: string
+        url:
+          type: string
+        summary:
+          type: string
+        publishedAt:
+          type: string
+          description: ISO8601 datetime
+      required: [symbol, headline]
+    NewsItemResponse:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        symbol:
+          type: string
+        headline:
+          type: string
+        source:
+          type: string
+        url:
+          type: string
+        summary:
+          type: string
+        publishedAt:
+          type: string
+        createdAt:
+          type: string
+        updatedAt:
+          type: string
+      required: [id, symbol, headline, publishedAt]
+    NewsSyncResponse:
+      type: object
+      properties:
+        provider:
+          type: string
+        symbolsCount:
+          type: integer
+          format: int32
+        fetchedCount:
+          type: integer
+          format: int32
+        insertedCount:
+          type: integer
+          format: int32
+        updatedCount:
+          type: integer
+          format: int32
+        skippedCount:
+          type: integer
+          format: int32
+      required: [provider, symbolsCount, fetchedCount, insertedCount, updatedCount, skippedCount]
 
     QuoteResponse:
       type: object
