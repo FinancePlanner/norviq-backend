@@ -15,6 +15,20 @@ public func configure(_ app: Application) async throws {
     // uncomment to serve files from /Public folder
     // app.middleware.use(FileMiddleware(publicDirectory: app.directory.publicDirectory))
     app.traceAutoPropagation = true
+    // Clear all default middleware (then, add back route logging)
+    app.middleware = .init()
+    let corsConfiguration = CORSMiddleware.Configuration(
+        allowedOrigin: .all,
+        allowedMethods: [.GET, .POST, .PUT, .OPTIONS, .DELETE, .PATCH],
+        allowedHeaders: [.accept, .authorization, .contentType, .origin, .xRequestedWith, .userAgent, .accessControlAllowOrigin]
+    )
+    let cors = CORSMiddleware(configuration: corsConfiguration)
+    // cors middleware should come before default error middleware using `at: .beginning`
+    app.middleware.use(cors, at: .beginning)
+    app.middleware.use(ErrorMiddleware.default(environment: app.environment))
+
+    app.middleware.use(RouteLoggingMiddleware(logLevel: .info))
+    // Add custom error handling middleware first.
     app.middleware.use(TracingMiddleware())
 
     app.databases.use(DatabaseConfigurationFactory.postgres(configuration: .init(

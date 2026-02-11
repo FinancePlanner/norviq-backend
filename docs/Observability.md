@@ -179,3 +179,5 @@ Plan migration when one or more conditions persist:
 4. Implement and validate Phase 2.
 5. Add Phase 3 only if decision gate criteria are met.
 6. Reassess infra topology and execute Phase 4 when triggers appear.
+
+https://medium.com/@kicsipixel/bridging-swift-on-server-code-and-devops-monitoring-6e29f2ef7b7c
