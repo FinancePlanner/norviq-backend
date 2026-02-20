@@ -93,12 +93,14 @@ extension StockResponse {
             throw Abort(.internalServerError, reason: "Stock id missing")
         }
 
-        self.id = id.uuidString
-        self.symbol = model.symbol
-        self.shares = model.shares
-        self.buyPrice = model.buyPrice
-        self.buyDate = Self.formatISODateOnly(model.buyDate)
-        self.notes = model.notes
+        self.init(
+            id: id.uuidString,
+            symbol: model.symbol,
+            shares: model.shares,
+            buyPrice: model.buyPrice,
+            buyDate: Self.formatISODateOnly(model.buyDate),
+            notes: model.notes
+        )
     }
 
     private static func formatISODateOnly(_ date: Date) -> String {

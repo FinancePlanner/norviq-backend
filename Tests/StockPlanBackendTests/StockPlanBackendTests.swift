@@ -113,6 +113,38 @@ struct StockPlanBackendTests {
         }
     }
 
+    @Test("Quote batch normalizes, deduplicates, and caches symbols")
+    func quoteBatchUsesCache() async throws {
+        try await withApp { app in
+            let state = TestMarketProviderState()
+            app.marketDataService = makeTestMarketService(state: state)
+            let (token, _) = try await registerTestUser(app: app)
+
+            var first: QuoteBatchResponse?
+            var second: QuoteBatchResponse?
+
+            try await app.testing().test(.GET, "quote/batch?symbols=AAPL, msft ,aapl", beforeRequest: { req in
+                req.headers.bearerAuthorization = .init(token: token)
+            }, afterResponse: { res async throws in
+                #expect(res.status == .ok)
+                first = try res.content.decode(QuoteBatchResponse.self)
+            })
+
+            try await app.testing().test(.GET, "quote/batch?symbols=MSFT,AAPL", beforeRequest: { req in
+                req.headers.bearerAuthorization = .init(token: token)
+            }, afterResponse: { res async throws in
+                #expect(res.status == .ok)
+                second = try res.content.decode(QuoteBatchResponse.self)
+            })
+
+            #expect(first?.quotes.count == 2)
+            #expect(second?.quotes.count == 2)
+            #expect(Set(first?.quotes.map(\.symbol) ?? []) == Set(["AAPL", "MSFT"]))
+            #expect(Set(second?.quotes.map(\.symbol) ?? []) == Set(["AAPL", "MSFT"]))
+            #expect(await state.quoteCalls() == 2)
+        }
+    }
+
     @Test("History uses cache after first fetch")
     func historyUsesCache() async throws {
         try await withApp { app in
@@ -217,6 +249,186 @@ struct StockPlanBackendTests {
             #expect(response?.symbol == "AAPL")
             #expect(response?.price == 123.45)
             #expect(await state.quoteCalls() == 1)
+        }
+    }
+
+    @Test("News feed returns tracked symbols and respects limit")
+    func newsFeedReturnsTrackedAndLimitedResults() async throws {
+        try await withApp { app in
+            let (token, userId) = try await registerTestUser(app: app)
+
+            let stock = Stock(
+                userId: userId,
+                symbol: "AAPL",
+                shares: 3,
+                buyPrice: 100,
+                buyDate: Date()
+            )
+            try await stock.save(on: app.db)
+
+            let watchlist = WatchlistItem(userId: userId, symbol: "MSFT")
+            try await watchlist.save(on: app.db)
+
+            let trackedRecent = NewsItem(
+                userId: userId,
+                symbol: "AAPL",
+                headline: "Tracked recent",
+                source: "Reuters",
+                url: nil,
+                summary: nil,
+                publishedAt: Date()
+            )
+            let trackedOlder = NewsItem(
+                userId: userId,
+                symbol: "MSFT",
+                headline: "Tracked older",
+                source: "Bloomberg",
+                url: nil,
+                summary: nil,
+                publishedAt: Date().addingTimeInterval(-3_600)
+            )
+            let untrackedNewest = NewsItem(
+                userId: userId,
+                symbol: "TSLA",
+                headline: "Untracked newest",
+                source: "WSJ",
+                url: nil,
+                summary: nil,
+                publishedAt: Date().addingTimeInterval(3_600)
+            )
+
+            try await trackedRecent.save(on: app.db)
+            try await trackedOlder.save(on: app.db)
+            try await untrackedNewest.save(on: app.db)
+
+            var allFeed: [NewsItemResponse] = []
+            var limitedFeed: [NewsItemResponse] = []
+
+            try await app.testing().test(.GET, "news/feed?limit=10", beforeRequest: { req in
+                req.headers.bearerAuthorization = .init(token: token)
+            }, afterResponse: { res async throws in
+                #expect(res.status == .ok)
+                allFeed = try res.content.decode([NewsItemResponse].self)
+            })
+
+            try await app.testing().test(.GET, "news/feed?limit=1", beforeRequest: { req in
+                req.headers.bearerAuthorization = .init(token: token)
+            }, afterResponse: { res async throws in
+                #expect(res.status == .ok)
+                limitedFeed = try res.content.decode([NewsItemResponse].self)
+            })
+
+            #expect(allFeed.count == 2)
+            #expect(Set(allFeed.map(\.symbol)) == Set(["AAPL", "MSFT"]))
+            #expect(!allFeed.contains { $0.symbol == "TSLA" })
+
+            #expect(limitedFeed.count == 1)
+            #expect(limitedFeed.first?.symbol == "AAPL")
+        }
+    }
+
+    @Test("Dashboard returns aggregate metrics for current user")
+    func dashboardReturnsAggregateMetrics() async throws {
+        try await withApp { app in
+            let (token, userId) = try await registerTestUser(app: app)
+
+            let aapl = Stock(
+                userId: userId,
+                symbol: "AAPL",
+                shares: 10,
+                buyPrice: 100,
+                buyDate: Date()
+            )
+            let msft = Stock(
+                userId: userId,
+                symbol: "MSFT",
+                shares: 5,
+                buyPrice: 200,
+                buyDate: Date()
+            )
+            try await aapl.save(on: app.db)
+            try await msft.save(on: app.db)
+
+            let aaplQuote = QuoteCache(
+                provider: "ibkr",
+                symbol: "AAPL",
+                currency: "USD",
+                price: 120,
+                asOf: Date()
+            )
+            let msftQuote = QuoteCache(
+                provider: "ibkr",
+                symbol: "MSFT",
+                currency: "USD",
+                price: 180,
+                asOf: Date()
+            )
+            try await aaplQuote.save(on: app.db)
+            try await msftQuote.save(on: app.db)
+
+            let watchlist = WatchlistItem(userId: userId, symbol: "GOOGL")
+            try await watchlist.save(on: app.db)
+
+            let research = ResearchNote(
+                userId: userId,
+                symbol: "AAPL",
+                title: "Q1 review",
+                thesis: "Strong ecosystem",
+                risks: "Valuation",
+                catalysts: "Services growth",
+                referenceLinks: nil
+            )
+            try await research.save(on: app.db)
+
+            let target = Target(
+                userId: userId,
+                symbol: "AAPL",
+                scenario: "base",
+                targetPrice: 150,
+                targetDate: nil,
+                rationale: "12m estimate"
+            )
+            try await target.save(on: app.db)
+
+            let news = NewsItem(
+                userId: userId,
+                symbol: "AAPL",
+                headline: "Earnings update",
+                source: "Reuters",
+                url: nil,
+                summary: nil,
+                publishedAt: Date()
+            )
+            try await news.save(on: app.db)
+
+            var response: DashboardResponse?
+            try await app.testing().test(.GET, "dashboard", beforeRequest: { req in
+                req.headers.bearerAuthorization = .init(token: token)
+            }, afterResponse: { res async throws in
+                #expect(res.status == .ok)
+                response = try res.content.decode(DashboardResponse.self)
+            })
+
+            #expect(response?.portfolio.totalPositions == 2)
+            #expect(response?.portfolio.watchlistCount == 1)
+            #expect(response?.portfolio.researchCount == 1)
+            #expect(response?.portfolio.targetsCount == 1)
+            #expect(response?.portfolio.totalCostBasis == 2_000)
+            #expect(response?.portfolio.totalMarketValue == 2_100)
+            #expect(response?.portfolio.totalUnrealizedPnl == 100)
+
+            #expect(response?.topHoldings.count == 2)
+            #expect(response?.topHoldings.first?.symbol == "AAPL")
+            #expect(response?.topHoldings.first?.marketValue == 1_200)
+
+            if let firstWeight = response?.topHoldings.first?.weightPercent {
+                #expect(abs(firstWeight - 57.142857) < 0.01)
+            } else {
+                #expect(Bool(false), "Expected weightPercent for first top holding")
+            }
+
+            #expect(response?.recentNews.count == 1)
+            #expect(response?.recentNews.first?.symbol == "AAPL")
         }
     }
 

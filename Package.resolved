@@ -1,5 +1,5 @@
 {
-  "originHash" : "60c6542d855c1706c665bac7e3995dcd241582883bd3c867a5b737feeeff0bfc",
+  "originHash" : "fa6e98cba4dc0b27dd7c32df16ef92b1de9a3f93f0364f27bde390e08800a7c7",
   "pins" : [
     {
       "identity" : "async-http-client",
@@ -26,6 +26,15 @@
       "state" : {
         "revision" : "742f624a998cba2a9e653d9b1e91ad3f3a5dff6b",
         "version" : "4.15.2"
+      }
+    },
+    {
+      "identity" : "financeshared",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/FinancePlanner/FinanceShared.git",
+      "state" : {
+        "revision" : "be06c052b75400c48149540e06788210532dc3a9",
+        "version" : "0.1.0"
       }
     },
     {

@@ -99,6 +99,18 @@ Built for deployment on budget VPS instances like Hetzner's CPX11 ($5/month), th
 - **Type Safety**: Reduce bugs with Swift's strong typing across the entire stack
 - **Code Reuse**: Business logic (e.g., portfolio calculations) can be extracted to a shared Swift package
 
+### Shared Models Package (`FinanceShared`)
+- Backend DTO contracts are consumed from `https://github.com/FinancePlanner/FinanceShared.git`.
+- Current requirement in `Package.swift` is `from: "0.1.0"` for semantic versioned upgrades.
+- Shared DTOs are imported through `StockPlanShared` and bridged to Vapor with backend-only `Content` conformances in `Sources/StockPlanBackend/Shared/StockPlanShared+Content.swift`.
+
+If dependency resolution fails with "no versions match 0.1.0", publish and push a tag in `FinanceShared`:
+
+```bash
+git tag 0.1.0
+git push origin 0.1.0
+```
+
 ### Tech Stack
 - **Server Framework**: Vapor 4.x
 - **Database**: PostgreSQL (production) or SQLite (development)
@@ -129,6 +141,7 @@ All data endpoints require authentication. Get a token from auth endpoints and s
 
 ### Research (Due Diligence)
 - `GET /research` - List due diligence notes
+- `GET /research?symbol=:symbol` - List due diligence notes for one symbol
 - `POST /research` - Create a new note
 - `GET /research/:id` - Get a specific note
 - `PUT /research/:id` - Update a note
@@ -150,7 +163,20 @@ All data endpoints require authentication. Get a token from auth endpoints and s
 ### Market Data
 - `GET /history/:symbol` - Fetch historical prices (5/10 year time-series)
 - `GET /quote/:symbol` - Get current price for a stock symbol
+- `GET /quote/batch?symbols=AAPL,MSFT,...` - Fetch multiple quotes in one call
 - `GET /search?q=:query` - Search for stock symbols/companies
+
+### News
+- `GET /news` - List saved news items (`?symbol=` supported)
+- `GET /news/feed` - User feed filtered to tracked symbols (`?limit=` supported)
+- `POST /news` - Create a news item manually
+- `POST /news/sync` - Trigger provider sync scaffold
+- `GET /news/:newsId` - Get one news item
+- `PUT /news/:newsId` - Update one news item
+- `DELETE /news/:newsId` - Delete one news item
+
+### Dashboard
+- `GET /dashboard` - Aggregated home snapshot (portfolio summary, top holdings, recent news)
 
 ### Portfolio Analytics
 - `GET /portfolio/summary` - Total value, gains/losses, allocation
@@ -197,6 +223,62 @@ All data endpoints require authentication. Get a token from auth endpoints and s
 - **Risk Metrics Dashboard**: Sharpe ratio, max drawdown, beta, and correlation matrix across holdings
 - **Earnings Calendar Integration**: Automatically flag upcoming earnings dates for held stocks
 - **AI-Powered Insights** (future): Use an LLM to summarize research notes, generate DD templates, or flag conflicting thesis/target pairs
+
+## Project Structure Review (Actionable)
+
+The current layout is already close to a good vertical-slice setup. To make it easier to scale with paid features, keep moving toward strict domain boundaries:
+
+1. **Domain Folder Standardization**
+   - Use one shape per domain: `Controller`, `Service`, `Repository`, `DTO`, `+Application`, and optional `Provider`.
+   - Apply this consistently to all domains (`Stocks`, `Market`, `News`, `Statistics`, `Dashboard`, `Broker`).
+
+2. **Keep `Models/` as Persistence-Only**
+   - Continue storing Fluent models in `Models/`.
+   - Keep API contracts and business view models inside each domain folder, not in `Models/`.
+
+3. **Infrastructure Separation**
+   - Move concrete external clients into `Sources/StockPlanBackend/Infrastructure/` (e.g., IBKR client, RSS fetcher, HTTP adapters, Redis helpers).
+   - Keep domain services unaware of HTTP details beyond provider protocols.
+
+4. **Background Jobs Boundary**
+   - Add `Sources/StockPlanBackend/Jobs/` for async work (`news sync`, `market refresh`, `cache cleanup`).
+   - Trigger jobs from routes; keep controllers synchronous and thin.
+
+5. **Tests by Domain**
+   - Mirror production folders under tests: `Tests/StockPlanBackendTests/Market`, `.../News`, `.../Dashboard`.
+   - Keep unit tests for services/repositories and a smaller set of route integration tests.
+
+6. **API Contract Governance**
+   - Treat `openapi.yaml` as part of done criteria for each endpoint change.
+   - Add a CI check to fail if routes and OpenAPI drift.
+
+## Monetization Execution (How to Make Paid/Subscription Work)
+
+Use your existing domains to gate value, not basic access:
+
+1. **Free Tier (Acquisition)**
+   - Manual stocks + watchlist + basic notes + delayed quote updates.
+   - Enough value to build habit and trust.
+
+2. **Pro Tier (Main Revenue)**
+   - CSV import automation, richer statistics, dashboard insights, news feed sync, faster refresh cadence.
+   - Best fit for individual active investors.
+
+3. **Premium Tier (Power Users)**
+   - Multi-portfolio workspaces, advanced analytics, transcript summaries, alerts, and API export access.
+
+4. **Backend Changes to Support Billing**
+   - Add `subscriptions` and `entitlements` tables.
+   - Add middleware/policies for limits by tier (symbols, refresh frequency, sync jobs, analytics depth).
+   - Track usage counters monthly for upgrade prompts.
+
+5. **Conversion Path**
+   - In-app upsell moments: after CSV import, after hitting symbol limits, when opening advanced stats/news sync.
+   - Offer annual plans with discount to reduce churn.
+
+6. **Positioning**
+   - Position StockPlan as a "decision journal + portfolio operating system" instead of only a tracker.
+   - Emphasize thesis quality, scenario tracking, and review workflow as the paid differentiator.
 
 ---
 
