@@ -5,7 +5,15 @@ import Crypto
 import Foundation
 
 protocol AuthService: Sendable {
-    func register(email: String, password: String, on req: Request) async throws -> AuthResponse
+    func register(
+        username: String,
+        email: String,
+        password: String,
+        firstName: String,
+        lastName: String,
+        dateOfBirth: Date,
+        on req: Request
+    ) async throws -> AuthResponse
     func login(email: String, password: String, on req: Request) async throws -> AuthResponse
     func currentUser(from req: Request) async throws -> AuthUserResponse
     func forgotPassword(email: String, on req: Request) async throws -> AuthForgotPasswordResponse
@@ -17,17 +25,45 @@ protocol AuthService: Sendable {
 struct DefaultAuthService: AuthService {
     let repo: any AuthRepository
 
-    func register(email: String, password: String, on req: Request) async throws -> AuthResponse {
+    func register(
+        username: String,
+        email: String,
+        password: String,
+        firstName: String,
+        lastName: String,
+        dateOfBirth: Date,
+        on req: Request
+    ) async throws -> AuthResponse {
+        let normalizedUsername = normalizeUsername(username)
         let normalizedEmail = normalizeEmail(email)
+        let normalizedFirstName = normalizeName(firstName)
+        let normalizedLastName = normalizeName(lastName)
+
+        try validateUsername(normalizedUsername)
         try validateEmail(normalizedEmail)
         try validatePassword(password)
+        try validateName(normalizedFirstName, field: "First name")
+        try validateName(normalizedLastName, field: "Last name")
+        try validateDateOfBirth(dateOfBirth)
+
+        if try await repo.findUser(username: normalizedUsername, on: req.db) != nil {
+            throw Abort(.conflict, reason: "Username already registered")
+        }
 
         if try await repo.findUser(email: normalizedEmail, on: req.db) != nil {
             throw Abort(.conflict, reason: "Email already registered")
         }
 
-        let hash = try await req.password.hash(password)
-        let user = try await repo.createUser(email: normalizedEmail, passwordHash: hash, on: req.db)
+        let hash = try req.password.hash(password)
+        let user = try await repo.createUser(
+            username: normalizedUsername,
+            email: normalizedEmail,
+            passwordHash: hash,
+            firstName: normalizedFirstName,
+            lastName: normalizedLastName,
+            dateOfBirth: dateOfBirth,
+            on: req.db
+        )
         return try await makeAuthResponse(for: user, on: req)
     }
 
@@ -40,7 +76,7 @@ struct DefaultAuthService: AuthService {
             throw Abort(.unauthorized, reason: "Invalid email or password")
         }
 
-        let isValid = try await req.password.verify(password, created: user.passwordHash)
+        let isValid = try req.password.verify(password, created: user.passwordHash)
         guard isValid else {
             throw Abort(.unauthorized, reason: "Invalid email or password")
         }
@@ -53,7 +89,14 @@ struct DefaultAuthService: AuthService {
         guard let user = try await repo.findUser(id: token.userId, on: req.db) else {
             throw Abort(.unauthorized, reason: "User not found")
         }
-        return AuthUserResponse(id: user.id?.uuidString ?? "", email: user.email)
+        return AuthUserResponse(
+            id: user.id?.uuidString ?? "",
+            username: responseUsername(for: user),
+            email: user.email,
+            firstName: responseFirstName(for: user),
+            lastName: responseLastName(for: user),
+            dateOfBirth: responseDateOfBirth(for: user)
+        )
     }
 
     func forgotPassword(email: String, on req: Request) async throws -> AuthForgotPasswordResponse {
@@ -85,7 +128,7 @@ struct DefaultAuthService: AuthService {
             throw Abort(.unauthorized, reason: "Invalid reset code")
         }
 
-        user.passwordHash = try await req.password.hash(newPassword)
+        user.passwordHash = try req.password.hash(newPassword)
         try await user.save(on: req.db)
         try await repo.markPasswordResetTokenUsed(resetToken, usedAt: now, on: req.db)
 
@@ -127,7 +170,12 @@ struct DefaultAuthService: AuthService {
             userId: userId,
             expiresIn: expiresIn,
             refreshToken: refresh,
-            refreshExpiresIn: refreshExpiresIn
+            refreshExpiresIn: refreshExpiresIn,
+            username: responseUsername(for: user),
+            email: user.email,
+            firstName: responseFirstName(for: user),
+            lastName: responseLastName(for: user),
+            dateOfBirth: responseDateOfBirth(for: user)
         )
     }
 
@@ -171,8 +219,23 @@ struct DefaultAuthService: AuthService {
         return (rawToken, expiresIn)
     }
 
+    private func normalizeUsername(_ username: String) -> String {
+        username.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+    }
+
     private func normalizeEmail(_ email: String) -> String {
         email.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+    }
+
+    private func normalizeName(_ value: String) -> String {
+        value.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private func validateUsername(_ username: String) throws {
+        let pattern = #"^[a-zA-Z0-9_]{4,30}$"#
+        if username.range(of: pattern, options: .regularExpression) == nil {
+            throw Abort(.badRequest, reason: "Username must be 4-30 characters (letters, numbers, underscore)")
+        }
     }
 
     private func validateEmail(_ email: String) throws {
@@ -181,10 +244,51 @@ struct DefaultAuthService: AuthService {
         }
     }
 
+    private func validateName(_ value: String, field: String) throws {
+        if value.isEmpty {
+            throw Abort(.badRequest, reason: "\(field) is required")
+        }
+    }
+
+    private func validateDateOfBirth(_ dateOfBirth: Date) throws {
+        if dateOfBirth > Date() {
+            throw Abort(.badRequest, reason: "Date of birth cannot be in the future")
+        }
+    }
+
     private func validatePassword(_ password: String) throws {
         if password.count < 8 {
             throw Abort(.badRequest, reason: "Password must be at least 8 characters")
         }
+    }
+
+    private func responseUsername(for user: User) -> String {
+        if let username = user.username?.trimmingCharacters(in: .whitespacesAndNewlines), !username.isEmpty {
+            return username
+        }
+        if let prefix = user.email.split(separator: "@").first, !prefix.isEmpty {
+            return String(prefix)
+        }
+        return user.email
+    }
+
+    private func responseFirstName(for user: User) -> String {
+        user.firstName?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    }
+
+    private func responseLastName(for user: User) -> String {
+        user.lastName?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    }
+
+    private func responseDateOfBirth(for user: User) -> Date {
+        user.dateOfBirth ?? defaultDateOfBirth()
+    }
+
+    private func defaultDateOfBirth() -> Date {
+        let calendar = Calendar.current
+        let currentYear = calendar.component(.year, from: Date())
+        let twentyYearsAgoYear = currentYear - 20
+        return calendar.date(from: DateComponents(year: twentyYearsAgoYear, month: 1, day: 1)) ?? Date()
     }
 
     private func jwtExpiresInSeconds(from req: Request) -> Int {

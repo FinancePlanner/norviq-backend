@@ -4,8 +4,17 @@ import Vapor
 
 protocol AuthRepository: Sendable {
     func findUser(email: String, on db: any Database) async throws -> User?
+    func findUser(username: String, on db: any Database) async throws -> User?
     func findUser(id: UUID, on db: any Database) async throws -> User?
-    func createUser(email: String, passwordHash: String, on db: any Database) async throws -> User
+    func createUser(
+        username: String,
+        email: String,
+        passwordHash: String,
+        firstName: String,
+        lastName: String,
+        dateOfBirth: Date,
+        on db: any Database
+    ) async throws -> User
 
     func createPasswordResetToken(userId: UUID, codeHash: String, expiresAt: Date, on db: any Database) async throws
     func findValidPasswordResetToken(userId: UUID, codeHash: String, now: Date, on db: any Database) async throws -> PasswordResetToken?
@@ -21,12 +30,31 @@ struct DatabaseAuthRepository: AuthRepository {
         try await User.query(on: db).filter(\.$email == email).first()
     }
 
+    func findUser(username: String, on db: any Database) async throws -> User? {
+        try await User.query(on: db).filter(\.$username == username).first()
+    }
+
     func findUser(id: UUID, on db: any Database) async throws -> User? {
         try await User.find(id, on: db)
     }
 
-    func createUser(email: String, passwordHash: String, on db: any Database) async throws -> User {
-        let user = User(email: email, passwordHash: passwordHash)
+    func createUser(
+        username: String = UUID().uuidString.replacingOccurrences(of: "-", with: "_"),
+        email: String,
+        passwordHash: String,
+        firstName: String = "Test",
+        lastName: String = "User",
+        dateOfBirth: Date = Date(timeIntervalSince1970: 946_684_800),
+        on db: any Database
+    ) async throws -> User {
+        let user = User(
+            email: email,
+            passwordHash: passwordHash,
+            username: username,
+            firstName: firstName,
+            lastName: lastName,
+            dateOfBirth: dateOfBirth
+        )
         try await user.save(on: db)
         return user
     }

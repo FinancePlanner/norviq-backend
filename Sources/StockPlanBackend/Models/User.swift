@@ -14,6 +14,18 @@ final class User: Model, Authenticatable, @unchecked Sendable {
     @Field(key: "password_hash")
     var passwordHash: String
 
+    @OptionalField(key: "username")
+    var username: String?
+
+    @OptionalField(key: "first_name")
+    var firstName: String?
+
+    @OptionalField(key: "last_name")
+    var lastName: String?
+
+    @OptionalField(key: "date_of_birth")
+    var dateOfBirth: Date?
+
     @Timestamp(key: "created_at", on: .create)
     var createdAt: Date?
 
@@ -22,9 +34,21 @@ final class User: Model, Authenticatable, @unchecked Sendable {
 
     init() { }
 
-    init(id: UUID? = nil, email: String, passwordHash: String) {
+    init(
+        id: UUID? = nil,
+        email: String,
+        passwordHash: String,
+        username: String? = nil,
+        firstName: String? = nil,
+        lastName: String? = nil,
+        dateOfBirth: Date? = nil
+    ) {
         self.id = id
         self.email = email
         self.passwordHash = passwordHash
+        self.username = username
+        self.firstName = firstName
+        self.lastName = lastName
+        self.dateOfBirth = dateOfBirth
     }
 }

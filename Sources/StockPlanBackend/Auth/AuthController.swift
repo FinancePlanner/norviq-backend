@@ -18,7 +18,15 @@ struct AuthController: RouteCollection {
     @Sendable
     func register(req: Request) async throws -> AuthResponse {
         let payload = try req.content.decode(AuthRegisterRequest.self)
-        return try await req.application.authService.register(email: payload.email, password: payload.password, on: req)
+        return try await req.application.authService.register(
+            username: payload.username,
+            email: payload.email,
+            password: payload.password,
+            firstName: payload.firstName,
+            lastName: payload.lastName,
+            dateOfBirth: payload.dateOfBirth,
+            on: req
+        )
     }
 
     @Sendable

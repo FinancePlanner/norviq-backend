@@ -69,6 +69,7 @@ public func configure(_ app: Application) async throws {
     app.lifecycle.use(AuthTokenCleanup(interval: TimeInterval(cleanupIntervalMinutes * 60)))
 
     app.migrations.add(CreateUser())
+    app.migrations.add(AddUserProfileFields())
     app.migrations.add(CreateTodo())
     app.migrations.add(CreateAccount())
     app.migrations.add(CreateInstrument())

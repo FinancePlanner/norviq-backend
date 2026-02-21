@@ -4,6 +4,10 @@ set -euo pipefail
 BASE_URL="${BASE_URL:-http://localhost:8080}"
 EMAIL="${EMAIL:-}"
 PASSWORD="${PASSWORD:-}"
+USERNAME="${USERNAME:-}"
+FIRST_NAME="${FIRST_NAME:-Test}"
+LAST_NAME="${LAST_NAME:-User}"
+DATE_OF_BIRTH_REF_SECONDS="${DATE_OF_BIRTH_REF_SECONDS:--31622400}"
 REGISTER_FIRST=false
 OUTPUT_MODE="token" # token|header|json
 
@@ -13,7 +17,7 @@ Usage:
   scripts/get_access_token.sh -e <email> -p <password> [--base-url <url>] [--register] [--header|--json]
 
 Environment variables (optional):
-  BASE_URL, EMAIL, PASSWORD
+  BASE_URL, EMAIL, PASSWORD, USERNAME, FIRST_NAME, LAST_NAME, DATE_OF_BIRTH_REF_SECONDS
 
 Examples:
   TOKEN=$(scripts/get_access_token.sh -e user@example.com -p 'password123')
@@ -54,6 +58,46 @@ PY
 
   if have jq; then
     jq -n --arg email "$EMAIL" --arg password "$PASSWORD" '{email:$email,password:$password}'
+    return 0
+  fi
+
+  echo "Need either python3 or jq installed to build JSON payload." >&2
+  return 1
+}
+
+build_register_payload() {
+  local username_value="${USERNAME:-${EMAIL%@*}}"
+
+  if have python3; then
+    EMAIL="$EMAIL" \
+    PASSWORD="$PASSWORD" \
+    USERNAME="$username_value" \
+    FIRST_NAME="$FIRST_NAME" \
+    LAST_NAME="$LAST_NAME" \
+    DATE_OF_BIRTH_REF_SECONDS="$DATE_OF_BIRTH_REF_SECONDS" \
+      python3 - <<'PY'
+import json, os
+print(json.dumps({
+    "username": os.environ["USERNAME"],
+    "password": os.environ["PASSWORD"],
+    "email": os.environ["EMAIL"],
+    "firstName": os.environ["FIRST_NAME"],
+    "lastName": os.environ["LAST_NAME"],
+    "dateOfBirth": float(os.environ["DATE_OF_BIRTH_REF_SECONDS"]),
+}))
+PY
+    return 0
+  fi
+
+  if have jq; then
+    jq -n \
+      --arg username "$username_value" \
+      --arg password "$PASSWORD" \
+      --arg email "$EMAIL" \
+      --arg firstName "$FIRST_NAME" \
+      --arg lastName "$LAST_NAME" \
+      --argjson dateOfBirth "$DATE_OF_BIRTH_REF_SECONDS" \
+      '{username:$username,password:$password,email:$email,firstName:$firstName,lastName:$lastName,dateOfBirth:$dateOfBirth}'
     return 0
   fi
 
@@ -109,7 +153,8 @@ post_json() {
 payload="$(build_payload)"
 
 if [[ "$REGISTER_FIRST" == "true" ]]; then
-  register_resp="$(post_json "${BASE_URL%/}/auth/register" "$payload")"
+  register_payload="$(build_register_payload)"
+  register_resp="$(post_json "${BASE_URL%/}/auth/register" "$register_payload")"
   register_code="${register_resp%%$'\n'*}"
   register_body="${register_resp#*$'\n'}"
   if [[ "$register_code" != "200" && "$register_code" != "409" ]]; then

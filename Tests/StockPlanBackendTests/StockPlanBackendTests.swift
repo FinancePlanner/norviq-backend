@@ -25,7 +25,14 @@ struct StockPlanBackendTests {
     }
 
     private func registerTestUser(app: Application) async throws -> (token: String, userId: UUID) {
-        let register = AuthRegisterRequest(email: "test@example.com", password: "Password123")
+        let register = AuthRegisterRequest(
+            username: "test_user",
+            password: "Password123",
+            email: "test@example.com",
+            firstName: "Test",
+            lastName: "User",
+            dateOfBirth: Date(timeIntervalSince1970: 946_684_800)
+        )
         var response: AuthResponse?
 
         try await app.testing().test(.POST, "auth/register", beforeRequest: { req in
