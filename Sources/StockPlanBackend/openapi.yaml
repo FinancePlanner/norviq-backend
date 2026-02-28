@@ -207,6 +207,28 @@ paths:
                 $ref: '#/components/schemas/StockResponse'
         '401':
           description: Unauthorized
+  /stocks/bulk:
+    post:
+      operationId: bulkCreateStocks
+      tags: [Stocks]
+      summary: Create multiple stock holdings
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BulkStockRequest'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BulkStockResponse'
+        '401':
+          description: Unauthorized
   /stocks/{stockId}:
     parameters:
       - name: stockId
@@ -1392,6 +1414,36 @@ components:
         notes:
           type: string
       required: [id, symbol, shares, buyPrice, buyDate]
+    BulkStockRequest:
+      type: object
+      properties:
+        stocks:
+          type: array
+          items:
+            $ref: '#/components/schemas/StockRequest'
+      required: [stocks]
+    BulkStockResultItem:
+      type: object
+      properties:
+        index:
+          type: integer
+        stock:
+          $ref: '#/components/schemas/StockResponse'
+        error:
+          type: string
+      required: [index]
+    BulkStockResponse:
+      type: object
+      properties:
+        created:
+          type: integer
+        failed:
+          type: integer
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/BulkStockResultItem'
+      required: [created, failed, results]
 
     WatchlistItemRequest:
       type: object
