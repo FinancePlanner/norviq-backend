@@ -1,5 +1,5 @@
-import Vapor
 import StockPlanShared
+import Vapor
 
 typealias StockRequest = StockPlanShared.StockRequest
 typealias StockResponse = StockPlanShared.StockResponse
@@ -20,3 +20,6 @@ typealias TargetRequest = StockPlanShared.TargetRequest
 typealias TargetResponse = StockPlanShared.TargetResponse
 typealias StockHistory = StockPlanShared.StockHistory
 typealias StockNews = StockPlanShared.StockNews
+typealias BulkStockRequest = StockPlanShared.BulkStockRequest
+typealias BulkStockResultItem = StockPlanShared.BulkStockResultItem
+typealias BulkStockResponse = StockPlanShared.BulkStockResponse

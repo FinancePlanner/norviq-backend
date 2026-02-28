@@ -1,6 +1,6 @@
-import Vapor
 import Fluent
 import Foundation
+import Vapor
 
 enum StockServiceError: Error {
     case notFound
@@ -31,8 +31,12 @@ protocol StockService: Sendable {
     func list(userId: UUID, on db: any Database) async throws -> [StockResponse]
     func get(id: UUID, userId: UUID, on db: any Database) async throws -> StockResponse
     func get(symbol: String, userId: UUID, on db: any Database) async throws -> StockResponse
-    func create(payload: StockRequest, userId: UUID, on db: any Database) async throws -> StockResponse
-    func update(id: UUID, payload: StockRequest, userId: UUID, on db: any Database) async throws -> StockResponse
+    func create(payload: StockRequest, userId: UUID, on db: any Database) async throws
+        -> StockResponse
+    func bulkCreate(payloads: [StockRequest], userId: UUID, on db: any Database) async throws
+        -> BulkStockResponse
+    func update(id: UUID, payload: StockRequest, userId: UUID, on db: any Database) async throws
+        -> StockResponse
     func delete(id: UUID, userId: UUID, on db: any Database) async throws
 }
 
@@ -43,30 +47,44 @@ struct StockServiceImpl: StockService {
         let stocks = try await repo.list(userId: userId, on: db)
         return try stocks.map { try StockResponse(from: $0) }
     }
-    
+
     func get(id: UUID, userId: UUID, on db: any Database) async throws -> StockResponse {
         guard let stock = try await repo.find(id: id, userId: userId, on: db) else {
             throw StockServiceError.notFound
         }
         return try StockResponse(from: stock)
     }
-    
+
     func get(symbol: String, userId: UUID, on db: any Database) async throws -> StockResponse {
         guard let stock = try await repo.find(symbol: symbol, userId: userId, on: db) else {
             throw StockServiceError.notFound
         }
         return try StockResponse(from: stock)
     }
-    
-    func create(payload: StockRequest, userId: UUID, on db: any Database) async throws -> StockResponse {
+
+    func create(payload: StockRequest, userId: UUID, on db: any Database) async throws
+        -> StockResponse
+    {
         try validateSymbol(payload.symbol)
         let stock = try await repo.create(payload: payload, userId: userId, on: db)
         return try StockResponse(from: stock)
     }
 
-    func update(id: UUID, payload: StockRequest, userId: UUID, on db: any Database) async throws -> StockResponse {
+    func bulkCreate(payloads: [StockRequest], userId: UUID, on db: any Database) async throws
+        -> BulkStockResponse
+    {
+        let results = try await repo.bulkCreate(payloads: payloads, userId: userId, on: db)
+        let created = results.filter { $0.stock != nil }.count
+        let failed = results.filter { $0.error != nil }.count
+        return BulkStockResponse(created: created, failed: failed, results: results)
+    }
+
+    func update(id: UUID, payload: StockRequest, userId: UUID, on db: any Database) async throws
+        -> StockResponse
+    {
         try validateSymbol(payload.symbol)
-        guard let stock = try await repo.update(id: id, payload: payload, userId: userId, on: db) else {
+        guard let stock = try await repo.update(id: id, payload: payload, userId: userId, on: db)
+        else {
             throw StockServiceError.notFound
         }
         return try StockResponse(from: stock)

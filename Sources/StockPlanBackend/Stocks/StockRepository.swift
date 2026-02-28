@@ -7,7 +7,10 @@ protocol StocksRepository: Sendable {
     func find(id: UUID, userId: UUID, on db: any Database) async throws -> Stock?
     func find(symbol: String, userId: UUID, on db: any Database) async throws -> Stock?
     func create(payload: StockRequest, userId: UUID, on db: any Database) async throws -> Stock
-    func update(id: UUID, payload: StockRequest, userId: UUID, on db: any Database) async throws -> Stock?
+    func bulkCreate(payloads: [StockRequest], userId: UUID, on db: any Database) async throws
+        -> [BulkStockResultItem]
+    func update(id: UUID, payload: StockRequest, userId: UUID, on db: any Database) async throws
+        -> Stock?
     func delete(id: UUID, userId: UUID, on db: any Database) async throws -> Bool
 }
 
@@ -48,7 +51,25 @@ struct DatabaseStocksRepository: StocksRepository {
         return stock
     }
 
-    func update(id: UUID, payload: StockRequest, userId: UUID, on db: any Database) async throws -> Stock? {
+    func bulkCreate(payloads: [StockRequest], userId: UUID, on db: any Database) async throws
+        -> [BulkStockResultItem]
+    {
+        var results: [BulkStockResultItem] = []
+        for (index, payload) in payloads.enumerated() {
+            do {
+                let stock = try await create(payload: payload, userId: userId, on: db)
+                let response = try StockResponse(from: stock)
+                results.append(BulkStockResultItem(index: index, stock: response))
+            } catch {
+                results.append(BulkStockResultItem(index: index, error: error.localizedDescription))
+            }
+        }
+        return results
+    }
+
+    func update(id: UUID, payload: StockRequest, userId: UUID, on db: any Database) async throws
+        -> Stock?
+    {
         guard let stock = try await find(id: id, userId: userId, on: db) else {
             return nil
         }
