@@ -64,12 +64,15 @@ public func configure(_ app: Application) async throws {
     app.newsService = DefaultNewsService(repo: app.newsRepository)
     app.dashboardRepository = DatabaseDashboardRepository()
     app.dashboardService = DefaultDashboardService(repo: app.dashboardRepository)
+    app.userProfileRepository = DatabaseUserProfileRepository()
+    app.userProfileService = DefaultUserProfileService(repo: app.userProfileRepository)
 
     let cleanupIntervalMinutes = Environment.get("AUTH_TOKEN_CLEANUP_INTERVAL_MINUTES").flatMap(Int.init(_:)) ?? 60
     app.lifecycle.use(AuthTokenCleanup(interval: TimeInterval(cleanupIntervalMinutes * 60)))
 
     app.migrations.add(CreateUser())
     app.migrations.add(AddUserProfileFields())
+    app.migrations.add(AddUserProfileMetadataFields())
     app.migrations.add(CreateTodo())
     app.migrations.add(CreateAccount())
     app.migrations.add(CreateInstrument())

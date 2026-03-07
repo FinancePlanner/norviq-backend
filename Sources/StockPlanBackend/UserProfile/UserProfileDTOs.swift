@@ -1,0 +1,9 @@
+import StockPlanShared
+
+typealias UserProfile = StockPlanShared.UserProfile
+typealias GetUserProfileRequest = StockPlanShared.GetUserProfileRequest
+typealias GetUserProfileResponse = StockPlanShared.GetUserProfileResponse
+typealias UpdateUserProfileRequest = StockPlanShared.UpdateUserProfileRequest
+typealias UpdateUserProfileResponse = StockPlanShared.UpdateUserProfileResponse
+typealias DeleteUserProfileRequest = StockPlanShared.DeleteUserProfileRequest
+typealias DeleteUserProfileResponse = StockPlanShared.DeleteUserProfileResponse

@@ -23,6 +23,15 @@ final class User: Model, Authenticatable, @unchecked Sendable {
     @OptionalField(key: "last_name")
     var lastName: String?
 
+    @OptionalField(key: "bio")
+    var bio: String?
+
+    @OptionalField(key: "avatar_url")
+    var avatarURLString: String?
+
+    @OptionalField(key: "banner_avatar_url")
+    var bannerAvatarURLString: String?
+
     @OptionalField(key: "date_of_birth")
     var dateOfBirth: Date?
 
@@ -41,6 +50,9 @@ final class User: Model, Authenticatable, @unchecked Sendable {
         username: String? = nil,
         firstName: String? = nil,
         lastName: String? = nil,
+        bio: String? = nil,
+        avatarURLString: String? = nil,
+        bannerAvatarURLString: String? = nil,
         dateOfBirth: Date? = nil
     ) {
         self.id = id
@@ -49,6 +61,9 @@ final class User: Model, Authenticatable, @unchecked Sendable {
         self.username = username
         self.firstName = firstName
         self.lastName = lastName
+        self.bio = bio
+        self.avatarURLString = avatarURLString
+        self.bannerAvatarURLString = bannerAvatarURLString
         self.dateOfBirth = dateOfBirth
     }
 }

@@ -21,6 +21,7 @@ func routes(_ app: Application) throws {
     try app.register(collection: StatisticsController())
     try app.register(collection: NewsController())
     try app.register(collection: DashboardController())
+    try app.register(collection: UserProfileController())
 }
 
 private func registerOpenAPIDocsRoutes(_ app: Application) throws {

@@ -18,3 +18,11 @@ extension PortfolioPerformanceResponse: @retroactive Content {}
 extension TransactionResponse: @retroactive Content {}
 extension LotResponse: @retroactive Content {}
 extension PnlResponse: @retroactive Content {}
+
+extension UserProfile: @retroactive Content {}
+extension GetUserProfileRequest: @retroactive Content {}
+extension GetUserProfileResponse: @retroactive Content {}
+extension UpdateUserProfileRequest: @retroactive Content {}
+extension UpdateUserProfileResponse: @retroactive Content {}
+extension DeleteUserProfileRequest: @retroactive Content {}
+extension DeleteUserProfileResponse: @retroactive Content {}

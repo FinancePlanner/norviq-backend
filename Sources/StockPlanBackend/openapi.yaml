@@ -21,6 +21,7 @@ tags:
   - name: Statistics
   - name: News
   - name: Dashboard
+  - name: UserProfile
 paths:
   /:
     get:
@@ -167,6 +168,66 @@ paths:
                 $ref: '#/components/schemas/AuthUserResponse'
         '401':
           description: Unauthorized
+
+  /user-profile:
+    get:
+      operationId: getUserProfile
+      tags: [UserProfile]
+      summary: Get the authenticated user profile
+      description: Returns the profile for the user identified by the bearer token.
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: The authenticated user's profile.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GetUserProfileResponse'
+        '401':
+          description: Missing or invalid bearer token, or the authenticated user could not be resolved.
+    put:
+      operationId: updateUserProfile
+      tags: [UserProfile]
+      summary: Update the authenticated user profile
+      description: Updates the authenticated user's profile fields. The `userProfile.id` value must match the authenticated user.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateUserProfileRequest'
+      responses:
+        '200':
+          description: The updated user profile.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UpdateUserProfileResponse'
+        '400':
+          description: Invalid payload. Returned when the profile ID does not match the authenticated user, the email is invalid, or the username fails validation.
+        '401':
+          description: Missing or invalid bearer token, or the authenticated user could not be resolved.
+        '409':
+          description: The requested email or username is already registered to another user.
+    delete:
+      operationId: deleteUserProfile
+      tags: [UserProfile]
+      summary: Delete the authenticated user account
+      description: Permanently deletes the authenticated user account identified by the bearer token.
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Confirmation that the authenticated user account was deleted.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeleteUserProfileResponse'
+        '401':
+          description: Missing or invalid bearer token, or the authenticated user could not be resolved.
 
   /stocks:
     get:
@@ -1376,6 +1437,97 @@ components:
         refreshToken:
           type: string
       required: [refreshToken]
+    UserProfile:
+      type: object
+      description: Profile fields returned for the authenticated user and accepted when updating the profile.
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Unique identifier of the user account.
+          example: 11111111-1111-1111-1111-111111111111
+        email:
+          type: string
+          format: email
+          description: Primary email address for the user account.
+          example: investor@example.com
+        bio:
+          type: string
+          description: Short biography shown on the user's profile.
+          example: Focused on long-term compounding.
+        avatarURL:
+          type: string
+          format: uri
+          description: Public URL for the user's profile avatar image.
+          example: https://example.com/avatar.png
+        bannerAvatarURL:
+          type: string
+          format: uri
+          description: Public URL for the user's profile banner image.
+          example: https://example.com/banner.png
+        username:
+          type: string
+          description: Unique public username.
+          minLength: 4
+          maxLength: 30
+          pattern: '^[a-zA-Z0-9_]{4,30}$'
+          example: long_term_investor
+        firstName:
+          type: string
+          description: User's first name.
+          example: Jane
+        lastName:
+          type: string
+          description: User's last name.
+          example: Investor
+      required: [id, email]
+    GetUserProfileRequest:
+      type: object
+      description: Shared contract type retained for compatibility. The HTTP GET /user-profile endpoint does not accept a request body.
+      properties:
+        id:
+          type: string
+          format: uuid
+    GetUserProfileResponse:
+      type: object
+      description: Response payload for the authenticated user's profile.
+      properties:
+        userProfile:
+          $ref: '#/components/schemas/UserProfile'
+      required: [userProfile]
+    UpdateUserProfileRequest:
+      type: object
+      description: Payload used to update the authenticated user's profile.
+      properties:
+        userProfile:
+          $ref: '#/components/schemas/UserProfile'
+      required: [userProfile]
+    UpdateUserProfileResponse:
+      type: object
+      description: Response payload containing the updated authenticated user's profile.
+      properties:
+        userProfile:
+          $ref: '#/components/schemas/UserProfile'
+      required: [userProfile]
+    DeleteUserProfileRequest:
+      type: object
+      description: Shared contract type retained for compatibility. The HTTP DELETE /user-profile endpoint does not accept a request body.
+      properties:
+        id:
+          type: string
+          format: uuid
+    DeleteUserProfileResponse:
+      type: object
+      description: Result of deleting the authenticated user account.
+      properties:
+        success:
+          type: boolean
+          description: Indicates whether the delete operation completed successfully.
+        message:
+          type: string
+          description: Optional confirmation message returned by the API.
+          example: User account deleted
+      required: [success]
 
     StockRequest:
       type: object
