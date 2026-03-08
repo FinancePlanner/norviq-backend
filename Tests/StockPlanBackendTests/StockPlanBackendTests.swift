@@ -7,6 +7,10 @@ import Foundation
 
 @Suite("App Tests with DB", .serialized)
 struct StockPlanBackendTests {
+    private struct TestHealthResponse: Decodable {
+        let status: String
+    }
+
     private func withApp(_ test: (Application) async throws -> ()) async throws {
         try await DatabaseTestLock.withLock {
             let app = try await Application.make(.testing)
@@ -35,7 +39,7 @@ struct StockPlanBackendTests {
         )
         var response: AuthResponse?
 
-        try await app.testing().test(.POST, "auth/register", beforeRequest: { req in
+        try await app.testing().test(.POST, "v1/auth/register", beforeRequest: { req in
             try req.content.encode(register)
         }, afterResponse: { res async throws in
             #expect(res.status == .ok)
@@ -70,9 +74,20 @@ struct StockPlanBackendTests {
     @Test("Test Hello World Route")
     func helloWorld() async throws {
         try await withApp { app in
-            try await app.testing().test(.GET, "hello", afterResponse: { res async in
+            try await app.testing().test(.GET, "v1/hello", afterResponse: { res async in
                 #expect(res.status == .ok)
                 #expect(res.body.string == "Hello, world!")
+            })
+        }
+    }
+
+    @Test("Health endpoint returns ok")
+    func healthEndpoint() async throws {
+        try await withApp { app in
+            try await app.testing().test(.GET, "health", afterResponse: { res async throws in
+                #expect(res.status == .ok)
+                let body = try res.content.decode(TestHealthResponse.self)
+                #expect(body.status == "ok")
             })
         }
     }
@@ -83,7 +98,7 @@ struct StockPlanBackendTests {
             let state = TestMarketProviderState()
             app.marketDataService = makeTestMarketService(state: state)
 
-            try await app.testing().test(.GET, "quote/AAPL", afterResponse: { res async in
+            try await app.testing().test(.GET, "v1/quote/AAPL", afterResponse: { res async in
                 #expect(res.status == .unauthorized)
             })
         }
@@ -99,14 +114,14 @@ struct StockPlanBackendTests {
             var first: QuoteResponse?
             var second: QuoteResponse?
 
-            try await app.testing().test(.GET, "quote/AAPL", beforeRequest: { req in
+            try await app.testing().test(.GET, "v1/quote/AAPL", beforeRequest: { req in
                 req.headers.bearerAuthorization = .init(token: token)
             }, afterResponse: { res async throws in
                 #expect(res.status == .ok)
                 first = try res.content.decode(QuoteResponse.self)
             })
 
-            try await app.testing().test(.GET, "quote/AAPL", beforeRequest: { req in
+            try await app.testing().test(.GET, "v1/quote/AAPL", beforeRequest: { req in
                 req.headers.bearerAuthorization = .init(token: token)
             }, afterResponse: { res async throws in
                 #expect(res.status == .ok)
@@ -130,14 +145,14 @@ struct StockPlanBackendTests {
             var first: QuoteBatchResponse?
             var second: QuoteBatchResponse?
 
-            try await app.testing().test(.GET, "quote/batch?symbols=AAPL, msft ,aapl", beforeRequest: { req in
+            try await app.testing().test(.GET, "v1/quote/batch?symbols=AAPL, msft ,aapl", beforeRequest: { req in
                 req.headers.bearerAuthorization = .init(token: token)
             }, afterResponse: { res async throws in
                 #expect(res.status == .ok)
                 first = try res.content.decode(QuoteBatchResponse.self)
             })
 
-            try await app.testing().test(.GET, "quote/batch?symbols=MSFT,AAPL", beforeRequest: { req in
+            try await app.testing().test(.GET, "v1/quote/batch?symbols=MSFT,AAPL", beforeRequest: { req in
                 req.headers.bearerAuthorization = .init(token: token)
             }, afterResponse: { res async throws in
                 #expect(res.status == .ok)
@@ -168,14 +183,14 @@ struct StockPlanBackendTests {
             var first: HistoryResponse?
             var second: HistoryResponse?
 
-            try await app.testing().test(.GET, "history/AAPL", beforeRequest: { req in
+            try await app.testing().test(.GET, "v1/history/AAPL", beforeRequest: { req in
                 req.headers.bearerAuthorization = .init(token: token)
             }, afterResponse: { res async throws in
                 #expect(res.status == .ok)
                 first = try res.content.decode(HistoryResponse.self)
             })
 
-            try await app.testing().test(.GET, "history/AAPL", beforeRequest: { req in
+            try await app.testing().test(.GET, "v1/history/AAPL", beforeRequest: { req in
                 req.headers.bearerAuthorization = .init(token: token)
             }, afterResponse: { res async throws in
                 #expect(res.status == .ok)
@@ -200,14 +215,14 @@ struct StockPlanBackendTests {
             var first: [SearchResultResponse] = []
             var second: [SearchResultResponse] = []
 
-            try await app.testing().test(.GET, "search?q=AAPL", beforeRequest: { req in
+            try await app.testing().test(.GET, "v1/search?q=AAPL", beforeRequest: { req in
                 req.headers.bearerAuthorization = .init(token: token)
             }, afterResponse: { res async throws in
                 #expect(res.status == .ok)
                 first = try res.content.decode([SearchResultResponse].self)
             })
 
-            try await app.testing().test(.GET, "search?q=AAPL", beforeRequest: { req in
+            try await app.testing().test(.GET, "v1/search?q=AAPL", beforeRequest: { req in
                 req.headers.bearerAuthorization = .init(token: token)
             }, afterResponse: { res async throws in
                 #expect(res.status == .ok)
@@ -246,7 +261,7 @@ struct StockPlanBackendTests {
             await state.setFailQuote(true)
 
             var response: QuoteResponse?
-            try await app.testing().test(.GET, "quote/AAPL", beforeRequest: { req in
+            try await app.testing().test(.GET, "v1/quote/AAPL", beforeRequest: { req in
                 req.headers.bearerAuthorization = .init(token: token)
             }, afterResponse: { res async throws in
                 #expect(res.status == .ok)
@@ -311,14 +326,14 @@ struct StockPlanBackendTests {
             var allFeed: [NewsItemResponse] = []
             var limitedFeed: [NewsItemResponse] = []
 
-            try await app.testing().test(.GET, "news/feed?limit=10", beforeRequest: { req in
+            try await app.testing().test(.GET, "v1/news/feed?limit=10", beforeRequest: { req in
                 req.headers.bearerAuthorization = .init(token: token)
             }, afterResponse: { res async throws in
                 #expect(res.status == .ok)
                 allFeed = try res.content.decode([NewsItemResponse].self)
             })
 
-            try await app.testing().test(.GET, "news/feed?limit=1", beforeRequest: { req in
+            try await app.testing().test(.GET, "v1/news/feed?limit=1", beforeRequest: { req in
                 req.headers.bearerAuthorization = .init(token: token)
             }, afterResponse: { res async throws in
                 #expect(res.status == .ok)
@@ -409,7 +424,7 @@ struct StockPlanBackendTests {
             try await news.save(on: app.db)
 
             var response: DashboardResponse?
-            try await app.testing().test(.GET, "dashboard", beforeRequest: { req in
+            try await app.testing().test(.GET, "v1/dashboard", beforeRequest: { req in
                 req.headers.bearerAuthorization = .init(token: token)
             }, afterResponse: { res async throws in
                 #expect(res.status == .ok)
@@ -450,7 +465,7 @@ struct StockPlanBackendTests {
             """
 
             var importResponse: CsvImportCommitResponse?
-            try await app.testing().test(.POST, "brokers/import/csv/commit?provider=ibkr", beforeRequest: { req in
+            try await app.testing().test(.POST, "v1/brokers/import/csv/commit?provider=ibkr", beforeRequest: { req in
                 req.headers.bearerAuthorization = .init(token: token)
                 req.headers.replaceOrAdd(name: .contentType, value: "text/csv")
                 req.body = ByteBufferAllocator().buffer(string: csv)
@@ -463,7 +478,7 @@ struct StockPlanBackendTests {
             #expect(importResponse?.inserted.count == 1)
             #expect(importResponse?.provider == "ibkr")
 
-            try await app.testing().test(.GET, "brokers", beforeRequest: { req in
+            try await app.testing().test(.GET, "v1/brokers", beforeRequest: { req in
                 req.headers.bearerAuthorization = .init(token: token)
             }, afterResponse: { res async throws in
                 #expect(res.status == .ok)
@@ -474,7 +489,7 @@ struct StockPlanBackendTests {
                 #expect(hasIbkrCsv)
             })
 
-            try await app.testing().test(.GET, "stocks", beforeRequest: { req in
+            try await app.testing().test(.GET, "v1/stocks", beforeRequest: { req in
                 req.headers.bearerAuthorization = .init(token: token)
             }, afterResponse: { res async throws in
                 #expect(res.status == .ok)

@@ -3,7 +3,7 @@ import Vapor
 struct UserProfileController: RouteCollection {
     func boot(routes: any RoutesBuilder) throws {
         let protected = routes.grouped(SessionToken.authenticator(), SessionToken.guardMiddleware())
-        let userProfile = protected.grouped("user-profile")
+        let userProfile = protected.grouped("users")
 
         userProfile.get(use: getProfile)
         userProfile.put(use: updateProfile)

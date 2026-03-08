@@ -23,11 +23,23 @@ tags:
   - name: Dashboard
   - name: UserProfile
 paths:
-  /:
+  /health:
+    get:
+      operationId: health
+      tags: [Health]
+      summary: Application health check
+      responses:
+        '200':
+          description: Application is running
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+  /v1:
     get:
       operationId: root
       tags: [Health]
-      summary: Health check root
+      summary: API root
       responses:
         '200':
           description: OK
@@ -35,7 +47,7 @@ paths:
             text/plain:
               schema:
                 type: string
-  /hello:
+  /v1/hello:
     get:
       operationId: hello
       tags: [Health]
@@ -48,7 +60,7 @@ paths:
               schema:
                 type: string
 
-  /auth/register:
+  /v1/auth/register:
     post:
       operationId: authRegister
       tags: [Auth]
@@ -66,7 +78,7 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/AuthResponse'
-  /auth/login:
+  /v1/auth/login:
     post:
       operationId: authLogin
       tags: [Auth]
@@ -84,7 +96,7 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/AuthResponse'
-  /auth/forgot-password:
+  /v1/auth/forgot-password:
     post:
       operationId: authForgotPassword
       tags: [Auth]
@@ -102,7 +114,7 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/AuthForgotPasswordResponse'
-  /auth/resend-reset:
+  /v1/auth/resend-reset:
     post:
       operationId: authResendReset
       tags: [Auth]
@@ -120,7 +132,7 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/AuthForgotPasswordResponse'
-  /auth/reset-password:
+  /v1/auth/reset-password:
     post:
       operationId: authResetPassword
       tags: [Auth]
@@ -134,7 +146,7 @@ paths:
       responses:
         '204':
           description: No Content
-  /auth/refresh:
+  /v1/auth/refresh:
     post:
       operationId: authRefresh
       tags: [Auth]
@@ -152,7 +164,7 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/AuthResponse'
-  /auth/me:
+  /v1/auth/me:
     get:
       operationId: authMe
       tags: [Auth]
@@ -169,7 +181,7 @@ paths:
         '401':
           description: Unauthorized
 
-  /user-profile:
+  /v1/users:
     get:
       operationId: getUserProfile
       tags: [UserProfile]
@@ -229,7 +241,7 @@ paths:
         '401':
           description: Missing or invalid bearer token, or the authenticated user could not be resolved.
 
-  /stocks:
+  /v1/stocks:
     get:
       operationId: listStocks
       tags: [Stocks]
@@ -268,7 +280,7 @@ paths:
                 $ref: '#/components/schemas/StockResponse'
         '401':
           description: Unauthorized
-  /stocks/bulk:
+  /v1/stocks/bulk:
     post:
       operationId: bulkCreateStocks
       tags: [Stocks]
@@ -290,7 +302,7 @@ paths:
                 $ref: '#/components/schemas/BulkStockResponse'
         '401':
           description: Unauthorized
-  /stocks/{stockId}:
+  /v1/stocks/{stockId}:
     parameters:
       - name: stockId
         in: path
@@ -352,7 +364,7 @@ paths:
         '401':
           description: Unauthorized
 
-  /watchlist:
+  /v1/watchlist:
     get:
       operationId: listWatchlist
       tags: [Watchlist]
@@ -391,7 +403,7 @@ paths:
                 $ref: '#/components/schemas/WatchlistItemResponse'
         '401':
           description: Unauthorized
-  /watchlist/{watchlistId}:
+  /v1/watchlist/{watchlistId}:
     parameters:
       - name: watchlistId
         in: path
@@ -413,7 +425,7 @@ paths:
         '401':
           description: Unauthorized
 
-  /research:
+  /v1/research:
     get:
       operationId: listResearch
       tags: [Research]
@@ -458,7 +470,7 @@ paths:
                 $ref: '#/components/schemas/ResearchNoteResponse'
         '401':
           description: Unauthorized
-  /research/{researchId}:
+  /v1/research/{researchId}:
     parameters:
       - name: researchId
         in: path
@@ -520,7 +532,7 @@ paths:
         '401':
           description: Unauthorized
 
-  /targets:
+  /v1/targets:
     get:
       operationId: listTargets
       tags: [Targets]
@@ -559,7 +571,7 @@ paths:
                 $ref: '#/components/schemas/TargetResponse'
         '401':
           description: Unauthorized
-  /targets/{targetId}:
+  /v1/targets/{targetId}:
     parameters:
       - name: targetId
         in: path
@@ -604,7 +616,7 @@ paths:
         '401':
           description: Unauthorized
 
-  /news:
+  /v1/news:
     get:
       operationId: listNews
       tags: [News]
@@ -649,7 +661,7 @@ paths:
                 $ref: '#/components/schemas/NewsItemResponse'
         '401':
           description: Unauthorized
-  /news/feed:
+  /v1/news/feed:
     get:
       operationId: listNewsFeed
       tags: [News]
@@ -674,7 +686,7 @@ paths:
                   $ref: '#/components/schemas/NewsItemResponse'
         '401':
           description: Unauthorized
-  /news/sync:
+  /v1/news/sync:
     post:
       operationId: syncNews
       tags: [News]
@@ -692,7 +704,7 @@ paths:
           description: Unauthorized
         '501':
           description: Not Implemented
-  /news/{newsId}:
+  /v1/news/{newsId}:
     parameters:
       - name: newsId
         in: path
@@ -754,7 +766,7 @@ paths:
         '404':
           description: Not Found
 
-  /quote/batch:
+  /v1/quote/batch:
     get:
       operationId: getQuoteBatch
       tags: [MarketData]
@@ -777,7 +789,7 @@ paths:
                 $ref: '#/components/schemas/QuoteBatchResponse'
         '401':
           description: Unauthorized
-  /quote/{symbol}:
+  /v1/quote/{symbol}:
     parameters:
       - name: symbol
         in: path
@@ -795,7 +807,7 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/QuoteResponse'
-  /history/{symbol}:
+  /v1/history/{symbol}:
     parameters:
       - name: symbol
         in: path
@@ -813,7 +825,7 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HistoryResponse'
-  /search:
+  /v1/search:
     get:
       operationId: searchSymbols
       tags: [MarketData]
@@ -833,7 +845,7 @@ paths:
                 type: array
                 items:
                   $ref: '#/components/schemas/SearchResultResponse'
-  /fx:
+  /v1/fx:
     get:
       operationId: getFxRate
       tags: [MarketData]
@@ -853,7 +865,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/FxRateResponse'
 
-  /dashboard:
+  /v1/dashboard:
     get:
       operationId: dashboardHome
       tags: [Dashboard]
@@ -870,7 +882,7 @@ paths:
         '401':
           description: Unauthorized
 
-  /portfolio/summary:
+  /v1/portfolio/summary:
     get:
       operationId: portfolioSummary
       tags: [Portfolio]
@@ -882,7 +894,7 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/PortfolioSummaryResponse'
-  /portfolio/performance:
+  /v1/portfolio/performance:
     get:
       operationId: portfolioPerformance
       tags: [Portfolio]
@@ -894,7 +906,7 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/PortfolioPerformanceResponse'
-  /transactions:
+  /v1/transactions:
     get:
       operationId: listTransactions
       tags: [Portfolio]
@@ -908,7 +920,7 @@ paths:
                 type: array
                 items:
                   $ref: '#/components/schemas/TransactionResponse'
-  /lots:
+  /v1/lots:
     get:
       operationId: listLots
       tags: [Portfolio]
@@ -922,7 +934,7 @@ paths:
                 type: array
                 items:
                   $ref: '#/components/schemas/LotResponse'
-  /pnl:
+  /v1/pnl:
     get:
       operationId: getPnl
       tags: [Portfolio]
@@ -935,7 +947,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/PnlResponse'
 
-  /brokers:
+  /v1/brokers:
     get:
       operationId: listBrokers
       tags: [Brokers]
@@ -951,7 +963,7 @@ paths:
                 type: array
                 items:
                   $ref: '#/components/schemas/BrokerConnectionResponse'
-  /brokers/{provider}:
+  /v1/brokers/{provider}:
     get:
       operationId: getBroker
       tags: [Brokers]
@@ -971,7 +983,7 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/BrokerConnectionResponse'
-  /brokers/holdings:
+  /v1/brokers/holdings:
     get:
       operationId: listBrokerHoldings
       tags: [Brokers]
@@ -987,7 +999,7 @@ paths:
                 type: array
                 items:
                   $ref: '#/components/schemas/BrokerHoldingResponse'
-  /brokers/import/csv:
+  /v1/brokers/import/csv:
     post:
       operationId: importBrokersCsvPreview
       tags: [Brokers]
@@ -1021,7 +1033,7 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/CsvImportPreviewResponse'
-  /brokers/import/csv/commit:
+  /v1/brokers/import/csv/commit:
     post:
       operationId: importBrokersCsvCommit
       tags: [Brokers]
@@ -1055,7 +1067,7 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/CsvImportCommitResponse'
-  /brokers/ibkr/sync:
+  /v1/brokers/ibkr/sync:
     post:
       operationId: syncIbkr
       tags: [Brokers]
@@ -1068,7 +1080,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/BrokerSyncResponse'
 
-  /statistics/overview:
+  /v1/statistics/overview:
     get:
       operationId: statisticsOverview
       tags: [Statistics]
@@ -1087,7 +1099,7 @@ paths:
         '501':
           description: Not Implemented
 
-  /statistics/imported-stocks:
+  /v1/statistics/imported-stocks:
     get:
       operationId: statisticsImportedStocks
       tags: [Statistics]
@@ -1106,7 +1118,7 @@ paths:
         '501':
           description: Not Implemented
 
-  /statistics/watchlist:
+  /v1/statistics/watchlist:
     get:
       operationId: statisticsWatchlist
       tags: [Statistics]
@@ -1125,7 +1137,7 @@ paths:
         '501':
           description: Not Implemented
 
-  /statistics/looklist:
+  /v1/statistics/looklist:
     get:
       operationId: statisticsLooklist
       tags: [Statistics]
@@ -1144,7 +1156,7 @@ paths:
         '501':
           description: Not Implemented
 
-  /statistics/market:
+  /v1/statistics/market:
     get:
       operationId: statisticsMarket
       tags: [Statistics]
@@ -1163,7 +1175,7 @@ paths:
         '501':
           description: Not Implemented
 
-  /statistics/stocks/scorecard:
+  /v1/statistics/stocks/scorecard:
     get:
       operationId: statisticsStockScorecard
       tags: [Statistics]
@@ -1182,7 +1194,7 @@ paths:
         '501':
           description: Not Implemented
 
-  /statistics/stocks/allocation:
+  /v1/statistics/stocks/allocation:
     get:
       operationId: statisticsStockAllocation
       tags: [Statistics]
@@ -1201,7 +1213,7 @@ paths:
         '501':
           description: Not Implemented
 
-  /statistics/stocks/sector-allocation:
+  /v1/statistics/stocks/sector-allocation:
     get:
       operationId: statisticsSectorAllocation
       tags: [Statistics]
@@ -1220,7 +1232,7 @@ paths:
         '501':
           description: Not Implemented
 
-  /statistics/stocks/calendar-performance:
+  /v1/statistics/stocks/calendar-performance:
     get:
       operationId: statisticsCalendarPerformance
       tags: [Statistics]
@@ -1239,7 +1251,7 @@ paths:
         '501':
           description: Not Implemented
 
-  /statistics/stocks/contribution-analysis:
+  /v1/statistics/stocks/contribution-analysis:
     get:
       operationId: statisticsContributionAnalysis
       tags: [Statistics]
@@ -1258,7 +1270,7 @@ paths:
         '501':
           description: Not Implemented
 
-  /statistics/stocks/winners-losers:
+  /v1/statistics/stocks/winners-losers:
     get:
       operationId: statisticsWinnersLosers
       tags: [Statistics]
@@ -1277,7 +1289,7 @@ paths:
         '501':
           description: Not Implemented
 
-  /statistics/stocks/volatility-snapshot:
+  /v1/statistics/stocks/volatility-snapshot:
     get:
       operationId: statisticsVolatilitySnapshot
       tags: [Statistics]
@@ -1296,7 +1308,7 @@ paths:
         '501':
           description: Not Implemented
 
-  /statistics/stocks/currency-split:
+  /v1/statistics/stocks/currency-split:
     get:
       operationId: statisticsCurrencySplit
       tags: [Statistics]
@@ -1315,7 +1327,7 @@ paths:
         '501':
           description: Not Implemented
 
-  /statistics/stocks/scenario-tracking:
+  /v1/statistics/stocks/scenario-tracking:
     get:
       operationId: statisticsScenarioTracking
       tags: [Statistics]
@@ -1334,7 +1346,7 @@ paths:
         '501':
           description: Not Implemented
 
-  /statistics/stocks/notes-quality:
+  /v1/statistics/stocks/notes-quality:
     get:
       operationId: statisticsNotesQuality
       tags: [Statistics]
@@ -1360,6 +1372,13 @@ components:
       scheme: bearer
       bearerFormat: JWT
   schemas:
+    HealthResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          example: ok
+      required: [status]
     AuthRegisterRequest:
       type: object
       properties:
@@ -1483,7 +1502,7 @@ components:
       required: [id, email]
     GetUserProfileRequest:
       type: object
-      description: Shared contract type retained for compatibility. The HTTP GET /user-profile endpoint does not accept a request body.
+      description: Shared contract type retained for compatibility. The HTTP GET /v1/users endpoint does not accept a request body.
       properties:
         id:
           type: string
@@ -1511,7 +1530,7 @@ components:
       required: [userProfile]
     DeleteUserProfileRequest:
       type: object
-      description: Shared contract type retained for compatibility. The HTTP DELETE /user-profile endpoint does not accept a request body.
+      description: Shared contract type retained for compatibility. The HTTP DELETE /v1/users endpoint does not accept a request body.
       properties:
         id:
           type: string

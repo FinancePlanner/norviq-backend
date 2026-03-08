@@ -48,7 +48,7 @@ struct AuthTests {
         try await withApp { app in
             let registerReq = makeRegisterRequest(email: "newuser@example.com", password: "Password123")
             
-            try await app.testing().test(.POST, "auth/register", beforeRequest: { req in
+            try await app.testing().test(.POST, "v1/auth/register", beforeRequest: { req in
                 try req.content.encode(registerReq)
             }, afterResponse: { res async throws in
                 #expect(res.status == .ok)
@@ -67,14 +67,14 @@ struct AuthTests {
             let registerReq = makeRegisterRequest(email: "duplicate@example.com", password: "Password123")
             
             // First registration should succeed
-            try await app.testing().test(.POST, "auth/register", beforeRequest: { req in
+            try await app.testing().test(.POST, "v1/auth/register", beforeRequest: { req in
                 try req.content.encode(registerReq)
             }, afterResponse: { res async in
                 #expect(res.status == .ok)
             })
             
             // Second registration with same email should fail
-            try await app.testing().test(.POST, "auth/register", beforeRequest: { req in
+            try await app.testing().test(.POST, "v1/auth/register", beforeRequest: { req in
                 try req.content.encode(registerReq)
             }, afterResponse: { res async in
                 #expect(res.status == .conflict)
@@ -87,7 +87,7 @@ struct AuthTests {
         try await withApp { app in
             let registerReq = makeRegisterRequest(email: "invalid-email", password: "Password123")
             
-            try await app.testing().test(.POST, "auth/register", beforeRequest: { req in
+            try await app.testing().test(.POST, "v1/auth/register", beforeRequest: { req in
                 try req.content.encode(registerReq)
             }, afterResponse: { res async in
                 #expect(res.status == .badRequest)
@@ -100,7 +100,7 @@ struct AuthTests {
         try await withApp { app in
             let registerReq = makeRegisterRequest(email: "test@example.com", password: "short")
             
-            try await app.testing().test(.POST, "auth/register", beforeRequest: { req in
+            try await app.testing().test(.POST, "v1/auth/register", beforeRequest: { req in
                 try req.content.encode(registerReq)
             }, afterResponse: { res async in
                 #expect(res.status == .badRequest)
@@ -113,7 +113,7 @@ struct AuthTests {
         try await withApp { app in
             let registerReq = makeRegisterRequest(email: "  TEST@Example.COM  ", password: "Password123")
             
-            try await app.testing().test(.POST, "auth/register", beforeRequest: { req in
+            try await app.testing().test(.POST, "v1/auth/register", beforeRequest: { req in
                 try req.content.encode(registerReq)
             }, afterResponse: { res async in
                 #expect(res.status == .ok)
@@ -121,7 +121,7 @@ struct AuthTests {
             
             // Now try to login with normalized email
             let loginReq = AuthLoginRequest(email: "test@example.com", password: "Password123")
-            try await app.testing().test(.POST, "auth/login", beforeRequest: { req in
+            try await app.testing().test(.POST, "v1/auth/login", beforeRequest: { req in
                 try req.content.encode(loginReq)
             }, afterResponse: { res async in
                 #expect(res.status == .ok)
@@ -137,7 +137,7 @@ struct AuthTests {
             let credentials = makeRegisterRequest(email: "login@example.com", password: "Password123")
             
             // Register first
-            try await app.testing().test(.POST, "auth/register", beforeRequest: { req in
+            try await app.testing().test(.POST, "v1/auth/register", beforeRequest: { req in
                 try req.content.encode(credentials)
             }, afterResponse: { res async in
                 #expect(res.status == .ok)
@@ -145,7 +145,7 @@ struct AuthTests {
             
             // Then login
             let loginReq = AuthLoginRequest(email: "login@example.com", password: "Password123")
-            try await app.testing().test(.POST, "auth/login", beforeRequest: { req in
+            try await app.testing().test(.POST, "v1/auth/login", beforeRequest: { req in
                 try req.content.encode(loginReq)
             }, afterResponse: { res async throws in
                 #expect(res.status == .ok)
@@ -162,7 +162,7 @@ struct AuthTests {
             let registerReq = makeRegisterRequest(email: "wrongpwd@example.com", password: "Password123")
             
             // Register first
-            try await app.testing().test(.POST, "auth/register", beforeRequest: { req in
+            try await app.testing().test(.POST, "v1/auth/register", beforeRequest: { req in
                 try req.content.encode(registerReq)
             }, afterResponse: { res async in
                 #expect(res.status == .ok)
@@ -170,7 +170,7 @@ struct AuthTests {
             
             // Login with wrong password
             let loginReq = AuthLoginRequest(email: "wrongpwd@example.com", password: "WrongPassword")
-            try await app.testing().test(.POST, "auth/login", beforeRequest: { req in
+            try await app.testing().test(.POST, "v1/auth/login", beforeRequest: { req in
                 try req.content.encode(loginReq)
             }, afterResponse: { res async in
                 #expect(res.status == .unauthorized)
@@ -183,7 +183,7 @@ struct AuthTests {
         try await withApp { app in
             let loginReq = AuthLoginRequest(email: "nonexistent@example.com", password: "Password123")
             
-            try await app.testing().test(.POST, "auth/login", beforeRequest: { req in
+            try await app.testing().test(.POST, "v1/auth/login", beforeRequest: { req in
                 try req.content.encode(loginReq)
             }, afterResponse: { res async in
                 #expect(res.status == .unauthorized)
@@ -200,7 +200,7 @@ struct AuthTests {
             var authToken: String = ""
             
             // Register to get a token
-            try await app.testing().test(.POST, "auth/register", beforeRequest: { req in
+            try await app.testing().test(.POST, "v1/auth/register", beforeRequest: { req in
                 try req.content.encode(registerReq)
             }, afterResponse: { res async throws in
                 #expect(res.status == .ok)
@@ -209,7 +209,7 @@ struct AuthTests {
             })
             
             // Get current user
-            try await app.testing().test(.GET, "auth/me", beforeRequest: { req in
+            try await app.testing().test(.GET, "v1/auth/me", beforeRequest: { req in
                 req.headers.bearerAuthorization = .init(token: authToken)
             }, afterResponse: { res async throws in
                 #expect(res.status == .ok)
@@ -222,7 +222,7 @@ struct AuthTests {
     @Test("Get current user fails without token")
     func getCurrentUserNoToken() async throws {
         try await withApp { app in
-            try await app.testing().test(.GET, "auth/me", afterResponse: { res async in
+            try await app.testing().test(.GET, "v1/auth/me", afterResponse: { res async in
                 #expect(res.status == .unauthorized)
             })
         }
@@ -237,7 +237,7 @@ struct AuthTests {
             var refreshToken: String = ""
             
             // Register to get refresh token
-            try await app.testing().test(.POST, "auth/register", beforeRequest: { req in
+            try await app.testing().test(.POST, "v1/auth/register", beforeRequest: { req in
                 try req.content.encode(registerReq)
             }, afterResponse: { res async throws in
                 #expect(res.status == .ok)
@@ -247,7 +247,7 @@ struct AuthTests {
             
             // Use refresh token to get new tokens
             let refreshReq = AuthRefreshRequest(refreshToken: refreshToken)
-            try await app.testing().test(.POST, "auth/refresh", beforeRequest: { req in
+            try await app.testing().test(.POST, "v1/auth/refresh", beforeRequest: { req in
                 try req.content.encode(refreshReq)
             }, afterResponse: { res async throws in
                 #expect(res.status == .ok)
@@ -265,7 +265,7 @@ struct AuthTests {
         try await withApp { app in
             let refreshReq = AuthRefreshRequest(refreshToken: "invalid-refresh-token")
             
-            try await app.testing().test(.POST, "auth/refresh", beforeRequest: { req in
+            try await app.testing().test(.POST, "v1/auth/refresh", beforeRequest: { req in
                 try req.content.encode(refreshReq)
             }, afterResponse: { res async in
                 #expect(res.status == .unauthorized)
@@ -280,7 +280,7 @@ struct AuthTests {
             var refreshToken: String = ""
             
             // Register to get refresh token
-            try await app.testing().test(.POST, "auth/register", beforeRequest: { req in
+            try await app.testing().test(.POST, "v1/auth/register", beforeRequest: { req in
                 try req.content.encode(registerReq)
             }, afterResponse: { res async throws in
                 let response = try res.content.decode(AuthResponse.self)
@@ -289,14 +289,14 @@ struct AuthTests {
             
             // First refresh should succeed
             let refreshReq = AuthRefreshRequest(refreshToken: refreshToken)
-            try await app.testing().test(.POST, "auth/refresh", beforeRequest: { req in
+            try await app.testing().test(.POST, "v1/auth/refresh", beforeRequest: { req in
                 try req.content.encode(refreshReq)
             }, afterResponse: { res async in
                 #expect(res.status == .ok)
             })
             
             // Second refresh with same token should fail (token was revoked)
-            try await app.testing().test(.POST, "auth/refresh", beforeRequest: { req in
+            try await app.testing().test(.POST, "v1/auth/refresh", beforeRequest: { req in
                 try req.content.encode(refreshReq)
             }, afterResponse: { res async in
                 #expect(res.status == .unauthorized)
@@ -311,7 +311,7 @@ struct AuthTests {
         try await withApp { app in
             // Register a user first
             let registerReq = makeRegisterRequest(email: "forgot@example.com", password: "Password123")
-            try await app.testing().test(.POST, "auth/register", beforeRequest: { req in
+            try await app.testing().test(.POST, "v1/auth/register", beforeRequest: { req in
                 try req.content.encode(registerReq)
             }, afterResponse: { res async in
                 #expect(res.status == .ok)
@@ -319,7 +319,7 @@ struct AuthTests {
             
             // Request password reset
             let forgotReq = AuthForgotPasswordRequest(email: "forgot@example.com")
-            try await app.testing().test(.POST, "auth/forgot-password", beforeRequest: { req in
+            try await app.testing().test(.POST, "v1/auth/forgot-password", beforeRequest: { req in
                 try req.content.encode(forgotReq)
             }, afterResponse: { res async throws in
                 #expect(res.status == .ok)
@@ -334,7 +334,7 @@ struct AuthTests {
         try await withApp { app in
             let forgotReq = AuthForgotPasswordRequest(email: "nonexistent@example.com")
             
-            try await app.testing().test(.POST, "auth/forgot-password", beforeRequest: { req in
+            try await app.testing().test(.POST, "v1/auth/forgot-password", beforeRequest: { req in
                 try req.content.encode(forgotReq)
             }, afterResponse: { res async throws in
                 #expect(res.status == .ok)
@@ -350,7 +350,7 @@ struct AuthTests {
         try await withApp { app in
             // Register a user first
             let registerReq = makeRegisterRequest(email: "resetinvalid@example.com", password: "Password123")
-            try await app.testing().test(.POST, "auth/register", beforeRequest: { req in
+            try await app.testing().test(.POST, "v1/auth/register", beforeRequest: { req in
                 try req.content.encode(registerReq)
             }, afterResponse: { res async in
                 #expect(res.status == .ok)
@@ -362,7 +362,7 @@ struct AuthTests {
                 code: "000000",
                 newPassword: "NewPassword123"
             )
-            try await app.testing().test(.POST, "auth/reset-password", beforeRequest: { req in
+            try await app.testing().test(.POST, "v1/auth/reset-password", beforeRequest: { req in
                 try req.content.encode(resetReq)
             }, afterResponse: { res async in
                 #expect(res.status == .unauthorized)

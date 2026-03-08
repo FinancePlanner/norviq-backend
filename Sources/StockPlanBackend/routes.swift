@@ -2,26 +2,36 @@ import Fluent
 import Vapor
 import Foundation
 
+private struct HealthResponse: Content {
+    let status: String
+}
+
 func routes(_ app: Application) throws {
-    app.get { req async in
+    let api = app.grouped("v1")
+
+    app.get("health") { _ async -> HealthResponse in
+        HealthResponse(status: "ok")
+    }
+
+    api.get { req async in
         "It works!"
     }
 
-    app.get("hello") { req async -> String in
+    api.get("hello") { req async -> String in
         "Hello, world!"
     }
 
     try registerOpenAPIDocsRoutes(app)
 
-    try app.register(collection: AuthController())
-    try app.register(collection: StockController())
-    try app.register(collection: MarketDataController())
-    try app.register(collection: PortfolioController())
-    try app.register(collection: BrokerController())
-    try app.register(collection: StatisticsController())
-    try app.register(collection: NewsController())
-    try app.register(collection: DashboardController())
-    try app.register(collection: UserProfileController())
+    try api.register(collection: AuthController())
+    try api.register(collection: StockController())
+    try api.register(collection: MarketDataController())
+    try api.register(collection: PortfolioController())
+    try api.register(collection: BrokerController())
+    try api.register(collection: StatisticsController())
+    try api.register(collection: NewsController())
+    try api.register(collection: DashboardController())
+    try api.register(collection: UserProfileController())
 }
 
 private func registerOpenAPIDocsRoutes(_ app: Application) throws {

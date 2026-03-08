@@ -49,7 +49,7 @@ struct UserProfileTests {
         let request = makeRegisterRequest(email: email, username: username)
         var response: AuthResponse?
 
-        try await app.testing().test(.POST, "auth/register", beforeRequest: { req in
+        try await app.testing().test(.POST, "v1/auth/register", beforeRequest: { req in
             try req.content.encode(request)
         }, afterResponse: { res async throws in
             #expect(res.status == .ok)
@@ -64,7 +64,7 @@ struct UserProfileTests {
         try await withApp { app in
             let auth = try await registerUser(on: app, email: "profile@example.com", username: "profile_user")
 
-            try await app.testing().test(.GET, "user-profile", beforeRequest: { req in
+            try await app.testing().test(.GET, "v1/users", beforeRequest: { req in
                 req.headers.bearerAuthorization = .init(token: auth.token)
             }, afterResponse: { res async throws in
                 #expect(res.status == .ok)
@@ -95,7 +95,7 @@ struct UserProfileTests {
                 )
             )
 
-            try await app.testing().test(.PUT, "user-profile", beforeRequest: { req in
+            try await app.testing().test(.PUT, "v1/users", beforeRequest: { req in
                 req.headers.bearerAuthorization = .init(token: auth.token)
                 try req.content.encode(payload)
             }, afterResponse: { res async throws in
@@ -117,7 +117,7 @@ struct UserProfileTests {
         try await withApp { app in
             let auth = try await registerUser(on: app, email: "delete-profile@example.com", username: "delete_user")
 
-            try await app.testing().test(.DELETE, "user-profile", beforeRequest: { req in
+            try await app.testing().test(.DELETE, "v1/users", beforeRequest: { req in
                 req.headers.bearerAuthorization = .init(token: auth.token)
             }, afterResponse: { res async throws in
                 #expect(res.status == .ok)
@@ -128,7 +128,7 @@ struct UserProfileTests {
             let deletedUser = try await User.find(auth.userId, on: app.db)
             #expect(deletedUser == nil)
 
-            try await app.testing().test(.GET, "user-profile", beforeRequest: { req in
+            try await app.testing().test(.GET, "v1/users", beforeRequest: { req in
                 req.headers.bearerAuthorization = .init(token: auth.token)
             }, afterResponse: { res async in
                 #expect(res.status == .unauthorized)
