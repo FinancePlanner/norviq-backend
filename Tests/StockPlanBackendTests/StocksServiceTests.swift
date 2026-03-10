@@ -40,6 +40,27 @@ struct StockServiceTests {
             symbol: symbol, shares: shares, buyPrice: buyPrice, buyDate: buyDate, notes: notes)
     }
 
+    private func makeValuationPayload(
+        symbol: String = "AAPL",
+        bearLow: Double = 10,
+        bearHigh: Double = 15,
+        baseLow: Double = 16,
+        baseHigh: Double = 22,
+        bullLow: Double = 23,
+        bullHigh: Double = 30,
+        rationale: String? = nil,
+        targetDate: String? = "2026-12-31"
+    ) -> StockValuationRequest {
+        StockValuationRequest(
+            symbol: symbol,
+            bearCase: PriceRange(low: bearLow, high: bearHigh),
+            baseCase: PriceRange(low: baseLow, high: baseHigh),
+            bullCase: PriceRange(low: bullLow, high: bullHigh),
+            rationale: rationale,
+            targetDate: targetDate
+        )
+    }
+
     @Test("create() returns StockResponse and persists")
     func createReturnsResponse() async throws {
         try await withApp { app in
@@ -217,6 +238,72 @@ struct StockServiceTests {
             #expect(response.created == 0)
             #expect(response.failed == 0)
             #expect(response.results.isEmpty)
+        }
+    }
+
+    @Test("createValuation() requires an existing stock and round-trips through get/update")
+    func valuationLifecycle() async throws {
+        try await withApp { app in
+            let user = try await createUser(email: "service-valuation@example.com", on: app.db)
+            let userId = try user.requireID()
+
+            let repo = DatabaseStocksRepository()
+            _ = try await repo.create(
+                payload: makePayload(symbol: "AAPL", buyDate: "2024-03-04"),
+                userId: userId,
+                on: app.db
+            )
+
+            let service = StockServiceImpl(repo: repo)
+            let created = try await service.createValuation(
+                symbol: "aapl",
+                payload: makeValuationPayload(symbol: "AAPL", rationale: "  original thesis  "),
+                userId: userId,
+                on: app.db
+            )
+            #expect(created.symbol == "AAPL")
+            #expect(created.rationale == "original thesis")
+
+            let fetched = try await service.getValuation(symbol: "AAPL", userId: userId, on: app.db)
+            #expect(fetched.baseCase.high == 22)
+
+            let updated = try await service.updateValuation(
+                symbol: "AAPL",
+                payload: makeValuationPayload(symbol: "AAPL", baseHigh: 28, bullHigh: 35),
+                userId: userId,
+                on: app.db
+            )
+            #expect(updated.baseCase.high == 28)
+            #expect(updated.bullCase.high == 35)
+        }
+    }
+
+    @Test("createValuation() rejects mismatched route and body symbol")
+    func valuationRejectsSymbolMismatch() async throws {
+        try await withApp { app in
+            let user = try await createUser(email: "service-valuation-mismatch@example.com", on: app.db)
+            let userId = try user.requireID()
+
+            let repo = DatabaseStocksRepository()
+            _ = try await repo.create(
+                payload: makePayload(symbol: "AAPL", buyDate: "2024-03-04"),
+                userId: userId,
+                on: app.db
+            )
+
+            let service = StockServiceImpl(repo: repo)
+
+            do {
+                _ = try await service.createValuation(
+                    symbol: "AAPL",
+                    payload: makeValuationPayload(symbol: "MSFT"),
+                    userId: userId,
+                    on: app.db
+                )
+                #expect(Bool(false), "Expected badRequest for symbol mismatch")
+            } catch let abort as Abort {
+                #expect(abort.status == .badRequest)
+            }
         }
     }
 }

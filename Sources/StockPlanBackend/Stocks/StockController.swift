@@ -10,6 +10,11 @@ struct StockController: RouteCollection {
         stocks.get(use: listStocks)
         stocks.post(use: createStock)
         stocks.post("bulk", use: bulkCreateStocks)
+        stocks.group("symbol", ":symbol", "valuation") { valuation in
+            valuation.get(use: getStockValuation)
+            valuation.post(use: createStockValuation)
+            valuation.put(use: updateStockValuation)
+        }
         stocks.group(":stockId") { stock in
             stock.get(use: getStock)
             stock.put(use: updateStock)
@@ -93,6 +98,46 @@ struct StockController: RouteCollection {
         try await req.application.stocksService.delete(
             id: stockId, userId: session.userId, on: req.db)
         return .noContent
+    }
+
+    @Sendable
+    func getStockValuation(req: Request) async throws -> StockValuationRequest {
+        let session = try req.auth.require(SessionToken.self)
+        let symbol = try requireStringParameter(req, name: "symbol", reason: "Invalid stock symbol")
+        return try await req.application.stocksService.getValuation(
+            symbol: symbol,
+            userId: session.userId,
+            on: req.db
+        )
+    }
+
+    @Sendable
+    func createStockValuation(req: Request) async throws -> Response {
+        let session = try req.auth.require(SessionToken.self)
+        let symbol = try requireStringParameter(req, name: "symbol", reason: "Invalid stock symbol")
+        let payload = try req.content.decode(StockValuationRequest.self)
+        let created = try await req.application.stocksService.createValuation(
+            symbol: symbol,
+            payload: payload,
+            userId: session.userId,
+            on: req.db
+        )
+        let res = Response(status: .created)
+        try res.content.encode(created)
+        return res
+    }
+
+    @Sendable
+    func updateStockValuation(req: Request) async throws -> StockValuationRequest {
+        let session = try req.auth.require(SessionToken.self)
+        let symbol = try requireStringParameter(req, name: "symbol", reason: "Invalid stock symbol")
+        let payload = try req.content.decode(StockValuationRequest.self)
+        return try await req.application.stocksService.updateValuation(
+            symbol: symbol,
+            payload: payload,
+            userId: session.userId,
+            on: req.db
+        )
     }
 
     @Sendable
@@ -341,6 +386,17 @@ struct StockController: RouteCollection {
             throw Abort(.badRequest, reason: reason)
         }
         return value
+    }
+
+    private func requireStringParameter(_ req: Request, name: String, reason: String) throws -> String {
+        guard let raw = req.parameters.get(name) else {
+            throw Abort(.badRequest, reason: reason)
+        }
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            throw Abort(.badRequest, reason: reason)
+        }
+        return trimmed
     }
 
     private func normalizeSymbol(_ raw: String) throws -> String {

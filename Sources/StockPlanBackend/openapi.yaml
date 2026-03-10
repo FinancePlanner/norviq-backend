@@ -241,6 +241,100 @@ paths:
         '401':
           description: Missing or invalid bearer token, or the authenticated user could not be resolved.
 
+  /v1/users/{id}:
+    get:
+      operationId: getUserProfileByID
+      tags: [UserProfile]
+      summary: Get a user profile by id
+      description: Returns the authenticated user's profile when the path id matches the bearer token user id. This route is reserved for future role-based access expansion.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: User identifier.
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: The requested user profile.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GetUserProfileResponse'
+        '400':
+          description: Invalid user id.
+        '401':
+          description: Missing or invalid bearer token, or the authenticated user could not be resolved.
+        '403':
+          description: The authenticated user is not allowed to access another user's profile.
+    put:
+      operationId: updateUserProfileByID
+      tags: [UserProfile]
+      summary: Update a user profile by id
+      description: Updates the authenticated user's profile when the path id matches the bearer token user id. The `userProfile.id` value must also match that same user id.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: User identifier.
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateUserProfileRequest'
+      responses:
+        '200':
+          description: The updated user profile.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UpdateUserProfileResponse'
+        '400':
+          description: Invalid user id, invalid payload, or a profile id mismatch.
+        '401':
+          description: Missing or invalid bearer token, or the authenticated user could not be resolved.
+        '403':
+          description: The authenticated user is not allowed to update another user's profile.
+        '409':
+          description: The requested email or username is already registered to another user.
+    delete:
+      operationId: deleteUserProfileByID
+      tags: [UserProfile]
+      summary: Delete a user account by id
+      description: Deletes the authenticated user's account when the path id matches the bearer token user id. This route is reserved for future role-based access expansion.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: User identifier.
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Confirmation that the requested user account was deleted.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeleteUserProfileResponse'
+        '400':
+          description: Invalid user id.
+        '401':
+          description: Missing or invalid bearer token, or the authenticated user could not be resolved.
+        '403':
+          description: The authenticated user is not allowed to delete another user's profile.
+
   /v1/stocks:
     get:
       operationId: listStocks
@@ -278,6 +372,82 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/StockResponse'
+        '401':
+          description: Unauthorized
+  /v1/stocks/symbol/{symbol}/valuation:
+    parameters:
+      - name: symbol
+        in: path
+        required: true
+        schema:
+          type: string
+    get:
+      operationId: getStockValuation
+      tags: [Stocks]
+      summary: Get the bear, base, and bull valuation ranges for a stock by symbol
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StockValuationRequest'
+        '404':
+          description: Stock or valuation not found
+        '401':
+          description: Unauthorized
+    post:
+      operationId: createStockValuation
+      tags: [Stocks]
+      summary: Create valuation ranges for a stock by symbol
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/StockValuationRequest'
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StockValuationRequest'
+        '400':
+          description: Invalid symbol, targetDate, or price range
+        '404':
+          description: Stock not found
+        '409':
+          description: Valuation already exists
+        '401':
+          description: Unauthorized
+    put:
+      operationId: updateStockValuation
+      tags: [Stocks]
+      summary: Update valuation ranges for a stock by symbol
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/StockValuationRequest'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StockValuationRequest'
+        '400':
+          description: Invalid symbol, targetDate, or price range
+        '404':
+          description: Stock or valuation not found
         '401':
           description: Unauthorized
   /v1/stocks/bulk:
@@ -547,7 +717,7 @@ paths:
               schema:
                 type: array
                 items:
-                  $ref: '#/components/schemas/TargetResponse'
+                  $ref: '#/components/schemas/ScenarioTargetResponse'
         '401':
           description: Unauthorized
     post:
@@ -561,14 +731,14 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/TargetRequest'
+              $ref: '#/components/schemas/ScenarioTargetRequest'
       responses:
-        '200':
-          description: OK
+        '201':
+          description: Created
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/TargetResponse'
+                $ref: '#/components/schemas/ScenarioTargetResponse'
         '401':
           description: Unauthorized
   /v1/targets/{targetId}:
@@ -590,14 +760,14 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/TargetRequest'
+              $ref: '#/components/schemas/ScenarioTargetRequest'
       responses:
         '200':
           description: OK
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/TargetResponse'
+                $ref: '#/components/schemas/ScenarioTargetResponse'
         '404':
           description: Not Found
         '401':
@@ -1615,6 +1785,41 @@ components:
           items:
             $ref: '#/components/schemas/BulkStockResultItem'
       required: [created, failed, results]
+    PriceRange:
+      type: object
+      properties:
+        low:
+          type: number
+          format: double
+          example: 10
+        high:
+          type: number
+          format: double
+          example: 15
+      required: [low, high]
+    StockValuationRequest:
+      type: object
+      properties:
+        symbol:
+          type: string
+          example: AAPL
+        bearCase:
+          $ref: '#/components/schemas/PriceRange'
+        baseCase:
+          $ref: '#/components/schemas/PriceRange'
+        bullCase:
+          $ref: '#/components/schemas/PriceRange'
+        rationale:
+          type: string
+          example: Downside assumes weaker demand and margin compression.
+        targetDate:
+          type: string
+          format: date
+          example: 2026-12-31
+      required: [symbol, bearCase, baseCase, bullCase]
+    ValuationScenario:
+      type: string
+      enum: [bear, base, bull]
 
     WatchlistItemRequest:
       type: object
@@ -1672,13 +1877,19 @@ components:
             type: string
       required: [id, symbol, thesis]
 
-    TargetRequest:
+    ScenarioTargetRequest:
       type: object
       properties:
         symbol:
           type: string
         scenario:
-          type: string
+          $ref: '#/components/schemas/ValuationScenario'
+        lowPrice:
+          type: number
+          format: double
+        highPrice:
+          type: number
+          format: double
         targetPrice:
           type: number
           format: double
@@ -1687,8 +1898,8 @@ components:
           format: date
         rationale:
           type: string
-      required: [symbol, scenario, targetPrice]
-    TargetResponse:
+      required: [symbol, scenario, lowPrice, highPrice, targetPrice]
+    ScenarioTargetResponse:
       type: object
       properties:
         id:

@@ -26,3 +26,9 @@ logs:
 
 stop:
 	$(COMPOSE) down --remove-orphans
+
+update-all:
+	swift package update
+
+update-shared:
+	swift package update financeshared

@@ -71,6 +71,27 @@ struct StockPlanBackendTests {
         )
     }
 
+    private func makeValuationPayload(
+        symbol: String = "AAPL",
+        bearLow: Double = 10,
+        bearHigh: Double = 15,
+        baseLow: Double = 16,
+        baseHigh: Double = 22,
+        bullLow: Double = 23,
+        bullHigh: Double = 30,
+        rationale: String? = nil,
+        targetDate: String? = "2026-12-31"
+    ) -> StockValuationRequest {
+        StockValuationRequest(
+            symbol: symbol,
+            bearCase: PriceRange(low: bearLow, high: bearHigh),
+            baseCase: PriceRange(low: baseLow, high: baseHigh),
+            bullCase: PriceRange(low: bullLow, high: bullHigh),
+            rationale: rationale,
+            targetDate: targetDate
+        )
+    }
+
     @Test("Test Hello World Route")
     func helloWorld() async throws {
         try await withApp { app in
@@ -88,6 +109,61 @@ struct StockPlanBackendTests {
                 #expect(res.status == .ok)
                 let body = try res.content.decode(TestHealthResponse.self)
                 #expect(body.status == "ok")
+            })
+        }
+    }
+
+    @Test("Stock valuation endpoints create, fetch, and update by symbol")
+    func stockValuationLifecycle() async throws {
+        try await withApp { app in
+            let (token, _) = try await registerTestUser(app: app)
+
+            try await app.testing().test(.POST, "v1/stocks", beforeRequest: { req in
+                req.headers.bearerAuthorization = .init(token: token)
+                try req.content.encode(
+                    StockRequest(
+                        symbol: "AAPL",
+                        shares: 2,
+                        buyPrice: 100,
+                        buyDate: "2024-01-01",
+                        notes: nil
+                    )
+                )
+            }, afterResponse: { res async in
+                #expect(res.status == .created)
+            })
+
+            try await app.testing().test(.POST, "v1/stocks/symbol/AAPL/valuation", beforeRequest: { req in
+                req.headers.bearerAuthorization = .init(token: token)
+                try req.content.encode(
+                    makeValuationPayload(symbol: "AAPL", rationale: "original thesis")
+                )
+            }, afterResponse: { res async throws in
+                #expect(res.status == .created)
+                let body = try res.content.decode(StockValuationRequest.self)
+                #expect(body.symbol == "AAPL")
+                #expect(body.bearCase.low == 10)
+            })
+
+            try await app.testing().test(.GET, "v1/stocks/symbol/aapl/valuation", beforeRequest: { req in
+                req.headers.bearerAuthorization = .init(token: token)
+            }, afterResponse: { res async throws in
+                #expect(res.status == .ok)
+                let body = try res.content.decode(StockValuationRequest.self)
+                #expect(body.baseCase.high == 22)
+                #expect(body.rationale == "original thesis")
+            })
+
+            try await app.testing().test(.PUT, "v1/stocks/symbol/AAPL/valuation", beforeRequest: { req in
+                req.headers.bearerAuthorization = .init(token: token)
+                try req.content.encode(
+                    makeValuationPayload(symbol: "AAPL", baseHigh: 29, bullHigh: 36)
+                )
+            }, afterResponse: { res async throws in
+                #expect(res.status == .ok)
+                let body = try res.content.decode(StockValuationRequest.self)
+                #expect(body.baseCase.high == 29)
+                #expect(body.bullCase.high == 36)
             })
         }
     }

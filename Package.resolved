@@ -1,5 +1,5 @@
 {
-  "originHash" : "d3321a99c29fc7f83b1f8601e7a96362616f4b071599dfe5061e418f5372e5e4",
+  "originHash" : "370f1f01a4114403c1a387d310156c06e7b46bcf7c8f1d69036fb62b082c87b7",
   "pins" : [
     {
       "identity" : "async-http-client",
@@ -33,8 +33,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/FinancePlanner/FinanceShared.git",
       "state" : {
-        "revision" : "795b1f3fb5d3ee2f4f1f0a9d36137603bdb881d8",
-        "version" : "0.1.4"
+        "revision" : "36e6691c6d03175ff8792d14f22905846341c91c",
+        "version" : "0.1.6"
       }
     },
     {
@@ -240,8 +240,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/apple/swift-distributed-tracing.git",
       "state" : {
-        "revision" : "e109d8b5308d0e05201d9a1dd1c475446a946a11",
-        "version" : "1.4.0"
+        "revision" : "dc4030184203ffafbb2ec614352487235d747fe0",
+        "version" : "1.4.1"
       }
     },
     {

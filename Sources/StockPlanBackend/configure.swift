@@ -95,6 +95,7 @@ public func configure(_ app: Application) async throws {
     app.migrations.add(CreateBrokerConnection())
     app.migrations.add(CreateNewsItem())
     app.migrations.add(AddUserScopedQueryIndexes())
+    app.migrations.add(CreateStockValuation())
 
     // register routes
     try routes(app)

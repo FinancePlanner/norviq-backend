@@ -7,8 +7,8 @@ extension WatchlistItemRequest: @retroactive Content {}
 extension WatchlistItemResponse: @retroactive Content {}
 extension ResearchNoteRequest: @retroactive Content {}
 extension ResearchNoteResponse: @retroactive Content {}
-extension TargetRequest: @retroactive Content {}
-extension TargetResponse: @retroactive Content {}
+extension PriceRange: @retroactive Content {}
+extension StockValuationRequest: @retroactive Content {}
 extension BulkStockRequest: @retroactive Content {}
 extension BulkStockResultItem: @retroactive Content {}
 extension BulkStockResponse: @retroactive Content {}

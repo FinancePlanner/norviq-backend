@@ -38,6 +38,27 @@ struct StocksRepositoryTests {
         StockRequest(symbol: symbol, shares: shares, buyPrice: buyPrice, buyDate: buyDate, notes: notes)
     }
 
+    private func makeValuationPayload(
+        symbol: String = "AAPL",
+        bearLow: Double = 10,
+        bearHigh: Double = 15,
+        baseLow: Double = 16,
+        baseHigh: Double = 22,
+        bullLow: Double = 23,
+        bullHigh: Double = 30,
+        rationale: String? = nil,
+        targetDate: String? = "2026-12-31"
+    ) -> StockValuationRequest {
+        StockValuationRequest(
+            symbol: symbol,
+            bearCase: PriceRange(low: bearLow, high: bearHigh),
+            baseCase: PriceRange(low: baseLow, high: baseHigh),
+            bullCase: PriceRange(low: bullLow, high: bullHigh),
+            rationale: rationale,
+            targetDate: targetDate
+        )
+    }
+
     private func formatISODateOnly(_ date: Date) -> String {
         let formatter = DateFormatter()
         formatter.calendar = Calendar(identifier: .gregorian)
@@ -183,6 +204,67 @@ struct StocksRepositoryTests {
 
             let found = try await repo.find(id: stockId, userId: user1Id, on: app.db)
             #expect(found == nil)
+        }
+    }
+
+    @Test("createValuation() normalizes symbol and persists")
+    func createValuationPersists() async throws {
+        try await withApp { app in
+            let repo = DatabaseStocksRepository()
+            let user = try await createUser(email: "repo-valuation-create@example.com", on: app.db)
+            let userId = try user.requireID()
+
+            let payload = makeValuationPayload(
+                symbol: "  aapl  ",
+                rationale: "  valuation thesis  ",
+                targetDate: "2027-01-15"
+            )
+            let created = try await repo.createValuation(payload: payload, userId: userId, on: app.db)
+
+            #expect(created.userId == userId)
+            #expect(created.symbol == "AAPL")
+            #expect(created.bearLow == 10)
+            #expect(created.baseHigh == 22)
+            #expect(created.bullHigh == 30)
+            #expect(created.rationale == "valuation thesis")
+            #expect(formatISODateOnly(try #require(created.targetDate)) == "2027-01-15")
+
+            let fetched = try await repo.findValuation(symbol: "aapl", userId: userId, on: app.db)
+            #expect(fetched?.symbol == "AAPL")
+        }
+    }
+
+    @Test("updateValuation() is user scoped")
+    func updateValuationIsUserScoped() async throws {
+        try await withApp { app in
+            let repo = DatabaseStocksRepository()
+            let user1 = try await createUser(email: "repo-valuation-update-1@example.com", on: app.db)
+            let user2 = try await createUser(email: "repo-valuation-update-2@example.com", on: app.db)
+            let user1Id = try user1.requireID()
+            let user2Id = try user2.requireID()
+
+            _ = try await repo.createValuation(
+                payload: makeValuationPayload(symbol: "MSFT"),
+                userId: user1Id,
+                on: app.db
+            )
+
+            let updatedByOther = try await repo.updateValuation(
+                symbol: "MSFT",
+                payload: makeValuationPayload(symbol: "MSFT", bullHigh: 45),
+                userId: user2Id,
+                on: app.db
+            )
+            #expect(updatedByOther == nil)
+
+            let updatedByOwner = try await repo.updateValuation(
+                symbol: "MSFT",
+                payload: makeValuationPayload(symbol: "MSFT", bullHigh: 45, rationale: "updated"),
+                userId: user1Id,
+                on: app.db
+            )
+            #expect(updatedByOwner?.bullHigh == 45)
+            #expect(updatedByOwner?.rationale == "updated")
         }
     }
 }
