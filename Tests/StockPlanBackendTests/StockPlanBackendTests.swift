@@ -168,6 +168,56 @@ struct StockPlanBackendTests {
         }
     }
 
+    @Test("Market compatibility endpoints return stock details, history, and news")
+    func marketCompatibilityEndpoints() async throws {
+        try await withApp { app in
+            let state = TestMarketProviderState()
+            app.marketDataService = makeTestMarketService(state: state)
+            let (token, userId) = try await registerTestUser(app: app)
+
+            let news = NewsItem(
+                userId: userId,
+                symbol: "ZETA",
+                headline: "ZETA wins new contract",
+                source: "Example Wire",
+                url: "https://example.com/zeta",
+                summary: "Summary",
+                publishedAt: Date()
+            )
+            try await news.save(on: app.db)
+
+            try await app.testing().test(.GET, "v1/market/details?symbol=ZETA", beforeRequest: { req in
+                req.headers.bearerAuthorization = .init(token: token)
+            }, afterResponse: { res async throws in
+                #expect(res.status == .ok)
+                let body = try res.content.decode(StockDetailsResponse.self)
+                #expect(body.symbol == "ZETA")
+                #expect(body.company == "ZETA Inc")
+                #expect(body.latestPrice == 101.25)
+                #expect(body.changePercent > 0)
+            })
+
+            try await app.testing().test(.GET, "v1/market/history?symbol=ZETA", beforeRequest: { req in
+                req.headers.bearerAuthorization = .init(token: token)
+            }, afterResponse: { res async throws in
+                #expect(res.status == .ok)
+                let body = try res.content.decode([StockHistory].self)
+                #expect(body.count == 1)
+                #expect(body.first?.close == 101)
+            })
+
+            try await app.testing().test(.GET, "v1/market/news?symbol=ZETA", beforeRequest: { req in
+                req.headers.bearerAuthorization = .init(token: token)
+            }, afterResponse: { res async throws in
+                #expect(res.status == .ok)
+                let body = try res.content.decode([StockNews].self)
+                #expect(body.count == 1)
+                #expect(body.first?.title == "ZETA wins new contract")
+                #expect(body.first?.url == "https://example.com/zeta")
+            })
+        }
+    }
+
     @Test("Market quote endpoint requires authentication")
     func quoteRequiresAuth() async throws {
         try await withApp { app in

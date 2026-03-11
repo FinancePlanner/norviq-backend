@@ -1,5 +1,12 @@
 import Vapor
 
+struct StockDetailsResponse: Content {
+    let symbol: String
+    let company: String
+    let latestPrice: Double
+    let changePercent: Double
+}
+
 struct QuoteResponse: Content {
     let symbol: String
     let price: Double

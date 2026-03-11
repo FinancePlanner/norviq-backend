@@ -120,6 +120,8 @@ git push origin 0.1.0
 
 ## API Endpoints
 
+All API routes are versioned under `/v1`.
+
 All data endpoints require authentication. Get a token from auth endpoints and send:
 - `Authorization: Bearer <token>`
 
@@ -161,10 +163,13 @@ All data endpoints require authentication. Get a token from auth endpoints and s
 - `POST /brokers/ibkr/sync` - Trigger an IBKR sync run (placeholder for broker API phase)
 
 ### Market Data
-- `GET /history/:symbol` - Fetch historical prices (5/10 year time-series)
-- `GET /quote/:symbol` - Get current price for a stock symbol
-- `GET /quote/batch?symbols=AAPL,MSFT,...` - Fetch multiple quotes in one call
-- `GET /search?q=:query` - Search for stock symbols/companies
+- `GET /v1/market/details?symbol=:symbol` - Stock detail summary used by the iOS stock detail screen
+- `GET /v1/market/history?symbol=:symbol` - Stock history list used by the iOS stock detail screen
+- `GET /v1/market/news?symbol=:symbol` - Recent stock news used by the iOS stock detail screen
+- `GET /v1/history/:symbol` - Fetch historical prices (5/10 year time-series)
+- `GET /v1/quote/:symbol` - Get current price for a stock symbol
+- `GET /v1/quote/batch?symbols=AAPL,MSFT,...` - Fetch multiple quotes in one call
+- `GET /v1/search?q=:query` - Search for stock symbols/companies
 
 ### News
 - `GET /news` - List saved news items (`?symbol=` supported)

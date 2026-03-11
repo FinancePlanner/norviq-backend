@@ -936,6 +936,82 @@ paths:
         '404':
           description: Not Found
 
+  /v1/market/details:
+    get:
+      operationId: getMarketDetails
+      tags: [MarketData]
+      summary: Get stock detail summary by symbol
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: symbol
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StockDetailsResponse'
+        '400':
+          description: Missing symbol
+        '401':
+          description: Unauthorized
+  /v1/market/history:
+    get:
+      operationId: getMarketHistory
+      tags: [MarketData]
+      summary: Get stock price history by symbol
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: symbol
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/StockHistory'
+        '400':
+          description: Missing symbol
+        '401':
+          description: Unauthorized
+  /v1/market/news:
+    get:
+      operationId: getMarketNews
+      tags: [MarketData]
+      summary: Get recent stock news by symbol
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: symbol
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/StockNews'
+        '400':
+          description: Missing symbol
+        '401':
+          description: Unauthorized
   /v1/quote/batch:
     get:
       operationId: getQuoteBatch
@@ -2050,6 +2126,52 @@ components:
         conid:
           type: string
       required: [symbol, name, exchange, currency, conid]
+    StockDetailsResponse:
+      type: object
+      properties:
+        symbol:
+          type: string
+        company:
+          type: string
+        latestPrice:
+          type: number
+          format: double
+        changePercent:
+          type: number
+          format: double
+      required: [symbol, company, latestPrice, changePercent]
+    StockHistory:
+      type: object
+      properties:
+        date:
+          type: string
+          format: date
+        open:
+          type: number
+          format: double
+        high:
+          type: number
+          format: double
+        low:
+          type: number
+          format: double
+        close:
+          type: number
+          format: double
+        volume:
+          type: integer
+          format: int64
+      required: [date, open, high, low, close, volume]
+    StockNews:
+      type: object
+      properties:
+        title:
+          type: string
+        url:
+          type: string
+        date:
+          type: string
+      required: [title, url, date]
     FxRateResponse:
       type: object
       properties:

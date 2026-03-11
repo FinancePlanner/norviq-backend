@@ -9,6 +9,8 @@ extension ResearchNoteRequest: @retroactive Content {}
 extension ResearchNoteResponse: @retroactive Content {}
 extension PriceRange: @retroactive Content {}
 extension StockValuationRequest: @retroactive Content {}
+extension StockHistory: @retroactive Content {}
+extension StockNews: @retroactive Content {}
 extension BulkStockRequest: @retroactive Content {}
 extension BulkStockResultItem: @retroactive Content {}
 extension BulkStockResponse: @retroactive Content {}
