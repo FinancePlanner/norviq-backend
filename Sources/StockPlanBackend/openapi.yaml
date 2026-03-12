@@ -385,6 +385,7 @@ paths:
       operationId: getStockValuation
       tags: [Stocks]
       summary: Get the bear, base, and bull valuation ranges for a stock by symbol
+      description: Returns the saved valuation for the authenticated user's stock with this symbol. Responds with 404 if the authenticated user does not own the stock or has not saved valuation data yet.
       security:
         - bearerAuth: []
       responses:
@@ -402,6 +403,7 @@ paths:
       operationId: createStockValuation
       tags: [Stocks]
       summary: Create valuation ranges for a stock by symbol
+      description: Creates a bear/base/bull valuation for the authenticated user's stock with this symbol. The stock must already exist in the authenticated user's portfolio.
       security:
         - bearerAuth: []
       requestBody:
@@ -429,6 +431,7 @@ paths:
       operationId: updateStockValuation
       tags: [Stocks]
       summary: Update valuation ranges for a stock by symbol
+      description: Updates the saved valuation for the authenticated user's stock with this symbol. Returns 404 if the authenticated user does not own the stock or has not created valuation data yet.
       security:
         - bearerAuth: []
       requestBody:

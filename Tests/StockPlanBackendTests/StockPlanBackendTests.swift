@@ -28,11 +28,15 @@ struct StockPlanBackendTests {
         }
     }
 
-    private func registerTestUser(app: Application) async throws -> (token: String, userId: UUID) {
+    private func registerTestUser(
+        app: Application,
+        identifier: String = UUID().uuidString.replacingOccurrences(of: "-", with: "").lowercased()
+    ) async throws -> (token: String, userId: UUID) {
+        let normalizedIdentifier = String(identifier.prefix(12))
         let register = AuthRegisterRequest(
-            username: "test_user",
+            username: "test_\(normalizedIdentifier)",
             password: "Password123",
-            email: "test@example.com",
+            email: "test+\(normalizedIdentifier)@example.com",
             firstName: "Test",
             lastName: "User",
             dateOfBirth: Date(timeIntervalSince1970: 946_684_800)
@@ -164,6 +168,55 @@ struct StockPlanBackendTests {
                 let body = try res.content.decode(StockValuationRequest.self)
                 #expect(body.baseCase.high == 29)
                 #expect(body.bullCase.high == 36)
+            })
+        }
+    }
+
+    @Test("Stock valuation endpoints are scoped to the authenticated user")
+    func stockValuationIsUserScoped() async throws {
+        try await withApp { app in
+            let (ownerToken, _) = try await registerTestUser(app: app, identifier: "owner")
+            let (otherToken, _) = try await registerTestUser(app: app, identifier: "other")
+
+            try await app.testing().test(.POST, "v1/stocks", beforeRequest: { req in
+                req.headers.bearerAuthorization = .init(token: ownerToken)
+                try req.content.encode(
+                    StockRequest(
+                        symbol: "ZETA",
+                        shares: 5,
+                        buyPrice: 15,
+                        buyDate: "2024-01-01",
+                        notes: nil
+                    )
+                )
+            }, afterResponse: { res async in
+                #expect(res.status == .created)
+            })
+
+            try await app.testing().test(.POST, "v1/stocks/symbol/ZETA/valuation", beforeRequest: { req in
+                req.headers.bearerAuthorization = .init(token: ownerToken)
+                try req.content.encode(
+                    makeValuationPayload(symbol: "ZETA", rationale: "owner thesis")
+                )
+            }, afterResponse: { res async in
+                #expect(res.status == .created)
+            })
+
+            try await app.testing().test(.GET, "v1/stocks/symbol/ZETA/valuation", beforeRequest: { req in
+                req.headers.bearerAuthorization = .init(token: otherToken)
+            }, afterResponse: { res async in
+                #expect(res.status == .notFound)
+                #expect(res.body.string.contains("Stock not found."))
+            })
+
+            try await app.testing().test(.POST, "v1/stocks/symbol/ZETA/valuation", beforeRequest: { req in
+                req.headers.bearerAuthorization = .init(token: otherToken)
+                try req.content.encode(
+                    makeValuationPayload(symbol: "ZETA", rationale: "other thesis")
+                )
+            }, afterResponse: { res async in
+                #expect(res.status == .notFound)
+                #expect(res.body.string.contains("Stock not found."))
             })
         }
     }

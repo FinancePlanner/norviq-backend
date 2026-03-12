@@ -31,6 +31,8 @@ struct OpenAPIDocsTests {
                 #expect(body.contains("operationId: getStockValuation"))
                 #expect(body.contains("operationId: createStockValuation"))
                 #expect(body.contains("operationId: updateStockValuation"))
+                #expect(body.contains("authenticated user's stock"))
+                #expect(body.contains("must already exist in the authenticated user's portfolio"))
                 #expect(body.contains("PriceRange:"))
                 #expect(body.contains("StockValuationRequest:"))
                 #expect(body.contains("/v1/users:"))
