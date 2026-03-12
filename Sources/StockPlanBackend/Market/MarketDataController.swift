@@ -17,40 +17,57 @@ struct MarketDataController: RouteCollection {
     @Sendable
     func details(req: Request) async throws -> StockDetailsResponse {
         let symbol = try requireSymbolQuery(req)
-        let quote = try await req.application.marketDataService.quote(symbol: symbol, on: req)
-        let company = await resolveCompanyName(for: quote.symbol, on: req)
-        let changePercent = await resolveChangePercent(for: quote.symbol, latestPrice: quote.price, on: req)
+        do {
+            let quote = try await req.application.marketDataService.quote(symbol: symbol, on: req)
+            let company = await resolveCompanyName(for: quote.symbol, on: req)
+            let changePercent = await resolveChangePercent(
+                for: quote.symbol,
+                latestPrice: quote.price,
+                on: req
+            )
 
-        return StockDetailsResponse(
-            symbol: quote.symbol,
-            company: company,
-            latestPrice: quote.price,
-            changePercent: changePercent
-        )
+            return StockDetailsResponse(
+                symbol: quote.symbol,
+                company: company,
+                latestPrice: quote.price,
+                changePercent: changePercent
+            )
+        } catch is MarketDataProviderDisabledError {
+            return StockDetailsResponse(
+                symbol: symbol.uppercased(),
+                company: symbol.uppercased(),
+                latestPrice: 0,
+                changePercent: 0
+            )
+        }
     }
 
     @Sendable
     func stockHistory(req: Request) async throws -> [StockHistory] {
         let symbol = try requireSymbolQuery(req)
-        let response = try await req.application.marketDataService.history(
-            symbol: symbol,
-            from: nil,
-            to: nil,
-            on: req
-        )
+        do {
+            let response = try await req.application.marketDataService.history(
+                symbol: symbol,
+                from: nil,
+                to: nil,
+                on: req
+            )
 
-        return response.bars
-            .sorted { $0.date > $1.date }
-            .map {
-                StockHistory(
-                    date: $0.date,
-                    open: $0.open,
-                    high: $0.high,
-                    low: $0.low,
-                    close: $0.close,
-                    volume: $0.volume ?? 0
-                )
-            }
+            return response.bars
+                .sorted { $0.date > $1.date }
+                .map {
+                    StockHistory(
+                        date: $0.date,
+                        open: $0.open,
+                        high: $0.high,
+                        low: $0.low,
+                        close: $0.close,
+                        volume: $0.volume ?? 0
+                    )
+                }
+        } catch is MarketDataProviderDisabledError {
+            return []
+        }
     }
 
     @Sendable

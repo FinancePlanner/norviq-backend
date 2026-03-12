@@ -54,8 +54,18 @@ public func configure(_ app: Application) async throws {
     app.brokersRepository = DatabaseBrokersRepository()
     app.brokersService = DefaultBrokersService(repo: app.brokersRepository)
     app.marketDataRepository = DatabaseMarketDataRepository()
+    let marketProvider: any MarketDataProvider
+    if let marketDataBaseURL = Environment.get("IBKR_API_BASE_URL")?
+        .trimmingCharacters(in: .whitespacesAndNewlines),
+        !marketDataBaseURL.isEmpty
+    {
+        marketProvider = IBKRMarketDataProvider(baseURL: marketDataBaseURL)
+    } else {
+        marketProvider = DisabledMarketDataProvider()
+    }
+
     app.marketDataService = DefaultMarketDataService(
-        provider: IBKRMarketDataProvider(),
+        provider: marketProvider,
         cacheConfig: MarketDataCacheConfig.fromEnvironment()
     )
     app.statisticsRepository = DatabaseStatisticsRepository()

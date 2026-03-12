@@ -172,8 +172,9 @@ All data endpoints require authentication. Get a token from auth endpoints and s
 - `GET /v1/search?q=:query` - Search for stock symbols/companies
 
 Market data configuration:
-- Set `IBKR_API_BASE_URL` to the reachable Client Portal API base URL, for example `http://localhost:5000/v1/api` when running the backend on your host.
-- In `docker compose`, the app container uses `http://host.docker.internal:5000/v1/api` by default so it can reach a Client Portal API running on the host machine. `localhost` inside the container points to the container itself and will fail.
+- `IBKR_API_BASE_URL` is optional for now.
+- If it is unset, the backend will not call IBKR. `/v1/market/history` returns an empty list and `/v1/market/details` falls back to the symbol with zeroed pricing fields.
+- If you do enable IBKR later, set `IBKR_API_BASE_URL` to the reachable Client Portal API base URL, for example `http://localhost:5000/v1/api` when running the backend on your host.
 
 ### News
 - `GET /news` - List saved news items (`?symbol=` supported)

@@ -567,6 +567,10 @@ private extension DefaultMarketDataService {
     }
 
     func mapProviderError(_ error: any Error, operation: String) -> any Error {
+        if error is MarketDataProviderDisabledError {
+            return MarketDataProviderDisabledError()
+        }
+
         if let abort = error as? any AbortError,
            abort.status == .notFound || abort.status == .badRequest
         {

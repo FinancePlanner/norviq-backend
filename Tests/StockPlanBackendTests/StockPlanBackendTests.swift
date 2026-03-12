@@ -271,6 +271,42 @@ struct StockPlanBackendTests {
         }
     }
 
+    @Test("Market compatibility endpoints degrade gracefully when provider is disabled")
+    func marketCompatibilityEndpointsWhenProviderDisabled() async throws {
+        try await withApp { app in
+            app.marketDataService = DefaultMarketDataService(
+                provider: DisabledMarketDataProvider(),
+                cacheConfig: .init(
+                    quoteTTLSeconds: 3_600,
+                    historyTTLSeconds: 3_600,
+                    searchTTLSeconds: 3_600,
+                    fxTTLSeconds: 3_600,
+                    defaultCurrency: "USD"
+                )
+            )
+            let (token, _) = try await registerTestUser(app: app, identifier: "marketdisabled")
+
+            try await app.testing().test(.GET, "v1/market/details?symbol=ZETA", beforeRequest: { req in
+                req.headers.bearerAuthorization = .init(token: token)
+            }, afterResponse: { res async throws in
+                #expect(res.status == .ok)
+                let body = try res.content.decode(StockDetailsResponse.self)
+                #expect(body.symbol == "ZETA")
+                #expect(body.company == "ZETA")
+                #expect(body.latestPrice == 0)
+                #expect(body.changePercent == 0)
+            })
+
+            try await app.testing().test(.GET, "v1/market/history?symbol=ZETA", beforeRequest: { req in
+                req.headers.bearerAuthorization = .init(token: token)
+            }, afterResponse: { res async throws in
+                #expect(res.status == .ok)
+                let body = try res.content.decode([StockHistory].self)
+                #expect(body.isEmpty)
+            })
+        }
+    }
+
     @Test("Market history returns a diagnosable 503 when the provider is unavailable")
     func marketHistoryProviderUnavailable() async throws {
         try await withApp { app in

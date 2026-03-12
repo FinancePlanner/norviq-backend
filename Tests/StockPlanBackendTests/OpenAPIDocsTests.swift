@@ -25,6 +25,7 @@ struct OpenAPIDocsTests {
                 #expect(body.contains("operationId: getMarketHistory"))
                 #expect(body.contains("operationId: getMarketNews"))
                 #expect(body.contains("Market data provider unavailable or misconfigured"))
+                #expect(body.contains("If market data is disabled"))
                 #expect(body.contains("StockDetailsResponse:"))
                 #expect(body.contains("StockHistory:"))
                 #expect(body.contains("StockNews:"))
