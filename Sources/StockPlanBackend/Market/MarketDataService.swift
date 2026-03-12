@@ -573,6 +573,11 @@ private extension DefaultMarketDataService {
             return abort
         }
 
-        return Abort(.serviceUnavailable, reason: "Market provider unavailable for \(operation).")
+        return Abort(
+            .serviceUnavailable,
+            reason: """
+                Market provider unavailable for \(operation). Check IBKR_API_BASE_URL and confirm the IBKR Client Portal API is reachable from the backend runtime.
+                """
+        )
     }
 }

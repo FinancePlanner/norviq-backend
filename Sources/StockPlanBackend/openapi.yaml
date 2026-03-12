@@ -961,6 +961,8 @@ paths:
                 $ref: '#/components/schemas/StockDetailsResponse'
         '400':
           description: Missing symbol
+        '503':
+          description: Market data provider unavailable or misconfigured
         '401':
           description: Unauthorized
   /v1/market/history:
@@ -987,6 +989,8 @@ paths:
                   $ref: '#/components/schemas/StockHistory'
         '400':
           description: Missing symbol
+        '503':
+          description: Market data provider unavailable or misconfigured
         '401':
           description: Unauthorized
   /v1/market/news:

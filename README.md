@@ -171,6 +171,10 @@ All data endpoints require authentication. Get a token from auth endpoints and s
 - `GET /v1/quote/batch?symbols=AAPL,MSFT,...` - Fetch multiple quotes in one call
 - `GET /v1/search?q=:query` - Search for stock symbols/companies
 
+Market data configuration:
+- Set `IBKR_API_BASE_URL` to the reachable Client Portal API base URL, for example `http://localhost:5000/v1/api` when running the backend on your host.
+- In `docker compose`, the app container uses `http://host.docker.internal:5000/v1/api` by default so it can reach a Client Portal API running on the host machine. `localhost` inside the container points to the container itself and will fail.
+
 ### News
 - `GET /news` - List saved news items (`?symbol=` supported)
 - `GET /news/feed` - User feed filtered to tracked symbols (`?limit=` supported)

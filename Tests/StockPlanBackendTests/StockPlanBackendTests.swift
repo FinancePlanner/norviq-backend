@@ -271,6 +271,31 @@ struct StockPlanBackendTests {
         }
     }
 
+    @Test("Market history returns a diagnosable 503 when the provider is unavailable")
+    func marketHistoryProviderUnavailable() async throws {
+        try await withApp { app in
+            app.marketDataService = DefaultMarketDataService(
+                provider: FailingMarketDataProvider(),
+                cacheConfig: .init(
+                    quoteTTLSeconds: 3_600,
+                    historyTTLSeconds: 3_600,
+                    searchTTLSeconds: 3_600,
+                    fxTTLSeconds: 3_600,
+                    defaultCurrency: "USD"
+                )
+            )
+
+            let (token, _) = try await registerTestUser(app: app, identifier: "market503")
+
+            try await app.testing().test(.GET, "v1/market/history?symbol=ZETA", beforeRequest: { req in
+                req.headers.bearerAuthorization = .init(token: token)
+            }, afterResponse: { res async in
+                #expect(res.status == .serviceUnavailable)
+                #expect(res.body.string.contains("IBKR_API_BASE_URL"))
+            })
+        }
+    }
+
     @Test("Market quote endpoint requires authentication")
     func quoteRequiresAuth() async throws {
         try await withApp { app in
@@ -787,5 +812,27 @@ struct TestMarketDataProvider: MarketDataProvider {
     func fx(base: String, quote: String, on req: Request) async throws -> MarketProviderFxRate {
         _ = await state.nextFxCall()
         return .init(base: base, quote: quote, rate: 1.1, asOf: Date())
+    }
+}
+
+struct FailingMarketDataProvider: MarketDataProvider {
+    var name: String { "ibkr" }
+
+    func quote(symbol: String, on req: Request) async throws -> MarketProviderQuote {
+        throw Abort(.badGateway, reason: "Forced market provider failure")
+    }
+
+    func history(symbol: String, from: Date?, to: Date?, on req: Request) async throws
+        -> MarketProviderHistory
+    {
+        throw Abort(.badGateway, reason: "Forced market provider failure")
+    }
+
+    func search(query: String, on req: Request) async throws -> [MarketProviderSearchResult] {
+        throw Abort(.badGateway, reason: "Forced market provider failure")
+    }
+
+    func fx(base: String, quote: String, on req: Request) async throws -> MarketProviderFxRate {
+        throw Abort(.badGateway, reason: "Forced market provider failure")
     }
 }
