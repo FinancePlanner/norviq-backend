@@ -128,6 +128,13 @@ struct StockController: RouteCollection {
         let session = try req.auth.require(SessionToken.self)
         let symbol = try requireStringParameter(req, name: "symbol", reason: "Invalid stock symbol")
         let payload = try req.content.decode(StockValuationRequest.self)
+        req.logger.debug(
+            """
+            stock.valuation.create routeSymbol=\(String(reflecting: symbol)) \
+            bodySymbol=\(String(reflecting: payload.symbol)) \
+            userId=\(session.userId.uuidString)
+            """
+        )
         let created = try await req.application.stocksService.createValuation(
             symbol: symbol,
             payload: payload,
@@ -144,6 +151,13 @@ struct StockController: RouteCollection {
         let session = try req.auth.require(SessionToken.self)
         let symbol = try requireStringParameter(req, name: "symbol", reason: "Invalid stock symbol")
         let payload = try req.content.decode(StockValuationRequest.self)
+        req.logger.debug(
+            """
+            stock.valuation.update routeSymbol=\(String(reflecting: symbol)) \
+            bodySymbol=\(String(reflecting: payload.symbol)) \
+            userId=\(session.userId.uuidString)
+            """
+        )
         return try await req.application.stocksService.updateValuation(
             symbol: symbol,
             payload: payload,

@@ -194,7 +194,17 @@ struct StockServiceImpl: StockService {
         let normalizedPathSymbol = try validateSymbol(pathSymbol)
         let normalizedBodySymbol = try validateSymbol(payload.symbol)
         guard normalizedPathSymbol == normalizedBodySymbol else {
-            throw Abort(.badRequest, reason: "Body symbol must match the route symbol.")
+            throw Abort(
+                .badRequest,
+                reason:
+                    """
+                    Body symbol must match the route symbol. \
+                    routeRaw=\(String(reflecting: pathSymbol)) \
+                    bodyRaw=\(String(reflecting: payload.symbol)) \
+                    routeNormalized=\(String(reflecting: normalizedPathSymbol)) \
+                    bodyNormalized=\(String(reflecting: normalizedBodySymbol))
+                    """
+            )
         }
 
         return StockValuationRequest(
