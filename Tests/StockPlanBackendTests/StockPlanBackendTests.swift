@@ -206,7 +206,6 @@ struct StockPlanBackendTests {
                 req.headers.bearerAuthorization = .init(token: otherToken)
             }, afterResponse: { res async in
                 #expect(res.status == .notFound)
-                #expect(res.body.string.contains("Stock not found."))
             })
 
             try await app.testing().test(.POST, "v1/stocks/symbol/ZETA/valuation", beforeRequest: { req in

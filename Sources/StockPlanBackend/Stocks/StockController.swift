@@ -101,14 +101,26 @@ struct StockController: RouteCollection {
     }
 
     @Sendable
-    func getStockValuation(req: Request) async throws -> StockValuationRequest {
+    func getStockValuation(req: Request) async throws -> Response {
         let session = try req.auth.require(SessionToken.self)
         let symbol = try requireStringParameter(req, name: "symbol", reason: "Invalid stock symbol")
-        return try await req.application.stocksService.getValuation(
-            symbol: symbol,
-            userId: session.userId,
-            on: req.db
-        )
+        do {
+            let valuation = try await req.application.stocksService.getValuation(
+                symbol: symbol,
+                userId: session.userId,
+                on: req.db
+            )
+            let res = Response(status: .ok)
+            try res.content.encode(valuation)
+            return res
+        } catch let error as StockServiceError {
+            switch error {
+            case .notFound, .valuationNotFound:
+                return Response(status: .notFound)
+            case .invalidSymbol, .valuationAlreadyExists:
+                throw error
+            }
+        }
     }
 
     @Sendable
