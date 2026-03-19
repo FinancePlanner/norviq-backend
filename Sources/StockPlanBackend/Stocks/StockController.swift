@@ -111,6 +111,7 @@ struct StockController: RouteCollection {
                 on: req.db
             )
             let res = Response(status: .ok)
+            logValuationResponseBody(valuation, req: req, operation: "get")
             try res.content.encode(valuation)
             return res
         } catch let error as StockServiceError {
@@ -142,6 +143,7 @@ struct StockController: RouteCollection {
             on: req.db
         )
         let res = Response(status: .created)
+        logValuationResponseBody(created, req: req, operation: "create")
         try res.content.encode(created)
         return res
     }
@@ -158,12 +160,14 @@ struct StockController: RouteCollection {
             userId=\(session.userId.uuidString)
             """
         )
-        return try await req.application.stocksService.updateValuation(
+        let updated = try await req.application.stocksService.updateValuation(
             symbol: symbol,
             payload: payload,
             userId: session.userId,
             on: req.db
         )
+        logValuationResponseBody(updated, req: req, operation: "update")
+        return updated
     }
 
     @Sendable
@@ -539,6 +543,24 @@ struct StockController: RouteCollection {
             targetPrice: model.targetPrice,
             targetDate: formatISODateOnly(model.targetDate),
             rationale: model.rationale
+        )
+    }
+}
+
+private func logValuationResponseBody(
+    _ valuation: StockValuationRequest,
+    req: Request,
+    operation: String
+) {
+    do {
+        let data = try JSONEncoder().encode(valuation)
+        let body = String(data: data, encoding: .utf8) ?? "<non-utf8>"
+        req.logger.debug(
+            "stock.valuation.\(operation).response statusBody=\(body)"
+        )
+    } catch {
+        req.logger.error(
+            "stock.valuation.\(operation).response.encode_failed error=\(error.localizedDescription)"
         )
     }
 }
