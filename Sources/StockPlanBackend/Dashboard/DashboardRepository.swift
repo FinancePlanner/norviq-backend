@@ -45,6 +45,7 @@ struct DatabaseDashboardRepository: DashboardRepository {
             .all()
         let watchlistCount = try await WatchlistItem.query(on: db)
             .filter(\.$userId == userId)
+            .filter(\.$status != "archived")
             .count()
         let researchCount = try await ResearchNote.query(on: db)
             .filter(\.$userId == userId)

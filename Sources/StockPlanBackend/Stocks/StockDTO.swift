@@ -13,7 +13,9 @@ struct Cart: Content, Sendable {
 }
 
 typealias WatchlistItemRequest = StockPlanShared.WatchlistItemRequest
+typealias WatchlistItemUpdateRequest = StockPlanShared.WatchlistItemUpdateRequest
 typealias WatchlistItemResponse = StockPlanShared.WatchlistItemResponse
+typealias WatchlistStatus = StockPlanShared.WatchlistStatus
 typealias ResearchNoteRequest = StockPlanShared.ResearchNoteRequest
 typealias ResearchNoteResponse = StockPlanShared.ResearchNoteResponse
 typealias PriceRange = StockPlanShared.PriceRange

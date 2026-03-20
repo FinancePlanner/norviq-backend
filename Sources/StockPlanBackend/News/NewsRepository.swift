@@ -69,6 +69,7 @@ struct DatabaseNewsRepository: NewsRepository {
 
         let watchlist = try await WatchlistItem.query(on: db)
             .filter(\.$userId == userId)
+            .filter(\.$status != "archived")
             .all()
             .map(\.symbol)
 

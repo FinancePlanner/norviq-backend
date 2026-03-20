@@ -164,6 +164,7 @@ private extension DatabaseStatisticsRepository {
             .all()
         let watchlist = try await WatchlistItem.query(on: db)
             .filter(\.$userId == userId)
+            .filter(\.$status != "archived")
             .all()
         let notes = try await ResearchNote.query(on: db)
             .filter(\.$userId == userId)

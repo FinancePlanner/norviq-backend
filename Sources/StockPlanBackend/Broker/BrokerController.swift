@@ -133,11 +133,15 @@ struct BrokerController: RouteCollection {
             throw Abort(.badRequest, reason: "Missing symbol.")
         }
 
-        if try await WatchlistItem.query(on: db)
+        if let existing = try await WatchlistItem.query(on: db)
             .filter(\.$userId == userId)
             .filter(\.$symbol == symbol)
-            .first() != nil
+            .first()
         {
+            if existing.status == "archived" {
+                existing.status = "active"
+                try await existing.save(on: db)
+            }
             return
         }
 

@@ -96,6 +96,7 @@ public func configure(_ app: Application) async throws {
     app.migrations.add(CreateRefreshToken())
     app.migrations.add(CreateStock())
     app.migrations.add(CreateWatchlistItem())
+    app.migrations.add(AddWatchlistMetadataFields())
     app.migrations.add(CreateResearchNote())
     app.migrations.add(CreateTarget())
     app.migrations.add(CreatePriceHistory())

@@ -25,7 +25,7 @@ let package = Package(
         .package(url: "https://github.com/apple/swift-log.git", from: "1.5.0"),
         .package(url: "https://github.com/vapor/redis.git", from: "4.8.0"),
         // Shared API contracts used by backend and iOS app.
-        .package(url: "https://github.com/FinancePlanner/FinanceShared.git", from: "0.1.6")
+        .package(url: "https://github.com/FinancePlanner/FinanceShared.git", from: "0.1.7")
     ],
     targets: [
         .executableTarget(

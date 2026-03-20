@@ -1,6 +1,7 @@
 import Fluent
 import Vapor
 import Foundation
+import StockPlanShared
 
 final class WatchlistItem: Model, Content, @unchecked Sendable {
     static let schema = "watchlist_items"
@@ -14,6 +15,18 @@ final class WatchlistItem: Model, Content, @unchecked Sendable {
     @Field(key: "symbol")
     var symbol: String
 
+    @OptionalField(key: "note")
+    var note: String?
+
+    @Field(key: "status")
+    var status: String
+
+    @OptionalField(key: "last_reviewed_at")
+    var lastReviewedAt: Date?
+
+    @OptionalField(key: "next_review_at")
+    var nextReviewAt: Date?
+
     @Timestamp(key: "created_at", on: .create)
     var createdAt: Date?
 
@@ -22,9 +35,21 @@ final class WatchlistItem: Model, Content, @unchecked Sendable {
 
     init() { }
 
-    init(id: UUID? = nil, userId: UUID, symbol: String) {
+    init(
+        id: UUID? = nil,
+        userId: UUID,
+        symbol: String,
+        note: String? = nil,
+        status: WatchlistStatus = .active,
+        lastReviewedAt: Date? = nil,
+        nextReviewAt: Date? = nil
+    ) {
         self.id = id
         self.userId = userId
         self.symbol = symbol
+        self.note = note
+        self.status = status.rawValue
+        self.lastReviewedAt = lastReviewedAt
+        self.nextReviewAt = nextReviewAt
     }
 }

@@ -4,6 +4,7 @@ import Vapor
 extension StockRequest: @retroactive Content {}
 extension StockResponse: @retroactive Content {}
 extension WatchlistItemRequest: @retroactive Content {}
+extension WatchlistItemUpdateRequest: @retroactive Content {}
 extension WatchlistItemResponse: @retroactive Content {}
 extension ResearchNoteRequest: @retroactive Content {}
 extension ResearchNoteResponse: @retroactive Content {}

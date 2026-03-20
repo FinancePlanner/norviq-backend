@@ -558,7 +558,7 @@ paths:
     post:
       operationId: createWatchlistItem
       tags: [Watchlist]
-      summary: Add a symbol to the watchlist
+      summary: Add or reactivate a watchlist symbol
       security:
         - bearerAuth: []
       requestBody:
@@ -574,6 +574,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/WatchlistItemResponse'
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WatchlistItemResponse'
         '401':
           description: Unauthorized
   /v1/watchlist/{watchlistId}:
@@ -584,6 +590,29 @@ paths:
         schema:
           type: string
           format: uuid
+    patch:
+      operationId: updateWatchlistItem
+      tags: [Watchlist]
+      summary: Update a watchlist item
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/WatchlistItemUpdateRequest'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WatchlistItemResponse'
+        '404':
+          description: Not Found
+        '401':
+          description: Unauthorized
     delete:
       operationId: deleteWatchlistItem
       tags: [Watchlist]
@@ -1906,12 +1935,38 @@ components:
       type: string
       enum: [bear, base, bull]
 
+    WatchlistStatus:
+      type: string
+      enum: [active, researching, waiting, ready, archived]
     WatchlistItemRequest:
       type: object
       properties:
         symbol:
           type: string
+        note:
+          type: string
+        status:
+          $ref: '#/components/schemas/WatchlistStatus'
+        nextReviewAt:
+          type: string
+          format: date
+          example: 2026-05-15
       required: [symbol]
+    WatchlistItemUpdateRequest:
+      type: object
+      properties:
+        note:
+          type: string
+        status:
+          $ref: '#/components/schemas/WatchlistStatus'
+        lastReviewedAt:
+          type: string
+          format: date
+          example: 2026-03-20
+        nextReviewAt:
+          type: string
+          format: date
+          example: 2026-05-15
     WatchlistItemResponse:
       type: object
       properties:
@@ -1920,7 +1975,23 @@ components:
           format: uuid
         symbol:
           type: string
-      required: [id, symbol]
+        note:
+          type: string
+        status:
+          $ref: '#/components/schemas/WatchlistStatus'
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+        lastReviewedAt:
+          type: string
+          format: date
+        nextReviewAt:
+          type: string
+          format: date
+      required: [id, symbol, status]
 
     ResearchNoteRequest:
       type: object

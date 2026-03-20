@@ -220,6 +220,70 @@ struct StockPlanBackendTests {
         }
     }
 
+    @Test("Watchlist endpoints create, update, and list enriched items")
+    func watchlistLifecycle() async throws {
+        try await withApp { app in
+            let (token, _) = try await registerTestUser(app: app)
+
+            var created: WatchlistItemResponse?
+            try await app.testing().test(.POST, "v1/watchlist", beforeRequest: { req in
+                req.headers.bearerAuthorization = .init(token: token)
+                try req.content.encode(
+                    WatchlistItemRequest(
+                        symbol: "msft",
+                        note: "Waiting for a better entry",
+                        status: .researching,
+                        nextReviewAt: "2026-04-15"
+                    )
+                )
+            }, afterResponse: { res async throws in
+                #expect(res.status == .created)
+                created = try res.content.decode(WatchlistItemResponse.self)
+            })
+
+            #expect(created?.symbol == "MSFT")
+            #expect(created?.note == "Waiting for a better entry")
+            #expect(created?.status == .researching)
+            #expect(created?.nextReviewAt == "2026-04-15")
+            #expect(created?.createdAt != nil)
+
+            let watchlistId = try #require(created?.id)
+
+            try await app.testing().test(.PATCH, "v1/watchlist/\(watchlistId)", beforeRequest: { req in
+                req.headers.bearerAuthorization = .init(token: token)
+                try req.content.encode(
+                    WatchlistItemUpdateRequest(
+                        note: "",
+                        status: .ready,
+                        lastReviewedAt: "2026-03-20",
+                        nextReviewAt: "2026-05-01"
+                    )
+                )
+            }, afterResponse: { res async throws in
+                #expect(res.status == .ok)
+                let updated = try res.content.decode(WatchlistItemResponse.self)
+                #expect(updated.id == watchlistId)
+                #expect(updated.note == nil)
+                #expect(updated.status == .ready)
+                #expect(updated.lastReviewedAt == "2026-03-20")
+                #expect(updated.nextReviewAt == "2026-05-01")
+                #expect(updated.updatedAt != nil)
+            })
+
+            try await app.testing().test(.GET, "v1/watchlist", beforeRequest: { req in
+                req.headers.bearerAuthorization = .init(token: token)
+            }, afterResponse: { res async throws in
+                #expect(res.status == .ok)
+                let items = try res.content.decode([WatchlistItemResponse].self)
+                #expect(items.count == 1)
+                #expect(items.first?.id == watchlistId)
+                #expect(items.first?.status == .ready)
+                #expect(items.first?.note == nil)
+                #expect(items.first?.lastReviewedAt == "2026-03-20")
+            })
+        }
+    }
+
     @Test("Market compatibility endpoints return stock details, history, and news")
     func marketCompatibilityEndpoints() async throws {
         try await withApp { app in
