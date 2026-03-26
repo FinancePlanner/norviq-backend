@@ -17,3 +17,9 @@ default.profraw
 .idea/
 *.xcworkspace
 *.xcconfig
+
+# Stray Swift compiler byproducts that should stay under .build, not repo root.
+/*.d
+/*.dia
+/*.swiftdeps
+/*.swiftmodule
