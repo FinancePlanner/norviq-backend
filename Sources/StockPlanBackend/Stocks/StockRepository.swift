@@ -59,9 +59,52 @@ struct DatabaseStocksRepository: StocksRepository {
 
     func create(payload: StockRequest, userId: UUID, on db: any Database) async throws -> Stock {
         let buyDate = try parseISODateOnly(payload.buyDate)
+        let normalizedSymbol = normalizeSymbol(payload.symbol)
+
+        let existingStocks = try await Stock.query(on: db)
+            .filter(\.$userId == userId)
+            .filter(\.$symbol == normalizedSymbol)
+            .all()
+
+        if !existingStocks.isEmpty {
+            // Merge duplicate holdings by symbol:
+            // - shares add up
+            // - buyPrice becomes a weighted average cost basis
+            // - buyDate keeps the earliest cost-basis date
+            // - notes: update only if payload includes new notes
+            let sortedByEarliestDate = existingStocks.sorted { $0.buyDate < $1.buyDate }
+            let primary = sortedByEarliestDate[0]
+
+            let oldShares = sortedByEarliestDate.reduce(0) { $0 + $1.shares }
+            let oldCostBasis = sortedByEarliestDate.reduce(0) { $0 + ($1.shares * $1.buyPrice) }
+
+            let newShares = oldShares + payload.shares
+            let newCostBasis = oldCostBasis + (payload.shares * payload.buyPrice)
+
+            primary.shares = newShares
+            primary.buyPrice = newShares != 0 ? newCostBasis / newShares : 0
+
+            if buyDate < primary.buyDate {
+                primary.buyDate = buyDate
+            }
+
+            if let payloadNotes = payload.notes {
+                primary.notes = payloadNotes
+            }
+
+            try await primary.save(on: db)
+
+            // Delete extra duplicates so subsequent creates don't keep multiple rows.
+            for extra in sortedByEarliestDate.dropFirst() {
+                try await extra.delete(on: db)
+            }
+
+            return primary
+        }
+
         let stock = Stock(
             userId: userId,
-            symbol: normalizeSymbol(payload.symbol),
+            symbol: normalizedSymbol,
             shares: payload.shares,
             buyPrice: payload.buyPrice,
             buyDate: buyDate,

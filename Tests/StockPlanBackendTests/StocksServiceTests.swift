@@ -86,6 +86,38 @@ struct StockServiceTests {
         }
     }
 
+    @Test("create() merges existing symbol by adding shares and weighted average buyPrice")
+    func createMergesExistingSymbol() async throws {
+        try await withApp { app in
+            let user = try await createUser(email: "service-merge@example.com", on: app.db)
+            let userId = try user.requireID()
+
+            let service = StockServiceImpl(repo: DatabaseStocksRepository())
+
+            let first = try await service.create(
+                payload: makePayload(symbol: "AAPL", shares: 2, buyPrice: 10, buyDate: "2024-05-06"),
+                userId: userId,
+                on: app.db
+            )
+
+            let second = try await service.create(
+                payload: makePayload(symbol: " aapl ", shares: 1, buyPrice: 20, buyDate: "2024-05-07"),
+                userId: userId,
+                on: app.db
+            )
+
+            #expect(UUID(uuidString: second.id) == UUID(uuidString: first.id))
+            #expect(second.shares == 3)
+            #expect(abs(second.buyPrice - (((2 * 10) + (1 * 20)) / 3)) < 0.001)
+            #expect(second.buyDate == "2024-05-06")
+
+            let models = try await Stock.query(on: app.db)
+                .filter(\.$userId == userId)
+                .all()
+            #expect(models.count == 1)
+        }
+    }
+
     @Test("create() validates symbol")
     func createValidatesSymbol() async throws {
         try await withApp { app in

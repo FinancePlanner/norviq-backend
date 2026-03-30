@@ -106,6 +106,44 @@ struct StocksRepositoryTests {
         }
     }
 
+    @Test("create() merges existing symbol by adding shares and weighted average buyPrice")
+    func createMergesExistingSymbol() async throws {
+        try await withApp { app in
+            let repo = DatabaseStocksRepository()
+            let user = try await createUser(email: "repo-merge@example.com", on: app.db)
+            let userId = try user.requireID()
+
+            let first = try await repo.create(
+                payload: makePayload(symbol: "AAPL", shares: 2, buyPrice: 100, buyDate: "2024-01-01"),
+                userId: userId,
+                on: app.db
+            )
+
+            let second = try await repo.create(
+                payload: makePayload(symbol: "aapl", shares: 1, buyPrice: 200, buyDate: "2024-02-01"),
+                userId: userId,
+                on: app.db
+            )
+
+            #expect(first.id == second.id)
+
+            let expectedShares = 3.0
+            let expectedAvg = ((2 * 100) + (1 * 200)) / expectedShares
+
+            #expect(second.shares == expectedShares)
+            #expect(abs(second.buyPrice - expectedAvg) < 0.001)
+
+            // buyDate keeps the earliest cost-basis date
+            #expect(formatISODateOnly(second.buyDate) == "2024-01-01")
+
+            let models = try await Stock.query(on: app.db)
+                .filter(\.$userId == userId)
+                .filter(\.$symbol == "AAPL")
+                .all()
+            #expect(models.count == 1)
+        }
+    }
+
     @Test("find(id:) is user scoped")
     func findByIdIsUserScoped() async throws {
         try await withApp { app in
