@@ -8,26 +8,30 @@ DerivedData/
 *.xcodeproj
 Packages/
 
-# Git
+# Git and repository metadata
 .git/
+.github/
 .gitignore
+.dockerignore
 
 # IDE
 .vscode/
 *.xcuserdata
 
-# Documentation
-docs/
-README.md
-
-# Environment files (secrets - don't bake into image)
+# Local tooling and runtime files
 .env
 .env.*
-!.env.example
+db.sqlite
+*.profraw
+
+# Files not needed to build the production image
+docs/
+scripts/
+README.md
+Makefile
+Caddyfile
+docker-compose.yml
+docker-compose.production.yml
 
 # macOS
 .DS_Store
-
-# Misc
-*.profraw
-db.sqlite

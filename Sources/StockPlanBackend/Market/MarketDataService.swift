@@ -7,6 +7,8 @@ protocol MarketDataService: Sendable {
     func quote(symbol: String, on req: Request) async throws -> QuoteResponse
     func quoteBatch(symbols: [String], on req: Request) async throws -> QuoteBatchResponse
     func history(symbol: String, from: String?, to: String?, on req: Request) async throws -> HistoryResponse
+    func archivedHistory(symbol: String, from: String?, to: String?, on req: Request) async throws -> HistoryResponse
+    func refreshHistory(symbol: String, from: String?, to: String?, on req: Request) async throws -> HistoryResponse
     func search(query: String, on req: Request) async throws -> [SearchResultResponse]
     func fx(pair: String, on req: Request) async throws -> FxRateResponse
 }
@@ -160,6 +162,36 @@ struct DefaultMarketDataService: MarketDataService {
             }
             throw mapProviderError(error, operation: "history")
         }
+    }
+
+    func archivedHistory(symbol rawSymbol: String, from rawFrom: String?, to rawTo: String?, on req: Request) async throws -> HistoryResponse {
+        let symbol = try normalizeSymbol(rawSymbol)
+        let (fromDate, toDate) = try parseHistoryRange(from: rawFrom, to: rawTo)
+        let cachedBars = try await loadCachedHistory(symbol: symbol, from: fromDate, to: toDate, on: req.db)
+
+        return HistoryResponse(
+            symbol: symbol,
+            currency: cacheConfig.defaultCurrency,
+            bars: cachedBars.map(makePriceBarResponse)
+        )
+    }
+
+    func refreshHistory(symbol rawSymbol: String, from rawFrom: String?, to rawTo: String?, on req: Request) async throws -> HistoryResponse {
+        let symbol = try normalizeSymbol(rawSymbol)
+        let (fromDate, toDate) = try parseHistoryRange(from: rawFrom, to: rawTo)
+        let fresh = try await provider.history(symbol: symbol, from: fromDate, to: toDate, on: req)
+
+        try await upsertHistoryBars(symbol: symbol, bars: fresh.bars, on: req.db)
+        let archivedBars = try await loadCachedHistory(symbol: symbol, from: fromDate, to: toDate, on: req.db)
+        let responseBars = archivedBars.isEmpty
+            ? fresh.bars.map { makePriceHistoryModel(symbol: symbol, from: $0) }
+            : archivedBars
+
+        return HistoryResponse(
+            symbol: symbol,
+            currency: fresh.currency,
+            bars: responseBars.map(makePriceBarResponse)
+        )
     }
 
     func search(query rawQuery: String, on req: Request) async throws -> [SearchResultResponse] {
@@ -384,6 +416,17 @@ private extension DefaultMarketDataService {
         return try await query.all()
     }
 
+    func parseHistoryRange(from rawFrom: String?, to rawTo: String?) throws -> (Date?, Date?) {
+        let fromDate = try parseOptionalDateOnly(rawFrom, field: "from")
+        let toDate = try parseOptionalDateOnly(rawTo, field: "to")
+
+        if let fromDate, let toDate, fromDate > toDate {
+            throw Abort(.badRequest, reason: "`from` must be on or before `to`.")
+        }
+
+        return (fromDate, toDate)
+    }
+
     func makeQuoteResponse(from model: QuoteCache) -> QuoteResponse {
         QuoteResponse(
             symbol: model.symbol,
@@ -580,7 +623,7 @@ private extension DefaultMarketDataService {
         return Abort(
             .serviceUnavailable,
             reason: """
-                Market provider unavailable for \(operation). Check IBKR_API_BASE_URL and confirm the IBKR Client Portal API is reachable from the backend runtime.
+                Market provider unavailable for \(operation). Check MARKET_PROVIDER and provider-specific configuration such as FINNHUB_API_KEY or IBKR_API_BASE_URL.
                 """
         )
     }

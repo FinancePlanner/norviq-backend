@@ -54,14 +54,40 @@ public func configure(_ app: Application) async throws {
     app.brokersRepository = DatabaseBrokersRepository()
     app.brokersService = DefaultBrokersService(repo: app.brokersRepository)
     app.marketDataRepository = DatabaseMarketDataRepository()
+    let configuredMarketProvider = Environment.get("MARKET_PROVIDER")?
+        .trimmingCharacters(in: .whitespacesAndNewlines)
+        .lowercased()
+    let ibkrBaseURL = Environment.get("IBKR_API_BASE_URL")?
+        .trimmingCharacters(in: .whitespacesAndNewlines)
+    let finnhubAPIKey = Environment.get("FINNHUB_API_KEY")?
+        .trimmingCharacters(in: .whitespacesAndNewlines)
+
     let marketProvider: any MarketDataProvider
-    if let marketDataBaseURL = Environment.get("IBKR_API_BASE_URL")?
-        .trimmingCharacters(in: .whitespacesAndNewlines),
-        !marketDataBaseURL.isEmpty
-    {
-        marketProvider = IBKRMarketDataProvider(baseURL: marketDataBaseURL)
-    } else {
-        marketProvider = DisabledMarketDataProvider()
+    switch configuredMarketProvider {
+    case "finnhub":
+        if let finnhubAPIKey, !finnhubAPIKey.isEmpty {
+            marketProvider = FinnhubMarketDataProvider(apiKey: finnhubAPIKey)
+        } else {
+            app.logger.warning("MARKET_PROVIDER=finnhub but FINNHUB_API_KEY is not configured; market data disabled.")
+            marketProvider = DisabledMarketDataProvider()
+        }
+
+    case "ibkr":
+        if let ibkrBaseURL, !ibkrBaseURL.isEmpty {
+            marketProvider = IBKRMarketDataProvider(baseURL: ibkrBaseURL)
+        } else {
+            app.logger.warning("MARKET_PROVIDER=ibkr but IBKR_API_BASE_URL is not configured; market data disabled.")
+            marketProvider = DisabledMarketDataProvider()
+        }
+
+    default:
+        if let ibkrBaseURL, !ibkrBaseURL.isEmpty {
+            marketProvider = IBKRMarketDataProvider(baseURL: ibkrBaseURL)
+        } else if let finnhubAPIKey, !finnhubAPIKey.isEmpty {
+            marketProvider = FinnhubMarketDataProvider(apiKey: finnhubAPIKey)
+        } else {
+            marketProvider = DisabledMarketDataProvider()
+        }
     }
 
     app.marketDataService = DefaultMarketDataService(
@@ -71,11 +97,26 @@ public func configure(_ app: Application) async throws {
     app.statisticsRepository = DatabaseStatisticsRepository()
     app.statisticsService = DefaultStatisticsService(repo: app.statisticsRepository)
     app.newsRepository = DatabaseNewsRepository()
-    app.newsService = DefaultNewsService(repo: app.newsRepository)
+    let newsProvider: (any NewsProvider)?
+    if let finnhubAPIKey, !finnhubAPIKey.isEmpty {
+        newsProvider = FinnhubNewsProvider(apiKey: finnhubAPIKey)
+    } else {
+        newsProvider = nil
+    }
+    app.marketNewsArchiveService = DefaultMarketNewsArchiveService(provider: newsProvider)
+    app.newsService = DefaultNewsService(repo: app.newsRepository, provider: newsProvider)
     app.dashboardRepository = DatabaseDashboardRepository()
     app.dashboardService = DefaultDashboardService(repo: app.dashboardRepository)
     app.userProfileRepository = DatabaseUserProfileRepository()
     app.userProfileService = DefaultUserProfileService(repo: app.userProfileRepository)
+
+    let earningsProvider: any EarningsProvider
+    if let finnhubAPIKey, !finnhubAPIKey.isEmpty {
+        earningsProvider = FinnhubEarningsProvider(apiKey: finnhubAPIKey)
+    } else {
+        earningsProvider = DisabledEarningsProvider()
+    }
+    app.earningsService = DefaultEarningsService(provider: earningsProvider)
 
     let cleanupIntervalMinutes = Environment.get("AUTH_TOKEN_CLEANUP_INTERVAL_MINUTES").flatMap(Int.init(_:)) ?? 60
     app.lifecycle.use(AuthTokenCleanup(interval: TimeInterval(cleanupIntervalMinutes * 60)))
@@ -104,6 +145,7 @@ public func configure(_ app: Application) async throws {
     app.migrations.add(CreateSearchCache())
     app.migrations.add(CreateStatisticsSnapshot())
     app.migrations.add(CreateBrokerConnection())
+    app.migrations.add(CreateMarketNewsArchive())
     app.migrations.add(CreateNewsItem())
     app.migrations.add(AddUserScopedQueryIndexes())
     app.migrations.add(CreateStockValuation())

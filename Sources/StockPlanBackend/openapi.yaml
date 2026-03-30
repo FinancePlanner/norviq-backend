@@ -1,7 +1,10 @@
 openapi: 3.0.3
 info:
   title: StockPlanBackend
-  description: Stock planner backend
+  description: |
+    Stock planner backend.
+    Finnhub-backed market data is configured on the backend with `FINNHUB_API_KEY`, `FINNHUB_WEBHOOK_URL`, and `FINNHUB_WEBHOOK_SECRET`.
+    All direct Finnhub GET requests require either `token=<apiKey>` in the URL or `X-Finnhub-Token: <apiKey>` as a header. You can find the API key in the Finnhub Dashboard.
   version: 1.0.0
 servers:
   - url: http://localhost:8080
@@ -16,6 +19,10 @@ tags:
   - name: Research
   - name: Targets
   - name: MarketData
+  - name: Finnhub
+    description: Direct Finnhub reference endpoints used by the backend market-data provider and Bruno collection examples. Backend Finnhub configuration uses `FINNHUB_API_KEY`, `FINNHUB_WEBHOOK_URL`, and `FINNHUB_WEBHOOK_SECRET`.
+  - name: Webhooks
+    description: Public inbound webhook endpoints for provider event delivery.
   - name: Portfolio
   - name: Brokers
   - name: Statistics
@@ -893,11 +900,12 @@ paths:
       operationId: syncNews
       tags: [News]
       summary: Sync news items from configured provider
+      description: Resolves the authenticated user's tracked symbols, fetches provider news, persists normalized articles in the backend database, updates existing rows when the provider sends revised metadata for the same article, and skips duplicates or untracked symbols. When Finnhub is the configured provider, the backend must have `FINNHUB_API_KEY` set.
       security:
         - bearerAuth: []
       responses:
         '200':
-          description: OK
+          description: Sync summary after provider fetch, normalization, and persistence
           content:
             application/json:
               schema:
@@ -905,7 +913,7 @@ paths:
         '401':
           description: Unauthorized
         '501':
-          description: Not Implemented
+          description: News provider not configured on the backend
   /v1/news/{newsId}:
     parameters:
       - name: newsId
@@ -968,12 +976,41 @@ paths:
         '404':
           description: Not Found
 
+  /webhooks/finnhub/news:
+    post:
+      operationId: finnhubNewsWebhook
+      tags: [Webhooks, Finnhub, News]
+      summary: Receive Finnhub news webhook events
+      description: Persists inbound Finnhub news articles for users tracking matching symbols in stocks or watchlists. Authenticate with either the `X-Finnhub-Secret` header or the `secret` query parameter using `FINNHUB_WEBHOOK_SECRET`. Deploy this route at `FINNHUB_WEBHOOK_URL`.
+      security:
+        - finnhubWebhookSecretHeader: []
+        - finnhubWebhookSecretQuery: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/FinnhubNewsWebhookRequest'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FinnhubNewsWebhookResponse'
+        '400':
+          description: Invalid webhook payload
+        '401':
+          description: Missing or invalid webhook secret
+        '503':
+          description: Webhook secret not configured on the backend
+
   /v1/market/details:
     get:
       operationId: getMarketDetails
       tags: [MarketData]
       summary: Get stock detail summary by symbol
-      description: If market data is disabled, this endpoint still returns 200 with the requested symbol and zeroed pricing fields.
+      description: Returns the backend's normalized and cached stock summary. When `MARKET_PROVIDER=finnhub`, data is fetched from Finnhub and cached by the backend. If market data is disabled, this endpoint still returns 200 with the requested symbol and zeroed pricing fields.
       security:
         - bearerAuth: []
       parameters:
@@ -1000,7 +1037,7 @@ paths:
       operationId: getMarketHistory
       tags: [MarketData]
       summary: Get stock price history by symbol
-      description: If market data is disabled, this endpoint returns 200 with an empty history array.
+      description: Returns the backend's normalized and cached stock history. When `MARKET_PROVIDER=finnhub`, candles are fetched from Finnhub and stored in the backend cache. If market data is disabled, this endpoint returns 200 with an empty history array.
       security:
         - bearerAuth: []
       parameters:
@@ -1024,11 +1061,12 @@ paths:
           description: Market data provider unavailable or misconfigured
         '401':
           description: Unauthorized
-  /v1/market/news:
+  /v1/market/history/archive:
     get:
-      operationId: getMarketNews
+      operationId: getArchivedMarketHistory
       tags: [MarketData]
-      summary: Get recent stock news by symbol
+      summary: Read archived stock price history by symbol
+      description: Returns price history already persisted in the backend archive without calling the upstream market data provider.
       security:
         - bearerAuth: []
       parameters:
@@ -1037,6 +1075,92 @@ paths:
           required: true
           schema:
             type: string
+        - name: from
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date
+        - name: to
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/StockHistory'
+        '400':
+          description: Missing or invalid symbol/date range
+        '401':
+          description: Unauthorized
+  /v1/market/history/archive/sync:
+    post:
+      operationId: syncArchivedMarketHistory
+      tags: [MarketData]
+      summary: Refresh archived stock price history by symbol
+      description: Fetches stock price history from the configured provider, upserts the result into the backend archive, and returns the archived bars.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: symbol
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: from
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date
+        - name: to
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/StockHistory'
+        '400':
+          description: Missing or invalid symbol/date range
+        '401':
+          description: Unauthorized
+        '503':
+          description: Market data provider unavailable or misconfigured
+  /v1/market/news:
+    get:
+      operationId: getMarketNews
+      tags: [MarketData]
+      summary: Get recent stock news by symbol
+      description: Returns recent stock news from the shared backend archive. If the archive is stale, the backend refreshes it from the configured provider before responding.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: symbol
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
       responses:
         '200':
           description: OK
@@ -1050,11 +1174,82 @@ paths:
           description: Missing symbol
         '401':
           description: Unauthorized
+        '503':
+          description: Market news provider unavailable or misconfigured
+  /v1/market/news/archive:
+    get:
+      operationId: getArchivedMarketNews
+      tags: [MarketData]
+      summary: Read archived stock news by symbol
+      description: Returns stock news already persisted in the shared backend archive without calling the upstream news provider.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: symbol
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/StockNews'
+        '400':
+          description: Missing or invalid symbol/limit
+        '401':
+          description: Unauthorized
+  /v1/market/news/archive/sync:
+    post:
+      operationId: syncArchivedMarketNews
+      tags: [MarketData]
+      summary: Refresh archived stock news by symbol
+      description: Fetches stock news from the configured provider, upserts the result into the shared backend archive, and returns the archived items.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: symbol
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/StockNews'
+        '400':
+          description: Missing or invalid symbol/limit
+        '401':
+          description: Unauthorized
+        '503':
+          description: Market news provider unavailable or misconfigured
   /v1/quote/batch:
     get:
       operationId: getQuoteBatch
       tags: [MarketData]
       summary: Get quotes for multiple symbols
+      description: Returns normalized and cached backend quotes for a batch of symbols.
       security:
         - bearerAuth: []
       parameters:
@@ -1084,6 +1279,9 @@ paths:
       operationId: getQuote
       tags: [MarketData]
       summary: Get a quote for a symbol
+      description: Returns the backend's normalized and cached quote for a symbol.
+      security:
+        - bearerAuth: []
       responses:
         '200':
           description: OK
@@ -1091,6 +1289,10 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/QuoteResponse'
+        '401':
+          description: Unauthorized
+        '503':
+          description: Market data provider unavailable or misconfigured
   /v1/history/{symbol}:
     parameters:
       - name: symbol
@@ -1102,6 +1304,24 @@ paths:
       operationId: getHistory
       tags: [MarketData]
       summary: Get price history for a symbol
+      description: Returns the backend's normalized and cached price history for a symbol.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: from
+          in: query
+          required: false
+          description: Optional start date in `YYYY-MM-DD`.
+          schema:
+            type: string
+            format: date
+        - name: to
+          in: query
+          required: false
+          description: Optional end date in `YYYY-MM-DD`.
+          schema:
+            type: string
+            format: date
       responses:
         '200':
           description: OK
@@ -1109,15 +1329,24 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HistoryResponse'
+        '400':
+          description: Missing or invalid symbol/date range
+        '401':
+          description: Unauthorized
+        '503':
+          description: Market data provider unavailable or misconfigured
   /v1/search:
     get:
       operationId: searchSymbols
       tags: [MarketData]
       summary: Search symbols/companies
+      description: Returns normalized and cached backend search results backed by the configured market-data provider.
+      security:
+        - bearerAuth: []
       parameters:
         - name: q
           in: query
-          required: false
+          required: true
           schema:
             type: string
       responses:
@@ -1129,11 +1358,20 @@ paths:
                 type: array
                 items:
                   $ref: '#/components/schemas/SearchResultResponse'
+        '400':
+          description: Missing query parameter `q`
+        '401':
+          description: Unauthorized
+        '503':
+          description: Market data provider unavailable or misconfigured
   /v1/fx:
     get:
       operationId: getFxRate
       tags: [MarketData]
       summary: Get an FX rate
+      description: Returns the backend's normalized and cached FX rate for a currency pair.
+      security:
+        - bearerAuth: []
       parameters:
         - name: pair
           in: query
@@ -1148,6 +1386,235 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/FxRateResponse'
+        '400':
+          description: Invalid FX pair
+        '401':
+          description: Unauthorized
+        '503':
+          description: Market data provider unavailable or misconfigured
+
+  /quote:
+    get:
+      operationId: finnhubQuote
+      tags: [Finnhub]
+      summary: Finnhub quote
+      description: 'Direct Finnhub quote reference endpoint. All GET requests require either `token=<apiKey>` in the query string or `X-Finnhub-Token: <apiKey>` as a request header. You can find the API key in the Finnhub Dashboard.'
+      servers:
+        - url: https://finnhub.io/api/v1
+          description: Finnhub direct API
+      security:
+        - finnhubQueryToken: []
+        - finnhubHeaderToken: []
+      parameters:
+        - name: symbol
+          in: query
+          required: true
+          description: Symbol, for example `AAPL`.
+          schema:
+            type: string
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FinnhubQuote'
+
+  /search:
+    get:
+      operationId: finnhubSearch
+      tags: [Finnhub]
+      summary: Finnhub symbol lookup
+      description: 'Direct Finnhub symbol lookup reference endpoint. Authentication can use the `token` query parameter or the `X-Finnhub-Token` header. You can find the API key in the Finnhub Dashboard.'
+      servers:
+        - url: https://finnhub.io/api/v1
+          description: Finnhub direct API
+      security:
+        - finnhubQueryToken: []
+        - finnhubHeaderToken: []
+      parameters:
+        - name: q
+          in: query
+          required: true
+          description: Query text, which can be a symbol, company name, ISIN, or CUSIP.
+          schema:
+            type: string
+        - name: exchange
+          in: query
+          required: false
+          description: Optional exchange filter such as `US`.
+          schema:
+            type: string
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FinnhubSymbolLookupResponse'
+
+  /company-news:
+    get:
+      operationId: finnhubCompanyNews
+      tags: [Finnhub]
+      summary: Finnhub company news
+      description: 'Direct Finnhub company-news reference endpoint. Authentication can use the `token` query parameter or the `X-Finnhub-Token` header.'
+      servers:
+        - url: https://finnhub.io/api/v1
+          description: Finnhub direct API
+      security:
+        - finnhubQueryToken: []
+        - finnhubHeaderToken: []
+      parameters:
+        - name: symbol
+          in: query
+          required: true
+          description: Company symbol, for example `AAPL`.
+          schema:
+            type: string
+        - name: from
+          in: query
+          required: true
+          description: Inclusive start date in `YYYY-MM-DD` format.
+          schema:
+            type: string
+            format: date
+        - name: to
+          in: query
+          required: true
+          description: Inclusive end date in `YYYY-MM-DD` format.
+          schema:
+            type: string
+            format: date
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/FinnhubCompanyNewsItem'
+
+  /stock/candle:
+    get:
+      operationId: finnhubStockCandles
+      tags: [Finnhub]
+      summary: Finnhub stock candles
+      description: 'Direct Finnhub OHLCV reference endpoint. Authentication can use the `token` query parameter or the `X-Finnhub-Token` header.'
+      servers:
+        - url: https://finnhub.io/api/v1
+          description: Finnhub direct API
+      security:
+        - finnhubQueryToken: []
+        - finnhubHeaderToken: []
+      parameters:
+        - name: symbol
+          in: query
+          required: true
+          description: Stock symbol.
+          schema:
+            type: string
+        - name: resolution
+          in: query
+          required: true
+          description: Supported values include `1`, `5`, `15`, `30`, `60`, `D`, `W`, and `M`.
+          schema:
+            type: string
+        - name: from
+          in: query
+          required: true
+          description: UNIX timestamp for the interval start.
+          schema:
+            type: integer
+            format: int64
+        - name: to
+          in: query
+          required: true
+          description: UNIX timestamp for the interval end.
+          schema:
+            type: integer
+            format: int64
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FinnhubStockCandlesResponse'
+
+  /stock/profile2:
+    get:
+      operationId: finnhubCompanyProfile2
+      tags: [Finnhub]
+      summary: Finnhub company profile 2
+      description: 'Direct Finnhub company profile reference endpoint. Authentication can use the `token` query parameter or the `X-Finnhub-Token` header.'
+      servers:
+        - url: https://finnhub.io/api/v1
+          description: Finnhub direct API
+      security:
+        - finnhubQueryToken: []
+        - finnhubHeaderToken: []
+      parameters:
+        - name: symbol
+          in: query
+          required: false
+          description: Company symbol, for example `AAPL`.
+          schema:
+            type: string
+        - name: isin
+          in: query
+          required: false
+          description: ISIN.
+          schema:
+            type: string
+        - name: cusip
+          in: query
+          required: false
+          description: CUSIP.
+          schema:
+            type: string
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FinnhubCompanyProfile2'
+
+  /forex/rates:
+    get:
+      operationId: finnhubForexRates
+      tags: [Finnhub]
+      summary: Finnhub forex rates
+      description: 'Direct Finnhub forex-rates reference endpoint. Authentication can use the `token` query parameter or the `X-Finnhub-Token` header.'
+      servers:
+        - url: https://finnhub.io/api/v1
+          description: Finnhub direct API
+      security:
+        - finnhubQueryToken: []
+        - finnhubHeaderToken: []
+      parameters:
+        - name: base
+          in: query
+          required: false
+          description: Base currency. Defaults to `EUR` if omitted by Finnhub.
+          schema:
+            type: string
+        - name: date
+          in: query
+          required: false
+          description: Optional `YYYY-MM-DD` date for historical rates.
+          schema:
+            type: string
+            format: date
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FinnhubForexRatesResponse'
 
   /v1/dashboard:
     get:
@@ -1655,6 +2122,26 @@ components:
       type: http
       scheme: bearer
       bearerFormat: JWT
+    finnhubQueryToken:
+      type: apiKey
+      in: query
+      name: token
+      description: Finnhub API key from the Finnhub Dashboard passed as the `token` query parameter. In Bruno, set `FINNHUB_API_KEY`.
+    finnhubHeaderToken:
+      type: apiKey
+      in: header
+      name: X-Finnhub-Token
+      description: Finnhub API key from the Finnhub Dashboard passed as the `X-Finnhub-Token` header. In Bruno, set `FINNHUB_API_KEY`.
+    finnhubWebhookSecretHeader:
+      type: apiKey
+      in: header
+      name: X-Finnhub-Secret
+      description: Shared secret for inbound Finnhub webhook delivery. Configure the backend with `FINNHUB_WEBHOOK_SECRET`.
+    finnhubWebhookSecretQuery:
+      type: apiKey
+      in: query
+      name: secret
+      description: Shared secret for inbound Finnhub webhook delivery when the provider can only append query parameters. Configure the backend with `FINNHUB_WEBHOOK_SECRET`.
   schemas:
     HealthResponse:
       type: object
@@ -2120,22 +2607,85 @@ components:
       properties:
         provider:
           type: string
+          description: Configured backend provider name, for example `finnhub`.
         symbolsCount:
           type: integer
           format: int32
+          description: Number of tracked symbols resolved for the authenticated user before fetching provider data.
         fetchedCount:
           type: integer
           format: int32
+          description: Number of normalized provider items fetched before persistence decisions are applied.
         insertedCount:
           type: integer
           format: int32
+          description: Number of new `news_items` rows inserted for the authenticated user.
         updatedCount:
           type: integer
           format: int32
+          description: Number of existing rows updated because the provider returned revised article metadata.
         skippedCount:
           type: integer
           format: int32
+          description: Number of provider items skipped because they were invalid, untracked, or duplicates.
       required: [provider, symbolsCount, fetchedCount, insertedCount, updatedCount, skippedCount]
+    FinnhubNewsWebhookRequest:
+      type: object
+      properties:
+        news:
+          type: array
+          items:
+            $ref: '#/components/schemas/FinnhubNewsWebhookItem'
+      required: [news]
+    FinnhubNewsWebhookItem:
+      type: object
+      properties:
+        category:
+          type: string
+        datetime:
+          type: number
+          description: Unix timestamp in seconds or milliseconds.
+        headline:
+          type: string
+        id:
+          type: integer
+        image:
+          type: string
+        related:
+          type: string
+          description: Comma-separated related symbols, for example `AAPL,MSFT`.
+        source:
+          type: string
+        summary:
+          type: string
+        symbol:
+          type: string
+        symbols:
+          type: array
+          items:
+            type: string
+        publishedAt:
+          type: string
+          format: date-time
+        url:
+          type: string
+          format: uri
+    FinnhubNewsWebhookResponse:
+      type: object
+      properties:
+        provider:
+          type: string
+        receivedCount:
+          type: integer
+        matchedSymbolsCount:
+          type: integer
+        matchedUsersCount:
+          type: integer
+        insertedCount:
+          type: integer
+        skippedCount:
+          type: integer
+      required: [provider, receivedCount, matchedSymbolsCount, matchedUsersCount, insertedCount, skippedCount]
 
     QuoteResponse:
       type: object
@@ -2265,6 +2815,171 @@ components:
         date:
           type: string
       required: [base, quote, rate, date]
+    FinnhubQuote:
+      type: object
+      properties:
+        c:
+          type: number
+          format: double
+          description: Current price.
+        d:
+          type: number
+          format: double
+          description: Price change.
+        dp:
+          type: number
+          format: double
+          description: Percent change.
+        h:
+          type: number
+          format: double
+          description: High price of the day.
+        l:
+          type: number
+          format: double
+          description: Low price of the day.
+        o:
+          type: number
+          format: double
+          description: Open price of the day.
+        pc:
+          type: number
+          format: double
+          description: Previous close price.
+        t:
+          type: integer
+          format: int64
+          description: UNIX timestamp.
+    FinnhubSymbolLookupItem:
+      type: object
+      properties:
+        description:
+          type: string
+        displaySymbol:
+          type: string
+        symbol:
+          type: string
+        type:
+          type: string
+      required: [description, displaySymbol, symbol, type]
+    FinnhubSymbolLookupResponse:
+      type: object
+      properties:
+        count:
+          type: integer
+          format: int64
+        result:
+          type: array
+          items:
+            $ref: '#/components/schemas/FinnhubSymbolLookupItem'
+      required: [count, result]
+    FinnhubCompanyNewsItem:
+      type: object
+      properties:
+        category:
+          type: string
+        datetime:
+          type: number
+          description: Unix timestamp in seconds.
+        headline:
+          type: string
+        id:
+          type: integer
+        image:
+          type: string
+        related:
+          type: string
+          description: Comma-separated related symbols, for example `AAPL,MSFT`.
+        source:
+          type: string
+        summary:
+          type: string
+        url:
+          type: string
+      required: [datetime, headline]
+    FinnhubStockCandlesResponse:
+      type: object
+      properties:
+        c:
+          type: array
+          items:
+            type: number
+            format: double
+          description: List of close prices.
+        h:
+          type: array
+          items:
+            type: number
+            format: double
+          description: List of high prices.
+        l:
+          type: array
+          items:
+            type: number
+            format: double
+          description: List of low prices.
+        o:
+          type: array
+          items:
+            type: number
+            format: double
+          description: List of open prices.
+        s:
+          type: string
+          description: Response status, typically `ok` or `no_data`.
+        t:
+          type: array
+          items:
+            type: integer
+            format: int64
+          description: List of UNIX timestamps.
+        v:
+          type: array
+          items:
+            type: number
+            format: double
+          description: List of volumes.
+      required: [s]
+    FinnhubCompanyProfile2:
+      type: object
+      properties:
+        country:
+          type: string
+        currency:
+          type: string
+        exchange:
+          type: string
+        finnhubIndustry:
+          type: string
+        ipo:
+          type: string
+          format: date
+        logo:
+          type: string
+        marketCapitalization:
+          type: number
+          format: double
+        name:
+          type: string
+        phone:
+          type: string
+        shareOutstanding:
+          type: number
+          format: double
+        ticker:
+          type: string
+        weburl:
+          type: string
+    FinnhubForexRatesResponse:
+      type: object
+      properties:
+        base:
+          type: string
+        quote:
+          type: object
+          additionalProperties:
+            type: number
+            format: double
 
     AllocationItem:
       type: object

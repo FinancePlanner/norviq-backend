@@ -11,6 +11,37 @@ struct StockPlanBackendTests {
         let status: String
     }
 
+    private actor TestNewsProviderState {
+        private var batches: [[ProviderNewsItem]]
+        private var fetchCallCount: Int = 0
+
+        init(batches: [[ProviderNewsItem]]) {
+            self.batches = batches
+        }
+
+        func next() -> [ProviderNewsItem] {
+            fetchCallCount += 1
+            guard !batches.isEmpty else { return [] }
+            if batches.count == 1 {
+                return batches[0]
+            }
+            return batches.removeFirst()
+        }
+
+        func fetchCalls() -> Int {
+            fetchCallCount
+        }
+    }
+
+    private struct TestNewsProvider: NewsProvider {
+        let name: String = "test-news"
+        let state: TestNewsProviderState
+
+        func fetch(symbols: [String], on req: Request) async throws -> [ProviderNewsItem] {
+            await state.next()
+        }
+    }
+
     private func withApp(_ test: (Application) async throws -> ()) async throws {
         try await DatabaseTestLock.withLock {
             let app = try await Application.make(.testing)
@@ -71,6 +102,22 @@ struct StockPlanBackendTests {
                 searchTTLSeconds: searchTTLSeconds,
                 fxTTLSeconds: fxTTLSeconds,
                 defaultCurrency: "USD"
+            )
+        )
+    }
+
+    private func makeTestMarketNewsArchiveService(
+        state: TestNewsProviderState,
+        ttlSeconds: Int = 900,
+        defaultLimit: Int = 50,
+        maxLimit: Int = 200
+    ) -> any MarketNewsArchiveService {
+        DefaultMarketNewsArchiveService(
+            provider: TestNewsProvider(state: state),
+            config: .init(
+                ttlSeconds: ttlSeconds,
+                defaultLimit: defaultLimit,
+                maxLimit: maxLimit
             )
         )
     }
@@ -289,16 +336,17 @@ struct StockPlanBackendTests {
         try await withApp { app in
             let state = TestMarketProviderState()
             app.marketDataService = makeTestMarketService(state: state)
-            let (token, userId) = try await registerTestUser(app: app)
+            let (token, _) = try await registerTestUser(app: app)
 
-            let news = NewsItem(
-                userId: userId,
+            let news = MarketNewsArchive(
+                provider: "test-news",
                 symbol: "ZETA",
                 headline: "ZETA wins new contract",
                 source: "Example Wire",
                 url: "https://example.com/zeta",
                 summary: "Summary",
-                publishedAt: Date()
+                publishedAt: Date(),
+                fetchedAt: Date()
             )
             try await news.save(on: app.db)
 
@@ -331,6 +379,103 @@ struct StockPlanBackendTests {
                 #expect(body.first?.title == "ZETA wins new contract")
                 #expect(body.first?.url == "https://example.com/zeta")
             })
+        }
+    }
+
+    @Test("Archived market history endpoints read stored bars and sync provider data into the archive")
+    func archivedMarketHistoryEndpoints() async throws {
+        try await withApp { app in
+            let state = TestMarketProviderState()
+            app.marketDataService = makeTestMarketService(state: state)
+            let (token, _) = try await registerTestUser(app: app, identifier: "historyarchive")
+
+            let seededDay = Calendar(identifier: .gregorian).startOfDay(for: Date().addingTimeInterval(-86_400))
+            try await PriceHistory(
+                symbol: "AAPL",
+                date: seededDay,
+                open: 90,
+                high: 95,
+                low: 88,
+                close: 94,
+                volume: 750_000
+            ).save(on: app.db)
+
+            try await app.testing().test(.GET, "v1/market/history/archive?symbol=AAPL", beforeRequest: { req in
+                req.headers.bearerAuthorization = .init(token: token)
+            }, afterResponse: { res async throws in
+                #expect(res.status == .ok)
+                let body = try res.content.decode([StockHistory].self)
+                #expect(body.count == 1)
+                #expect(body.first?.close == 94)
+            })
+
+            try await app.testing().test(.POST, "v1/market/history/archive/sync?symbol=AAPL", beforeRequest: { req in
+                req.headers.bearerAuthorization = .init(token: token)
+            }, afterResponse: { res async throws in
+                #expect(res.status == .ok)
+                let body = try res.content.decode([StockHistory].self)
+                #expect(body.count >= 1)
+                #expect(body.first?.close == 101)
+            })
+
+            try await app.testing().test(.GET, "v1/market/history/archive?symbol=AAPL", beforeRequest: { req in
+                req.headers.bearerAuthorization = .init(token: token)
+            }, afterResponse: { res async throws in
+                #expect(res.status == .ok)
+                let body = try res.content.decode([StockHistory].self)
+                #expect(body.contains(where: { $0.close == 101 }))
+            })
+
+            #expect(await state.historyCalls() == 1)
+        }
+    }
+
+    @Test("Archived market news is shared across users and compatibility reads come from the DB archive")
+    func archivedMarketNewsSharedAcrossUsers() async throws {
+        try await withApp { app in
+            let state = TestNewsProviderState(batches: [[
+                ProviderNewsItem(
+                    symbol: "AAPL",
+                    headline: "Apple launches archived news",
+                    source: "Example Wire",
+                    url: "https://example.com/news/apple-archive",
+                    summary: "Archived market news",
+                    publishedAt: Date(timeIntervalSince1970: 1_774_884_000)
+                )
+            ]])
+            app.marketNewsArchiveService = makeTestMarketNewsArchiveService(state: state)
+
+            let (token1, _) = try await registerTestUser(app: app, identifier: "archiveuser1")
+            let (token2, _) = try await registerTestUser(app: app, identifier: "archiveuser2")
+
+            try await app.testing().test(.POST, "v1/market/news/archive/sync?symbol=AAPL", beforeRequest: { req in
+                req.headers.bearerAuthorization = .init(token: token1)
+            }, afterResponse: { res async throws in
+                #expect(res.status == .ok)
+                let body = try res.content.decode([StockNews].self)
+                #expect(body.count == 1)
+                #expect(body.first?.title == "Apple launches archived news")
+            })
+
+            try await app.testing().test(.GET, "v1/market/news/archive?symbol=AAPL", beforeRequest: { req in
+                req.headers.bearerAuthorization = .init(token: token2)
+            }, afterResponse: { res async throws in
+                #expect(res.status == .ok)
+                let body = try res.content.decode([StockNews].self)
+                #expect(body.count == 1)
+                #expect(body.first?.url == "https://example.com/news/apple-archive")
+            })
+
+            try await app.testing().test(.GET, "v1/market/news?symbol=AAPL", beforeRequest: { req in
+                req.headers.bearerAuthorization = .init(token: token2)
+            }, afterResponse: { res async throws in
+                #expect(res.status == .ok)
+                let body = try res.content.decode([StockNews].self)
+                #expect(body.count == 1)
+                #expect(body.first?.title == "Apple launches archived news")
+            })
+
+            #expect(await state.fetchCalls() == 1)
         }
     }
 
@@ -649,6 +794,221 @@ struct StockPlanBackendTests {
 
             #expect(limitedFeed.count == 1)
             #expect(limitedFeed.first?.symbol == "AAPL")
+        }
+    }
+
+    @Test("Finnhub news webhook ingests tracked symbols and deduplicates repeated deliveries")
+    func finnhubNewsWebhookIngestsTrackedSymbols() async throws {
+        setenv("FINNHUB_WEBHOOK_SECRET", "test-finnhub-secret", 1)
+        setenv("FINNHUB_WEBHOOK_URL", "http://localhost:8080/webhooks/finnhub/news", 1)
+        defer {
+            unsetenv("FINNHUB_WEBHOOK_SECRET")
+            unsetenv("FINNHUB_WEBHOOK_URL")
+        }
+
+        try await withApp { app in
+            let (_, user1Id) = try await registerTestUser(app: app, identifier: "finnhubnews1")
+            let (_, user2Id) = try await registerTestUser(app: app, identifier: "finnhubnews2")
+
+            try await Stock(
+                userId: user1Id,
+                symbol: "AAPL",
+                shares: 5,
+                buyPrice: 100,
+                buyDate: Date()
+            ).save(on: app.db)
+            try await WatchlistItem(userId: user1Id, symbol: "MSFT").save(on: app.db)
+            try await WatchlistItem(userId: user2Id, symbol: "AAPL").save(on: app.db)
+
+            let payload = FinnhubNewsWebhookRequest(news: [
+                FinnhubNewsWebhookItem(
+                    category: "company",
+                    datetime: 1_774_884_000,
+                    headline: "Apple launches a new enterprise service",
+                    id: 42,
+                    image: nil,
+                    related: "AAPL,MSFT,TSLA",
+                    source: "Reuters",
+                    summary: "Sample webhook article",
+                    symbol: nil,
+                    symbols: nil,
+                    publishedAt: nil,
+                    url: "https://example.com/news/apple-enterprise-service"
+                )
+            ])
+
+            var firstResponse: FinnhubNewsWebhookResponse?
+            var secondResponse: FinnhubNewsWebhookResponse?
+
+            try await app.testing().test(.POST, "webhooks/finnhub/news", beforeRequest: { req in
+                req.headers.add(name: "X-Finnhub-Secret", value: "test-finnhub-secret")
+                try req.content.encode(payload)
+            }, afterResponse: { res async throws in
+                #expect(res.status == .ok)
+                firstResponse = try res.content.decode(FinnhubNewsWebhookResponse.self)
+            })
+
+            try await app.testing().test(.POST, "webhooks/finnhub/news", beforeRequest: { req in
+                req.headers.add(name: "X-Finnhub-Secret", value: "test-finnhub-secret")
+                try req.content.encode(payload)
+            }, afterResponse: { res async throws in
+                #expect(res.status == .ok)
+                secondResponse = try res.content.decode(FinnhubNewsWebhookResponse.self)
+            })
+
+            #expect(firstResponse?.provider == "finnhub")
+            #expect(firstResponse?.receivedCount == 1)
+            #expect(firstResponse?.matchedSymbolsCount == 2)
+            #expect(firstResponse?.matchedUsersCount == 2)
+            #expect(firstResponse?.insertedCount == 3)
+            #expect(firstResponse?.skippedCount == 0)
+
+            #expect(secondResponse?.insertedCount == 0)
+            #expect(secondResponse?.skippedCount == 3)
+
+            let user1News = try await NewsItem.query(on: app.db)
+                .filter(\.$userId == user1Id)
+                .sort(\.$symbol, .ascending)
+                .all()
+            let user2News = try await NewsItem.query(on: app.db)
+                .filter(\.$userId == user2Id)
+                .all()
+
+            #expect(user1News.count == 2)
+            #expect(user2News.count == 1)
+            #expect(user1News.map(\.symbol) == ["AAPL", "MSFT"])
+            #expect(user2News.first?.symbol == "AAPL")
+        }
+    }
+
+    @Test("Finnhub news webhook rejects an invalid secret")
+    func finnhubNewsWebhookRejectsInvalidSecret() async throws {
+        setenv("FINNHUB_WEBHOOK_SECRET", "test-finnhub-secret", 1)
+        defer { unsetenv("FINNHUB_WEBHOOK_SECRET") }
+
+        try await withApp { app in
+            let payload = FinnhubNewsWebhookRequest(news: [
+                FinnhubNewsWebhookItem(
+                    category: "company",
+                    datetime: 1_774_884_000,
+                    headline: "Invalid secret test",
+                    id: 99,
+                    image: nil,
+                    related: "AAPL",
+                    source: "Reuters",
+                    summary: nil,
+                    symbol: nil,
+                    symbols: nil,
+                    publishedAt: nil,
+                    url: "https://example.com/news/invalid-secret"
+                )
+            ])
+
+            try await app.testing().test(.POST, "webhooks/finnhub/news", beforeRequest: { req in
+                req.headers.add(name: "X-Finnhub-Secret", value: "wrong-secret")
+                try req.content.encode(payload)
+            }, afterResponse: { res async in
+                #expect(res.status == .unauthorized)
+            })
+        }
+    }
+
+    @Test("News sync persists provider items, filters untracked symbols, and updates duplicates")
+    func newsSyncPersistsProviderItems() async throws {
+        try await withApp { app in
+            let (token, userId) = try await registerTestUser(app: app, identifier: "newssync")
+
+            try await Stock(
+                userId: userId,
+                symbol: "AAPL",
+                shares: 5,
+                buyPrice: 100,
+                buyDate: Date()
+            ).save(on: app.db)
+            try await WatchlistItem(userId: userId, symbol: "MSFT").save(on: app.db)
+
+            let publishedAt = Date(timeIntervalSince1970: 1_774_884_000)
+            let providerState = TestNewsProviderState(batches: [
+                [
+                    ProviderNewsItem(
+                        symbol: "AAPL",
+                        headline: "Apple launches a new enterprise service",
+                        source: "Reuters",
+                        url: "https://example.com/news/apple-enterprise-service",
+                        summary: "Initial summary",
+                        publishedAt: publishedAt
+                    ),
+                    ProviderNewsItem(
+                        symbol: "TSLA",
+                        headline: "Tesla opens a new plant",
+                        source: "Reuters",
+                        url: "https://example.com/news/tesla-new-plant",
+                        summary: "Untracked symbol should be skipped",
+                        publishedAt: publishedAt
+                    )
+                ],
+                [
+                    ProviderNewsItem(
+                        symbol: "AAPL",
+                        headline: "Apple launches a new enterprise service",
+                        source: "Reuters",
+                        url: "https://example.com/news/apple-enterprise-service",
+                        summary: "Updated summary",
+                        publishedAt: publishedAt.addingTimeInterval(5)
+                    ),
+                    ProviderNewsItem(
+                        symbol: "TSLA",
+                        headline: "Tesla opens a new plant",
+                        source: "Reuters",
+                        url: "https://example.com/news/tesla-new-plant",
+                        summary: "Untracked symbol should still be skipped",
+                        publishedAt: publishedAt
+                    )
+                ]
+            ])
+            app.newsService = DefaultNewsService(
+                repo: app.newsRepository,
+                provider: TestNewsProvider(state: providerState)
+            )
+
+            var firstResponse: NewsSyncResponse?
+            var secondResponse: NewsSyncResponse?
+
+            try await app.testing().test(.POST, "v1/news/sync", beforeRequest: { req in
+                req.headers.bearerAuthorization = .init(token: token)
+            }, afterResponse: { res async throws in
+                #expect(res.status == .ok)
+                firstResponse = try res.content.decode(NewsSyncResponse.self)
+            })
+
+            try await app.testing().test(.POST, "v1/news/sync", beforeRequest: { req in
+                req.headers.bearerAuthorization = .init(token: token)
+            }, afterResponse: { res async throws in
+                #expect(res.status == .ok)
+                secondResponse = try res.content.decode(NewsSyncResponse.self)
+            })
+
+            #expect(firstResponse?.provider == "test-news")
+            #expect(firstResponse?.symbolsCount == 2)
+            #expect(firstResponse?.fetchedCount == 2)
+            #expect(firstResponse?.insertedCount == 1)
+            #expect(firstResponse?.updatedCount == 0)
+            #expect(firstResponse?.skippedCount == 1)
+
+            #expect(secondResponse?.provider == "test-news")
+            #expect(secondResponse?.symbolsCount == 2)
+            #expect(secondResponse?.fetchedCount == 2)
+            #expect(secondResponse?.insertedCount == 0)
+            #expect(secondResponse?.updatedCount == 1)
+            #expect(secondResponse?.skippedCount == 1)
+
+            let items = try await NewsItem.query(on: app.db)
+                .filter(\.$userId == userId)
+                .all()
+
+            #expect(items.count == 1)
+            #expect(items.first?.symbol == "AAPL")
+            #expect(items.first?.summary == "Updated summary")
         }
     }
 

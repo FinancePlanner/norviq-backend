@@ -22,6 +22,7 @@ func routes(_ app: Application) throws {
     }
 
     try registerOpenAPIDocsRoutes(app)
+    try app.register(collection: FinnhubWebhookController())
 
     try api.register(collection: AuthController())
     try api.register(collection: StockController())
@@ -32,6 +33,7 @@ func routes(_ app: Application) throws {
     try api.register(collection: NewsController())
     try api.register(collection: DashboardController())
     try api.register(collection: UserProfileController())
+    try api.register(collection: EarningsController())
 }
 
 private func registerOpenAPIDocsRoutes(_ app: Application) throws {

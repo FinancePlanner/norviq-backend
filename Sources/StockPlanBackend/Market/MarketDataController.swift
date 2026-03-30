@@ -6,7 +6,11 @@ struct MarketDataController: RouteCollection {
         let protected = routes.grouped(SessionToken.authenticator(), SessionToken.guardMiddleware())
         protected.get("market", "details", use: details)
         protected.get("market", "history", use: stockHistory)
+        protected.get("market", "history", "archive", use: archivedStockHistory)
+        protected.post("market", "history", "archive", "sync", use: syncArchivedStockHistory)
         protected.get("market", "news", use: stockNews)
+        protected.get("market", "news", "archive", use: archivedStockNews)
+        protected.post("market", "news", "archive", "sync", use: syncArchivedStockNews)
         protected.get("quote", "batch", use: quoteBatch)
         protected.get("quote", ":symbol", use: quote)
         protected.get("history", ":symbol", use: history)
@@ -71,26 +75,64 @@ struct MarketDataController: RouteCollection {
     }
 
     @Sendable
-    func stockNews(req: Request) async throws -> [StockNews] {
-        let session = try req.auth.require(SessionToken.self)
+    func archivedStockHistory(req: Request) async throws -> [StockHistory] {
         let symbol = try requireSymbolQuery(req)
-        let items = try await req.application.newsService.list(
-            userId: session.userId,
+        let from = req.query[String.self, at: "from"]
+        let to = req.query[String.self, at: "to"]
+        let response = try await req.application.marketDataService.archivedHistory(
             symbol: symbol,
+            from: from,
+            to: to,
+            on: req
+        )
+        return makeStockHistory(response)
+    }
+
+    @Sendable
+    func syncArchivedStockHistory(req: Request) async throws -> [StockHistory] {
+        let symbol = try requireSymbolQuery(req)
+        let from = req.query[String.self, at: "from"]
+        let to = req.query[String.self, at: "to"]
+        let response = try await req.application.marketDataService.refreshHistory(
+            symbol: symbol,
+            from: from,
+            to: to,
+            on: req
+        )
+        return makeStockHistory(response)
+    }
+
+    @Sendable
+    func stockNews(req: Request) async throws -> [StockNews] {
+        let symbol = try requireSymbolQuery(req)
+        let limit = req.query[Int.self, at: "limit"]
+        return try await req.application.marketNewsArchiveService.news(
+            symbol: symbol,
+            limit: limit,
+            on: req
+        )
+    }
+
+    @Sendable
+    func archivedStockNews(req: Request) async throws -> [StockNews] {
+        let symbol = try requireSymbolQuery(req)
+        let limit = req.query[Int.self, at: "limit"]
+        return try await req.application.marketNewsArchiveService.archivedNews(
+            symbol: symbol,
+            limit: limit,
             on: req.db
         )
+    }
 
-        return items.compactMap { item in
-            guard let url = item.url?.trimmingCharacters(in: .whitespacesAndNewlines), !url.isEmpty else {
-                return nil
-            }
-
-            return StockNews(
-                title: item.headline,
-                url: url,
-                date: item.publishedAt
-            )
-        }
+    @Sendable
+    func syncArchivedStockNews(req: Request) async throws -> [StockNews] {
+        let symbol = try requireSymbolQuery(req)
+        let limit = req.query[Int.self, at: "limit"]
+        return try await req.application.marketNewsArchiveService.refreshNews(
+            symbol: symbol,
+            limit: limit,
+            on: req
+        )
     }
 
     @Sendable
@@ -192,5 +234,20 @@ struct MarketDataController: RouteCollection {
         }
 
         return 0
+    }
+
+    private func makeStockHistory(_ response: HistoryResponse) -> [StockHistory] {
+        response.bars
+            .sorted { $0.date > $1.date }
+            .map {
+                StockHistory(
+                    date: $0.date,
+                    open: $0.open,
+                    high: $0.high,
+                    low: $0.low,
+                    close: $0.close,
+                    volume: $0.volume ?? 0
+                )
+            }
     }
 }

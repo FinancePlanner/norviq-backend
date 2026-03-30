@@ -44,6 +44,7 @@ protocol NewsService: Sendable {
     func update(id: UUID, payload: NewsItemRequest, userId: UUID, on db: any Database) async throws -> NewsItemResponse
     func delete(id: UUID, userId: UUID, on db: any Database) async throws
     func syncNews(userId: UUID, on req: Request) async throws -> NewsSyncResponse
+    func ingestFinnhubWebhook(payload: FinnhubNewsWebhookRequest, on db: any Database) async throws -> FinnhubNewsWebhookResponse
 }
 
 struct DefaultNewsService: NewsService {
@@ -121,27 +122,133 @@ struct DefaultNewsService: NewsService {
         guard let provider else {
             throw Abort(
                 .notImplemented,
-                reason: "News provider not configured. Configure a NewsProvider and implement fetch logic."
+                reason: "News provider not configured. Configure FINNHUB_API_KEY to enable Finnhub sync."
             )
         }
 
         let symbols = try await repo.trackedSymbols(userId: userId, on: req.db)
             .compactMap { normalizedSymbolValue($0) }
+        let trackedSymbols = Set(symbols)
         let fetched = try await provider.fetch(symbols: symbols, on: req)
+        let normalizedArticles = try fetched.compactMap(normalizeProviderArticle)
 
-        // Scaffolding phase: provider fetch is wired, persistence/upsert logic comes next.
+        var insertedCount = 0
+        var updatedCount = 0
+        var skippedCount = max(fetched.count - normalizedArticles.count, 0)
+
+        for article in normalizedArticles {
+            guard article.symbols.count == 1, let symbol = article.symbols.first, trackedSymbols.contains(symbol) else {
+                skippedCount += 1
+                continue
+            }
+
+            let upsertResult = try await upsertNewsItem(
+                userId: userId,
+                symbol: symbol,
+                article: article,
+                on: req.db
+            )
+            switch upsertResult {
+            case .inserted:
+                insertedCount += 1
+            case .updated:
+                updatedCount += 1
+            case .skipped:
+                skippedCount += 1
+            }
+        }
+
         return NewsSyncResponse(
             provider: provider.name,
             symbolsCount: symbols.count,
             fetchedCount: fetched.count,
-            insertedCount: 0,
-            updatedCount: 0,
-            skippedCount: fetched.count
+            insertedCount: insertedCount,
+            updatedCount: updatedCount,
+            skippedCount: skippedCount
+        )
+    }
+
+    func ingestFinnhubWebhook(payload: FinnhubNewsWebhookRequest, on db: any Database) async throws -> FinnhubNewsWebhookResponse {
+        let normalizedArticles = try payload.news.compactMap(normalizeWebhookArticle)
+        let trackedUsersBySymbol = try await repo.trackedUserIDs(
+            symbols: normalizedArticles.flatMap(\.symbols),
+            on: db
+        )
+
+        var insertedCount = 0
+        var skippedCount = max(payload.news.count - normalizedArticles.count, 0)
+        var matchedSymbols = Set<String>()
+        var matchedUsers = Set<UUID>()
+
+        for article in normalizedArticles {
+            let trackedSymbols = Array(Set(article.symbols.filter { trackedUsersBySymbol[$0] != nil }))
+            guard !trackedSymbols.isEmpty else {
+                skippedCount += 1
+                continue
+            }
+
+            matchedSymbols.formUnion(trackedSymbols)
+            for symbol in trackedSymbols {
+                guard let userIDs = trackedUsersBySymbol[symbol], !userIDs.isEmpty else {
+                    skippedCount += 1
+                    continue
+                }
+
+                matchedUsers.formUnion(userIDs)
+                for userID in userIDs {
+                    let duplicate = try await findDuplicate(
+                        userId: userID,
+                        symbol: symbol,
+                        article: article,
+                        on: db
+                    )
+                    if duplicate != nil {
+                        skippedCount += 1
+                        continue
+                    }
+
+                    let item = NewsItem(
+                        userId: userID,
+                        symbol: symbol,
+                        headline: article.headline,
+                        source: article.source,
+                        url: article.url,
+                        summary: article.summary,
+                        publishedAt: article.publishedAt
+                    )
+                    try await repo.save(item, on: db)
+                    insertedCount += 1
+                }
+            }
+        }
+
+        return FinnhubNewsWebhookResponse(
+            provider: "finnhub",
+            receivedCount: payload.news.count,
+            matchedSymbolsCount: matchedSymbols.count,
+            matchedUsersCount: matchedUsers.count,
+            insertedCount: insertedCount,
+            skippedCount: skippedCount
         )
     }
 }
 
 private extension DefaultNewsService {
+    enum UpsertNewsResult {
+        case inserted
+        case updated
+        case skipped
+    }
+
+    struct NormalizedNewsArticle: Sendable {
+        let symbols: [String]
+        let headline: String
+        let source: String?
+        let url: String?
+        let summary: String?
+        let publishedAt: Date
+    }
+
     func makeResponse(from model: NewsItem) throws -> NewsItemResponse {
         guard let id = model.id else {
             throw Abort(.internalServerError, reason: "News id missing")
@@ -230,5 +337,168 @@ private extension DefaultNewsService {
         let formatter = ISO8601DateFormatter()
         formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
         return formatter.string(from: date)
+    }
+
+    func normalizeProviderArticle(_ raw: ProviderNewsItem) throws -> NormalizedNewsArticle? {
+        guard let symbol = normalizedSymbolValue(raw.symbol) else {
+            return nil
+        }
+
+        guard let headline = trimToNil(raw.headline) else {
+            return nil
+        }
+
+        return NormalizedNewsArticle(
+            symbols: [symbol],
+            headline: try normalizeHeadline(headline),
+            source: trimToNil(raw.source),
+            url: try normalizeURL(raw.url),
+            summary: trimToNil(raw.summary),
+            publishedAt: raw.publishedAt
+        )
+    }
+
+    func normalizeWebhookArticle(_ raw: FinnhubNewsWebhookItem) throws -> NormalizedNewsArticle? {
+        guard let rawHeadline = trimToNil(raw.headline) else {
+            return nil
+        }
+
+        let symbols = normalizedWebhookSymbols(from: raw)
+        guard !symbols.isEmpty else {
+            return nil
+        }
+
+        return NormalizedNewsArticle(
+            symbols: symbols,
+            headline: try normalizeHeadline(rawHeadline),
+            source: trimToNil(raw.source),
+            url: try normalizeURL(raw.url),
+            summary: trimToNil(raw.summary),
+            publishedAt: try normalizeWebhookPublishedAt(raw)
+        )
+    }
+
+    func normalizedWebhookSymbols(from item: FinnhubNewsWebhookItem) -> [String] {
+        let directSymbols = (item.symbols ?? []) + [item.symbol].compactMap { $0 }
+        let relatedSymbols = (item.related ?? "")
+            .components(separatedBy: CharacterSet(charactersIn: ",;| \n\t"))
+        let symbols = directSymbols + relatedSymbols
+
+        return Array(
+            Set(
+                symbols.map { $0.trimmingCharacters(in: .whitespacesAndNewlines).uppercased() }
+                    .filter { !$0.isEmpty }
+            )
+        )
+    }
+
+    func normalizeWebhookPublishedAt(_ item: FinnhubNewsWebhookItem) throws -> Date {
+        if let rawPublishedAt = trimToNil(item.publishedAt) {
+            if let parsed = parseISO8601(rawPublishedAt) {
+                return parsed
+            }
+            throw NewsServiceError.invalidPublishedAt
+        }
+
+        if let timestamp = item.datetime {
+            let normalizedTimestamp = timestamp > 9_999_999_999 ? timestamp / 1_000 : timestamp
+            return Date(timeIntervalSince1970: normalizedTimestamp)
+        }
+
+        return Date()
+    }
+
+    func upsertNewsItem(
+        userId: UUID,
+        symbol: String,
+        article: NormalizedNewsArticle,
+        on db: any Database
+    ) async throws -> UpsertNewsResult {
+        if let existing = try await findDuplicate(
+            userId: userId,
+            symbol: symbol,
+            article: article,
+            on: db
+        ) {
+            if apply(article: article, to: existing) {
+                try await repo.save(existing, on: db)
+                return .updated
+            }
+            return .skipped
+        }
+
+        let item = NewsItem(
+            userId: userId,
+            symbol: symbol,
+            headline: article.headline,
+            source: article.source,
+            url: article.url,
+            summary: article.summary,
+            publishedAt: article.publishedAt
+        )
+        try await repo.save(item, on: db)
+        return .inserted
+    }
+
+    func findDuplicate(
+        userId: UUID,
+        symbol: String,
+        article: NormalizedNewsArticle,
+        on db: any Database
+    ) async throws -> NewsItem? {
+        let candidates = try await repo.findPotentialDuplicates(
+            userId: userId,
+            symbol: symbol,
+            headline: article.headline,
+            url: article.url,
+            on: db
+        )
+
+        if let candidateURL = trimToNil(article.url) {
+            if let exactURLMatch = candidates.first(where: { normalizedDuplicateValue($0.url) == candidateURL }) {
+                return exactURLMatch
+            }
+        }
+
+        return candidates.first(where: { isDuplicate($0, comparedTo: article) })
+    }
+
+    func apply(article: NormalizedNewsArticle, to existing: NewsItem) -> Bool {
+        let currentURL = trimToNil(existing.url)
+        let currentSource = trimToNil(existing.source)
+        let currentSummary = trimToNil(existing.summary)
+
+        let needsUpdate =
+            existing.headline != article.headline ||
+            currentSource != article.source ||
+            currentURL != article.url ||
+            currentSummary != article.summary ||
+            abs(existing.publishedAt.timeIntervalSince(article.publishedAt)) >= 1
+
+        guard needsUpdate else {
+            return false
+        }
+
+        existing.headline = article.headline
+        existing.source = article.source
+        existing.url = article.url
+        existing.summary = article.summary
+        existing.publishedAt = article.publishedAt
+        return true
+    }
+
+    func isDuplicate(_ existing: NewsItem, comparedTo candidate: NormalizedNewsArticle) -> Bool {
+        let existingURL = normalizedDuplicateValue(existing.url)
+        let candidateURL = normalizedDuplicateValue(candidate.url)
+        let sameURL = existingURL == candidateURL
+        let publishedDelta = abs(existing.publishedAt.timeIntervalSince(candidate.publishedAt))
+        if sameURL && !candidateURL.isEmpty {
+            return true
+        }
+        return existing.headline == candidate.headline && publishedDelta < 1
+    }
+
+    func normalizedDuplicateValue(_ raw: String?) -> String {
+        trimToNil(raw) ?? ""
     }
 }

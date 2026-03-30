@@ -104,8 +104,10 @@ Validation
 
 Environment variables (example set)
 - `MARKET_PROVIDER`
-- `MARKET_API_KEY`
-- `MARKET_BASE_URL`
+- `FINNHUB_API_KEY`
+- `FINNHUB_WEBHOOK_URL`
+- `FINNHUB_WEBHOOK_SECRET`
+- `IBKR_API_BASE_URL`
 - `MARKET_TIMEOUT_MS`
 - `MARKET_RETRY_COUNT`
 - `MARKET_TTL_QUOTE_SECONDS`
@@ -132,6 +134,25 @@ Tests to add
 3. History endpoint with DB upsert strategy.
 4. FX endpoint.
 5. Background refresh jobs (optional post-MVP).
+
+## 10) Archive-backed endpoints
+
+The backend now exposes DB-backed archive routes in addition to the compatibility routes used by the iOS app.
+
+History
+- `GET /v1/market/history` reads through the backend cache and may call the upstream provider on stale/miss.
+- `GET /v1/market/history/archive` reads only archived bars already stored in Postgres.
+- `POST /v1/market/history/archive/sync` fetches from the provider, upserts into `price_history`, and returns the archived result.
+
+News
+- `GET /v1/market/news` reads through the shared market news archive and refreshes it on stale/miss.
+- `GET /v1/market/news/archive` reads only archived news already stored in Postgres.
+- `POST /v1/market/news/archive/sync` fetches from the provider, upserts into `market_news_archive`, and returns the archived result.
+
+Why this shape
+- Compatibility routes keep the existing iOS client working.
+- Archive routes make persistence explicit for admin jobs, backfills, reports, and deterministic reads.
+- Shared storage means repeated requests across users do not re-hit Finnhub unnecessarily.
 
 ## Redis in Docker Compose and costs
 

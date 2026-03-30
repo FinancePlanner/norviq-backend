@@ -133,4 +133,4 @@ About external API/RSS:
       4. Trigger via endpoint (POST /news/sync) and later scheduler/cron.
   - This lets you switch providers without changing your controller/DTO contracts.
   
-    By default DefaultNewsService() has no provider configured, so POST /news/sync returns 501 Not Implemented until you inject one in configure.swift (e.g. DefaultNewsService(provider: ExternalAPINewsProvider())).
+    The backend now injects `FinnhubNewsProvider` automatically when `FINNHUB_API_KEY` is configured. If the key is missing, `POST /news/sync` still returns 501 Not Implemented.
