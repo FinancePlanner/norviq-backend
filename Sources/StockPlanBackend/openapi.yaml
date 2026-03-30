@@ -976,6 +976,46 @@ paths:
         '404':
           description: Not Found
 
+  /v1/earnings/calendar:
+    get:
+      operationId: getEarningsCalendar
+      tags: [Earnings]
+      summary: Get earnings calendar
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: from
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: to
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: symbol
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: international
+          in: query
+          required: false
+          schema:
+            type: boolean
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/EarningsItemResponse'
+        '401':
+          description: Unauthorized
+
   /webhooks/finnhub/news:
     post:
       operationId: finnhubNewsWebhook
@@ -3482,3 +3522,39 @@ components:
           type: number
           format: double
       required: [symbol, changePercent]
+    EarningsItemResponse:
+      type: object
+      properties:
+        date:
+          type: string
+          nullable: true
+        epsActual:
+          type: number
+          format: double
+          nullable: true
+        epsEstimate:
+          type: number
+          format: double
+          nullable: true
+        hour:
+          type: string
+          nullable: true
+        quarter:
+          type: integer
+          format: int32
+          nullable: true
+        revenueActual:
+          type: number
+          format: double
+          nullable: true
+        revenueEstimate:
+          type: number
+          format: double
+          nullable: true
+        symbol:
+          type: string
+          nullable: true
+        year:
+          type: integer
+          format: int32
+          nullable: true
