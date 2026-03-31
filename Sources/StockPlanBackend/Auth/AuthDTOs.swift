@@ -12,11 +12,3 @@ typealias AuthForgotPasswordResponse = StockPlanShared.AuthForgotPasswordRespons
 typealias AuthResetPasswordRequest = StockPlanShared.AuthResetPasswordRequest
 typealias AuthRefreshRequest = StockPlanShared.AuthRefreshRequest
 
-extension AuthRegisterRequest: Content {}
-extension AuthLoginRequest: Content {}
-extension AuthResponse: Content {}
-extension AuthUserResponse: Content {}
-extension AuthForgotPasswordRequest: Content {}
-extension AuthForgotPasswordResponse: Content {}
-extension AuthResetPasswordRequest: Content {}
-extension AuthRefreshRequest: Content {}

@@ -16,18 +16,6 @@ typealias LooklistConvictionDTO = StockPlanShared.LooklistConvictionDTO
 typealias MarketStatisticsDTO = StockPlanShared.MarketStatisticsDTO
 typealias MarketHeatmapDTO = StockPlanShared.MarketHeatmapDTO
 
-extension StatisticsDTO: Content {}
-extension ImportedStocksStatisticsDTO: Content {}
-extension StockStatisticsSummaryDTO: Content {}
-extension StockAllocationDTO: Content {}
-extension SectorAllocationDTO: Content {}
-extension CalendarPerformanceDTO: Content {}
-extension WatchlistStatisticsDTO: Content {}
-extension WatchlistSymbolDTO: Content {}
-extension LooklistStatisticsDTO: Content {}
-extension LooklistConvictionDTO: Content {}
-extension MarketStatisticsDTO: Content {}
-extension MarketHeatmapDTO: Content {}
 
 extension StatisticsDTO {
     init(from model: StatisticsViewModel) {

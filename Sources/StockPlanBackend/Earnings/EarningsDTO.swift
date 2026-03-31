@@ -4,8 +4,6 @@ import StockPlanShared
 typealias EarningsQueryRequest = StockPlanShared.EarningsQueryRequest
 typealias EarningsItemResponse = StockPlanShared.EarningsItemResponse
 
-extension EarningsQueryRequest: Content {}
-extension EarningsItemResponse: Content {}
 
 struct FinnhubEarningsPayload: Decodable {
     let earningsCalendar: [FinnhubEarningsItem]?

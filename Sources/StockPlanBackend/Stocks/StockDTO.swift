@@ -28,5 +28,3 @@ typealias BulkStockResponse = StockPlanShared.BulkStockResponse
 typealias TargetRequest = StockPlanShared.TargetRequest
 typealias TargetResponse = StockPlanShared.TargetResponse
 
-extension TargetRequest: Content {}
-extension TargetResponse: Content {}

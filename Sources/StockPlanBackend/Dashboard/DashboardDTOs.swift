@@ -4,7 +4,3 @@ import StockPlanShared
 typealias DashboardResponse = StockPlanShared.DashboardResponse
 typealias DashboardPerformerDTO = StockPlanShared.DashboardPerformerDTO
 typealias DashboardAllocationDTO = StockPlanShared.DashboardAllocationDTO
-
-extension DashboardResponse: Content {}
-extension DashboardPerformerDTO: Content {}
-extension DashboardAllocationDTO: Content {}
