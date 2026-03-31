@@ -26,6 +26,7 @@ let package = Package(
         .package(url: "https://github.com/vapor/redis.git", from: "4.8.0"),
         // Shared API contracts used by backend and iOS app.
         .package(url: "https://github.com/FinancePlanner/FinanceShared.git", from: "0.2.3"),
+        .package(url: "https://github.com/realm/SwiftLint.git", from: "0.50.3"),
     ],
     targets: [
         .executableTarget(
@@ -51,7 +52,8 @@ let package = Package(
             ],
             swiftSettings: swiftSettings,
             plugins: [
-                .plugin(name: "OpenAPIGenerator", package: "swift-openapi-generator")
+                .plugin(name: "OpenAPIGenerator", package: "swift-openapi-generator"),
+                .plugin(name: "SwiftLintPlugin", package: "SwiftLint"),
             ],
         ),
         .testTarget(
