@@ -142,6 +142,7 @@ public func configure(_ app: Application) async throws {
     app.migrations.add(CreateTarget())
     app.migrations.add(CreatePriceHistory())
     app.migrations.add(CreateQuoteCache())
+    app.migrations.add(AddQuoteFields())
     app.migrations.add(CreateSearchCache())
     app.migrations.add(CreateStatisticsSnapshot())
     app.migrations.add(CreateBrokerConnection())
@@ -149,6 +150,7 @@ public func configure(_ app: Application) async throws {
     app.migrations.add(CreateNewsItem())
     app.migrations.add(AddUserScopedQueryIndexes())
     app.migrations.add(CreateStockValuation())
+    app.migrations.add(CreateProfileCache())
 
     // register routes
     try routes(app)

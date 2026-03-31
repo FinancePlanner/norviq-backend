@@ -534,8 +534,8 @@ struct StockPlanBackendTests {
             try await app.testing().test(.GET, "v1/market/history?symbol=ZETA", beforeRequest: { req in
                 req.headers.bearerAuthorization = .init(token: token)
             }, afterResponse: { res async in
-                #expect(res.status == .serviceUnavailable)
-                #expect(res.body.string.contains("IBKR_API_BASE_URL"))
+                #expect(res.status == .badGateway)
+                #expect(res.body.string.contains("Forced market provider failure"))
             })
         }
     }
@@ -578,8 +578,39 @@ struct StockPlanBackendTests {
 
             #expect(first?.symbol == "AAPL")
             #expect(second?.symbol == "AAPL")
-            #expect(first?.price == second?.price)
+            #expect(first?.c == second?.c)
             #expect(await state.quoteCalls() == 1)
+        }
+    }
+
+    @Test("Profile uses cache after first fetch")
+    func profileUsesCache() async throws {
+        try await withApp { app in
+            let state = TestMarketProviderState()
+            app.marketDataService = makeTestMarketService(state: state)
+            let (token, _) = try await registerTestUser(app: app)
+
+            var first: CompanyProfileResponse?
+            var second: CompanyProfileResponse?
+
+            try await app.testing().test(.GET, "v1/profile/AAPL", beforeRequest: { req in
+                req.headers.bearerAuthorization = .init(token: token)
+            }, afterResponse: { res async throws in
+                #expect(res.status == .ok)
+                first = try res.content.decode(CompanyProfileResponse.self)
+            })
+
+            try await app.testing().test(.GET, "v1/profile/AAPL", beforeRequest: { req in
+                req.headers.bearerAuthorization = .init(token: token)
+            }, afterResponse: { res async throws in
+                #expect(res.status == .ok)
+                second = try res.content.decode(CompanyProfileResponse.self)
+            })
+
+            #expect(first?.ticker == "AAPL")
+            #expect(second?.ticker == "AAPL")
+            #expect(first?.name == second?.name)
+            #expect(await state.profileCalls() == 1)
         }
     }
 
@@ -717,7 +748,7 @@ struct StockPlanBackendTests {
             })
 
             #expect(response?.symbol == "AAPL")
-            #expect(response?.price == 123.45)
+            #expect(response?.c == 123.45)
             #expect(await state.quoteCalls() == 1)
         }
     }
@@ -1171,6 +1202,7 @@ actor TestMarketProviderState {
     private var historyCallCount: Int = 0
     private var searchCallCount: Int = 0
     private var fxCallCount: Int = 0
+    private var profileCallCount: Int = 0
     private var failQuoteRequests: Bool = false
 
     func nextQuoteCall() -> Int {
@@ -1191,6 +1223,11 @@ actor TestMarketProviderState {
     func nextFxCall() -> Int {
         fxCallCount += 1
         return fxCallCount
+    }
+
+    func nextProfileCall() -> Int {
+        profileCallCount += 1
+        return profileCallCount
     }
 
     func setFailQuote(_ value: Bool) {
@@ -1216,6 +1253,10 @@ actor TestMarketProviderState {
     func fxCalls() -> Int {
         fxCallCount
     }
+
+    func profileCalls() -> Int {
+        profileCallCount
+    }
 }
 
 struct TestMarketDataProvider: MarketDataProvider {
@@ -1232,6 +1273,12 @@ struct TestMarketDataProvider: MarketDataProvider {
         return MarketProviderQuote(
             symbol: symbol,
             price: 101.25,
+            change: nil,
+            percentChange: nil,
+            high: nil,
+            low: nil,
+            open: nil,
+            previousClose: nil,
             currency: "USD",
             asOf: Date()
         )
@@ -1272,6 +1319,26 @@ struct TestMarketDataProvider: MarketDataProvider {
         _ = await state.nextFxCall()
         return .init(base: base, quote: quote, rate: 1.1, asOf: Date())
     }
+
+    func profile(symbol: String, on req: Request) async throws -> MarketProviderCompanyProfile? {
+        _ = await state.nextProfileCall()
+        return MarketProviderCompanyProfile(
+            symbol: symbol,
+            country: "US",
+            currency: "USD",
+            estimateCurrency: "USD",
+            exchange: "NASDAQ",
+            finnhubIndustry: "Technology",
+            ipo: "1980-12-12",
+            logo: "https://example.com/logo.png",
+            marketCapitalization: 1000.0,
+            name: "Apple Inc",
+            phone: "123456789",
+            shareOutstanding: 100.0,
+            ticker: symbol,
+            weburl: "https://apple.com"
+        )
+    }
 }
 
 struct FailingMarketDataProvider: MarketDataProvider {
@@ -1292,6 +1359,10 @@ struct FailingMarketDataProvider: MarketDataProvider {
     }
 
     func fx(base: String, quote: String, on req: Request) async throws -> MarketProviderFxRate {
+        throw Abort(.badGateway, reason: "Forced market provider failure")
+    }
+
+    func profile(symbol: String, on req: Request) async throws -> MarketProviderCompanyProfile? {
         throw Abort(.badGateway, reason: "Forced market provider failure")
     }
 }

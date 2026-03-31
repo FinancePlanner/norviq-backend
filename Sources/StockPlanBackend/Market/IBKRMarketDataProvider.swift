@@ -34,7 +34,7 @@ struct IBKRMarketDataProvider: MarketDataProvider {
 
         let asOf = parseEpochMilliseconds(row["_updated"]) ?? Date()
         let currency = parseString(row["7059"]) ?? instrument.currency
-        return MarketProviderQuote(symbol: symbol, price: price, currency: currency, asOf: asOf)
+        return MarketProviderQuote(symbol: symbol, price: price, change: nil, percentChange: nil, high: nil, low: nil, open: nil, previousClose: nil, currency: currency, asOf: asOf)
     }
 
     func history(symbol rawSymbol: String, from: Date?, to: Date?, on req: Request) async throws -> MarketProviderHistory {
@@ -146,6 +146,10 @@ struct IBKRMarketDataProvider: MarketDataProvider {
 
         let asOf = parseEpochMilliseconds(row["_updated"]) ?? Date()
         return MarketProviderFxRate(base: base, quote: quote, rate: rate, asOf: asOf)
+    }
+
+    func profile(symbol: String, on req: Request) async throws -> MarketProviderCompanyProfile? {
+        return nil // IBKR doesn't natively expose a /profile equivalent.
     }
 }
 

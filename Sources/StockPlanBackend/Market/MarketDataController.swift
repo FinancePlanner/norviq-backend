@@ -13,6 +13,7 @@ struct MarketDataController: RouteCollection {
         protected.post("market", "news", "archive", "sync", use: syncArchivedStockNews)
         protected.get("quote", "batch", use: quoteBatch)
         protected.get("quote", ":symbol", use: quote)
+        protected.get("profile", ":symbol", use: profile)
         protected.get("history", ":symbol", use: history)
         protected.get("search", use: search)
         protected.get("fx", use: fx)
@@ -26,14 +27,14 @@ struct MarketDataController: RouteCollection {
             let company = await resolveCompanyName(for: quote.symbol, on: req)
             let changePercent = await resolveChangePercent(
                 for: quote.symbol,
-                latestPrice: quote.price,
+                latestPrice: quote.c,
                 on: req
             )
 
             return StockDetailsResponse(
                 symbol: quote.symbol,
                 company: company,
-                latestPrice: quote.price,
+                latestPrice: quote.c,
                 changePercent: changePercent
             )
         } catch is MarketDataProviderDisabledError {
@@ -141,6 +142,14 @@ struct MarketDataController: RouteCollection {
             throw Abort(.badRequest, reason: "Missing symbol.")
         }
         return try await req.application.marketDataService.quote(symbol: symbol, on: req)
+    }
+
+    @Sendable
+    func profile(req: Request) async throws -> CompanyProfileResponse {
+        guard let symbol = req.parameters.get("symbol") else {
+            throw Abort(.badRequest, reason: "Missing symbol.")
+        }
+        return try await req.application.marketDataService.profile(symbol: symbol, on: req)
     }
 
     @Sendable

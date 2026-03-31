@@ -40,16 +40,28 @@ struct FinnhubMarketDataProvider: MarketDataProvider {
         let effectiveTo = to ?? Date()
         let effectiveFrom = from ?? defaultHistoryStartDate(relativeTo: effectiveTo)
 
-        let payload: FinnhubCandlePayload = try await fetchJSON(
-            path: "/stock/candle",
-            query: [
-                ("symbol", symbol),
-                ("resolution", "D"),
-                ("from", String(Int(effectiveFrom.timeIntervalSince1970))),
-                ("to", String(Int(effectiveTo.timeIntervalSince1970)))
-            ],
-            on: req
-        )
+        let payload: FinnhubCandlePayload
+        do {
+            payload = try await fetchJSON(
+                path: "/stock/candle",
+                query: [
+                    ("symbol", symbol),
+                    ("resolution", "D"),
+                    ("from", String(Int(effectiveFrom.timeIntervalSince1970))),
+                    ("to", String(Int(effectiveTo.timeIntervalSince1970)))
+                ],
+                on: req
+            )
+        } catch {
+            req.logger.warning("Finnhub history request failed for \(symbol): \(error.localizedDescription). Falling back to empty history array.")
+            let profile = try? await fetchCompanyProfile(symbol: symbol, on: req)
+            return MarketProviderHistory(
+                symbol: symbol,
+                currency: profile?.currency ?? defaultCurrency,
+                bars: []
+            )
+        }
+
         let profile = try? await fetchCompanyProfile(symbol: symbol, on: req)
 
         return mapHistory(
@@ -95,9 +107,36 @@ struct FinnhubMarketDataProvider: MarketDataProvider {
             asOf: Date()
         )
     }
+
+    func profile(symbol rawSymbol: String, on req: Request) async throws -> MarketProviderCompanyProfile? {
+        let symbol = try normalizeSymbol(rawSymbol)
+        guard let payload = try await fetchCompanyProfile(symbol: symbol, on: req) else {
+            return nil
+        }
+        return mapProfile(symbol: symbol, payload: payload)
+    }
 }
 
 private extension FinnhubMarketDataProvider {
+    func mapProfile(symbol: String, payload: FinnhubCompanyProfilePayload) -> MarketProviderCompanyProfile {
+        return MarketProviderCompanyProfile(
+            symbol: symbol,
+            country: payload.country,
+            currency: payload.currency,
+            estimateCurrency: payload.estimateCurrency,
+            exchange: payload.exchange,
+            finnhubIndustry: payload.finnhubIndustry,
+            ipo: payload.ipo,
+            logo: payload.logo,
+            marketCapitalization: payload.marketCapitalization,
+            name: payload.name,
+            phone: payload.phone,
+            shareOutstanding: payload.shareOutstanding,
+            ticker: payload.ticker,
+            weburl: payload.weburl
+        )
+    }
+
     func mapQuote(
         symbol: String,
         quotePayload: FinnhubQuotePayload,
@@ -111,6 +150,12 @@ private extension FinnhubMarketDataProvider {
         return MarketProviderQuote(
             symbol: symbol,
             price: price,
+            change: quotePayload.change,
+            percentChange: quotePayload.percentChange,
+            high: quotePayload.high,
+            low: quotePayload.low,
+            open: quotePayload.open,
+            previousClose: quotePayload.previousClose,
             currency: normalizedFallbackValue(currency, fallback: defaultCurrency),
             asOf: asOf
         )
@@ -314,11 +359,21 @@ private extension FinnhubMarketDataProvider {
 
 private struct FinnhubQuotePayload: Decodable {
     let currentPrice: Double?
+    let change: Double?
+    let percentChange: Double?
+    let high: Double?
+    let low: Double?
+    let open: Double?
     let previousClose: Double?
     let timestamp: TimeInterval?
 
     enum CodingKeys: String, CodingKey {
         case currentPrice = "c"
+        case change = "d"
+        case percentChange = "dp"
+        case high = "h"
+        case low = "l"
+        case open = "o"
         case previousClose = "pc"
         case timestamp = "t"
     }
@@ -359,9 +414,17 @@ private struct FinnhubSymbolLookupItem: Decodable {
 private struct FinnhubCompanyProfilePayload: Decodable {
     let country: String?
     let currency: String?
+    let estimateCurrency: String?
     let exchange: String?
+    let finnhubIndustry: String?
+    let ipo: String?
+    let logo: String?
+    let marketCapitalization: Double?
     let name: String?
+    let phone: String?
+    let shareOutstanding: Double?
     let ticker: String?
+    let weburl: String?
 }
 
 private struct FinnhubForexRatesPayload: Decodable {

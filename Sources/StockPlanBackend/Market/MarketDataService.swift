@@ -11,6 +11,7 @@ protocol MarketDataService: Sendable {
     func refreshHistory(symbol: String, from: String?, to: String?, on req: Request) async throws -> HistoryResponse
     func search(query: String, on req: Request) async throws -> [SearchResultResponse]
     func fx(pair: String, on req: Request) async throws -> FxRateResponse
+    func profile(symbol: String, on req: Request) async throws -> CompanyProfileResponse
 }
 
 struct MarketDataCacheConfig: Sendable {
@@ -18,6 +19,7 @@ struct MarketDataCacheConfig: Sendable {
     let historyTTLSeconds: Int
     let searchTTLSeconds: Int
     let fxTTLSeconds: Int
+    let profileTTLSeconds: Int
     let defaultCurrency: String
 
     static func fromEnvironment() -> MarketDataCacheConfig {
@@ -25,6 +27,7 @@ struct MarketDataCacheConfig: Sendable {
         let historyTTL = Environment.get("MARKET_TTL_HISTORY_SECONDS").flatMap(Int.init(_:)) ?? 86_400
         let searchTTL = Environment.get("MARKET_TTL_SEARCH_SECONDS").flatMap(Int.init(_:)) ?? 3_600
         let fxTTL = Environment.get("MARKET_TTL_FX_SECONDS").flatMap(Int.init(_:)) ?? 86_400
+        let profileTTL = Environment.get("MARKET_TTL_PROFILE_SECONDS").flatMap(Int.init(_:)) ?? 86_400
         let currency = Environment.get("MARKET_DEFAULT_CURRENCY") ?? "USD"
 
         return .init(
@@ -32,6 +35,7 @@ struct MarketDataCacheConfig: Sendable {
             historyTTLSeconds: max(60, historyTTL),
             searchTTLSeconds: max(60, searchTTL),
             fxTTLSeconds: max(60, fxTTL),
+            profileTTLSeconds: max(60, profileTTL),
             defaultCurrency: currency.uppercased()
         )
     }
@@ -286,6 +290,46 @@ struct DefaultMarketDataService: MarketDataService {
             throw mapProviderError(error, operation: "fx")
         }
     }
+
+    func profile(symbol rawSymbol: String, on req: Request) async throws -> CompanyProfileResponse {
+        let symbol = try normalizeSymbol(rawSymbol)
+        let now = Date()
+        let providerName = provider.name
+        let redisKey = makeProfileRedisKey(provider: providerName, symbol: symbol)
+
+        if let hotCached: CompanyProfileResponse = await redisGetValue(redisKey, as: CompanyProfileResponse.self, on: req) {
+            return hotCached
+        }
+
+        let existing = try await ProfileCache.query(on: req.db)
+            .filter(\.$provider == providerName)
+            .filter(\.$symbol == symbol)
+            .first()
+
+        if let existing, isFresh(existing.updatedAt ?? existing.createdAt ?? .distantPast, ttlSeconds: cacheConfig.profileTTLSeconds, now: now) {
+            let response = makeProfileResponse(from: existing)
+            await redisSetValue(redisKey, value: response, ttlSeconds: cacheConfig.profileTTLSeconds, on: req)
+            return response
+        }
+
+        do {
+            guard let fresh = try await provider.profile(symbol: symbol, on: req) else {
+                throw Abort(.notFound, reason: "Profile not found for \(symbol).")
+            }
+            let cached = try await upsertProfileCache(fresh, provider: providerName, on: req.db)
+            let response = makeProfileResponse(from: cached)
+            await redisSetValue(redisKey, value: response, ttlSeconds: cacheConfig.profileTTLSeconds, on: req)
+            return response
+        } catch {
+            if let existing {
+                req.logger.warning("market.profile stale fallback symbol=\(symbol) provider=\(providerName)")
+                let response = makeProfileResponse(from: existing)
+                await redisSetValue(redisKey, value: response, ttlSeconds: cacheConfig.profileTTLSeconds, on: req)
+                return response
+            }
+            throw mapProviderError(error, operation: "profile")
+        }
+    }
 }
 
 private extension DefaultMarketDataService {
@@ -302,6 +346,12 @@ private extension DefaultMarketDataService {
             existing.price = quote.price
             existing.currency = quote.currency
             existing.asOf = quote.asOf
+            existing.change = quote.change
+            existing.percentChange = quote.percentChange
+            existing.high = quote.high
+            existing.low = quote.low
+            existing.open = quote.open
+            existing.previousClose = quote.previousClose
             try await existing.save(on: db)
             return existing
         }
@@ -311,7 +361,13 @@ private extension DefaultMarketDataService {
             symbol: quote.symbol,
             currency: quote.currency,
             price: quote.price,
-            asOf: quote.asOf
+            asOf: quote.asOf,
+            change: quote.change,
+            percentChange: quote.percentChange,
+            high: quote.high,
+            low: quote.low,
+            open: quote.open,
+            previousClose: quote.previousClose
         )
         try await row.save(on: db)
         return row
@@ -395,6 +451,54 @@ private extension DefaultMarketDataService {
         return model
     }
 
+    func upsertProfileCache(
+        _ profile: MarketProviderCompanyProfile,
+        provider providerName: String,
+        on db: any Database
+    ) async throws -> ProfileCache {
+        if let existing = try await ProfileCache.query(on: db)
+            .filter(\.$provider == providerName)
+            .filter(\.$symbol == profile.symbol)
+            .first()
+        {
+            existing.country = profile.country
+            existing.currency = profile.currency
+            existing.estimateCurrency = profile.estimateCurrency
+            existing.exchange = profile.exchange
+            existing.finnhubIndustry = profile.finnhubIndustry
+            existing.ipo = profile.ipo
+            existing.logo = profile.logo
+            existing.marketCapitalization = profile.marketCapitalization
+            existing.name = profile.name
+            existing.phone = profile.phone
+            existing.shareOutstanding = profile.shareOutstanding
+            existing.ticker = profile.ticker
+            existing.weburl = profile.weburl
+            try await existing.save(on: db)
+            return existing
+        }
+
+        let row = ProfileCache(
+            provider: providerName,
+            symbol: profile.symbol,
+            country: profile.country,
+            currency: profile.currency,
+            estimateCurrency: profile.estimateCurrency,
+            exchange: profile.exchange,
+            finnhubIndustry: profile.finnhubIndustry,
+            ipo: profile.ipo,
+            logo: profile.logo,
+            marketCapitalization: profile.marketCapitalization,
+            name: profile.name,
+            phone: profile.phone,
+            shareOutstanding: profile.shareOutstanding,
+            ticker: profile.ticker,
+            weburl: profile.weburl
+        )
+        try await row.save(on: db)
+        return row
+    }
+
     func loadCachedHistory(
         symbol: String,
         from: Date?,
@@ -430,9 +534,15 @@ private extension DefaultMarketDataService {
     func makeQuoteResponse(from model: QuoteCache) -> QuoteResponse {
         QuoteResponse(
             symbol: model.symbol,
-            price: model.price,
             currency: model.currency,
-            asOf: formatISODateTime(model.asOf)
+            c: model.price,
+            d: model.change,
+            dp: model.percentChange,
+            h: model.high,
+            l: model.low,
+            o: model.open,
+            pc: model.previousClose,
+            t: Int(model.asOf.timeIntervalSince1970)
         )
     }
 
@@ -442,6 +552,24 @@ private extension DefaultMarketDataService {
             quote: model.quote,
             rate: model.rate,
             date: formatISODateOnly(model.date)
+        )
+    }
+
+    func makeProfileResponse(from model: ProfileCache) -> CompanyProfileResponse {
+        CompanyProfileResponse(
+            country: model.country,
+            currency: model.currency,
+            estimateCurrency: model.estimateCurrency,
+            exchange: model.exchange,
+            finnhubIndustry: model.finnhubIndustry,
+            ipo: model.ipo,
+            logo: model.logo,
+            marketCapitalization: model.marketCapitalization,
+            name: model.name,
+            phone: model.phone,
+            shareOutstanding: model.shareOutstanding,
+            ticker: model.ticker,
+            weburl: model.weburl
         )
     }
 
@@ -489,6 +617,10 @@ private extension DefaultMarketDataService {
 
     func makeFxRedisKey(provider: String, base: String, quote: String) -> String {
         "market:fx:\(provider):\(base)\(quote)"
+    }
+
+    func makeProfileRedisKey(provider: String, symbol: String) -> String {
+        "market:profile:\(provider):\(symbol)"
     }
 
     func redisGetValue<T: Decodable>(
@@ -614,9 +746,7 @@ private extension DefaultMarketDataService {
             return MarketDataProviderDisabledError()
         }
 
-        if let abort = error as? any AbortError,
-           abort.status == .notFound || abort.status == .badRequest
-        {
+        if let abort = error as? any AbortError {
             return abort
         }
 

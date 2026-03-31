@@ -23,6 +23,24 @@ final class QuoteCache: Model, Content, @unchecked Sendable {
     @Field(key: "as_of")
     var asOf: Date
 
+    @OptionalField(key: "change")
+    var change: Double?
+
+    @OptionalField(key: "percent_change")
+    var percentChange: Double?
+
+    @OptionalField(key: "high")
+    var high: Double?
+
+    @OptionalField(key: "low")
+    var low: Double?
+
+    @OptionalField(key: "open")
+    var open: Double?
+
+    @OptionalField(key: "previous_close")
+    var previousClose: Double?
+
     @Timestamp(key: "created_at", on: .create)
     var createdAt: Date?
 
@@ -37,7 +55,13 @@ final class QuoteCache: Model, Content, @unchecked Sendable {
         symbol: String,
         currency: String,
         price: Double,
-        asOf: Date
+        asOf: Date,
+        change: Double? = nil,
+        percentChange: Double? = nil,
+        high: Double? = nil,
+        low: Double? = nil,
+        open: Double? = nil,
+        previousClose: Double? = nil
     ) {
         self.id = id
         self.provider = provider
@@ -45,5 +69,11 @@ final class QuoteCache: Model, Content, @unchecked Sendable {
         self.currency = currency
         self.price = price
         self.asOf = asOf
+        self.change = change
+        self.percentChange = percentChange
+        self.high = high
+        self.low = low
+        self.open = open
+        self.previousClose = previousClose
     }
 }

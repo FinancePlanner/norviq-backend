@@ -9,9 +9,31 @@ struct StockDetailsResponse: Content {
 
 struct QuoteResponse: Content {
     let symbol: String
-    let price: Double
     let currency: String
-    let asOf: String
+    let c: Double
+    let d: Double?
+    let dp: Double?
+    let h: Double?
+    let l: Double?
+    let o: Double?
+    let pc: Double?
+    let t: Int
+}
+
+struct CompanyProfileResponse: Content {
+    let country: String?
+    let currency: String?
+    let estimateCurrency: String?
+    let exchange: String?
+    let finnhubIndustry: String?
+    let ipo: String?
+    let logo: String?
+    let marketCapitalization: Double?
+    let name: String?
+    let phone: String?
+    let shareOutstanding: Double?
+    let ticker: String?
+    let weburl: String?
 }
 
 struct PriceBarResponse: Content {

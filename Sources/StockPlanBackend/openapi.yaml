@@ -1308,6 +1308,33 @@ paths:
                 $ref: '#/components/schemas/QuoteBatchResponse'
         '401':
           description: Unauthorized
+  /v1/profile/{symbol}:
+    parameters:
+      - name: symbol
+        in: path
+        required: true
+        schema:
+          type: string
+    get:
+      operationId: getCompanyProfile
+      tags: [MarketData]
+      summary: Get a company profile for a symbol
+      description: Returns the backend's normalized and cached company profile for a symbol.
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CompanyProfileResponse'
+        '401':
+          description: Unauthorized
+        '404':
+          description: Not Found or provider missing data
+        '502':
+          description: Bad Gateway for market provider
   /v1/quote/{symbol}:
     parameters:
       - name: symbol
@@ -2727,19 +2754,72 @@ components:
           type: integer
       required: [provider, receivedCount, matchedSymbolsCount, matchedUsersCount, insertedCount, skippedCount]
 
+    CompanyProfileResponse:
+      type: object
+      properties:
+        country:
+          type: string
+        currency:
+          type: string
+        estimateCurrency:
+          type: string
+        exchange:
+          type: string
+        finnhubIndustry:
+          type: string
+        ipo:
+          type: string
+          format: date
+        logo:
+          type: string
+          format: uri
+        marketCapitalization:
+          type: number
+          format: double
+        name:
+          type: string
+        phone:
+          type: string
+        shareOutstanding:
+          type: number
+          format: double
+        ticker:
+          type: string
+        weburl:
+          type: string
+          format: uri
+
     QuoteResponse:
       type: object
       properties:
         symbol:
           type: string
-        price:
-          type: number
-          format: double
         currency:
           type: string
-        asOf:
-          type: string
-      required: [symbol, price, currency, asOf]
+        c:
+          type: number
+          format: double
+        d:
+          type: number
+          format: double
+        dp:
+          type: number
+          format: double
+        h:
+          type: number
+          format: double
+        l:
+          type: number
+          format: double
+        o:
+          type: number
+          format: double
+        pc:
+          type: number
+          format: double
+        t:
+          type: integer
+      required: [symbol, currency, c, t]
     QuoteBatchResponse:
       type: object
       properties:
