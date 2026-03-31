@@ -92,7 +92,8 @@ struct StockPlanBackendTests {
         quoteTTLSeconds: Int = 3_600,
         historyTTLSeconds: Int = 3_600,
         searchTTLSeconds: Int = 3_600,
-        fxTTLSeconds: Int = 3_600
+        fxTTLSeconds: Int = 3_600,
+        profileTTLSeconds: Int = 3_600
     ) -> any MarketDataService {
         DefaultMarketDataService(
             provider: TestMarketDataProvider(state: state),
@@ -101,6 +102,7 @@ struct StockPlanBackendTests {
                 historyTTLSeconds: historyTTLSeconds,
                 searchTTLSeconds: searchTTLSeconds,
                 fxTTLSeconds: fxTTLSeconds,
+                profileTTLSeconds: profileTTLSeconds,
                 defaultCurrency: "USD"
             )
         )
@@ -489,6 +491,7 @@ struct StockPlanBackendTests {
                     historyTTLSeconds: 3_600,
                     searchTTLSeconds: 3_600,
                     fxTTLSeconds: 3_600,
+                    profileTTLSeconds: 3_600,
                     defaultCurrency: "USD"
                 )
             )
@@ -525,6 +528,7 @@ struct StockPlanBackendTests {
                     historyTTLSeconds: 3_600,
                     searchTTLSeconds: 3_600,
                     fxTTLSeconds: 3_600,
+                    profileTTLSeconds: 3_600,
                     defaultCurrency: "USD"
                 )
             )

@@ -1,34 +1,15 @@
+import StockPlanShared
 import Vapor
 
-struct NewsItemRequest: Content {
-    let symbol: String
-    let headline: String
-    let source: String?
-    let url: String?
-    let summary: String?
-    let publishedAt: String?
-}
+typealias NewsItemRequest = StockPlanShared.NewsItemRequest
+typealias NewsItemResponse = StockPlanShared.NewsItemResponse
+typealias NewsSyncResponse = StockPlanShared.NewsSyncResponse
+typealias FinnhubNewsWebhookResponse = StockPlanShared.FinnhubNewsWebhookResponse
 
-struct NewsItemResponse: Content {
-    let id: String
-    let symbol: String
-    let headline: String
-    let source: String?
-    let url: String?
-    let summary: String?
-    let publishedAt: String
-    let createdAt: String?
-    let updatedAt: String?
-}
-
-struct NewsSyncResponse: Content {
-    let provider: String
-    let symbolsCount: Int
-    let fetchedCount: Int
-    let insertedCount: Int
-    let updatedCount: Int
-    let skippedCount: Int
-}
+extension NewsItemRequest: Content {}
+extension NewsItemResponse: Content {}
+extension NewsSyncResponse: Content {}
+extension FinnhubNewsWebhookResponse: Content {}
 
 struct FinnhubNewsWebhookRequest: Content {
     let news: [FinnhubNewsWebhookItem]
@@ -80,13 +61,4 @@ struct FinnhubNewsWebhookItem: Content {
     let symbols: [String]?
     let publishedAt: String?
     let url: String?
-}
-
-struct FinnhubNewsWebhookResponse: Content {
-    let provider: String
-    let receivedCount: Int
-    let matchedSymbolsCount: Int
-    let matchedUsersCount: Int
-    let insertedCount: Int
-    let skippedCount: Int
 }

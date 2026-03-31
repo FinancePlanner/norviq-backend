@@ -4,7 +4,7 @@ import PackageDescription
 let package = Package(
     name: "StockPlanBackend",
     platforms: [
-       .macOS(.v13)
+        .macOS(.v13)
     ],
     dependencies: [
         // 💧 A server-side Swift web framework.
@@ -25,7 +25,7 @@ let package = Package(
         .package(url: "https://github.com/apple/swift-log.git", from: "1.5.0"),
         .package(url: "https://github.com/vapor/redis.git", from: "4.8.0"),
         // Shared API contracts used by backend and iOS app.
-        .package(url: "https://github.com/FinancePlanner/FinanceShared.git", from: "0.1.7")
+        .package(url: "https://github.com/FinancePlanner/FinanceShared.git", from: "0.2.3"),
     ],
     targets: [
         .executableTarget(
@@ -47,12 +47,12 @@ let package = Package(
                 .product(name: "StockPlanShared", package: "FinanceShared"),
             ],
             resources: [
-                .copy("openapi.yaml"),
+                .copy("openapi.yaml")
             ],
             swiftSettings: swiftSettings,
             plugins: [
-                            .plugin(name: "OpenAPIGenerator", package: "swift-openapi-generator")
-                        ],
+                .plugin(name: "OpenAPIGenerator", package: "swift-openapi-generator")
+            ],
         ),
         .testTarget(
             name: "StockPlanBackendTests",
@@ -61,10 +61,12 @@ let package = Package(
                 .product(name: "VaporTesting", package: "vapor"),
             ],
             swiftSettings: swiftSettings
-        )
+        ),
     ]
 )
 
-var swiftSettings: [SwiftSetting] { [
-    .enableUpcomingFeature("ExistentialAny"),
-] }
+var swiftSettings: [SwiftSetting] {
+    [
+        .enableUpcomingFeature("ExistentialAny")
+    ]
+}

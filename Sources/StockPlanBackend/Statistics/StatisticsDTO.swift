@@ -1,102 +1,43 @@
-import Vapor
 import Foundation
+import StockPlanShared
+import Vapor
 
-struct StatisticsDTO: Content {
-    let generatedAt: String
-    let importedStocks: ImportedStocksStatisticsDTO
-    let watchlist: WatchlistStatisticsDTO
-    let looklist: LooklistStatisticsDTO
-    let market: MarketStatisticsDTO
-}
+typealias StatisticsDTO = StockPlanShared.StatisticsDTO
+typealias ImportedStocksStatisticsDTO = StockPlanShared.ImportedStocksStatisticsDTO
+typealias StatisticsResponse = StockPlanShared.StatisticsResponse
+typealias StockStatisticsSummaryDTO = StockPlanShared.StockStatisticsSummaryDTO
+typealias StockAllocationDTO = StockPlanShared.StockAllocationDTO
+typealias SectorAllocationDTO = StockPlanShared.SectorAllocationDTO
+typealias CalendarPerformanceDTO = StockPlanShared.CalendarPerformanceDTO
+typealias WatchlistStatisticsDTO = StockPlanShared.WatchlistStatisticsDTO
+typealias WatchlistSymbolDTO = StockPlanShared.WatchlistSymbolDTO
+typealias LooklistStatisticsDTO = StockPlanShared.LooklistStatisticsDTO
+typealias LooklistConvictionDTO = StockPlanShared.LooklistConvictionDTO
+typealias MarketStatisticsDTO = StockPlanShared.MarketStatisticsDTO
+typealias MarketHeatmapDTO = StockPlanShared.MarketHeatmapDTO
 
-struct ImportedStocksStatisticsDTO: Content {
-    let totalPositions: Int
-    let totalMarketValue: Double
-    let totalCostBasis: Double
-    let totalUnrealizedPnl: Double
-    let totalRealizedPnl: Double
-    let stockSummaries: [StockStatisticsSummaryDTO]
-    let stockAllocations: [StockAllocationDTO]
-    let sectorAllocations: [SectorAllocationDTO]
-    let calendarPerformance: [CalendarPerformanceDTO]
-}
-
-typealias StatisticsResponse = StatisticsDTO
-
-struct StockStatisticsSummaryDTO: Content {
-    let symbol: String
-    let marketValue: Double
-    let weightPercent: Double
-    let dailyChangePercent: Double?
-    let weeklyChangePercent: Double?
-    let monthlyChangePercent: Double?
-    let unrealizedPnl: Double
-}
-
-struct StockAllocationDTO: Content {
-    let symbol: String
-    let value: Double
-    let weightPercent: Double
-}
-
-struct SectorAllocationDTO: Content {
-    let sector: String
-    let value: Double
-    let weightPercent: Double
-}
-
-struct CalendarPerformanceDTO: Content {
-    let date: String
-    let pnl: Double
-    let pnlPercent: Double
-    let isUpDay: Bool
-}
-
-struct WatchlistStatisticsDTO: Content {
-    let totalSymbols: Int
-    let symbolsWithNotes: Int
-    let sectorAllocations: [SectorAllocationDTO]
-    let topWatched: [WatchlistSymbolDTO]
-}
-
-struct WatchlistSymbolDTO: Content {
-    let symbol: String
-    let mentionCount: Int
-}
-
-struct LooklistStatisticsDTO: Content {
-    let totalIdeas: Int
-    let activeIdeas: Int
-    let ideasWithTarget: Int
-    let ideasByConviction: [LooklistConvictionDTO]
-}
-
-struct LooklistConvictionDTO: Content {
-    let conviction: String
-    let count: Int
-}
-
-struct MarketStatisticsDTO: Content {
-    let benchmarkSymbol: String
-    let benchmarkChange1D: Double?
-    let benchmarkChange1W: Double?
-    let benchmarkChange1M: Double?
-    let benchmarkChangeYtd: Double?
-    let heatmap: [MarketHeatmapDTO]
-}
-
-struct MarketHeatmapDTO: Content {
-    let symbol: String
-    let changePercent: Double
-}
+extension StatisticsDTO: Content {}
+extension ImportedStocksStatisticsDTO: Content {}
+extension StockStatisticsSummaryDTO: Content {}
+extension StockAllocationDTO: Content {}
+extension SectorAllocationDTO: Content {}
+extension CalendarPerformanceDTO: Content {}
+extension WatchlistStatisticsDTO: Content {}
+extension WatchlistSymbolDTO: Content {}
+extension LooklistStatisticsDTO: Content {}
+extension LooklistConvictionDTO: Content {}
+extension MarketStatisticsDTO: Content {}
+extension MarketHeatmapDTO: Content {}
 
 extension StatisticsDTO {
     init(from model: StatisticsViewModel) {
-        self.generatedAt = Self.formatDateTime(model.generatedAt)
-        self.importedStocks = ImportedStocksStatisticsDTO(from: model.importedStocks)
-        self.watchlist = WatchlistStatisticsDTO(from: model.watchlist)
-        self.looklist = LooklistStatisticsDTO(from: model.looklist)
-        self.market = MarketStatisticsDTO(from: model.market)
+        self.init(
+            generatedAt: Self.formatDateTime(model.generatedAt),
+            importedStocks: ImportedStocksStatisticsDTO(from: model.importedStocks),
+            watchlist: WatchlistStatisticsDTO(from: model.watchlist),
+            looklist: LooklistStatisticsDTO(from: model.looklist),
+            market: MarketStatisticsDTO(from: model.market)
+        )
     }
 
     static func formatDateOnly(_ date: Date) -> String {
@@ -113,86 +54,94 @@ extension StatisticsDTO {
     }
 }
 
-private extension ImportedStocksStatisticsDTO {
-    init(from model: ImportedStocksStatisticsView) {
-        self.totalPositions = model.totalPositions
-        self.totalMarketValue = model.totalMarketValue
-        self.totalCostBasis = model.totalCostBasis
-        self.totalUnrealizedPnl = model.totalUnrealizedPnl
-        self.totalRealizedPnl = model.totalRealizedPnl
-        self.stockSummaries = model.stockSummaries.map {
-            StockStatisticsSummaryDTO(
-                symbol: $0.symbol,
-                marketValue: $0.marketValue,
-                weightPercent: $0.weightPercent,
-                dailyChangePercent: $0.dailyChangePercent,
-                weeklyChangePercent: $0.weeklyChangePercent,
-                monthlyChangePercent: $0.monthlyChangePercent,
-                unrealizedPnl: $0.unrealizedPnl
-            )
-        }
-        self.stockAllocations = model.stockAllocations.map {
-            StockAllocationDTO(
-                symbol: $0.symbol,
-                value: $0.value,
-                weightPercent: $0.weightPercent
-            )
-        }
-        self.sectorAllocations = model.sectorAllocations.map {
-            SectorAllocationDTO(
-                sector: $0.sector,
-                value: $0.value,
-                weightPercent: $0.weightPercent
-            )
-        }
-        self.calendarPerformance = model.calendarPerformance.map {
-            CalendarPerformanceDTO(
-                date: StatisticsDTO.formatDateOnly($0.date),
-                pnl: $0.pnl,
-                pnlPercent: $0.pnlPercent,
-                isUpDay: $0.isUpDay
-            )
-        }
+extension ImportedStocksStatisticsDTO {
+    fileprivate init(from model: ImportedStocksStatisticsView) {
+        self.init(
+            totalPositions: model.totalPositions,
+            totalMarketValue: model.totalMarketValue,
+            totalCostBasis: model.totalCostBasis,
+            totalUnrealizedPnl: model.totalUnrealizedPnl,
+            totalRealizedPnl: model.totalRealizedPnl,
+            stockSummaries: model.stockSummaries.map {
+                StockStatisticsSummaryDTO(
+                    symbol: $0.symbol,
+                    marketValue: $0.marketValue,
+                    weightPercent: $0.weightPercent,
+                    dailyChangePercent: $0.dailyChangePercent,
+                    weeklyChangePercent: $0.weeklyChangePercent,
+                    monthlyChangePercent: $0.monthlyChangePercent,
+                    unrealizedPnl: $0.unrealizedPnl
+                )
+            },
+            stockAllocations: model.stockAllocations.map {
+                StockAllocationDTO(
+                    symbol: $0.symbol,
+                    value: $0.value,
+                    weightPercent: $0.weightPercent
+                )
+            },
+            sectorAllocations: model.sectorAllocations.map {
+                SectorAllocationDTO(
+                    sector: $0.sector,
+                    value: $0.value,
+                    weightPercent: $0.weightPercent
+                )
+            },
+            calendarPerformance: model.calendarPerformance.map {
+                CalendarPerformanceDTO(
+                    date: StatisticsDTO.formatDateOnly($0.date),
+                    pnl: $0.pnl,
+                    pnlPercent: $0.pnlPercent,
+                    isUpDay: $0.isUpDay
+                )
+            }
+        )
     }
 }
 
-private extension WatchlistStatisticsDTO {
-    init(from model: WatchlistStatisticsView) {
-        self.totalSymbols = model.totalSymbols
-        self.symbolsWithNotes = model.symbolsWithNotes
-        self.sectorAllocations = model.sectorAllocations.map {
-            SectorAllocationDTO(
-                sector: $0.sector,
-                value: $0.value,
-                weightPercent: $0.weightPercent
-            )
-        }
-        self.topWatched = model.topWatched.map {
-            WatchlistSymbolDTO(symbol: $0.symbol, mentionCount: $0.mentionCount)
-        }
+extension WatchlistStatisticsDTO {
+    fileprivate init(from model: WatchlistStatisticsView) {
+        self.init(
+            totalSymbols: model.totalSymbols,
+            symbolsWithNotes: model.symbolsWithNotes,
+            sectorAllocations: model.sectorAllocations.map {
+                SectorAllocationDTO(
+                    sector: $0.sector,
+                    value: $0.value,
+                    weightPercent: $0.weightPercent
+                )
+            },
+            topWatched: model.topWatched.map {
+                WatchlistSymbolDTO(symbol: $0.symbol, mentionCount: $0.mentionCount)
+            }
+        )
     }
 }
 
-private extension LooklistStatisticsDTO {
-    init(from model: LooklistStatisticsView) {
-        self.totalIdeas = model.totalIdeas
-        self.activeIdeas = model.activeIdeas
-        self.ideasWithTarget = model.ideasWithTarget
-        self.ideasByConviction = model.ideasByConviction.map {
-            LooklistConvictionDTO(conviction: $0.conviction, count: $0.count)
-        }
+extension LooklistStatisticsDTO {
+    fileprivate init(from model: LooklistStatisticsView) {
+        self.init(
+            totalIdeas: model.totalIdeas,
+            activeIdeas: model.activeIdeas,
+            ideasWithTarget: model.ideasWithTarget,
+            ideasByConviction: model.ideasByConviction.map {
+                LooklistConvictionDTO(conviction: $0.conviction, count: $0.count)
+            }
+        )
     }
 }
 
-private extension MarketStatisticsDTO {
-    init(from model: MarketStatisticsView) {
-        self.benchmarkSymbol = model.benchmarkSymbol
-        self.benchmarkChange1D = model.benchmarkChange1D
-        self.benchmarkChange1W = model.benchmarkChange1W
-        self.benchmarkChange1M = model.benchmarkChange1M
-        self.benchmarkChangeYtd = model.benchmarkChangeYtd
-        self.heatmap = model.heatmap.map {
-            MarketHeatmapDTO(symbol: $0.symbol, changePercent: $0.changePercent)
-        }
+extension MarketStatisticsDTO {
+    fileprivate init(from model: MarketStatisticsView) {
+        self.init(
+            benchmarkSymbol: model.benchmarkSymbol,
+            benchmarkChange1D: model.benchmarkChange1D,
+            benchmarkChange1W: model.benchmarkChange1W,
+            benchmarkChange1M: model.benchmarkChange1M,
+            benchmarkChangeYtd: model.benchmarkChangeYtd,
+            heatmap: model.heatmap.map {
+                MarketHeatmapDTO(symbol: $0.symbol, changePercent: $0.changePercent)
+            }
+        )
     }
 }

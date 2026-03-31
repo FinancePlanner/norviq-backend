@@ -25,20 +25,8 @@ typealias StockNews = StockPlanShared.StockNews
 typealias BulkStockRequest = StockPlanShared.BulkStockRequest
 typealias BulkStockResultItem = StockPlanShared.BulkStockResultItem
 typealias BulkStockResponse = StockPlanShared.BulkStockResponse
+typealias TargetRequest = StockPlanShared.TargetRequest
+typealias TargetResponse = StockPlanShared.TargetResponse
 
-struct TargetRequest: Codable, Content, Sendable, Equatable {
-    let symbol: String
-    let scenario: String
-    let targetPrice: Double
-    let targetDate: String?
-    let rationale: String?
-}
-
-struct TargetResponse: Codable, Content, Sendable, Equatable {
-    let id: String
-    let symbol: String
-    let scenario: String
-    let targetPrice: Double
-    let targetDate: String?
-    let rationale: String?
-}
+extension TargetRequest: Content {}
+extension TargetResponse: Content {}

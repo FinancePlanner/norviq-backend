@@ -1,18 +1,10 @@
 import Vapor
+import StockPlanShared
 
-struct BrokerConnectionResponse: Content {
-    let id: String
-    let provider: String
-    let status: String
-}
+typealias BrokerConnectionResponse = StockPlanShared.BrokerConnectionResponse
+typealias BrokerHoldingResponse = StockPlanShared.BrokerHoldingResponse
+typealias BrokerSyncResponse = StockPlanShared.BrokerSyncResponse
 
-struct BrokerHoldingResponse: Content {
-    let symbol: String
-    let quantity: Double
-    let currency: String
-}
-
-struct BrokerSyncResponse: Content {
-    let runId: String
-    let status: String
-}
+extension BrokerConnectionResponse: Content {}
+extension BrokerHoldingResponse: Content {}
+extension BrokerSyncResponse: Content {}

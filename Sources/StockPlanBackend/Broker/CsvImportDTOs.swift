@@ -1,28 +1,12 @@
 import Vapor
+import StockPlanShared
 
-struct CsvImportPreviewItem: Content, Sendable {
-    let line: Int
-    let symbol: String
-    let shares: Double?
-    let buyPrice: Double?
-    let buyDate: String?
-    let notes: String?
-}
+typealias CsvImportPreviewItem = StockPlanShared.CsvImportPreviewItem
+typealias CsvImportPreviewError = StockPlanShared.CsvImportPreviewError
+typealias CsvImportPreviewResponse = StockPlanShared.CsvImportPreviewResponse
+typealias CsvImportCommitResponse = StockPlanShared.CsvImportCommitResponse
 
-struct CsvImportPreviewError: Content, Sendable {
-    let line: Int
-    let message: String
-}
-
-struct CsvImportPreviewResponse: Content, Sendable {
-    let provider: String
-    let items: [CsvImportPreviewItem]
-    let errors: [CsvImportPreviewError]
-}
-
-struct CsvImportCommitResponse: Content, Sendable {
-    let provider: String
-    let inserted: [StockResponse]
-    let updated: [StockResponse]
-    let errors: [CsvImportPreviewError]
-}
+extension CsvImportPreviewItem: Content {}
+extension CsvImportPreviewError: Content {}
+extension CsvImportPreviewResponse: Content {}
+extension CsvImportCommitResponse: Content {}

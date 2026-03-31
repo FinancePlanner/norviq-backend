@@ -151,6 +151,7 @@ public func configure(_ app: Application) async throws {
     app.migrations.add(AddUserScopedQueryIndexes())
     app.migrations.add(CreateStockValuation())
     app.migrations.add(CreateProfileCache())
+    app.migrations.add(AddDatabaseOptimizations())
 
     // register routes
     try routes(app)
