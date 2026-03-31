@@ -1,6 +1,6 @@
 COMPOSE ?= docker compose
 
-.PHONY: help build services migrate start logs stop
+.PHONY: help build services migrate start logs stop lint
 
 help:
 	@printf "Targets:\n"
@@ -8,6 +8,7 @@ help:
 	@printf "  make migrate  Start db, then run database migrations\n"
 	@printf "  make logs     Follow app logs\n"
 	@printf "  make stop     Stop the compose stack\n"
+	@printf "  make lint     Run SwiftLint with auto-fix\n"
 
 build:
 	$(COMPOSE) build
@@ -32,3 +33,6 @@ update-all:
 
 update-shared:
 	swift package update financeshared
+
+lint:
+	swiftlint --fix
