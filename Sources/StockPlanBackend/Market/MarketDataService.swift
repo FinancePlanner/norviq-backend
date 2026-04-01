@@ -535,14 +535,14 @@ private extension DefaultMarketDataService {
         QuoteResponse(
             symbol: model.symbol,
             currency: model.currency,
-            c: model.price,
-            d: model.change,
-            dp: model.percentChange,
-            h: model.high,
-            l: model.low,
-            o: model.open,
-            pc: model.previousClose,
-            t: Int(model.asOf.timeIntervalSince1970)
+            currentPrice: model.price,
+            change: model.change,
+            percentChange: model.percentChange,
+            high: model.high,
+            low: model.low,
+            open: model.open,
+            previousClose: model.previousClose,
+            timestamp: model.asOf.timeIntervalSince1970
         )
     }
 

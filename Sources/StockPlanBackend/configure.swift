@@ -106,7 +106,10 @@ public func configure(_ app: Application) async throws {
     app.marketNewsArchiveService = DefaultMarketNewsArchiveService(provider: newsProvider)
     app.newsService = DefaultNewsService(repo: app.newsRepository, provider: newsProvider)
     app.dashboardRepository = DatabaseDashboardRepository()
-    app.dashboardService = DefaultDashboardService(repo: app.dashboardRepository)
+    app.dashboardService = DefaultDashboardService(
+        repo: app.dashboardRepository,
+        statisticsRepo: app.statisticsRepository
+    )
     app.userProfileRepository = DatabaseUserProfileRepository()
     app.userProfileService = DefaultUserProfileService(repo: app.userProfileRepository)
 

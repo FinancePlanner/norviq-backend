@@ -27,14 +27,14 @@ struct MarketDataController: RouteCollection {
             let company = await resolveCompanyName(for: quote.symbol, on: req)
             let changePercent = await resolveChangePercent(
                 for: quote.symbol,
-                latestPrice: quote.c,
+                latestPrice: quote.currentPrice,
                 on: req
             )
 
             return StockDetailsResponse(
                 symbol: quote.symbol,
                 company: company,
-                latestPrice: quote.c,
+                latestPrice: quote.currentPrice,
                 changePercent: changePercent
             )
         } catch is MarketDataProviderDisabledError {

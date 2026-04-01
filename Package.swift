@@ -53,8 +53,7 @@ let package = Package(
             swiftSettings: swiftSettings,
             plugins: [
                 .plugin(name: "OpenAPIGenerator", package: "swift-openapi-generator"),
-                .plugin(name: "SwiftLintPlugin", package: "SwiftLint"),
-                .plugin(name: "SwiftLintBuildToolPlugin", package: "SwiftLintPlugins"),
+                .plugin(name: "SwiftLintBuildToolPlugin", package: "SwiftLint"),
             ],
         ),
         .testTarget(

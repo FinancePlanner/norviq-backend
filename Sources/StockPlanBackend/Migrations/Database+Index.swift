@@ -7,7 +7,7 @@ extension Database {
         columns: [String],
         name: String? = nil
     ) async throws {
-        guard let sql = self as? SQLDatabase else { return }
+        guard let sql = self as? any SQLDatabase else { return }
         guard !columns.isEmpty else { return }
 
         let resolvedName = name ?? "idx_\(schema)_\(columns.joined(separator: "_"))"

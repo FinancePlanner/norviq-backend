@@ -62,8 +62,10 @@ extension BrokerConnectionResponse {
             throw Abort(.internalServerError, reason: "BrokerConnection id missing")
         }
 
-        self.id = id.uuidString
-        self.provider = model.provider
-        self.status = model.status
+        self.init(
+            id: id.uuidString,
+            provider: model.provider,
+            status: model.status
+        )
     }
 }

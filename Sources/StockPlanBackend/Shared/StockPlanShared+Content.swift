@@ -37,7 +37,6 @@ extension BulkStockResultItem: @retroactive Content {}
 extension BulkStockResponse: @retroactive Content {}
 extension TargetRequest: @retroactive Content {}
 extension TargetResponse: @retroactive Content {}
-extension ScenarioTargetResponse: @retroactive Content {}
 
 // MARK: - Dashboard
 extension DashboardResponse: @retroactive Content {}
@@ -62,6 +61,7 @@ extension DeleteUserProfileResponse: @retroactive Content {}
 // MARK: - News & Earnings
 extension NewsItemResponse: @retroactive Content {}
 extension NewsSyncResponse: @retroactive Content {}
+extension FinnhubNewsWebhookResponse: @retroactive Content {}
 extension EarningsItemResponse: @retroactive Content {}
 extension EarningsQueryRequest: @retroactive Content {}
 

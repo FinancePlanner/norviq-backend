@@ -582,7 +582,7 @@ struct StockPlanBackendTests {
 
             #expect(first?.symbol == "AAPL")
             #expect(second?.symbol == "AAPL")
-            #expect(first?.c == second?.c)
+            #expect(first?.currentPrice == second?.currentPrice)
             #expect(await state.quoteCalls() == 1)
         }
     }
@@ -752,7 +752,7 @@ struct StockPlanBackendTests {
             })
 
             #expect(response?.symbol == "AAPL")
-            #expect(response?.c == 123.45)
+            #expect(response?.currentPrice == 123.45)
             #expect(await state.quoteCalls() == 1)
         }
     }
@@ -1129,26 +1129,22 @@ struct StockPlanBackendTests {
                 response = try res.content.decode(DashboardResponse.self)
             })
 
-            #expect(response?.portfolio.totalPositions == 2)
-            #expect(response?.portfolio.watchlistCount == 1)
-            #expect(response?.portfolio.researchCount == 1)
-            #expect(response?.portfolio.targetsCount == 1)
-            #expect(response?.portfolio.totalCostBasis == 2_000)
-            #expect(response?.portfolio.totalMarketValue == 2_100)
-            #expect(response?.portfolio.totalUnrealizedPnl == 100)
+            #expect(response?.totalValue == 2_100)
+            #expect(response?.dailyChange == 0)
+            #expect(response?.dailyChangePercent == 0)
 
-            #expect(response?.topHoldings.count == 2)
-            #expect(response?.topHoldings.first?.symbol == "AAPL")
-            #expect(response?.topHoldings.first?.marketValue == 1_200)
+            #expect(response?.topPerformers.count == 2)
+            #expect(response?.topPerformers.first?.symbol == "AAPL")
+            #expect(response?.topPerformers.first?.change == 0)
+            #expect(response?.topPerformers.first?.changePercent == 0)
 
-            if let firstWeight = response?.topHoldings.first?.weightPercent {
-                #expect(abs(firstWeight - 57.142857) < 0.01)
-            } else {
-                #expect(Bool(false), "Expected weightPercent for first top holding")
-            }
+            #expect(response?.bottomPerformers.count == 2)
+            #expect(response?.bottomPerformers.first?.symbol == "AAPL")
 
-            #expect(response?.recentNews.count == 1)
-            #expect(response?.recentNews.first?.symbol == "AAPL")
+            #expect(response?.sectorAllocation.count == 1)
+            #expect(response?.sectorAllocation.first?.sector == "Unknown")
+            #expect(response?.sectorAllocation.first?.value == 2_100)
+            #expect(response?.sectorAllocation.first?.percent == 100)
         }
     }
 
