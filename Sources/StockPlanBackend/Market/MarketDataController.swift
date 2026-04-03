@@ -4,19 +4,35 @@ import Foundation
 struct MarketDataController: RouteCollection {
     func boot(routes: any RoutesBuilder) throws {
         let protected = routes.grouped(SessionToken.authenticator(), SessionToken.guardMiddleware())
-        protected.get("market", "details", use: details)
-        protected.get("market", "history", use: stockHistory)
-        protected.get("market", "history", "archive", use: archivedStockHistory)
-        protected.post("market", "history", "archive", "sync", use: syncArchivedStockHistory)
-        protected.get("market", "news", use: stockNews)
-        protected.get("market", "news", "archive", use: archivedStockNews)
-        protected.post("market", "news", "archive", "sync", use: syncArchivedStockNews)
-        protected.get("quote", "batch", use: quoteBatch)
-        protected.get("quote", ":symbol", use: quote)
-        protected.get("profile", ":symbol", use: profile)
-        protected.get("history", ":symbol", use: history)
-        protected.get("search", use: search)
-        protected.get("fx", use: fx)
+        let market = protected.grouped("market")
+
+        market.get("details", use: details)
+        market.get("history", use: stockHistory)
+        market.get("history", "archive", use: archivedStockHistory)
+        market.post("history", "archive", "sync", use: syncArchivedStockHistory)
+        market.get("news", use: stockNews)
+        market.get("news", "archive", use: archivedStockNews)
+        market.post("news", "archive", "sync", use: syncArchivedStockNews)
+
+        market.get("quote", "batch", use: quoteBatch)
+        market.get("quote", ":symbol", use: quote)
+        market.get("profile", ":symbol", use: profile)
+        market.get("basic-financials", ":symbol", use: basicFinancials)
+        market.get("analysis", ":symbol", use: analysis)
+        market.get("compare", use: compare)
+        market.get("cash-flow-statement", ":symbol", use: cashFlowStatement)
+        market.get("balance-sheet-statement", ":symbol", use: balanceSheetStatement)
+        market.get("ratios-ttm", ":symbol", use: ratiosTTM)
+        market.get("grades-consensus", ":symbol", use: gradesConsensus)
+        market.get("financial-growth", ":symbol", use: financialGrowth)
+        market.get("earnings", ":symbol", use: earnings)
+        market.get("earnings-calendar", use: earningsCalendar)
+        market.get("analyst-estimates", ":symbol", use: analystEstimates)
+        market.get("ratios", ":symbol", use: ratios)
+        market.get("historical-sector-performance", use: historicalSectorPerformance)
+        market.get("history", ":symbol", use: history)
+        market.get("search", use: search)
+        market.get("fx", use: fx)
     }
 
     @Sendable
@@ -150,6 +166,174 @@ struct MarketDataController: RouteCollection {
             throw Abort(.badRequest, reason: "Missing symbol.")
         }
         return try await req.application.marketDataService.profile(symbol: symbol, on: req)
+    }
+
+    @Sendable
+    func basicFinancials(req: Request) async throws -> BasicFinancialsResponse {
+        guard let symbol = req.parameters.get("symbol") else {
+            throw Abort(.badRequest, reason: "Missing symbol.")
+        }
+        return try await req.application.marketDataService.basicFinancials(symbol: symbol, on: req)
+    }
+
+    @Sendable
+    func analysis(req: Request) async throws -> StockAnalysisMetricsResponse {
+        guard let symbol = req.parameters.get("symbol") else {
+            throw Abort(.badRequest, reason: "Missing symbol.")
+        }
+        return try await req.application.marketDataService.analysis(symbol: symbol, on: req)
+    }
+
+    @Sendable
+    func compare(req: Request) async throws -> [StockAnalysisMetricsResponse] {
+        guard let symbolsStr = req.query[String.self, at: "symbols"] else {
+            throw Abort(.badRequest, reason: "Missing symbols query parameter.")
+        }
+        let symbols = symbolsStr.split(separator: ",").map(String.init)
+        return try await req.application.marketDataService.compare(symbols: symbols, on: req)
+    }
+
+    @Sendable
+    func cashFlowStatement(req: Request) async throws -> [CashFlowStatementResponse] {
+        guard let symbol = req.parameters.get("symbol") else {
+            throw Abort(.badRequest, reason: "Missing symbol.")
+        }
+
+        let limit = req.query[Int.self, at: "limit"]
+        let period = req.query[String.self, at: "period"]
+        return try await req.application.marketDataService.cashFlowStatement(
+            symbol: symbol,
+            limit: limit,
+            period: period,
+            on: req
+        )
+    }
+
+    @Sendable
+    func balanceSheetStatement(req: Request) async throws -> [BalanceSheetStatementResponse] {
+        guard let symbol = req.parameters.get("symbol") else {
+            throw Abort(.badRequest, reason: "Missing symbol.")
+        }
+
+        let limit = req.query[Int.self, at: "limit"]
+        let period = req.query[String.self, at: "period"]
+        return try await req.application.marketDataService.balanceSheetStatement(
+            symbol: symbol,
+            limit: limit,
+            period: period,
+            on: req
+        )
+    }
+
+    @Sendable
+    func ratiosTTM(req: Request) async throws -> [RatiosTTMResponse] {
+        guard let symbol = req.parameters.get("symbol") else {
+            throw Abort(.badRequest, reason: "Missing symbol.")
+        }
+        return try await req.application.marketDataService.ratiosTTM(symbol: symbol, on: req)
+    }
+
+    @Sendable
+    func gradesConsensus(req: Request) async throws -> [GradesConsensusResponse] {
+        guard let symbol = req.parameters.get("symbol") else {
+            throw Abort(.badRequest, reason: "Missing symbol.")
+        }
+        return try await req.application.marketDataService.gradesConsensus(symbol: symbol, on: req)
+    }
+
+    @Sendable
+    func financialGrowth(req: Request) async throws -> [FinancialGrowthResponse] {
+        guard let symbol = req.parameters.get("symbol") else {
+            throw Abort(.badRequest, reason: "Missing symbol.")
+        }
+
+        let limit = req.query[Int.self, at: "limit"]
+        let period = req.query[String.self, at: "period"]
+        return try await req.application.marketDataService.financialGrowth(
+            symbol: symbol,
+            limit: limit,
+            period: period,
+            on: req
+        )
+    }
+
+    @Sendable
+    func earnings(req: Request) async throws -> [EarningsResponse] {
+        guard let symbol = req.parameters.get("symbol") else {
+            throw Abort(.badRequest, reason: "Missing symbol.")
+        }
+
+        let limit = req.query[Int.self, at: "limit"]
+        return try await req.application.marketDataService.earnings(
+            symbol: symbol,
+            limit: limit,
+            on: req
+        )
+    }
+
+    @Sendable
+    func earningsCalendar(req: Request) async throws -> [EarningsResponse] {
+        let from = req.query[String.self, at: "from"]
+        let to = req.query[String.self, at: "to"]
+        return try await req.application.marketDataService.earningsCalendar(
+            from: from,
+            to: to,
+            on: req
+        )
+    }
+
+    @Sendable
+    func analystEstimates(req: Request) async throws -> [AnalystEstimatesResponse] {
+        guard let symbol = req.parameters.get("symbol") else {
+            throw Abort(.badRequest, reason: "Missing symbol.")
+        }
+
+        let period = req.query[String.self, at: "period"] ?? "annual"
+        let page = req.query[Int.self, at: "page"]
+        let limit = req.query[Int.self, at: "limit"]
+
+        return try await req.application.marketDataService.analystEstimates(
+            symbol: symbol,
+            period: period,
+            page: page,
+            limit: limit,
+            on: req
+        )
+    }
+
+    @Sendable
+    func ratios(req: Request) async throws -> [RatiosResponse] {
+        guard let symbol = req.parameters.get("symbol") else {
+            throw Abort(.badRequest, reason: "Missing symbol.")
+        }
+
+        let limit = req.query[Int.self, at: "limit"]
+        let period = req.query[String.self, at: "period"]
+
+        return try await req.application.marketDataService.ratios(
+            symbol: symbol,
+            limit: limit,
+            period: period,
+            on: req
+        )
+    }
+
+    @Sendable
+    func historicalSectorPerformance(req: Request) async throws -> [HistoricalSectorPerformanceResponse] {
+        guard let sector = req.query[String.self, at: "sector"] else {
+            throw Abort(.badRequest, reason: "Missing query parameter `sector`.")
+        }
+
+        let exchange = req.query[String.self, at: "exchange"]
+        let from = req.query[String.self, at: "from"]
+        let to = req.query[String.self, at: "to"]
+        return try await req.application.marketDataService.historicalSectorPerformance(
+            sector: sector,
+            exchange: exchange,
+            from: from,
+            to: to,
+            on: req
+        )
     }
 
     @Sendable

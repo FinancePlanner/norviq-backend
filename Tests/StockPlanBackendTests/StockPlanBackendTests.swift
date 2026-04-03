@@ -89,22 +89,30 @@ struct StockPlanBackendTests {
 
     private func makeTestMarketService(
         state: TestMarketProviderState,
+        fmpState: TestFMPProviderState? = nil,
+        fmpProvider: (any FMPMarketDataProvider)? = nil,
+        fmpAccessTier: FMPAccessTier = .free,
         quoteTTLSeconds: Int = 3_600,
         historyTTLSeconds: Int = 3_600,
         searchTTLSeconds: Int = 3_600,
         fxTTLSeconds: Int = 3_600,
-        profileTTLSeconds: Int = 3_600
+        profileTTLSeconds: Int = 3_600,
+        basicFinancialsTTLSeconds: Int = 3_600
     ) -> any MarketDataService {
         DefaultMarketDataService(
             provider: TestMarketDataProvider(state: state),
+            fmpProvider: fmpProvider ?? fmpState.map { TestFMPMarketDataProvider(state: $0) },
             cacheConfig: .init(
                 quoteTTLSeconds: quoteTTLSeconds,
                 historyTTLSeconds: historyTTLSeconds,
                 searchTTLSeconds: searchTTLSeconds,
                 fxTTLSeconds: fxTTLSeconds,
                 profileTTLSeconds: profileTTLSeconds,
+                basicFinancialsTTLSeconds: basicFinancialsTTLSeconds,
+                fmpTTLSeconds: 3_600,
                 defaultCurrency: "USD"
-            )
+            ),
+            fmpAccessTier: fmpAccessTier
         )
     }
 
@@ -492,6 +500,8 @@ struct StockPlanBackendTests {
                     searchTTLSeconds: 3_600,
                     fxTTLSeconds: 3_600,
                     profileTTLSeconds: 3_600,
+                    basicFinancialsTTLSeconds: 3_600,
+                    fmpTTLSeconds: 3_600,
                     defaultCurrency: "USD"
                 )
             )
@@ -529,6 +539,8 @@ struct StockPlanBackendTests {
                     searchTTLSeconds: 3_600,
                     fxTTLSeconds: 3_600,
                     profileTTLSeconds: 3_600,
+                    basicFinancialsTTLSeconds: 3_600,
+                    fmpTTLSeconds: 3_600,
                     defaultCurrency: "USD"
                 )
             )
@@ -550,7 +562,7 @@ struct StockPlanBackendTests {
             let state = TestMarketProviderState()
             app.marketDataService = makeTestMarketService(state: state)
 
-            try await app.testing().test(.GET, "v1/quote/AAPL", afterResponse: { res async in
+            try await app.testing().test(.GET, "v1/market/quote/AAPL", afterResponse: { res async in
                 #expect(res.status == .unauthorized)
             })
         }
@@ -566,14 +578,14 @@ struct StockPlanBackendTests {
             var first: QuoteResponse?
             var second: QuoteResponse?
 
-            try await app.testing().test(.GET, "v1/quote/AAPL", beforeRequest: { req in
+            try await app.testing().test(.GET, "v1/market/quote/AAPL", beforeRequest: { req in
                 req.headers.bearerAuthorization = .init(token: token)
             }, afterResponse: { res async throws in
                 #expect(res.status == .ok)
                 first = try res.content.decode(QuoteResponse.self)
             })
 
-            try await app.testing().test(.GET, "v1/quote/AAPL", beforeRequest: { req in
+            try await app.testing().test(.GET, "v1/market/quote/AAPL", beforeRequest: { req in
                 req.headers.bearerAuthorization = .init(token: token)
             }, afterResponse: { res async throws in
                 #expect(res.status == .ok)
@@ -597,14 +609,14 @@ struct StockPlanBackendTests {
             var first: CompanyProfileResponse?
             var second: CompanyProfileResponse?
 
-            try await app.testing().test(.GET, "v1/profile/AAPL", beforeRequest: { req in
+            try await app.testing().test(.GET, "v1/market/profile/AAPL", beforeRequest: { req in
                 req.headers.bearerAuthorization = .init(token: token)
             }, afterResponse: { res async throws in
                 #expect(res.status == .ok)
                 first = try res.content.decode(CompanyProfileResponse.self)
             })
 
-            try await app.testing().test(.GET, "v1/profile/AAPL", beforeRequest: { req in
+            try await app.testing().test(.GET, "v1/market/profile/AAPL", beforeRequest: { req in
                 req.headers.bearerAuthorization = .init(token: token)
             }, afterResponse: { res async throws in
                 #expect(res.status == .ok)
@@ -618,6 +630,657 @@ struct StockPlanBackendTests {
         }
     }
 
+    @Test("Basic financials use cache after first fetch")
+    func basicFinancialsUseCache() async throws {
+        try await withApp { app in
+            let state = TestMarketProviderState()
+            app.marketDataService = makeTestMarketService(state: state)
+            let (token, _) = try await registerTestUser(app: app, identifier: "basicfinancials")
+
+            var first: BasicFinancialsResponse?
+            var second: BasicFinancialsResponse?
+
+            try await app.testing().test(.GET, "v1/market/basic-financials/AAPL", beforeRequest: { req in
+                req.headers.bearerAuthorization = .init(token: token)
+            }, afterResponse: { res async throws in
+                #expect(res.status == .ok)
+                first = try res.content.decode(BasicFinancialsResponse.self)
+            })
+
+            try await app.testing().test(.GET, "v1/market/basic-financials/AAPL", beforeRequest: { req in
+                req.headers.bearerAuthorization = .init(token: token)
+            }, afterResponse: { res async throws in
+                #expect(res.status == .ok)
+                second = try res.content.decode(BasicFinancialsResponse.self)
+            })
+
+            #expect(first?.symbol == "AAPL")
+            #expect(first?.metricType == "all")
+            #expect(first?.metric["52WeekHigh"] == .number(190.25))
+            #expect(first?.metric["52WeekLowDate"] == .string("2026-01-14"))
+            #expect(first?.series["annual"]?["currentRatio"]?.count == 2)
+            #expect(second?.metric["beta"] == .number(1.2989))
+            #expect(first == second)
+            #expect(await state.basicFinancialsCalls() == 1)
+        }
+    }
+
+    @Test("Ratios TTM endpoint returns FMP-backed market data")
+    func ratiosTTMEndpoint() async throws {
+        try await withApp { app in
+            let state = TestMarketProviderState()
+            let fmpState = TestFMPProviderState()
+            app.marketDataService = makeTestMarketService(state: state, fmpState: fmpState)
+            let (token, _) = try await registerTestUser(app: app, identifier: "ratiosttm")
+
+            try await app.testing().test(.GET, "v1/market/ratios-ttm/AAPL", beforeRequest: { req in
+                req.headers.bearerAuthorization = .init(token: token)
+            }, afterResponse: { res async throws in
+                #expect(res.status == .ok)
+                let body = try res.content.decode([RatiosTTMResponse].self)
+                #expect(body.count == 1)
+                #expect(body.first?.symbol == "AAPL")
+                #expect(body.first?.grossProfitMarginTTM == 0.46518849807964424)
+                #expect(body.first?.enterpriseValueTTM == 3_216_333_928_000)
+            })
+
+            #expect(await fmpState.ratiosTTMCalls() == 1)
+        }
+    }
+
+    @Test("Balance sheet statement endpoint forwards limit and period to FMP")
+    func balanceSheetStatementEndpoint() async throws {
+        try await withApp { app in
+            let state = TestMarketProviderState()
+            let fmpState = TestFMPProviderState()
+            app.marketDataService = makeTestMarketService(state: state, fmpState: fmpState)
+            let (token, _) = try await registerTestUser(app: app, identifier: "balancesheet")
+
+            try await app.testing().test(.GET, "v1/market/balance-sheet-statement/AAPL?limit=5&period=FY", beforeRequest: { req in
+                req.headers.bearerAuthorization = .init(token: token)
+            }, afterResponse: { res async throws in
+                #expect(res.status == .ok)
+                let body = try res.content.decode([BalanceSheetStatementResponse].self)
+                #expect(body.count == 1)
+                #expect(body.first?.symbol == "AAPL")
+                #expect(body.first?.period == "FY")
+                #expect(body.first?.totalAssets == 364_980_000_000)
+                #expect(body.first?.totalLiabilities == 308_030_000_000)
+                #expect(body.first?.totalStockholdersEquity == 56_950_000_000)
+            })
+
+            let lastRequest = await fmpState.lastBalanceSheetRequest()
+            #expect(lastRequest?.symbol == "AAPL")
+            #expect(lastRequest?.limit == 5)
+            #expect(lastRequest?.period == "FY")
+        }
+    }
+
+    @Test("Balance sheet statement endpoint clamps free-tier limit to plan-safe maximum")
+    func balanceSheetStatementEndpointClampsFreeTierLimit() async throws {
+        try await withApp { app in
+            let state = TestMarketProviderState()
+            let fmpState = TestFMPProviderState()
+            app.marketDataService = makeTestMarketService(state: state, fmpState: fmpState, fmpAccessTier: .free)
+            let (token, _) = try await registerTestUser(app: app, identifier: "balancesheetclamp")
+
+            try await app.testing().test(.GET, "v1/market/balance-sheet-statement/META?limit=10&period=FY", beforeRequest: { req in
+                req.headers.bearerAuthorization = .init(token: token)
+            }, afterResponse: { res async throws in
+                #expect(res.status == .ok)
+            })
+
+            let lastRequest = await fmpState.lastBalanceSheetRequest()
+            #expect(lastRequest?.symbol == "META")
+            #expect(lastRequest?.limit == 5)
+            #expect(lastRequest?.period == "FY")
+        }
+    }
+
+    @Test("Cash flow statement endpoint forwards limit and period to FMP")
+    func cashFlowStatementEndpoint() async throws {
+        try await withApp { app in
+            let state = TestMarketProviderState()
+            let fmpState = TestFMPProviderState()
+            app.marketDataService = makeTestMarketService(state: state, fmpState: fmpState)
+            let (token, _) = try await registerTestUser(app: app, identifier: "cashflow")
+
+            try await app.testing().test(.GET, "v1/market/cash-flow-statement/AAPL?limit=5&period=FY", beforeRequest: { req in
+                req.headers.bearerAuthorization = .init(token: token)
+            }, afterResponse: { res async throws in
+                #expect(res.status == .ok)
+                let body = try res.content.decode([CashFlowStatementResponse].self)
+                #expect(body.count == 1)
+                #expect(body.first?.symbol == "AAPL")
+                #expect(body.first?.period == "FY")
+                #expect(body.first?.operatingCashFlow == 118_254_000_000)
+                #expect(body.first?.freeCashFlow == 108_807_000_000)
+                #expect(body.first?.capitalExpenditure == -9_447_000_000)
+            })
+
+            let lastRequest = await fmpState.lastCashFlowRequest()
+            #expect(lastRequest?.symbol == "AAPL")
+            #expect(lastRequest?.limit == 5)
+            #expect(lastRequest?.period == "FY")
+        }
+    }
+
+    @Test("Cash flow statement endpoint clamps free-tier limit to plan-safe maximum")
+    func cashFlowStatementEndpointClampsFreeTierLimit() async throws {
+        try await withApp { app in
+            let state = TestMarketProviderState()
+            let fmpState = TestFMPProviderState()
+            app.marketDataService = makeTestMarketService(state: state, fmpState: fmpState, fmpAccessTier: .free)
+            let (token, _) = try await registerTestUser(app: app, identifier: "cashflowclamp")
+
+            try await app.testing().test(.GET, "v1/market/cash-flow-statement/META?limit=10&period=FY", beforeRequest: { req in
+                req.headers.bearerAuthorization = .init(token: token)
+            }, afterResponse: { res async throws in
+                #expect(res.status == .ok)
+            })
+
+            let lastRequest = await fmpState.lastCashFlowRequest()
+            #expect(lastRequest?.symbol == "META")
+            #expect(lastRequest?.limit == 5)
+            #expect(lastRequest?.period == "FY")
+        }
+    }
+
+    @Test("Compare endpoint returns metrics for multiple symbols")
+    func compareEndpoint() async throws {
+        try await withApp { app in
+            let state = TestMarketProviderState()
+            let fmpState = TestFMPProviderState()
+            app.marketDataService = makeTestMarketService(state: state, fmpState: fmpState)
+            let (token, _) = try await registerTestUser(app: app, identifier: "comparemetrics")
+
+            try await app.testing().test(.GET, "v1/market/compare?symbols=AAPL,MSFT", beforeRequest: { req in
+                req.headers.bearerAuthorization = .init(token: token)
+            }, afterResponse: { res async throws in
+                #expect(res.status == .ok)
+                let body = try res.content.decode([StockAnalysisMetricsResponse].self)
+                #expect(body.count == 2)
+                let symbols = body.map(\.symbol)
+                #expect(symbols.contains("AAPL"))
+                #expect(symbols.contains("MSFT"))
+                
+                if let aapl = body.first(where: { $0.symbol == "AAPL" }) {
+                    #expect(aapl.ttmPE == 32.889608822880916)
+                    #expect(aapl.forwardPE == 28.0)
+                }
+            })
+
+            #expect(await state.basicFinancialsCalls() == 2)
+            #expect(await fmpState.ratiosTTMCalls() == 2)
+        }
+    }
+
+    @Test("Earnings endpoint returns data for supported symbols")
+    func earningsEndpoint() async throws {
+        try await withApp { app in
+            let state = TestMarketProviderState()
+            let fmpState = TestFMPProviderState()
+            app.marketDataService = makeTestMarketService(state: state, fmpState: fmpState)
+            let (token, _) = try await registerTestUser(app: app, identifier: "earningsuser")
+
+            try await app.testing().test(.GET, "v1/market/earnings/AAPL?limit=10", beforeRequest: { req in
+                req.headers.bearerAuthorization = .init(token: token)
+            }, afterResponse: { res async throws in
+                #expect(res.status == .ok)
+                let body = try res.content.decode([EarningsResponse].self)
+                #expect(body.count == 1)
+                #expect(body.first?.symbol == "AAPL")
+                #expect(body.first?.epsActual == 1.64)
+            })
+
+            #expect(await fmpState.earningsCalls() == 1)
+        }
+    }
+
+    @Test("Earnings calendar endpoint validates date range by tier")
+    func earningsCalendarEndpoint() async throws {
+        try await withApp { app in
+            let state = TestMarketProviderState()
+            let fmpState = TestFMPProviderState()
+            // Default is free tier
+            app.marketDataService = makeTestMarketService(state: state, fmpState: fmpState)
+            let (token, _) = try await registerTestUser(app: app, identifier: "calendaruser")
+
+            // Test free tier limit (1 month) - 2 months ago should fail
+            let twoMonthsAgo = Calendar.current.date(byAdding: .month, value: -2, to: Date())!
+            let from = formatISODateOnly(twoMonthsAgo)
+
+            try await app.testing().test(.GET, "v1/market/earnings-calendar?from=\(from)", beforeRequest: { req in
+                req.headers.bearerAuthorization = .init(token: token)
+            }, afterResponse: { res async throws in
+                #expect(res.status == .paymentRequired)
+                #expect(res.body.string.contains("limited to 1 month"))
+            })
+
+            // Test free tier within range
+            let twoWeeksAgo = Calendar.current.date(byAdding: .day, value: -14, to: Date())!
+            let fromOk = formatISODateOnly(twoWeeksAgo)
+
+            try await app.testing().test(.GET, "v1/market/earnings-calendar?from=\(fromOk)", beforeRequest: { req in
+                req.headers.bearerAuthorization = .init(token: token)
+            }, afterResponse: { res async throws in
+                #expect(res.status == .ok)
+                let body = try res.content.decode([EarningsResponse].self)
+                #expect(body.count == 1)
+            })
+
+            #expect(await fmpState.earningsCalendarCalls() == 1)
+        }
+    }
+
+    @Test("Analysis endpoint returns server-computed metrics for the analysis tab")
+    func analysisEndpoint() async throws {
+        try await withApp { app in
+            let state = TestMarketProviderState()
+            let fmpState = TestFMPProviderState()
+            app.marketDataService = makeTestMarketService(state: state, fmpState: fmpState)
+            let (token, _) = try await registerTestUser(app: app, identifier: "analysismetrics")
+
+            try await app.testing().test(.GET, "v1/market/analysis/AAPL", beforeRequest: { req in
+                req.headers.bearerAuthorization = .init(token: token)
+            }, afterResponse: { res async throws in
+                #expect(res.status == .ok)
+                let body = try res.content.decode(StockAnalysisMetricsResponse.self)
+                #expect(body.symbol == "AAPL")
+                #expect(body.ttmPE == 32.889608822880916)
+                #expect(body.forwardPE == 28.0)
+                #expect(body.ttmEPSGrowth == 0.12)
+                #expect(body.currentYearExpectedRevenueGrowth == 0.020219940775141214)
+                #expect(body.nextYearRevenueGrowth == 0.031)
+                #expect(body.grossMargin == 0.46518849807964424)
+                #expect(body.netMargin == 0.24295027289266222)
+                #expect(body.currentQuarterRevenueGrowthVsPreviousYear == 0.07)
+            })
+
+            #expect(await state.basicFinancialsCalls() == 1)
+            #expect(await fmpState.ratiosTTMCalls() == 1)
+            let lastGrowthRequest = await fmpState.lastFinancialGrowthRequest()
+            #expect(lastGrowthRequest?.symbol == "AAPL")
+            #expect(lastGrowthRequest?.limit == 5)
+            #expect(lastGrowthRequest?.period == "FY")
+        }
+    }
+
+    @Test("Ratios TTM endpoint returns 402 for symbols outside free-tier FMP coverage")
+    func ratiosTTMEndpointReturnsPaymentRequiredForUnsupportedFreeTierSymbol() async throws {
+        try await withApp { app in
+            let state = TestMarketProviderState()
+            let fmpState = TestFMPProviderState()
+            app.marketDataService = makeTestMarketService(state: state, fmpState: fmpState, fmpAccessTier: .free)
+            let (token, _) = try await registerTestUser(app: app, identifier: "ratiosplanlimit")
+
+            try await app.testing().test(.GET, "v1/market/ratios-ttm/ZETA", beforeRequest: { req in
+                req.headers.bearerAuthorization = .init(token: token)
+            }, afterResponse: { res async throws in
+                #expect(res.status == .paymentRequired)
+                #expect(res.body.string.contains("FMP free-tier coverage for ratios-ttm"))
+            })
+
+            #expect(await fmpState.ratiosTTMCalls() == 0)
+        }
+    }
+
+    @Test("Balance sheet statement endpoint returns 402 for symbols outside free-tier FMP coverage")
+    func balanceSheetStatementEndpointReturnsPaymentRequiredForUnsupportedFreeTierSymbol() async throws {
+        try await withApp { app in
+            let state = TestMarketProviderState()
+            let fmpState = TestFMPProviderState()
+            app.marketDataService = makeTestMarketService(state: state, fmpState: fmpState, fmpAccessTier: .free)
+            let (token, _) = try await registerTestUser(app: app, identifier: "balanceplanlimit")
+
+            try await app.testing().test(.GET, "v1/market/balance-sheet-statement/ZETA?limit=5&period=FY", beforeRequest: { req in
+                req.headers.bearerAuthorization = .init(token: token)
+            }, afterResponse: { res async throws in
+                #expect(res.status == .paymentRequired)
+                #expect(res.body.string.contains("FMP free-tier coverage for balance-sheet-statement"))
+            })
+
+            #expect(await fmpState.lastBalanceSheetRequest() == nil)
+        }
+    }
+
+    @Test("Cash flow statement endpoint returns 402 for symbols outside free-tier FMP coverage")
+    func cashFlowStatementEndpointReturnsPaymentRequiredForUnsupportedFreeTierSymbol() async throws {
+        try await withApp { app in
+            let state = TestMarketProviderState()
+            let fmpState = TestFMPProviderState()
+            app.marketDataService = makeTestMarketService(state: state, fmpState: fmpState, fmpAccessTier: .free)
+            let (token, _) = try await registerTestUser(app: app, identifier: "cashflowplanlimit")
+
+            try await app.testing().test(.GET, "v1/market/cash-flow-statement/ZETA?limit=5&period=FY", beforeRequest: { req in
+                req.headers.bearerAuthorization = .init(token: token)
+            }, afterResponse: { res async throws in
+                #expect(res.status == .paymentRequired)
+                #expect(res.body.string.contains("FMP free-tier coverage for cash-flow-statement"))
+            })
+
+            #expect(await fmpState.lastCashFlowRequest() == nil)
+        }
+    }
+
+    @Test("Grades consensus endpoint returns FMP-backed analyst consensus data")
+    func gradesConsensusEndpoint() async throws {
+        try await withApp { app in
+            let state = TestMarketProviderState()
+            let fmpState = TestFMPProviderState()
+            app.marketDataService = makeTestMarketService(state: state, fmpState: fmpState)
+            let (token, _) = try await registerTestUser(app: app, identifier: "gradesconsensus")
+
+            try await app.testing().test(.GET, "v1/market/grades-consensus/UBER", beforeRequest: { req in
+                req.headers.bearerAuthorization = .init(token: token)
+            }, afterResponse: { res async throws in
+                #expect(res.status == .ok)
+                let body = try res.content.decode([GradesConsensusResponse].self)
+                #expect(body.count == 1)
+                #expect(body.first?.symbol == "UBER")
+                #expect(body.first?.strongBuy == 1)
+                #expect(body.first?.buy == 49)
+                #expect(body.first?.hold == 11)
+                #expect(body.first?.sell == 0)
+                #expect(body.first?.strongSell == 0)
+                #expect(body.first?.consensus == "Buy")
+            })
+
+            #expect(await fmpState.gradesConsensusCalls() == 1)
+        }
+    }
+
+    @Test("Grades consensus endpoint returns 402 when the symbol requires a paid FMP plan")
+    func gradesConsensusEndpointReturnsPaymentRequiredForPlanLimitedSymbol() async throws {
+        try await withApp { app in
+            let state = TestMarketProviderState()
+            app.marketDataService = makeTestMarketService(
+                state: state,
+                fmpProvider: TestPaymentRequiredFMPMarketDataProvider()
+            )
+            let (token, _) = try await registerTestUser(app: app, identifier: "gradespremium")
+
+            try await app.testing().test(.GET, "v1/market/grades-consensus/AAPL", beforeRequest: { req in
+                req.headers.bearerAuthorization = .init(token: token)
+            }, afterResponse: { res async throws in
+                #expect(res.status == .paymentRequired)
+                let body = res.body.string
+                #expect(body.contains("FMP plan upgrade required"))
+                #expect(body.contains("grades-consensus"))
+            })
+        }
+    }
+
+    @Test("Financial growth endpoint forwards limit and period to FMP")
+    func financialGrowthEndpoint() async throws {
+        try await withApp { app in
+            let state = TestMarketProviderState()
+            let fmpState = TestFMPProviderState()
+            app.marketDataService = makeTestMarketService(state: state, fmpState: fmpState)
+            let (token, _) = try await registerTestUser(app: app, identifier: "financialgrowth")
+
+            try await app.testing().test(.GET, "v1/market/financial-growth/AAPL?limit=5&period=FY", beforeRequest: { req in
+                req.headers.bearerAuthorization = .init(token: token)
+            }, afterResponse: { res async throws in
+                #expect(res.status == .ok)
+                let body = try res.content.decode([FinancialGrowthResponse].self)
+                #expect(body.count == 2)
+                #expect(body.first?.symbol == "AAPL")
+                #expect(body.first?.period == "FY")
+                #expect(body.first?.revenueGrowth == 0.020219940775141214)
+            })
+
+            let lastRequest = await fmpState.lastFinancialGrowthRequest()
+            #expect(lastRequest?.symbol == "AAPL")
+            #expect(lastRequest?.limit == 5)
+            #expect(lastRequest?.period == "FY")
+        }
+    }
+
+    @Test("Financial growth endpoint clamps free-tier limit to plan-safe maximum")
+    func financialGrowthEndpointClampsFreeTierLimit() async throws {
+        try await withApp { app in
+            let state = TestMarketProviderState()
+            let fmpState = TestFMPProviderState()
+            app.marketDataService = makeTestMarketService(state: state, fmpState: fmpState, fmpAccessTier: .free)
+            let (token, _) = try await registerTestUser(app: app, identifier: "financialgrowthclamp")
+
+            try await app.testing().test(.GET, "v1/market/financial-growth/META?limit=10&period=FY", beforeRequest: { req in
+                req.headers.bearerAuthorization = .init(token: token)
+            }, afterResponse: { res async throws in
+                #expect(res.status == .ok)
+            })
+
+            let lastRequest = await fmpState.lastFinancialGrowthRequest()
+            #expect(lastRequest?.symbol == "META")
+            #expect(lastRequest?.limit == 5)
+            #expect(lastRequest?.period == "FY")
+        }
+    }
+
+    @Test("Financial growth endpoint returns 402 for symbols outside free-tier FMP coverage")
+    func financialGrowthEndpointReturnsPaymentRequiredForUnsupportedFreeTierSymbol() async throws {
+        try await withApp { app in
+            let state = TestMarketProviderState()
+            let fmpState = TestFMPProviderState()
+            app.marketDataService = makeTestMarketService(state: state, fmpState: fmpState, fmpAccessTier: .free)
+            let (token, _) = try await registerTestUser(app: app, identifier: "growthplanlimit")
+
+            try await app.testing().test(.GET, "v1/market/financial-growth/ZETA?limit=5&period=FY", beforeRequest: { req in
+                req.headers.bearerAuthorization = .init(token: token)
+            }, afterResponse: { res async throws in
+                #expect(res.status == .paymentRequired)
+                #expect(res.body.string.contains("FMP free-tier coverage for financial-growth"))
+            })
+
+            #expect(await fmpState.lastFinancialGrowthRequest() == nil)
+        }
+    }
+
+    @Test("Analyst estimates endpoint forwards parameters to FMP")
+    func analystEstimatesEndpoint() async throws {
+        try await withApp { app in
+            let state = TestMarketProviderState()
+            let fmpState = TestFMPProviderState()
+            app.marketDataService = makeTestMarketService(state: state, fmpState: fmpState)
+            let (token, _) = try await registerTestUser(app: app, identifier: "analystestimates")
+
+            try await app.testing().test(.GET, "v1/market/analyst-estimates/AAPL?period=annual&limit=5&page=0", beforeRequest: { req in
+                req.headers.bearerAuthorization = .init(token: token)
+            }, afterResponse: { res async throws in
+                #expect(res.status == .ok)
+                let body = try res.content.decode([AnalystEstimatesResponse].self)
+                #expect(body.count == 1)
+                #expect(body.first?.symbol == "AAPL")
+                #expect(body.first?.epsAvg == 9.68)
+            })
+
+            let lastRequest = await fmpState.lastAnalystEstimatesRequest()
+            #expect(lastRequest?.symbol == "AAPL")
+            #expect(lastRequest?.period == "annual")
+            #expect(lastRequest?.limit == 5)
+            #expect(lastRequest?.page == 0)
+        }
+    }
+
+    @Test("Analyst estimates endpoint clamps free-tier limit to plan-safe maximum")
+    func analystEstimatesEndpointClampsFreeTierLimit() async throws {
+        try await withApp { app in
+            let state = TestMarketProviderState()
+            let fmpState = TestFMPProviderState()
+            app.marketDataService = makeTestMarketService(state: state, fmpState: fmpState, fmpAccessTier: .free)
+            let (token, _) = try await registerTestUser(app: app, identifier: "analystestimatesclamp")
+
+            try await app.testing().test(.GET, "v1/market/analyst-estimates/META?period=annual&limit=10&page=0", beforeRequest: { req in
+                req.headers.bearerAuthorization = .init(token: token)
+            }, afterResponse: { res async throws in
+                #expect(res.status == .ok)
+            })
+
+            let lastRequest = await fmpState.lastAnalystEstimatesRequest()
+            #expect(lastRequest?.symbol == "META")
+            #expect(lastRequest?.period == "annual")
+            #expect(lastRequest?.limit == 5)
+            #expect(lastRequest?.page == 0)
+        }
+    }
+
+    @Test("Analyst estimates endpoint returns 402 for non-annual period on free-tier")
+    func analystEstimatesEndpointReturnsPaymentRequiredForNonAnnualPeriodOnFreeTier() async throws {
+        try await withApp { app in
+            let state = TestMarketProviderState()
+            let fmpState = TestFMPProviderState()
+            app.marketDataService = makeTestMarketService(state: state, fmpState: fmpState, fmpAccessTier: .free)
+            let (token, _) = try await registerTestUser(app: app, identifier: "estimatesperiodlimit")
+
+            try await app.testing().test(.GET, "v1/market/analyst-estimates/AAPL?period=quarter", beforeRequest: { req in
+                req.headers.bearerAuthorization = .init(token: token)
+            }, afterResponse: { res async throws in
+                #expect(res.status == .paymentRequired)
+                #expect(res.body.string.contains("FMP free-tier for analyst-estimates is limited to annual reports"))
+            })
+
+            #expect(await fmpState.lastAnalystEstimatesRequest() == nil)
+        }
+    }
+
+    @Test("Analyst estimates endpoint returns 402 for symbols outside free-tier FMP coverage")
+    func analystEstimatesEndpointReturnsPaymentRequiredForUnsupportedFreeTierSymbol() async throws {
+        try await withApp { app in
+            let state = TestMarketProviderState()
+            let fmpState = TestFMPProviderState()
+            app.marketDataService = makeTestMarketService(state: state, fmpState: fmpState, fmpAccessTier: .free)
+            let (token, _) = try await registerTestUser(app: app, identifier: "estimatesplanlimit")
+
+            try await app.testing().test(.GET, "v1/market/analyst-estimates/ZETA", beforeRequest: { req in
+                req.headers.bearerAuthorization = .init(token: token)
+            }, afterResponse: { res async throws in
+                #expect(res.status == .paymentRequired)
+                #expect(res.body.string.contains("FMP free-tier coverage for analyst-estimates"))
+            })
+
+            #expect(await fmpState.lastAnalystEstimatesRequest() == nil)
+        }
+    }
+
+    @Test("Ratios endpoint forwards limit and period to FMP")
+    func ratiosEndpoint() async throws {
+        try await withApp { app in
+            let state = TestMarketProviderState()
+            let fmpState = TestFMPProviderState()
+            app.marketDataService = makeTestMarketService(state: state, fmpState: fmpState)
+            let (token, _) = try await registerTestUser(app: app, identifier: "ratios")
+
+            try await app.testing().test(.GET, "v1/market/ratios/AAPL?limit=5&period=FY", beforeRequest: { req in
+                req.headers.bearerAuthorization = .init(token: token)
+            }, afterResponse: { res async throws in
+                #expect(res.status == .ok)
+                let body = try res.content.decode([RatiosResponse].self)
+                #expect(body.count == 1)
+                #expect(body.first?.symbol == "AAPL")
+                #expect(body.first?.grossProfitMargin == 0.4620634981523393)
+            })
+
+            let lastRequest = await fmpState.lastRatiosRequest()
+            #expect(lastRequest?.symbol == "AAPL")
+            #expect(lastRequest?.limit == 5)
+            #expect(lastRequest?.period == "FY")
+        }
+    }
+
+    @Test("Ratios endpoint clamps free-tier limit to plan-safe maximum")
+    func ratiosEndpointClampsFreeTierLimit() async throws {
+        try await withApp { app in
+            let state = TestMarketProviderState()
+            let fmpState = TestFMPProviderState()
+            app.marketDataService = makeTestMarketService(state: state, fmpState: fmpState, fmpAccessTier: .free)
+            let (token, _) = try await registerTestUser(app: app, identifier: "ratiosclamp")
+
+            try await app.testing().test(.GET, "v1/market/ratios/META?limit=10&period=FY", beforeRequest: { req in
+                req.headers.bearerAuthorization = .init(token: token)
+            }, afterResponse: { res async throws in
+                #expect(res.status == .ok)
+            })
+
+            let lastRequest = await fmpState.lastRatiosRequest()
+            #expect(lastRequest?.symbol == "META")
+            #expect(lastRequest?.limit == 5)
+            #expect(lastRequest?.period == "FY")
+        }
+    }
+
+    @Test("Ratios endpoint returns 402 for symbols outside free-tier FMP coverage")
+    func ratiosEndpointReturnsPaymentRequiredForUnsupportedFreeTierSymbol() async throws {
+        try await withApp { app in
+            let state = TestMarketProviderState()
+            let fmpState = TestFMPProviderState()
+            app.marketDataService = makeTestMarketService(state: state, fmpState: fmpState, fmpAccessTier: .free)
+            let (token, _) = try await registerTestUser(app: app, identifier: "ratiosplanlimit")
+
+            try await app.testing().test(.GET, "v1/market/ratios/ZETA", beforeRequest: { req in
+                req.headers.bearerAuthorization = .init(token: token)
+            }, afterResponse: { res async throws in
+                #expect(res.status == .paymentRequired)
+                #expect(res.body.string.contains("FMP free-tier coverage for ratios"))
+            })
+
+            #expect(await fmpState.lastRatiosRequest() == nil)
+        }
+    }
+
+    @Test("Analysis endpoint returns 402 for symbols outside free-tier FMP coverage")
+    func analysisEndpointReturnsPaymentRequiredForUnsupportedFreeTierSymbol() async throws {
+        try await withApp { app in
+            let state = TestMarketProviderState()
+            let fmpState = TestFMPProviderState()
+            app.marketDataService = makeTestMarketService(state: state, fmpState: fmpState, fmpAccessTier: .free)
+            let (token, _) = try await registerTestUser(app: app, identifier: "analysisplanlimit")
+
+            try await app.testing().test(.GET, "v1/market/analysis/ZETA", beforeRequest: { req in
+                req.headers.bearerAuthorization = .init(token: token)
+            }, afterResponse: { res async throws in
+                #expect(res.status == .paymentRequired)
+                #expect(res.body.string.contains("FMP free-tier coverage for analysis"))
+            })
+
+            #expect(await state.basicFinancialsCalls() == 0)
+            #expect(await fmpState.ratiosTTMCalls() == 0)
+            #expect(await fmpState.lastFinancialGrowthRequest() == nil)
+        }
+    }
+
+    @Test("Historical sector performance endpoint forwards FMP filters")
+    func historicalSectorPerformanceEndpoint() async throws {
+        try await withApp { app in
+            let state = TestMarketProviderState()
+            let fmpState = TestFMPProviderState()
+            app.marketDataService = makeTestMarketService(state: state, fmpState: fmpState)
+            let (token, _) = try await registerTestUser(app: app, identifier: "sectorperf")
+
+            try await app.testing().test(
+                .GET,
+                "v1/market/historical-sector-performance?sector=Energy&exchange=NASDAQ&from=2024-02-01&to=2024-03-01",
+                beforeRequest: { req in
+                    req.headers.bearerAuthorization = .init(token: token)
+                },
+                afterResponse: { res async throws in
+                    #expect(res.status == .ok)
+                    let body = try res.content.decode([HistoricalSectorPerformanceResponse].self)
+                    #expect(body.count == 1)
+                    #expect(body.first?.sector == "Energy")
+                    #expect(body.first?.exchange == "NASDAQ")
+                    #expect(body.first?.averageChange == 0.6397534025664513)
+                }
+            )
+
+            let lastRequest = await fmpState.lastSectorPerformanceRequest()
+            #expect(lastRequest?.sector == "Energy")
+            #expect(lastRequest?.exchange == "NASDAQ")
+            #expect(lastRequest?.from == "2024-02-01")
+            #expect(lastRequest?.to == "2024-03-01")
+        }
+    }
+
     @Test("Quote batch normalizes, deduplicates, and caches symbols")
     func quoteBatchUsesCache() async throws {
         try await withApp { app in
@@ -628,14 +1291,14 @@ struct StockPlanBackendTests {
             var first: QuoteBatchResponse?
             var second: QuoteBatchResponse?
 
-            try await app.testing().test(.GET, "v1/quote/batch?symbols=AAPL, msft ,aapl", beforeRequest: { req in
+            try await app.testing().test(.GET, "v1/market/quote/batch?symbols=AAPL, msft ,aapl", beforeRequest: { req in
                 req.headers.bearerAuthorization = .init(token: token)
             }, afterResponse: { res async throws in
                 #expect(res.status == .ok)
                 first = try res.content.decode(QuoteBatchResponse.self)
             })
 
-            try await app.testing().test(.GET, "v1/quote/batch?symbols=MSFT,AAPL", beforeRequest: { req in
+            try await app.testing().test(.GET, "v1/market/quote/batch?symbols=MSFT,AAPL", beforeRequest: { req in
                 req.headers.bearerAuthorization = .init(token: token)
             }, afterResponse: { res async throws in
                 #expect(res.status == .ok)
@@ -666,14 +1329,14 @@ struct StockPlanBackendTests {
             var first: HistoryResponse?
             var second: HistoryResponse?
 
-            try await app.testing().test(.GET, "v1/history/AAPL", beforeRequest: { req in
+            try await app.testing().test(.GET, "v1/market/history/AAPL", beforeRequest: { req in
                 req.headers.bearerAuthorization = .init(token: token)
             }, afterResponse: { res async throws in
                 #expect(res.status == .ok)
                 first = try res.content.decode(HistoryResponse.self)
             })
 
-            try await app.testing().test(.GET, "v1/history/AAPL", beforeRequest: { req in
+            try await app.testing().test(.GET, "v1/market/history/AAPL", beforeRequest: { req in
                 req.headers.bearerAuthorization = .init(token: token)
             }, afterResponse: { res async throws in
                 #expect(res.status == .ok)
@@ -698,14 +1361,14 @@ struct StockPlanBackendTests {
             var first: [SearchResultResponse] = []
             var second: [SearchResultResponse] = []
 
-            try await app.testing().test(.GET, "v1/search?q=AAPL", beforeRequest: { req in
+            try await app.testing().test(.GET, "v1/market/search?q=AAPL", beforeRequest: { req in
                 req.headers.bearerAuthorization = .init(token: token)
             }, afterResponse: { res async throws in
                 #expect(res.status == .ok)
                 first = try res.content.decode([SearchResultResponse].self)
             })
 
-            try await app.testing().test(.GET, "v1/search?q=AAPL", beforeRequest: { req in
+            try await app.testing().test(.GET, "v1/market/search?q=AAPL", beforeRequest: { req in
                 req.headers.bearerAuthorization = .init(token: token)
             }, afterResponse: { res async throws in
                 #expect(res.status == .ok)
@@ -744,7 +1407,7 @@ struct StockPlanBackendTests {
             await state.setFailQuote(true)
 
             var response: QuoteResponse?
-            try await app.testing().test(.GET, "v1/quote/AAPL", beforeRequest: { req in
+            try await app.testing().test(.GET, "v1/market/quote/AAPL", beforeRequest: { req in
                 req.headers.bearerAuthorization = .init(token: token)
             }, afterResponse: { res async throws in
                 #expect(res.status == .ok)
@@ -1203,6 +1866,7 @@ actor TestMarketProviderState {
     private var searchCallCount: Int = 0
     private var fxCallCount: Int = 0
     private var profileCallCount: Int = 0
+    private var basicFinancialsCallCount: Int = 0
     private var failQuoteRequests: Bool = false
 
     func nextQuoteCall() -> Int {
@@ -1228,6 +1892,11 @@ actor TestMarketProviderState {
     func nextProfileCall() -> Int {
         profileCallCount += 1
         return profileCallCount
+    }
+
+    func nextBasicFinancialsCall() -> Int {
+        basicFinancialsCallCount += 1
+        return basicFinancialsCallCount
     }
 
     func setFailQuote(_ value: Bool) {
@@ -1256,6 +1925,135 @@ actor TestMarketProviderState {
 
     func profileCalls() -> Int {
         profileCallCount
+    }
+
+    func basicFinancialsCalls() -> Int {
+        basicFinancialsCallCount
+    }
+}
+
+struct FinancialGrowthRequestCapture: Sendable, Equatable {
+    let symbol: String
+    let limit: Int?
+    let period: String?
+}
+
+struct SectorPerformanceRequestCapture: Sendable, Equatable {
+    let sector: String
+    let exchange: String?
+    let from: String?
+    let to: String?
+}
+
+struct AnalystEstimatesRequestCapture: Sendable, Equatable {
+    let symbol: String
+    let period: String
+    let page: Int?
+    let limit: Int?
+}
+
+struct EarningsRequestCapture: Sendable, Equatable {
+    let symbol: String
+    let limit: Int?
+}
+
+struct EarningsCalendarRequestCapture: Sendable, Equatable {
+    let from: String?
+    let to: String?
+}
+
+actor TestFMPProviderState {
+    private var balanceSheetRequests: [FinancialGrowthRequestCapture] = []
+    private var cashFlowRequests: [FinancialGrowthRequestCapture] = []
+    private var ratiosTTMCallCount: Int = 0
+    private var gradesConsensusCallCount: Int = 0
+    private var financialGrowthRequests: [FinancialGrowthRequestCapture] = []
+    private var analystEstimatesRequests: [AnalystEstimatesRequestCapture] = []
+    private var ratiosRequests: [FinancialGrowthRequestCapture] = []
+    private var earningsRequests: [EarningsRequestCapture] = []
+    private var earningsCalendarRequests: [EarningsCalendarRequestCapture] = []
+    private var sectorPerformanceRequests: [SectorPerformanceRequestCapture] = []
+
+    func nextRatiosTTMCall() -> Int {
+        ratiosTTMCallCount += 1
+        return ratiosTTMCallCount
+    }
+
+    func nextGradesConsensusCall() -> Int {
+        gradesConsensusCallCount += 1
+        return gradesConsensusCallCount
+    }
+
+    func recordFinancialGrowth(symbol: String, limit: Int?, period: String?) {
+        financialGrowthRequests.append(.init(symbol: symbol, limit: limit, period: period))
+    }
+
+    func recordRatios(symbol: String, limit: Int?, period: String?) {
+        ratiosRequests.append(.init(symbol: symbol, limit: limit, period: period))
+    }
+
+    func recordAnalystEstimates(symbol: String, period: String, page: Int?, limit: Int?) {
+        analystEstimatesRequests.append(.init(symbol: symbol, period: period, page: page, limit: limit))
+    }
+
+    func recordEarnings(symbol: String, limit: Int?) {
+        earningsRequests.append(.init(symbol: symbol, limit: limit))
+    }
+
+    func recordEarningsCalendar(from: String?, to: String?) {
+        earningsCalendarRequests.append(.init(from: from, to: to))
+    }
+
+    func recordBalanceSheet(symbol: String, limit: Int?, period: String?) {
+        balanceSheetRequests.append(.init(symbol: symbol, limit: limit, period: period))
+    }
+
+    func recordCashFlow(symbol: String, limit: Int?, period: String?) {
+        cashFlowRequests.append(.init(symbol: symbol, limit: limit, period: period))
+    }
+
+    func recordSectorPerformance(sector: String, exchange: String?, from: String?, to: String?) {
+        sectorPerformanceRequests.append(.init(sector: sector, exchange: exchange, from: from, to: to))
+    }
+
+    func ratiosTTMCalls() -> Int {
+        ratiosTTMCallCount
+    }
+
+    func gradesConsensusCalls() -> Int {
+        gradesConsensusCallCount
+    }
+
+    func lastFinancialGrowthRequest() -> FinancialGrowthRequestCapture? {
+        financialGrowthRequests.last
+    }
+
+    func lastRatiosRequest() -> FinancialGrowthRequestCapture? {
+        ratiosRequests.last
+    }
+
+    func lastAnalystEstimatesRequest() -> AnalystEstimatesRequestCapture? {
+        analystEstimatesRequests.last
+    }
+
+    func lastBalanceSheetRequest() -> FinancialGrowthRequestCapture? {
+        balanceSheetRequests.last
+    }
+
+    func lastCashFlowRequest() -> FinancialGrowthRequestCapture? {
+        cashFlowRequests.last
+    }
+
+    func earningsCalls() -> Int {
+        earningsRequests.count
+    }
+
+    func earningsCalendarCalls() -> Int {
+        earningsCalendarRequests.count
+    }
+
+    func lastSectorPerformanceRequest() -> SectorPerformanceRequestCapture? {
+        sectorPerformanceRequests.last
     }
 }
 
@@ -1339,6 +2137,612 @@ struct TestMarketDataProvider: MarketDataProvider {
             weburl: "https://apple.com"
         )
     }
+
+    func basicFinancials(symbol: String, on req: Request) async throws -> MarketProviderBasicFinancials? {
+        _ = await state.nextBasicFinancialsCall()
+        return MarketProviderBasicFinancials(
+            symbol: symbol,
+            metricType: "all",
+            metric: [
+                "52WeekHigh": .number(190.25),
+                "52WeekLow": .number(164.10),
+                "52WeekLowDate": .string("2026-01-14"),
+                "beta": .number(1.2989),
+                "forwardPE": .number(28.0),
+                "epsGrowthTTMYoy": .number(12.0),
+                "revenueGrowthTTMYoy": .number(10.0),
+                "epsGrowthQuarterlyYoy": .number(8.0),
+                "revenueGrowthQuarterlyYoy": .number(7.0),
+                "grossMarginTTM": .number(60.63),
+                "netProfitMarginTTM": .number(24.20)
+            ],
+            series: [
+                "annual": [
+                    "currentRatio": [
+                        BasicFinancialSeriesPoint(period: "2025-09-28", value: 1.5401),
+                        BasicFinancialSeriesPoint(period: "2024-09-29", value: 1.1329)
+                    ]
+                ]
+            ]
+        )
+    }
+}
+
+struct TestFMPMarketDataProvider: FMPMarketDataProvider {
+    let state: TestFMPProviderState
+
+    var name: String { "test-fmp" }
+
+    func cashFlowStatement(
+        symbol: String,
+        limit: Int?,
+        period: String?,
+        on req: Request
+    ) async throws -> [CashFlowStatementResponse] {
+        await state.recordCashFlow(symbol: symbol, limit: limit, period: period)
+        return [
+            CashFlowStatementResponse(
+                date: "2024-09-28",
+                symbol: symbol,
+                reportedCurrency: "USD",
+                cik: "0000320193",
+                filingDate: "2024-11-01",
+                acceptedDate: "2024-11-01 06:01:36",
+                fiscalYear: "2024",
+                period: period ?? "FY",
+                netIncome: 93_736_000_000,
+                depreciationAndAmortization: 11_445_000_000,
+                deferredIncomeTax: 0,
+                stockBasedCompensation: 11_688_000_000,
+                changeInWorkingCapital: 3_651_000_000,
+                accountsReceivables: -5_144_000_000,
+                inventory: -1_046_000_000,
+                accountsPayables: 6_020_000_000,
+                otherWorkingCapital: 3_821_000_000,
+                otherNonCashItems: -2_266_000_000,
+                netCashProvidedByOperatingActivities: 118_254_000_000,
+                investmentsInPropertyPlantAndEquipment: -9_447_000_000,
+                acquisitionsNet: 0,
+                purchasesOfInvestments: -48_656_000_000,
+                salesMaturitiesOfInvestments: 62_346_000_000,
+                otherInvestingActivities: -1_308_000_000,
+                netCashProvidedByInvestingActivities: 2_935_000_000,
+                netDebtIssuance: -5_998_000_000,
+                longTermNetDebtIssuance: -9_958_000_000,
+                shortTermNetDebtIssuance: 3_960_000_000,
+                netStockIssuance: -94_949_000_000,
+                netCommonStockIssuance: -94_949_000_000,
+                commonStockIssuance: 0,
+                commonStockRepurchased: -94_949_000_000,
+                netPreferredStockIssuance: 0,
+                netDividendsPaid: -15_234_000_000,
+                commonDividendsPaid: -15_234_000_000,
+                preferredDividendsPaid: 0,
+                otherFinancingActivities: -5_802_000_000,
+                netCashProvidedByFinancingActivities: -121_983_000_000,
+                effectOfForexChangesOnCash: 0,
+                netChangeInCash: -794_000_000,
+                cashAtEndOfPeriod: 29_943_000_000,
+                cashAtBeginningOfPeriod: 30_737_000_000,
+                operatingCashFlow: 118_254_000_000,
+                capitalExpenditure: -9_447_000_000,
+                freeCashFlow: 108_807_000_000,
+                incomeTaxesPaid: 26_102_000_000,
+                interestPaid: 0
+            )
+        ]
+    }
+
+    func balanceSheetStatement(
+        symbol: String,
+        limit: Int?,
+        period: String?,
+        on req: Request
+    ) async throws -> [BalanceSheetStatementResponse] {
+        await state.recordBalanceSheet(symbol: symbol, limit: limit, period: period)
+        return [
+            BalanceSheetStatementResponse(
+                date: "2024-09-28",
+                symbol: symbol,
+                reportedCurrency: "USD",
+                cik: "0000320193",
+                filingDate: "2024-11-01",
+                acceptedDate: "2024-11-01 06:01:36",
+                fiscalYear: "2024",
+                period: period ?? "FY",
+                cashAndCashEquivalents: 29_943_000_000,
+                shortTermInvestments: 35_228_000_000,
+                cashAndShortTermInvestments: 65_171_000_000,
+                netReceivables: 66_243_000_000,
+                accountsReceivables: 33_410_000_000,
+                otherReceivables: 32_833_000_000,
+                inventory: 7_286_000_000,
+                prepaids: 0,
+                otherCurrentAssets: 14_287_000_000,
+                totalCurrentAssets: 152_987_000_000,
+                propertyPlantEquipmentNet: 45_680_000_000,
+                goodwill: 0,
+                intangibleAssets: 0,
+                goodwillAndIntangibleAssets: 0,
+                longTermInvestments: 91_479_000_000,
+                taxAssets: 19_499_000_000,
+                otherNonCurrentAssets: 55_335_000_000,
+                totalNonCurrentAssets: 211_993_000_000,
+                otherAssets: 0,
+                totalAssets: 364_980_000_000,
+                totalPayables: 95_561_000_000,
+                accountPayables: 68_960_000_000,
+                otherPayables: 26_601_000_000,
+                accruedExpenses: 0,
+                shortTermDebt: 20_879_000_000,
+                capitalLeaseObligationsCurrent: 1_632_000_000,
+                taxPayables: 26_601_000_000,
+                deferredRevenue: 8_249_000_000,
+                otherCurrentLiabilities: 50_071_000_000,
+                totalCurrentLiabilities: 176_392_000_000,
+                longTermDebt: 85_750_000_000,
+                deferredRevenueNonCurrent: 10_798_000_000,
+                deferredTaxLiabilitiesNonCurrent: 0,
+                otherNonCurrentLiabilities: 35_090_000_000,
+                totalNonCurrentLiabilities: 131_638_000_000,
+                otherLiabilities: 0,
+                capitalLeaseObligations: 12_430_000_000,
+                totalLiabilities: 308_030_000_000,
+                treasuryStock: 0,
+                preferredStock: 0,
+                commonStock: 83_276_000_000,
+                retainedEarnings: -19_154_000_000,
+                additionalPaidInCapital: 0,
+                accumulatedOtherComprehensiveIncomeLoss: -7_172_000_000,
+                otherTotalStockholdersEquity: 0,
+                totalStockholdersEquity: 56_950_000_000,
+                totalEquity: 56_950_000_000,
+                minorityInterest: 0,
+                totalLiabilitiesAndTotalEquity: 364_980_000_000,
+                totalInvestments: 126_707_000_000,
+                totalDebt: 106_629_000_000,
+                netDebt: 76_686_000_000
+            )
+        ]
+    }
+
+    func ratiosTTM(symbol: String, on req: Request) async throws -> [RatiosTTMResponse] {
+        _ = await state.nextRatiosTTMCall()
+        return [
+            RatiosTTMResponse(
+                symbol: symbol,
+                grossProfitMarginTTM: 0.46518849807964424,
+                ebitMarginTTM: 0.3175535678188801,
+                ebitdaMarginTTM: 0.34705882352941175,
+                operatingProfitMarginTTM: 0.3175535678188801,
+                pretaxProfitMarginTTM: 0.31773296947645036,
+                continuousOperationsProfitMarginTTM: 0.24295027289266222,
+                netProfitMarginTTM: 0.24295027289266222,
+                bottomLineProfitMarginTTM: 0.24295027289266222,
+                receivablesTurnoverTTM: 6.673186524129093,
+                payablesTurnoverTTM: 3.4187853335486995,
+                inventoryTurnoverTTM: 30.626103313558097,
+                fixedAssetTurnoverTTM: 8.590592372311098,
+                assetTurnoverTTM: 1.1501809145995903,
+                currentRatioTTM: 0.9229383853427077,
+                quickRatioTTM: 0.8750666712845911,
+                solvencyRatioTTM: 0.3888081578786054,
+                cashRatioTTM: 0.20987774044955496,
+                priceToEarningsRatioTTM: 32.889608822880916,
+                priceToEarningsGrowthRatioTTM: 9.104441715061135,
+                forwardPriceToEarningsGrowthRatioTTM: 9.104441715061135,
+                priceToBookRatioTTM: 47.370141231313106,
+                priceToSalesRatioTTM: 7.958949686678795,
+                priceToFreeCashFlowRatioTTM: 32.04339747098139,
+                priceToOperatingCashFlowRatioTTM: 29.201395167968677,
+                debtToAssetsRatioTTM: 0.28132292892744526,
+                debtToEquityRatioTTM: 1.4499985020521886,
+                debtToCapitalRatioTTM: 0.5918364851397372,
+                longTermDebtToCapitalRatioTTM: 0.557055084464615,
+                financialLeverageRatioTTM: 5.154213727193745,
+                workingCapitalTurnoverRatioTTM: -22.92267593397046,
+                operatingCashFlowRatioTTM: 0.7501402694558931,
+                operatingCashFlowSalesRatioTTM: 0.2736355366889024,
+                freeCashFlowOperatingCashFlowRatioTTM: 0.9077049513361775,
+                debtServiceCoverageRatioTTM: 8.390251498870981,
+                interestCoverageRatioTTM: 0,
+                shortTermOperatingCashFlowCoverageRatioTTM: 8.432142022891847,
+                operatingCashFlowCoverageRatioTTM: 1.1187512267688715,
+                capitalExpenditureCoverageRatioTTM: 10.834817408704351,
+                dividendPaidAndCapexCoverageRatioTTM: 4.287173396674584,
+                dividendPayoutRatioTTM: 0.15876235049401977,
+                dividendYieldTTM: 0.0047691720717283476,
+                enterpriseValueTTM: 3_216_333_928_000,
+                revenuePerShareTTM: 26.24103186081379,
+                netIncomePerShareTTM: 6.375265851569754,
+                interestDebtPerShareTTM: 6.418298067250137,
+                cashPerShareTTM: 3.565573803101025,
+                bookValuePerShareTTM: 4.426417032959892,
+                tangibleBookValuePerShareTTM: 4.426417032959892,
+                shareholdersEquityPerShareTTM: 4.426417032959892,
+                operatingCashFlowPerShareTTM: 7.180478836504368,
+                capexPerShareTTM: 0.6627226436447186,
+                freeCashFlowPerShareTTM: 6.5177561928596495,
+                netIncomePerEBTTTM: 0.7646366484818603,
+                ebtPerEbitTTM: 1.0005649492739208,
+                priceToFairValueTTM: 47.370141231313106,
+                debtToMarketCapTTM: 0.030731461471514124,
+                effectiveTaxRateTTM: 0.23536335151813975,
+                enterpriseValueMultipleTTM: 23.41672438697653
+            )
+        ]
+    }
+
+    func gradesConsensus(symbol: String, on req: Request) async throws -> [GradesConsensusResponse] {
+        _ = await state.nextGradesConsensusCall()
+        return [
+            GradesConsensusResponse(
+                symbol: symbol,
+                strongBuy: 1,
+                buy: 49,
+                hold: 11,
+                sell: 0,
+                strongSell: 0,
+                consensus: "Buy"
+            )
+        ]
+    }
+
+    func financialGrowth(
+        symbol: String,
+        limit: Int?,
+        period: String?,
+        on req: Request
+    ) async throws -> [FinancialGrowthResponse] {
+        await state.recordFinancialGrowth(symbol: symbol, limit: limit, period: period)
+        return [
+            FinancialGrowthResponse(
+                symbol: symbol,
+                date: "2024-09-28",
+                fiscalYear: "2024",
+                period: period ?? "FY",
+                reportedCurrency: "USD",
+                revenueGrowth: 0.020219940775141214,
+                grossProfitGrowth: 0.06819471705252206,
+                ebitgrowth: 0.07799581805933456,
+                operatingIncomeGrowth: 0.07799581805933456,
+                netIncomeGrowth: -0.033599670086086914,
+                epsgrowth: -0.008116883116883088,
+                epsdilutedGrowth: -0.008156606851549727,
+                weightedAverageSharesGrowth: -0.02543458616683152,
+                weightedAverageSharesDilutedGrowth: -0.02557791606880283,
+                dividendsPerShareGrowth: 0.040371570095532654,
+                operatingCashFlowGrowth: 0.06975566069312394,
+                receivablesGrowth: 0.08621792243994425,
+                inventoryGrowth: 0.15084504817564365,
+                assetGrowth: 0.035160515396374756,
+                bookValueperShareGrowth: -0.059693251557224776,
+                debtGrowth: -0.0401393489845888,
+                rdexpenseGrowth: 0.04863780712017383,
+                sgaexpensesGrowth: 0.04672709770575967,
+                freeCashFlowGrowth: 0.092615279562982,
+                tenYRevenueGrowthPerShare: 2.3937532854122625,
+                fiveYRevenueGrowthPerShare: 0.8093292228858464,
+                threeYRevenueGrowthPerShare: 0.163506592883552,
+                tenYOperatingCFGrowthPerShare: 2.1417809176982403,
+                fiveYOperatingCFGrowthPerShare: 1.051533221923415,
+                threeYOperatingCFGrowthPerShare: 0.23720294833900227,
+                tenYNetIncomeGrowthPerShare: 2.76381558093543,
+                fiveYNetIncomeGrowthPerShare: 1.0421744314966246,
+                threeYNetIncomeGrowthPerShare: 0.07761907162786884,
+                tenYShareholdersEquityGrowthPerShare: -0.19003774225234785,
+                fiveYShareholdersEquityGrowthPerShare: -0.24235004889283715,
+                threeYShareholdersEquityGrowthPerShare: -0.017459858915902907,
+                tenYDividendperShareGrowthPerShare: 1.1722201809466772,
+                fiveYDividendperShareGrowthPerShare: 0.29890046876764864,
+                threeYDividendperShareGrowthPerShare: 0.14617932692103452,
+                ebitdaGrowth: nil,
+                growthCapitalExpenditure: nil,
+                tenYBottomLineNetIncomeGrowthPerShare: nil,
+                fiveYBottomLineNetIncomeGrowthPerShare: nil,
+                threeYBottomLineNetIncomeGrowthPerShare: nil
+            ),
+            FinancialGrowthResponse(
+                symbol: symbol,
+                date: "2023-09-28",
+                fiscalYear: "2023",
+                period: period ?? "FY",
+                reportedCurrency: "USD",
+                revenueGrowth: 0.031,
+                grossProfitGrowth: 0.05,
+                ebitgrowth: 0.06,
+                operatingIncomeGrowth: 0.06,
+                netIncomeGrowth: 0.04,
+                epsgrowth: 0.041,
+                epsdilutedGrowth: 0.04,
+                weightedAverageSharesGrowth: -0.02,
+                weightedAverageSharesDilutedGrowth: -0.02,
+                dividendsPerShareGrowth: 0.03,
+                operatingCashFlowGrowth: 0.05,
+                receivablesGrowth: 0.04,
+                inventoryGrowth: 0.06,
+                assetGrowth: 0.03,
+                bookValueperShareGrowth: -0.04,
+                debtGrowth: -0.02,
+                rdexpenseGrowth: 0.03,
+                sgaexpensesGrowth: 0.04,
+                freeCashFlowGrowth: 0.08,
+                tenYRevenueGrowthPerShare: 2.1,
+                fiveYRevenueGrowthPerShare: 0.7,
+                threeYRevenueGrowthPerShare: 0.15,
+                tenYOperatingCFGrowthPerShare: 1.9,
+                fiveYOperatingCFGrowthPerShare: 0.9,
+                threeYOperatingCFGrowthPerShare: 0.21,
+                tenYNetIncomeGrowthPerShare: 2.2,
+                fiveYNetIncomeGrowthPerShare: 0.9,
+                threeYNetIncomeGrowthPerShare: 0.07,
+                tenYShareholdersEquityGrowthPerShare: -0.16,
+                fiveYShareholdersEquityGrowthPerShare: -0.22,
+                threeYShareholdersEquityGrowthPerShare: -0.01,
+                tenYDividendperShareGrowthPerShare: 1.0,
+                fiveYDividendperShareGrowthPerShare: 0.25,
+                threeYDividendperShareGrowthPerShare: 0.13,
+                ebitdaGrowth: nil,
+                growthCapitalExpenditure: nil,
+                tenYBottomLineNetIncomeGrowthPerShare: nil,
+                fiveYBottomLineNetIncomeGrowthPerShare: nil,
+                threeYBottomLineNetIncomeGrowthPerShare: nil
+            )
+        ]
+    }
+
+    func analystEstimates(
+        symbol: String,
+        period: String,
+        page: Int?,
+        limit: Int?,
+        on req: Request
+    ) async throws -> [AnalystEstimatesResponse] {
+        await state.recordAnalystEstimates(symbol: symbol, period: period, page: page, limit: limit)
+        return [
+            AnalystEstimatesResponse(
+                symbol: symbol,
+                date: "2029-09-28",
+                revenueLow: 483092500000,
+                revenueHigh: 483093500000,
+                revenueAvg: 483093000000,
+                ebitdaLow: 155952166036,
+                ebitdaHigh: 155952488856,
+                ebitdaAvg: 155952327446,
+                ebitLow: 140628295747,
+                ebitHigh: 140628586847,
+                ebitAvg: 140628441297,
+                netIncomeLow: 139446957701,
+                netIncomeHigh: 157185372990,
+                netIncomeAvg: 149150359609,
+                sgaExpenseLow: 31694652812,
+                sgaExpenseHigh: 31694718420,
+                sgaExpenseAvg: 31694685616,
+                epsAvg: 9.68,
+                epsHigh: 10.20148,
+                epsLow: 9.05024,
+                numAnalystsRevenue: 16,
+                numAnalystsEps: 6
+            )
+        ]
+    }
+
+    func ratios(
+        symbol: String,
+        limit: Int?,
+        period: String?,
+        on req: Request
+    ) async throws -> [RatiosResponse] {
+        await state.recordRatios(symbol: symbol, limit: limit, period: period)
+        return [
+            RatiosResponse(
+                symbol: symbol,
+                date: "2024-09-28",
+                fiscalYear: "2024",
+                period: period ?? "FY",
+                reportedCurrency: "USD",
+                grossProfitMargin: 0.4620634981523393,
+                ebitMargin: 0.31510222870075566,
+                ebitdaMargin: 0.3443707085043538,
+                operatingProfitMargin: 0.31510222870075566,
+                pretaxProfitMargin: 0.3157901466620635,
+                continuousOperationsProfitMargin: 0.23971255769943867,
+                netProfitMargin: 0.23971255769943867,
+                bottomLineProfitMargin: 0.23971255769943867,
+                receivablesTurnover: 5.903038811648023,
+                payablesTurnover: 3.0503480278422272,
+                inventoryTurnover: 28.870710952511665,
+                fixedAssetTurnover: 8.560310858143607,
+                assetTurnover: 1.0713874732862074,
+                currentRatio: 0.8673125765340832,
+                quickRatio: 0.8260068483831466,
+                solvencyRatio: 0.3414634938155374,
+                cashRatio: 0.16975259648963673,
+                priceToEarningsRatio: 37.287278415656736,
+                priceToEarningsGrowthRatio: -45.93792700808932,
+                forwardPriceToEarningsGrowthRatio: -45.93792700808932,
+                priceToBookRatio: 61.37243774486391,
+                priceToSalesRatio: 8.93822887866815,
+                priceToFreeCashFlowRatio: 32.12256867269569,
+                priceToOperatingCashFlowRatio: 29.55638142954995,
+                debtToAssetsRatio: 0.29215025480848267,
+                debtToEquityRatio: 1.872326602282704,
+                debtToCapitalRatio: 0.6518501763673821,
+                longTermDebtToCapitalRatio: 0.6009110021023125,
+                financialLeverageRatio: 6.408779631255487,
+                workingCapitalTurnoverRatio: -31.099932397502684,
+                operatingCashFlowRatio: 0.6704045534944896,
+                operatingCashFlowSalesRatio: 0.3024128274962599,
+                freeCashFlowOperatingCashFlowRatio: 0.9201126388959359,
+                debtServiceCoverageRatio: 5.024761722304708,
+                interestCoverageRatio: 0,
+                shortTermOperatingCashFlowCoverageRatio: 5.663777000814215,
+                operatingCashFlowCoverageRatio: 1.109022873702276,
+                capitalExpenditureCoverageRatio: 12.517624642743728,
+                dividendPaidAndCapexCoverageRatio: 4.7912969490701345,
+                dividendPayoutRatio: 0.16252026969360758,
+                dividendYield: 0.0043585983369965175,
+                dividendYieldPercentage: 0.43585983369965176,
+                revenuePerShare: 25.484914639368924,
+                netIncomePerShare: 6.109054070954992,
+                interestDebtPerShare: 6.949329249507765,
+                cashPerShare: 4.247388013764271,
+                bookValuePerShare: 3.711600978715614,
+                tangibleBookValuePerShare: 3.711600978715614,
+                shareholdersEquityPerShare: 3.711600978715614,
+                operatingCashFlowPerShare: 7.706965094592383,
+                capexPerShare: 0.6156891035281195,
+                freeCashFlowPerShare: 7.091275991064264,
+                netIncomePerEBT: 0.7590881483581001,
+                ebtPerEbit: 1.0021831580314244,
+                priceToFairValue: 61.37243774486391,
+                debtToMarketCap: 0.03050761336980449,
+                effectiveTaxRate: 0.24091185164189982,
+                enterpriseValueMultiple: 26.524727497716487
+            )
+        ]
+    }
+
+    func earnings(symbol: String, limit: Int?, on req: Request) async throws -> [EarningsResponse] {
+        await state.recordEarnings(symbol: symbol, limit: limit)
+        return [
+            EarningsResponse(
+                symbol: symbol,
+                date: "2024-10-29",
+                epsActual: 1.64,
+                epsEstimated: 1.60,
+                revenueActual: 94930000000,
+                revenueEstimated: 94400000000,
+                lastUpdated: "2024-12-08"
+            )
+        ]
+    }
+
+    func earningsCalendar(from: Date?, to: Date?, on req: Request) async throws -> [EarningsResponse] {
+        await state.recordEarningsCalendar(from: from.map(formatISODateOnly), to: to.map(formatISODateOnly))
+        return [
+            EarningsResponse(
+                symbol: "AAPL",
+                date: "2024-10-29",
+                epsActual: 1.64,
+                epsEstimated: 1.60,
+                revenueActual: 94930000000,
+                revenueEstimated: 94400000000,
+                lastUpdated: "2024-12-08"
+            )
+        ]
+    }
+
+    func historicalSectorPerformance(
+        sector: String,
+        exchange: String?,
+        from: Date?,
+        to: Date?,
+        on req: Request
+    ) async throws -> [HistoricalSectorPerformanceResponse] {
+        await state.recordSectorPerformance(
+            sector: sector,
+            exchange: exchange,
+            from: from.map(formatISODateOnly),
+            to: to.map(formatISODateOnly)
+        )
+        return [
+            HistoricalSectorPerformanceResponse(
+                date: "2024-02-01",
+                sector: sector,
+                exchange: exchange ?? "NASDAQ",
+                averageChange: 0.6397534025664513
+            )
+        ]
+    }
+}
+
+private func formatISODateOnly(_ date: Date) -> String {
+    let formatter = DateFormatter()
+    formatter.calendar = Calendar(identifier: .gregorian)
+    formatter.locale = Locale(identifier: "en_US_POSIX")
+    formatter.timeZone = TimeZone(secondsFromGMT: 0)
+    formatter.dateFormat = "yyyy-MM-dd"
+    return formatter.string(from: date)
+}
+
+struct TestPaymentRequiredFMPMarketDataProvider: FMPMarketDataProvider {
+    let name: String = "test-fmp-payment-required"
+
+    func cashFlowStatement(
+        symbol: String,
+        limit: Int?,
+        period: String?,
+        on req: Request
+    ) async throws -> [CashFlowStatementResponse] {
+        []
+    }
+
+    func balanceSheetStatement(
+        symbol: String,
+        limit: Int?,
+        period: String?,
+        on req: Request
+    ) async throws -> [BalanceSheetStatementResponse] {
+        []
+    }
+
+    func ratiosTTM(symbol: String, on req: Request) async throws -> [RatiosTTMResponse] {
+        []
+    }
+
+    func gradesConsensus(symbol: String, on req: Request) async throws -> [GradesConsensusResponse] {
+        throw Abort(
+            .paymentRequired,
+            reason: "FMP plan upgrade required for /stable/grades-consensus. This endpoint is not available for the requested symbol on the current subscription."
+        )
+    }
+
+    func financialGrowth(
+        symbol: String,
+        limit: Int?,
+        period: String?,
+        on req: Request
+    ) async throws -> [FinancialGrowthResponse] {
+        []
+    }
+
+    func analystEstimates(
+        symbol: String,
+        period: String,
+        page: Int?,
+        limit: Int?,
+        on req: Request
+    ) async throws -> [AnalystEstimatesResponse] {
+        []
+    }
+
+    func ratios(
+        symbol: String,
+        limit: Int?,
+        period: String?,
+        on req: Request
+    ) async throws -> [RatiosResponse] {
+        []
+    }
+
+    func earnings(symbol: String, limit: Int?, on req: Request) async throws -> [EarningsResponse] {
+        []
+    }
+
+    func earningsCalendar(from: Date?, to: Date?, on req: Request) async throws -> [EarningsResponse] {
+        []
+    }
+
+    func historicalSectorPerformance(
+        sector: String,
+        exchange: String?,
+        from: Date?,
+        to: Date?,
+        on req: Request
+    ) async throws -> [HistoricalSectorPerformanceResponse] {
+        []
+    }
 }
 
 struct FailingMarketDataProvider: MarketDataProvider {
@@ -1363,6 +2767,10 @@ struct FailingMarketDataProvider: MarketDataProvider {
     }
 
     func profile(symbol: String, on req: Request) async throws -> MarketProviderCompanyProfile? {
+        throw Abort(.badGateway, reason: "Forced market provider failure")
+    }
+
+    func basicFinancials(symbol: String, on req: Request) async throws -> MarketProviderBasicFinancials? {
         throw Abort(.badGateway, reason: "Forced market provider failure")
     }
 }

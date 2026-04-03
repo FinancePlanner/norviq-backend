@@ -30,4 +30,8 @@ struct DisabledMarketDataProvider: MarketDataProvider {
     func profile(symbol: String, on req: Request) async throws -> MarketProviderCompanyProfile? {
         throw MarketDataProviderDisabledError()
     }
+
+    func basicFinancials(symbol: String, on req: Request) async throws -> MarketProviderBasicFinancials? {
+        throw MarketDataProviderDisabledError()
+    }
 }

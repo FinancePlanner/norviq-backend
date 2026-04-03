@@ -1,5 +1,6 @@
 import Vapor
 import Foundation
+import StockPlanShared
 
 struct FinnhubMarketDataProvider: MarketDataProvider {
     let baseURL: String
@@ -114,6 +115,29 @@ struct FinnhubMarketDataProvider: MarketDataProvider {
             return nil
         }
         return mapProfile(symbol: symbol, payload: payload)
+    }
+
+    func basicFinancials(symbol rawSymbol: String, on req: Request) async throws -> MarketProviderBasicFinancials? {
+        let symbol = try normalizeSymbol(rawSymbol)
+        let payload: FinnhubBasicFinancialsPayload = try await fetchJSON(
+            path: "/stock/metric",
+            query: [
+                ("symbol", symbol),
+                ("metric", "all")
+            ],
+            on: req
+        )
+
+        if payload.metric == nil, payload.series == nil, payload.symbol == nil, payload.metricType == nil {
+            return nil
+        }
+
+        return MarketProviderBasicFinancials(
+            symbol: normalizedFallbackValue(payload.symbol, fallback: symbol).uppercased(),
+            metricType: normalizedFallbackValue(payload.metricType, fallback: "all"),
+            metric: payload.metric ?? [:],
+            series: payload.series ?? [:]
+        )
     }
 }
 
@@ -430,4 +454,93 @@ private struct FinnhubCompanyProfilePayload: Decodable {
 private struct FinnhubForexRatesPayload: Decodable {
     let base: String?
     let quote: [String: Double]?
+}
+
+private struct FinnhubBasicFinancialsPayload: Decodable {
+    let metric: [String: BasicFinancialMetricValue]?
+    let metricType: String?
+    let series: [String: [String: [BasicFinancialSeriesPoint]]]?
+    let symbol: String?
+
+    init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        symbol = try container.decodeIfPresent(String.self, forKey: .symbol)
+        metricType = try container.decodeIfPresent(String.self, forKey: .metricType)
+        metric = try container.decodeLossyMetricDictionaryIfPresent(forKey: .metric)
+        series = try container.decodeLossySeriesIfPresent(forKey: .series)
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case metric
+        case metricType
+        case series
+        case symbol
+    }
+}
+
+private struct AnyCodingKey: CodingKey {
+    let stringValue: String
+    let intValue: Int?
+
+    init?(stringValue: String) {
+        self.stringValue = stringValue
+        self.intValue = nil
+    }
+
+    init?(intValue: Int) {
+        self.stringValue = String(intValue)
+        self.intValue = intValue
+    }
+
+    init(_ string: String) {
+        self.stringValue = string
+        self.intValue = nil
+    }
+}
+
+private extension KeyedDecodingContainer where Key == FinnhubBasicFinancialsPayload.CodingKeys {
+    func decodeLossyMetricDictionaryIfPresent(
+        forKey key: Key
+    ) throws -> [String: BasicFinancialMetricValue]? {
+        guard contains(key), try !decodeNil(forKey: key) else {
+            return nil
+        }
+
+        let nested = try nestedContainer(keyedBy: AnyCodingKey.self, forKey: key)
+        var values: [String: BasicFinancialMetricValue] = [:]
+        for nestedKey in nested.allKeys {
+            if let value = try? nested.decode(BasicFinancialMetricValue.self, forKey: nestedKey) {
+                values[nestedKey.stringValue] = value
+            }
+        }
+        return values
+    }
+
+    func decodeLossySeriesIfPresent(
+        forKey key: Key
+    ) throws -> [String: [String: [BasicFinancialSeriesPoint]]]? {
+        guard contains(key), try !decodeNil(forKey: key) else {
+            return nil
+        }
+
+        let frequencies = try nestedContainer(keyedBy: AnyCodingKey.self, forKey: key)
+        var result: [String: [String: [BasicFinancialSeriesPoint]]] = [:]
+
+        for frequencyKey in frequencies.allKeys {
+            guard let metrics = try? frequencies.nestedContainer(keyedBy: AnyCodingKey.self, forKey: frequencyKey) else {
+                continue
+            }
+
+            var metricSeries: [String: [BasicFinancialSeriesPoint]] = [:]
+            for metricKey in metrics.allKeys {
+                if let points = try? metrics.decode([BasicFinancialSeriesPoint].self, forKey: metricKey) {
+                    metricSeries[metricKey.stringValue] = points
+                }
+            }
+
+            result[frequencyKey.stringValue] = metricSeries
+        }
+
+        return result
+    }
 }

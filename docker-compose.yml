@@ -31,6 +31,7 @@ x-shared_environment: &shared_environment
   FINNHUB_API_KEY: ${FINNHUB_API_KEY:-}
   FINNHUB_WEBHOOK_URL: ${FINNHUB_WEBHOOK_URL:-}
   FINNHUB_WEBHOOK_SECRET: ${FINNHUB_WEBHOOK_SECRET:-}
+  FMP_API_KEY: ${FMP_API_KEY:-}
 
 services:
   app:

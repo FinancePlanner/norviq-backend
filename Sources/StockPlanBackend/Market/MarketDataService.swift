@@ -12,6 +12,47 @@ protocol MarketDataService: Sendable {
     func search(query: String, on req: Request) async throws -> [SearchResultResponse]
     func fx(pair: String, on req: Request) async throws -> FxRateResponse
     func profile(symbol: String, on req: Request) async throws -> CompanyProfileResponse
+    func basicFinancials(symbol: String, on req: Request) async throws -> BasicFinancialsResponse
+    func analysis(symbol: String, on req: Request) async throws -> StockAnalysisMetricsResponse
+    func compare(symbols: [String], on req: Request) async throws -> [StockAnalysisMetricsResponse]
+    func cashFlowStatement(symbol: String, limit: Int?, period: String?, on req: Request) async throws
+        -> [CashFlowStatementResponse]
+    func balanceSheetStatement(symbol: String, limit: Int?, period: String?, on req: Request) async throws
+        -> [BalanceSheetStatementResponse]
+    func ratiosTTM(symbol: String, on req: Request) async throws -> [RatiosTTMResponse]
+    func gradesConsensus(symbol: String, on req: Request) async throws -> [GradesConsensusResponse]
+    func financialGrowth(symbol: String, limit: Int?, period: String?, on req: Request) async throws
+        -> [FinancialGrowthResponse]
+    func analystEstimates(
+        symbol: String,
+        period: String,
+        page: Int?,
+        limit: Int?,
+        on req: Request
+    ) async throws -> [AnalystEstimatesResponse]
+    func ratios(
+        symbol: String,
+        limit: Int?,
+        period: String?,
+        on req: Request
+    ) async throws -> [RatiosResponse]
+    func earnings(
+        symbol: String,
+        limit: Int?,
+        on req: Request
+    ) async throws -> [EarningsResponse]
+    func earningsCalendar(
+        from: String?,
+        to: String?,
+        on req: Request
+    ) async throws -> [EarningsResponse]
+    func historicalSectorPerformance(
+        sector: String,
+        exchange: String?,
+        from: String?,
+        to: String?,
+        on req: Request
+    ) async throws -> [HistoricalSectorPerformanceResponse]
 }
 
 struct MarketDataCacheConfig: Sendable {
@@ -20,6 +61,8 @@ struct MarketDataCacheConfig: Sendable {
     let searchTTLSeconds: Int
     let fxTTLSeconds: Int
     let profileTTLSeconds: Int
+    let basicFinancialsTTLSeconds: Int
+    let fmpTTLSeconds: Int
     let defaultCurrency: String
 
     static func fromEnvironment() -> MarketDataCacheConfig {
@@ -28,6 +71,8 @@ struct MarketDataCacheConfig: Sendable {
         let searchTTL = Environment.get("MARKET_TTL_SEARCH_SECONDS").flatMap(Int.init(_:)) ?? 3_600
         let fxTTL = Environment.get("MARKET_TTL_FX_SECONDS").flatMap(Int.init(_:)) ?? 86_400
         let profileTTL = Environment.get("MARKET_TTL_PROFILE_SECONDS").flatMap(Int.init(_:)) ?? 86_400
+        let basicFinancialsTTL = Environment.get("MARKET_TTL_BASIC_FINANCIALS_SECONDS").flatMap(Int.init(_:)) ?? 86_400
+        let fmpTTL = Environment.get("MARKET_TTL_FMP_SECONDS").flatMap(Int.init(_:)) ?? 86_400
         let currency = Environment.get("MARKET_DEFAULT_CURRENCY") ?? "USD"
 
         return .init(
@@ -36,14 +81,72 @@ struct MarketDataCacheConfig: Sendable {
             searchTTLSeconds: max(60, searchTTL),
             fxTTLSeconds: max(60, fxTTL),
             profileTTLSeconds: max(60, profileTTL),
+            basicFinancialsTTLSeconds: max(60, basicFinancialsTTL),
+            fmpTTLSeconds: max(60, fmpTTL),
             defaultCurrency: currency.uppercased()
         )
     }
 }
 
+enum FMPAccessTier: String, Sendable {
+    case free
+    case starter
+    case premium
+
+    static func fromEnvironment() -> FMPAccessTier {
+        let rawValue = Environment.get("FMP_SYMBOL_ACCESS_TIER")?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+
+        return FMPAccessTier(rawValue: rawValue ?? "") ?? .free
+    }
+
+    var allowsAllSymbols: Bool {
+        switch self {
+        case .free:
+            false
+        case .starter, .premium:
+            true
+        }
+    }
+}
+
+enum FMPSymbolPlanAccess {
+    static let freeTierSupportedSymbols: Set<String> = [
+        "AAPL", "TSLA", "AMZN", "MSFT", "NVDA", "GOOGL", "META", "NFLX", "JPM", "V",
+        "BAC", "PYPL", "DIS", "T", "PFE", "COST", "INTC", "KO", "TGT", "NKE",
+        "SPY", "BA", "BABA", "XOM", "WMT", "GE", "CSCO", "VZ", "JNJ", "CVX",
+        "PLTR", "SQ", "SHOP", "SBUX", "SOFI", "HOOD", "RBLX", "SNAP", "AMD", "UBER",
+        "FDX", "ABBV", "ETSY", "MRNA", "LMT", "GM", "F", "LCID", "CCL", "DAL",
+        "UAL", "AAL", "TSM", "SONY", "ET", "MRO", "COIN", "RIVN", "RIOT", "CPRX",
+        "VWO", "SPYG", "NOK", "ROKU", "VIAC", "ATVI", "BIDU", "DOCU", "ZM", "PINS",
+        "TLRY", "WBA", "MGM", "NIO", "C", "GS", "WFC", "ADBE", "PEP", "UNH",
+        "CARR", "HCA", "TWTR", "BILI", "SIRI", "FUBO", "RKT"
+    ]
+
+    static func isSupportedOnFreeTier(_ symbol: String) -> Bool {
+        freeTierSupportedSymbols.contains(symbol.uppercased())
+    }
+}
+
+// swiftlint:disable type_body_length
 struct DefaultMarketDataService: MarketDataService {
     let provider: any MarketDataProvider
+    let fmpProvider: (any FMPMarketDataProvider)?
     let cacheConfig: MarketDataCacheConfig
+    let fmpAccessTier: FMPAccessTier
+
+    init(
+        provider: any MarketDataProvider,
+        fmpProvider: (any FMPMarketDataProvider)? = nil,
+        cacheConfig: MarketDataCacheConfig,
+        fmpAccessTier: FMPAccessTier = .fromEnvironment()
+    ) {
+        self.provider = provider
+        self.fmpProvider = fmpProvider
+        self.cacheConfig = cacheConfig
+        self.fmpAccessTier = fmpAccessTier
+    }
 
     func quote(symbol rawSymbol: String, on req: Request) async throws -> QuoteResponse {
         let symbol = try normalizeSymbol(rawSymbol)
@@ -330,7 +433,712 @@ struct DefaultMarketDataService: MarketDataService {
             throw mapProviderError(error, operation: "profile")
         }
     }
+
+    func basicFinancials(symbol rawSymbol: String, on req: Request) async throws -> BasicFinancialsResponse {
+        let symbol = try normalizeSymbol(rawSymbol)
+        let now = Date()
+        let providerName = provider.name
+        let redisKey = makeBasicFinancialsRedisKey(provider: providerName, symbol: symbol)
+
+        if let hotCached: BasicFinancialsResponse = await redisGetValue(redisKey, as: BasicFinancialsResponse.self, on: req) {
+            return hotCached
+        }
+
+        let existing: BasicFinancialsCache?
+        do {
+            existing = try await BasicFinancialsCache.query(on: req.db)
+                .filter(\.$provider == providerName)
+                .filter(\.$symbol == symbol)
+                .first()
+        } catch {
+            if isMissingDatabaseRelationError(error, relation: BasicFinancialsCache.schema) {
+                req.logger.warning(
+                    "market.basic-financials cache bypassed because relation \(BasicFinancialsCache.schema) is missing"
+                )
+                existing = nil
+            } else {
+                throw error
+            }
+        }
+
+        if let existing,
+           isFresh(existing.updatedAt ?? existing.createdAt ?? .distantPast, ttlSeconds: cacheConfig.basicFinancialsTTLSeconds, now: now),
+           let cached = decodeBasicFinancialsPayload(existing.payload)
+        {
+            await redisSetValue(redisKey, value: cached, ttlSeconds: cacheConfig.basicFinancialsTTLSeconds, on: req)
+            return cached
+        }
+
+        do {
+            guard let fresh = try await provider.basicFinancials(symbol: symbol, on: req) else {
+                throw Abort(.notFound, reason: "Basic financials not found for \(symbol).")
+            }
+
+            let response = makeBasicFinancialsResponse(from: fresh)
+            do {
+                let cached = try await upsertBasicFinancialsCache(response, provider: providerName, on: req.db)
+                let decoded = decodeBasicFinancialsPayload(cached.payload) ?? response
+                await redisSetValue(redisKey, value: decoded, ttlSeconds: cacheConfig.basicFinancialsTTLSeconds, on: req)
+                return decoded
+            } catch {
+                if isMissingDatabaseRelationError(error, relation: BasicFinancialsCache.schema) {
+                    req.logger.warning(
+                        "market.basic-financials live response returned without DB cache because relation \(BasicFinancialsCache.schema) is missing"
+                    )
+                    await redisSetValue(redisKey, value: response, ttlSeconds: cacheConfig.basicFinancialsTTLSeconds, on: req)
+                    return response
+                }
+                throw error
+            }
+        } catch {
+            if let existing, let cached = decodeBasicFinancialsPayload(existing.payload) {
+                req.logger.warning("market.basic-financials stale fallback symbol=\(symbol) provider=\(providerName)")
+                await redisSetValue(redisKey, value: cached, ttlSeconds: cacheConfig.basicFinancialsTTLSeconds, on: req)
+                return cached
+            }
+            throw mapProviderError(error, operation: "basic financials")
+        }
+    }
+
+    func analysis(symbol rawSymbol: String, on req: Request) async throws -> StockAnalysisMetricsResponse {
+        let symbol = try normalizeSymbol(rawSymbol)
+        try validateFMPSymbolAccess(symbol: symbol, operation: "analysis")
+
+        req.logger.debug("market.analysis starting symbol=\(symbol)")
+
+        let basic: BasicFinancialsResponse
+        do {
+            basic = try await basicFinancials(symbol: symbol, on: req)
+        } catch {
+            req.logger.error("market.analysis basicFinancials failed symbol=\(symbol) error=\(error)")
+            throw error
+        }
+
+        let ratios: [RatiosTTMResponse]
+        do {
+            ratios = try await ratiosTTM(symbol: symbol, on: req)
+        } catch {
+            req.logger.error("market.analysis ratiosTTM failed symbol=\(symbol) error=\(error)")
+            throw error
+        }
+
+        let growth: [FinancialGrowthResponse]
+        do {
+            growth = try await financialGrowth(symbol: symbol, limit: 5, period: "FY", on: req)
+        } catch {
+            req.logger.error("market.analysis financialGrowth failed symbol=\(symbol) error=\(error)")
+            throw error
+        }
+
+        req.logger.debug("market.analysis data fetch complete symbol=\(symbol)")
+
+        let latestRatio = ratios.first
+        let sortedGrowth = growth.sorted { $0.date > $1.date }
+        let latestGrowth = sortedGrowth.first
+        let priorGrowth = sortedGrowth.dropFirst().first
+
+        let ttmPE = latestRatio?.priceToEarningsRatioTTM
+            ?? metricDouble("peTTM", in: basic)
+            ?? metricDouble("peBasicExclExtraTTM", in: basic)
+            ?? metricDouble("peExclExtraTTM", in: basic)
+            ?? metricDouble("peAnnual", in: basic)
+
+        let forwardPE = metricDouble("forwardPE", in: basic)
+        let ttmEPSGrowth = metricPercent("epsGrowthTTMYoy", in: basic) ?? latestGrowth?.epsgrowth
+        let currentYearExpectedEPSGrowth = impliedForwardGrowth(ttmPE: ttmPE, forwardPE: forwardPE)
+            ?? latestGrowth?.epsgrowth
+        let nextYearEPSGrowth = priorGrowth?.epsgrowth ?? latestGrowth?.epsgrowth
+        let ttmRevenueGrowth = metricPercent("revenueGrowthTTMYoy", in: basic) ?? latestGrowth?.revenueGrowth
+        let currentYearExpectedRevenueGrowth = latestGrowth?.revenueGrowth ?? ttmRevenueGrowth
+        let nextYearRevenueGrowth = priorGrowth?.revenueGrowth ?? latestGrowth?.revenueGrowth
+        let grossMargin = latestRatio?.grossProfitMarginTTM
+            ?? metricPercent("grossMarginTTM", in: basic)
+            ?? metricPercent("grossMarginAnnual", in: basic)
+            ?? latestSeriesValue(frequency: "quarterly", metric: "grossMargin", in: basic)
+            ?? latestSeriesValue(frequency: "annual", metric: "grossMargin", in: basic)
+        let netMargin = latestRatio?.netProfitMarginTTM
+            ?? metricPercent("netProfitMarginTTM", in: basic)
+            ?? metricPercent("netProfitMarginAnnual", in: basic)
+            ?? latestSeriesValue(frequency: "quarterly", metric: "netMargin", in: basic)
+            ?? latestSeriesValue(frequency: "annual", metric: "netMargin", in: basic)
+
+        // DCF Data Fetching
+        async let quoteTask = try? quote(symbol: symbol, on: req)
+        async let profileTask = try? profile(symbol: symbol, on: req)
+        async let balanceSheetTask = try? balanceSheetStatement(symbol: symbol, limit: 1, period: "FY", on: req)
+
+        let currentQuote = await quoteTask
+        let companyProfile = await profileTask
+        let latestBalanceSheet = await balanceSheetTask?.first
+
+        let currentPrice = currentQuote?.currentPrice
+        let sharesMillions = companyProfile?.shareOutstanding
+        let sharesOutstanding = sharesMillions.map { $0 * 1_000_000 }
+        let marketCap = currentPrice.flatMap { p in sharesOutstanding.map { s in p * s } }
+
+        let shortTermDebt = latestBalanceSheet?.shortTermDebt ?? 0
+        let longTermDebt = latestBalanceSheet?.longTermDebt ?? 0
+        let cashAndEquivalents = latestBalanceSheet?.cashAndCashEquivalents ?? 0
+        let netDebt = (shortTermDebt + longTermDebt) - cashAndEquivalents
+
+        let ttmRevenueBase = metricDouble("revenueTTM", in: basic) ?? 0
+        let ttmRevenue: Double
+        if ttmRevenueBase > 0 {
+            ttmRevenue = ttmRevenueBase * 1_000_000
+        } else if let mCap = marketCap, let pe = ttmPE, pe > 0, let margin = netMargin, margin > 0 {
+            ttmRevenue = (mCap / pe) / margin
+        } else {
+            ttmRevenue = 0
+        }
+
+        let ttmNetIncome = ttmRevenue * (netMargin ?? 0.1)
+
+        let wacc = 0.09
+        let terminalGrowthRate = 0.025
+        let terminalMargin = 0.22
+
+        let safeRevenueGrowth1 = currentYearExpectedRevenueGrowth ?? ttmRevenueGrowth ?? 0.1
+        let safeRevenueGrowth2 = nextYearRevenueGrowth ?? safeRevenueGrowth1
+        let safeEPSGrowth1 = currentYearExpectedEPSGrowth ?? ttmEPSGrowth ?? 0.1
+        let safeEPSGrowth2 = nextYearEPSGrowth ?? safeEPSGrowth1
+        let fcfMarginAssumption = 1.1
+
+        let currentYear = Calendar.current.component(.year, from: Date())
+        let finalNetMargin = netMargin
+        
+        let buildProjections: (Double) -> [YearlyProjectionResponse] = { growthShift in
+            var projections: [YearlyProjectionResponse] = []
+            var currentRev = ttmRevenue
+            var currentNetInc = ttmNetIncome
+
+            for i in 1...5 {
+                let revGrowth: Double
+                let niGrowth: Double
+                if i == 1 {
+                    revGrowth = safeRevenueGrowth1 + growthShift
+                    niGrowth = safeEPSGrowth1 + growthShift
+                } else if i == 2 {
+                    revGrowth = safeRevenueGrowth2 + growthShift
+                    niGrowth = safeEPSGrowth2 + growthShift
+                } else {
+                    let prevRevGrowth = projections.last!.revenueGrowth
+                    revGrowth = max(prevRevGrowth - 0.03, terminalGrowthRate)
+                    niGrowth = max(projections.last!.netIncomeGrowth - 0.05, terminalGrowthRate)
+                }
+
+                currentRev = currentRev * (1 + revGrowth)
+                currentNetInc = currentNetInc * (1 + niGrowth)
+                
+                let targetMargin = min((finalNetMargin ?? 0.1) + Double(i) * 0.02, terminalMargin)
+                let actualNetInc = currentRev * targetMargin
+                let fcf = actualNetInc * fcfMarginAssumption
+                
+                let actualEps: Double
+                if let shares = sharesOutstanding, shares > 0 {
+                    actualEps = actualNetInc / shares
+                } else {
+                    actualEps = 0
+                }
+
+                projections.append(YearlyProjectionResponse(
+                    year: currentYear + i,
+                    revenue: currentRev,
+                    revenueGrowth: revGrowth,
+                    netIncome: actualNetInc,
+                    netIncomeGrowth: niGrowth,
+                    netMargin: targetMargin,
+                    eps: actualEps,
+                    fcf: fcf,
+                    fcfMargin: targetMargin * fcfMarginAssumption
+                ))
+            }
+            return projections
+        }
+
+        var baseProjections: [YearlyProjectionResponse]?
+        var dcfBasePrice: Double?
+        var dcfBearPrice: Double?
+        var dcfBullPrice: Double?
+
+        if ttmRevenue > 0 {
+            let base = buildProjections(0)
+            let bear = buildProjections(-0.03)
+            let bull = buildProjections(0.03)
+            
+            baseProjections = base
+            
+            let calculateDCFPrice: ([YearlyProjectionResponse]) -> Double? = { projections in
+                guard let shares = sharesOutstanding, shares > 0, !projections.isEmpty else { return nil }
+                var pvExplicit = 0.0
+                for (i, p) in projections.enumerated() {
+                    pvExplicit += (p.fcf ?? 0) / pow(1 + wacc, Double(i + 1))
+                }
+                let finalFCF = projections.last?.fcf ?? 0
+                let tv = finalFCF * (1 + terminalGrowthRate) / (wacc - terminalGrowthRate)
+                let pvTerminal = tv / pow(1 + wacc, Double(projections.count))
+                return (pvExplicit + pvTerminal - netDebt) / shares
+            }
+
+            dcfBasePrice = calculateDCFPrice(base)
+            dcfBearPrice = calculateDCFPrice(bear)
+            dcfBullPrice = calculateDCFPrice(bull)
+        }
+
+        return StockAnalysisMetricsResponse(
+            symbol: symbol,
+            ttmPE: ttmPE,
+            forwardPE: forwardPE,
+            twoYearForwardPE: twoYearForwardPE(forwardPE: forwardPE, nextYearEPSGrowth: nextYearEPSGrowth),
+            ttmEPSGrowth: ttmEPSGrowth,
+            currentYearExpectedEPSGrowth: currentYearExpectedEPSGrowth,
+            nextYearEPSGrowth: nextYearEPSGrowth,
+            ttmRevenueGrowth: ttmRevenueGrowth,
+            currentYearExpectedRevenueGrowth: currentYearExpectedRevenueGrowth,
+            nextYearRevenueGrowth: nextYearRevenueGrowth,
+            grossMargin: grossMargin,
+            netMargin: finalNetMargin,
+            ttmPEGRatio: latestRatio?.priceToEarningsGrowthRatioTTM,
+            lastYearEPSGrowth: priorGrowth?.epsgrowth,
+            ttmVsNTMEPSGrowth: delta(lhs: currentYearExpectedEPSGrowth, rhs: ttmEPSGrowth),
+            currentQuarterEPSGrowthVsPreviousYear: metricPercent("epsGrowthQuarterlyYoy", in: basic),
+            twoYearStackExpectedEPSGrowth: stackedGrowth(first: currentYearExpectedEPSGrowth, second: nextYearEPSGrowth),
+            lastYearRevenueGrowth: priorGrowth?.revenueGrowth,
+            ttmVsNTMRevenueGrowth: delta(lhs: currentYearExpectedRevenueGrowth, rhs: ttmRevenueGrowth),
+            currentQuarterRevenueGrowthVsPreviousYear: metricPercent("revenueGrowthQuarterlyYoy", in: basic),
+            twoYearStackExpectedRevenueGrowth: stackedGrowth(
+                first: currentYearExpectedRevenueGrowth,
+                second: nextYearRevenueGrowth
+            ),
+            currentPrice: currentPrice,
+            marketCap: marketCap,
+            sharesOutstanding: sharesOutstanding,
+            baseYear: currentYear,
+            yearlyProjections: baseProjections,
+            wacc: wacc,
+            terminalGrowthRate: terminalGrowthRate,
+            terminalMargin: terminalMargin,
+            exitPELow: nil,
+            exitPEHigh: nil,
+            dcfBasePrice: dcfBasePrice,
+            dcfBearPrice: dcfBearPrice,
+            dcfBullPrice: dcfBullPrice,
+            netDebt: netDebt
+        )
+    }
+
+    func compare(symbols: [String], on req: Request) async throws -> [StockAnalysisMetricsResponse] {
+        let uniqueSymbols = Array(Set(symbols)).prefix(3)
+        guard !uniqueSymbols.isEmpty else { return [] }
+        
+        var results: [StockAnalysisMetricsResponse] = []
+        for symbol in uniqueSymbols {
+            if let result = try? await self.analysis(symbol: symbol, on: req) {
+                results.append(result)
+            }
+        }
+        return results
+    }
+
+    func balanceSheetStatement(
+        symbol rawSymbol: String,
+        limit: Int?,
+        period rawPeriod: String?,
+        on req: Request
+    ) async throws -> [BalanceSheetStatementResponse] {
+        let symbol = try normalizeSymbol(rawSymbol)
+        let period = normalizeOptionalText(rawPeriod)
+        let limit = try normalizeFMPResultLimit(limit)
+
+        if let limit, limit <= 0 {
+            throw Abort(.badRequest, reason: "`limit` must be greater than 0.")
+        }
+
+        try validateFMPSymbolAccess(symbol: symbol, operation: "balance-sheet-statement")
+        let fmpProvider = try requireFMPProvider()
+
+        do {
+            return try await fmpProvider.balanceSheetStatement(
+                symbol: symbol,
+                limit: limit,
+                period: period,
+                on: req
+            )
+        } catch {
+            throw mapFMPProviderError(error, operation: "balance-sheet-statement")
+        }
+    }
+
+    func cashFlowStatement(
+        symbol rawSymbol: String,
+        limit: Int?,
+        period rawPeriod: String?,
+        on req: Request
+    ) async throws -> [CashFlowStatementResponse] {
+        let symbol = try normalizeSymbol(rawSymbol)
+        let period = normalizeOptionalText(rawPeriod)
+        let limit = try normalizeFMPResultLimit(limit)
+
+        if let limit, limit <= 0 {
+            throw Abort(.badRequest, reason: "`limit` must be greater than 0.")
+        }
+
+        try validateFMPSymbolAccess(symbol: symbol, operation: "cash-flow-statement")
+        let fmpProvider = try requireFMPProvider()
+
+        do {
+            return try await fmpProvider.cashFlowStatement(
+                symbol: symbol,
+                limit: limit,
+                period: period,
+                on: req
+            )
+        } catch {
+            throw mapFMPProviderError(error, operation: "cash-flow-statement")
+        }
+    }
+
+    func ratiosTTM(symbol rawSymbol: String, on req: Request) async throws -> [RatiosTTMResponse] {
+        let symbol = try normalizeSymbol(rawSymbol)
+        let now = Date()
+        let providerName = "fmp" // Fixed for FMP endpoints
+        let redisKey = makeRatiosTTMRedisKey(provider: providerName, symbol: symbol)
+
+        if let hotCached: [RatiosTTMResponse] = await redisGetValue(redisKey, as: [RatiosTTMResponse].self, on: req) {
+            return hotCached
+        }
+
+        let existing = try await RatiosTTMCache.query(on: req.db)
+            .filter(\.$provider == providerName)
+            .filter(\.$symbol == symbol)
+            .first()
+
+        if let existing, isFresh(existing.updatedAt ?? existing.createdAt, ttlSeconds: cacheConfig.fmpTTLSeconds, now: now) {
+            if let response = decodeRatiosTTMPayload(existing.payload) {
+                await redisSetValue(redisKey, value: response, ttlSeconds: cacheConfig.fmpTTLSeconds, on: req)
+                return response
+            }
+        }
+
+        try validateFMPSymbolAccess(symbol: symbol, operation: "ratios-ttm")
+        let fmpProvider = try requireFMPProvider()
+
+        do {
+            let fresh = try await fmpProvider.ratiosTTM(symbol: symbol, on: req)
+            try await upsertRatiosTTMCache(symbol: symbol, payload: fresh, provider: providerName, on: req.db)
+            await redisSetValue(redisKey, value: fresh, ttlSeconds: cacheConfig.fmpTTLSeconds, on: req)
+            return fresh
+        } catch {
+            if let existing, let response = decodeRatiosTTMPayload(existing.payload) {
+                req.logger.warning("market.ratios-ttm stale fallback symbol=\(symbol)")
+                await redisSetValue(redisKey, value: response, ttlSeconds: cacheConfig.fmpTTLSeconds, on: req)
+                return response
+            }
+            throw mapFMPProviderError(error, operation: "ratios-ttm")
+        }
+    }
+
+    func gradesConsensus(symbol rawSymbol: String, on req: Request) async throws -> [GradesConsensusResponse] {
+        let symbol = try normalizeSymbol(rawSymbol)
+        try validateFMPSymbolAccess(symbol: symbol, operation: "grades-consensus")
+        let fmpProvider = try requireFMPProvider()
+
+        do {
+            return try await fmpProvider.gradesConsensus(symbol: symbol, on: req)
+        } catch {
+            throw mapFMPProviderError(error, operation: "grades-consensus")
+        }
+    }
+
+    func financialGrowth(
+        symbol rawSymbol: String,
+        limit rawLimit: Int?,
+        period rawPeriod: String?,
+        on req: Request
+    ) async throws -> [FinancialGrowthResponse] {
+        let symbol = try normalizeSymbol(rawSymbol)
+        let period = normalizeOptionalText(rawPeriod) ?? "FY"
+        let limit = try normalizeFMPResultLimit(rawLimit, defaultLimit: 5) ?? 5
+        let now = Date()
+        let providerName = "fmp"
+        let redisKey = makeFinancialGrowthRedisKey(provider: providerName, symbol: symbol, period: period, limit: limit)
+
+        if limit <= 0 {
+            throw Abort(.badRequest, reason: "`limit` must be greater than 0.")
+        }
+
+        if let hotCached: [FinancialGrowthResponse] = await redisGetValue(redisKey, as: [FinancialGrowthResponse].self, on: req) {
+            return hotCached
+        }
+
+        let existing = try await FinancialGrowthCache.query(on: req.db)
+            .filter(\.$provider == providerName)
+            .filter(\.$symbol == symbol)
+            .filter(\.$period == period)
+            .filter(\.$limit == limit)
+            .first()
+
+        if let existing, isFresh(existing.updatedAt ?? existing.createdAt, ttlSeconds: cacheConfig.fmpTTLSeconds, now: now) {
+            if let response = decodeFinancialGrowthPayload(existing.payload) {
+                await redisSetValue(redisKey, value: response, ttlSeconds: cacheConfig.fmpTTLSeconds, on: req)
+                return response
+            }
+        }
+
+        try validateFMPSymbolAccess(symbol: symbol, operation: "financial-growth")
+        let fmpProvider = try requireFMPProvider()
+
+        do {
+            let fresh = try await fmpProvider.financialGrowth(
+                symbol: symbol,
+                limit: limit,
+                period: period,
+                on: req
+            )
+            try await upsertFinancialGrowthCache(symbol: symbol, period: period, limit: limit, payload: fresh, provider: providerName, on: req.db)
+            await redisSetValue(redisKey, value: fresh, ttlSeconds: cacheConfig.fmpTTLSeconds, on: req)
+            return fresh
+        } catch {
+            if let existing, let response = decodeFinancialGrowthPayload(existing.payload) {
+                req.logger.warning("market.financial-growth stale fallback symbol=\(symbol)")
+                await redisSetValue(redisKey, value: response, ttlSeconds: cacheConfig.fmpTTLSeconds, on: req)
+                return response
+            }
+            throw mapFMPProviderError(error, operation: "financial-growth")
+        }
+    }
+
+    func analystEstimates(
+        symbol rawSymbol: String,
+        period rawPeriod: String,
+        page: Int?,
+        limit: Int?,
+        on req: Request
+    ) async throws -> [AnalystEstimatesResponse] {
+        let symbol = try normalizeSymbol(rawSymbol)
+        let period = try normalizeRequiredText(rawPeriod, field: "period")
+        let limit = try normalizeFMPResultLimit(limit)
+        let now = Date()
+        let providerName = "fmp"
+        let redisKey = makeAnalystEstimatesRedisKey(provider: providerName, symbol: symbol, period: period)
+
+        if let limit, limit <= 0 {
+            throw Abort(.badRequest, reason: "`limit` must be greater than 0.")
+        }
+
+        if let hotCached: [AnalystEstimatesResponse] = await redisGetValue(redisKey, as: [AnalystEstimatesResponse].self, on: req) {
+            return hotCached
+        }
+
+        let existing = try await AnalystEstimatesCache.query(on: req.db)
+            .filter(\.$provider == providerName)
+            .filter(\.$symbol == symbol)
+            .filter(\.$period == period)
+            .first()
+
+        if let existing, isFresh(existing.updatedAt ?? existing.createdAt, ttlSeconds: cacheConfig.fmpTTLSeconds, now: now) {
+            if let response = decodeAnalystEstimatesPayload(existing.payload) {
+                await redisSetValue(redisKey, value: response, ttlSeconds: cacheConfig.fmpTTLSeconds, on: req)
+                return response
+            }
+        }
+
+        try validateFMPSymbolAccess(symbol: symbol, operation: "analyst-estimates")
+
+        if (fmpAccessTier == .free || fmpAccessTier == .starter) && period.lowercased() != "annual" {
+            throw Abort(
+                .paymentRequired,
+                reason: "FMP \(fmpAccessTier.rawValue)-tier for analyst-estimates is limited to annual reports."
+            )
+        }
+
+        let fmpProvider = try requireFMPProvider()
+
+        do {
+            let fresh = try await fmpProvider.analystEstimates(
+                symbol: symbol,
+                period: period,
+                page: page,
+                limit: limit,
+                on: req
+            )
+            try await upsertAnalystEstimatesCache(symbol: symbol, period: period, payload: fresh, provider: providerName, on: req.db)
+            await redisSetValue(redisKey, value: fresh, ttlSeconds: cacheConfig.fmpTTLSeconds, on: req)
+            return fresh
+        } catch {
+            if let existing, let response = decodeAnalystEstimatesPayload(existing.payload) {
+                req.logger.warning("market.analyst-estimates stale fallback symbol=\(symbol)")
+                await redisSetValue(redisKey, value: response, ttlSeconds: cacheConfig.fmpTTLSeconds, on: req)
+                return response
+            }
+            throw mapFMPProviderError(error, operation: "analyst-estimates")
+        }
+    }
+
+    func ratios(
+        symbol rawSymbol: String,
+        limit rawLimit: Int?,
+        period rawPeriod: String?,
+        on req: Request
+    ) async throws -> [RatiosResponse] {
+        let symbol = try normalizeSymbol(rawSymbol)
+        let period = normalizeOptionalText(rawPeriod) ?? "FY"
+        let limit = try normalizeFMPResultLimit(rawLimit, defaultLimit: 5) ?? 5
+        let now = Date()
+        let providerName = "fmp"
+        let redisKey = makeRatiosRedisKey(provider: providerName, symbol: symbol, period: period, limit: limit)
+
+        if limit <= 0 {
+            throw Abort(.badRequest, reason: "`limit` must be greater than 0.")
+        }
+
+        if let hotCached: [RatiosResponse] = await redisGetValue(redisKey, as: [RatiosResponse].self, on: req) {
+            return hotCached
+        }
+
+        let existing = try await RatiosCache.query(on: req.db)
+            .filter(\.$provider == providerName)
+            .filter(\.$symbol == symbol)
+            .filter(\.$period == period)
+            .filter(\.$limit == limit)
+            .first()
+
+        if let existing, isFresh(existing.updatedAt ?? existing.createdAt, ttlSeconds: cacheConfig.fmpTTLSeconds, now: now) {
+            if let response = decodeRatiosPayload(existing.payload) {
+                await redisSetValue(redisKey, value: response, ttlSeconds: cacheConfig.fmpTTLSeconds, on: req)
+                return response
+            }
+        }
+
+        try validateFMPSymbolAccess(symbol: symbol, operation: "ratios")
+        let fmpProvider = try requireFMPProvider()
+
+        do {
+            let fresh = try await fmpProvider.ratios(
+                symbol: symbol,
+                limit: limit,
+                period: period,
+                on: req
+            )
+            try await upsertRatiosCache(symbol: symbol, period: period, limit: limit, payload: fresh, provider: providerName, on: req.db)
+            await redisSetValue(redisKey, value: fresh, ttlSeconds: cacheConfig.fmpTTLSeconds, on: req)
+            return fresh
+        } catch {
+            if let existing, let response = decodeRatiosPayload(existing.payload) {
+                req.logger.warning("market.ratios stale fallback symbol=\(symbol)")
+                await redisSetValue(redisKey, value: response, ttlSeconds: cacheConfig.fmpTTLSeconds, on: req)
+                return response
+            }
+            throw mapFMPProviderError(error, operation: "ratios")
+        }
+    }
+
+    func earnings(
+        symbol rawSymbol: String,
+        limit rawLimit: Int?,
+        on req: Request
+    ) async throws -> [EarningsResponse] {
+        let symbol = try normalizeSymbol(rawSymbol)
+        let limit = try normalizeFMPResultLimit(rawLimit, defaultLimit: 100) ?? 100
+        let providerName = "fmp"
+        let redisKey = "market:earnings:\(providerName):\(symbol):\(limit)"
+
+        if let hotCached: [EarningsResponse] = await redisGetValue(redisKey, as: [EarningsResponse].self, on: req) {
+            return hotCached
+        }
+
+        try validateFMPSymbolAccess(symbol: symbol, operation: "earnings")
+        let fmpProvider = try requireFMPProvider()
+
+        do {
+            let fresh = try await fmpProvider.earnings(symbol: symbol, limit: limit, on: req)
+            await redisSetValue(redisKey, value: fresh, ttlSeconds: cacheConfig.fmpTTLSeconds, on: req)
+            return fresh
+        } catch {
+            throw mapFMPProviderError(error, operation: "earnings")
+        }
+    }
+
+    func earningsCalendar(
+        from rawFrom: String?,
+        to rawTo: String?,
+        on req: Request
+    ) async throws -> [EarningsResponse] {
+        let fromDate = try parseOptionalDateOnly(rawFrom, field: "from")
+        let toDate = try parseOptionalDateOnly(rawTo, field: "to")
+        let now = Date()
+        let providerName = "fmp"
+        let fromStr = fromDate.map(formatISODateOnly) ?? "none"
+        let toStr = toDate.map(formatISODateOnly) ?? "none"
+        let redisKey = "market:earnings-calendar:\(providerName):\(fromStr):\(toStr)"
+
+        if let hotCached: [EarningsResponse] = await redisGetValue(redisKey, as: [EarningsResponse].self, on: req) {
+            return hotCached
+        }
+
+        if let fromDate {
+            let calendar = Calendar.current
+            let limitDate: Date?
+            switch fmpAccessTier {
+            case .free:
+                limitDate = calendar.date(byAdding: .month, value: -1, to: now)
+            case .starter:
+                limitDate = calendar.date(byAdding: .year, value: -1, to: now)
+            case .premium:
+                limitDate = calendar.date(byAdding: .year, value: -5, to: now)
+            }
+
+            if let limitDate, fromDate < startOfDay(limitDate) {
+                throw Abort(.paymentRequired, reason: "FMP \(fmpAccessTier.rawValue)-tier earnings calendar coverage is limited to \(fmpAccessTier == .free ? "1 month" : fmpAccessTier == .starter ? "1 year" : "5 years") of historical data.")
+            }
+        }
+
+        if let fromDate, let toDate, fromDate > toDate {
+            throw Abort(.badRequest, reason: "`from` must be on or before `to`.")
+        }
+
+        let fmpProvider = try requireFMPProvider()
+
+        do {
+            let fresh = try await fmpProvider.earningsCalendar(from: fromDate, to: toDate, on: req)
+            await redisSetValue(redisKey, value: fresh, ttlSeconds: cacheConfig.fmpTTLSeconds, on: req)
+            return fresh
+        } catch {
+            throw mapFMPProviderError(error, operation: "earnings-calendar")
+        }
+    }
+
+    func historicalSectorPerformance(
+        sector rawSector: String,
+        exchange rawExchange: String?,
+        from rawFrom: String?,
+        to rawTo: String?,
+        on req: Request
+    ) async throws -> [HistoricalSectorPerformanceResponse] {
+        let sector = try normalizeRequiredText(rawSector, field: "sector")
+        let exchange = normalizeOptionalText(rawExchange)
+        let fromDate = try parseOptionalDateOnly(rawFrom, field: "from")
+        let toDate = try parseOptionalDateOnly(rawTo, field: "to")
+
+        if let fromDate, let toDate, fromDate > toDate {
+            throw Abort(.badRequest, reason: "`from` must be on or before `to`.")
+        }
+
+        let fmpProvider = try requireFMPProvider()
+
+        do {
+            return try await fmpProvider.historicalSectorPerformance(
+                sector: sector,
+                exchange: exchange,
+                from: fromDate,
+                to: toDate,
+                on: req
+            )
+        } catch {
+            throw mapFMPProviderError(error, operation: "historical-sector-performance")
+        }
+    }
 }
+// swiftlint:enable type_body_length
 
 private extension DefaultMarketDataService {
     func upsertQuoteCache(
@@ -499,6 +1307,170 @@ private extension DefaultMarketDataService {
         return row
     }
 
+    func upsertBasicFinancialsCache(
+        _ financials: BasicFinancialsResponse,
+        provider providerName: String,
+        on db: any Database
+    ) async throws -> BasicFinancialsCache {
+        let payloadData = try JSONEncoder().encode(financials)
+        guard let payload = String(bytes: payloadData, encoding: .utf8) else {
+            throw Abort(.internalServerError, reason: "Failed to encode basic financials cache payload.")
+        }
+
+        if let existing = try await BasicFinancialsCache.query(on: db)
+            .filter(\.$provider == providerName)
+            .filter(\.$symbol == financials.symbol)
+            .first()
+        {
+            existing.payload = payload
+            try await existing.save(on: db)
+            return existing
+        }
+
+        let row = BasicFinancialsCache(
+            provider: providerName,
+            symbol: financials.symbol,
+            payload: payload
+        )
+        try await row.save(on: db)
+        return row
+    }
+
+    func upsertAnalystEstimatesCache(
+        symbol: String,
+        period: String,
+        payload responses: [AnalystEstimatesResponse],
+        provider providerName: String,
+        on db: any Database
+    ) async throws -> AnalystEstimatesCache {
+        let payloadData = try JSONEncoder().encode(responses)
+        guard let payload = String(bytes: payloadData, encoding: .utf8) else {
+            throw Abort(.internalServerError, reason: "Failed to encode analyst estimates cache payload.")
+        }
+
+        if let existing = try await AnalystEstimatesCache.query(on: db)
+            .filter(\.$provider == providerName)
+            .filter(\.$symbol == symbol)
+            .filter(\.$period == period)
+            .first()
+        {
+            existing.payload = payload
+            try await existing.save(on: db)
+            return existing
+        }
+
+        let row = AnalystEstimatesCache(
+            provider: providerName,
+            symbol: symbol,
+            period: period,
+            payload: payload
+        )
+        try await row.save(on: db)
+        return row
+    }
+
+    func upsertFinancialGrowthCache(
+        symbol: String,
+        period: String,
+        limit: Int,
+        payload responses: [FinancialGrowthResponse],
+        provider providerName: String,
+        on db: any Database
+    ) async throws -> FinancialGrowthCache {
+        let payloadData = try JSONEncoder().encode(responses)
+        guard let payload = String(bytes: payloadData, encoding: .utf8) else {
+            throw Abort(.internalServerError, reason: "Failed to encode financial growth cache payload.")
+        }
+
+        if let existing = try await FinancialGrowthCache.query(on: db)
+            .filter(\.$provider == providerName)
+            .filter(\.$symbol == symbol)
+            .filter(\.$period == period)
+            .filter(\.$limit == limit)
+            .first()
+        {
+            existing.payload = payload
+            try await existing.save(on: db)
+            return existing
+        }
+
+        let row = FinancialGrowthCache(
+            provider: providerName,
+            symbol: symbol,
+            period: period,
+            limit: limit,
+            payload: payload
+        )
+        try await row.save(on: db)
+        return row
+    }
+
+    func upsertRatiosTTMCache(
+        symbol: String,
+        payload responses: [RatiosTTMResponse],
+        provider providerName: String,
+        on db: any Database
+    ) async throws -> RatiosTTMCache {
+        let payloadData = try JSONEncoder().encode(responses)
+        guard let payload = String(bytes: payloadData, encoding: .utf8) else {
+            throw Abort(.internalServerError, reason: "Failed to encode ratios TTM cache payload.")
+        }
+
+        if let existing = try await RatiosTTMCache.query(on: db)
+            .filter(\.$provider == providerName)
+            .filter(\.$symbol == symbol)
+            .first()
+        {
+            existing.payload = payload
+            try await existing.save(on: db)
+            return existing
+        }
+
+        let row = RatiosTTMCache(
+            provider: providerName,
+            symbol: symbol,
+            payload: payload
+        )
+        try await row.save(on: db)
+        return row
+    }
+
+    func upsertRatiosCache(
+        symbol: String,
+        period: String,
+        limit: Int,
+        payload responses: [RatiosResponse],
+        provider providerName: String,
+        on db: any Database
+    ) async throws -> RatiosCache {
+        let payloadData = try JSONEncoder().encode(responses)
+        guard let payload = String(bytes: payloadData, encoding: .utf8) else {
+            throw Abort(.internalServerError, reason: "Failed to encode ratios cache payload.")
+        }
+
+        if let existing = try await RatiosCache.query(on: db)
+            .filter(\.$provider == providerName)
+            .filter(\.$symbol == symbol)
+            .filter(\.$period == period)
+            .filter(\.$limit == limit)
+            .first()
+        {
+            existing.payload = payload
+            try await existing.save(on: db)
+            return existing
+        }
+
+        let row = RatiosCache(
+            provider: providerName,
+            symbol: symbol,
+            period: period,
+            limit: limit,
+            payload: payload
+        )
+        try await row.save(on: db)
+        return row
+    }
+
     func loadCachedHistory(
         symbol: String,
         from: Date?,
@@ -573,6 +1545,15 @@ private extension DefaultMarketDataService {
         )
     }
 
+    func makeBasicFinancialsResponse(from model: MarketProviderBasicFinancials) -> BasicFinancialsResponse {
+        BasicFinancialsResponse(
+            symbol: model.symbol,
+            metricType: model.metricType,
+            metric: model.metric,
+            series: model.series
+        )
+    }
+
     func makePriceBarResponse(from model: PriceHistory) -> PriceBarResponse {
         PriceBarResponse(
             date: formatISODateOnly(model.date),
@@ -601,6 +1582,38 @@ private extension DefaultMarketDataService {
         return try? JSONDecoder().decode([SearchResultResponse].self, from: data)
     }
 
+    func decodeBasicFinancialsPayload(_ raw: String) -> BasicFinancialsResponse? {
+        guard let data = raw.data(using: .utf8) else { return nil }
+        return try? JSONDecoder().decode(BasicFinancialsResponse.self, from: data)
+    }
+
+    func decodeAnalystEstimatesPayload(_ raw: String) -> [AnalystEstimatesResponse]? {
+        guard let data = raw.data(using: .utf8) else { return nil }
+        return try? JSONDecoder().decode([AnalystEstimatesResponse].self, from: data)
+    }
+
+    func decodeFinancialGrowthPayload(_ raw: String) -> [FinancialGrowthResponse]? {
+        guard let data = raw.data(using: .utf8) else { return nil }
+        return try? JSONDecoder().decode([FinancialGrowthResponse].self, from: data)
+    }
+
+    func decodeRatiosTTMPayload(_ raw: String) -> [RatiosTTMResponse]? {
+        guard let data = raw.data(using: .utf8) else { return nil }
+        return try? JSONDecoder().decode([RatiosTTMResponse].self, from: data)
+    }
+
+    func decodeRatiosPayload(_ raw: String) -> [RatiosResponse]? {
+        guard let data = raw.data(using: .utf8) else { return nil }
+        return try? JSONDecoder().decode([RatiosResponse].self, from: data)
+    }
+
+    func isMissingDatabaseRelationError(_ error: any Error, relation: String) -> Bool {
+        let description = String(describing: error).lowercased()
+        let expectedRelation = relation.lowercased()
+        return description.contains("sqlstate: 42p01")
+            || description.contains("relation \"\(expectedRelation)\" does not exist")
+    }
+
     func makeQuoteRedisKey(provider: String, symbol: String) -> String {
         "market:quote:\(provider):\(symbol)"
     }
@@ -621,6 +1634,26 @@ private extension DefaultMarketDataService {
 
     func makeProfileRedisKey(provider: String, symbol: String) -> String {
         "market:profile:\(provider):\(symbol)"
+    }
+
+    func makeBasicFinancialsRedisKey(provider: String, symbol: String) -> String {
+        "market:basic-financials:\(provider):\(symbol)"
+    }
+
+    func makeAnalystEstimatesRedisKey(provider: String, symbol: String, period: String) -> String {
+        "market:analyst-estimates:\(provider):\(symbol):\(period)"
+    }
+
+    func makeFinancialGrowthRedisKey(provider: String, symbol: String, period: String, limit: Int) -> String {
+        "market:financial-growth:\(provider):\(symbol):\(period):\(limit)"
+    }
+
+    func makeRatiosTTMRedisKey(provider: String, symbol: String) -> String {
+        "market:ratios-ttm:\(provider):\(symbol)"
+    }
+
+    func makeRatiosRedisKey(provider: String, symbol: String, period: String, limit: Int) -> String {
+        "market:ratios:\(provider):\(symbol):\(period):\(limit)"
     }
 
     func redisGetValue<T: Decodable>(
@@ -677,6 +1710,20 @@ private extension DefaultMarketDataService {
             throw Abort(.badRequest, reason: "Query parameter `q` is required.")
         }
         return query
+    }
+
+    func normalizeRequiredText(_ raw: String, field: String) throws -> String {
+        let value = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !value.isEmpty else {
+            throw Abort(.badRequest, reason: "Query parameter `\(field)` is required.")
+        }
+        return value
+    }
+
+    func normalizeOptionalText(_ raw: String?) -> String? {
+        guard let raw else { return nil }
+        let value = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        return value.isEmpty ? nil : value
     }
 
     func normalizePair(_ raw: String) throws -> (String, String) {
@@ -746,8 +1793,12 @@ private extension DefaultMarketDataService {
             return MarketDataProviderDisabledError()
         }
 
-        if let abort = error as? any AbortError {
+        if let abort = error as? Abort {
             return abort
+        }
+
+        if let abort = error as? AbortError {
+            return Abort(abort.status, reason: abort.reason)
         }
 
         return Abort(
@@ -756,5 +1807,108 @@ private extension DefaultMarketDataService {
                 Market provider unavailable for \(operation). Check MARKET_PROVIDER and provider-specific configuration such as FINNHUB_API_KEY or IBKR_API_BASE_URL.
                 """
         )
+    }
+
+    func requireFMPProvider() throws -> any FMPMarketDataProvider {
+        guard let fmpProvider else {
+            throw Abort(.serviceUnavailable, reason: "FMP_API_KEY is not configured.")
+        }
+        return fmpProvider
+    }
+
+    func validateFMPSymbolAccess(symbol: String, operation: String) throws {
+        guard !fmpAccessTier.allowsAllSymbols else {
+            return
+        }
+
+        guard FMPSymbolPlanAccess.isSupportedOnFreeTier(symbol) else {
+            throw Abort(
+                .paymentRequired,
+                reason: """
+                    FMP free-tier coverage for \(operation) does not include \(symbol). Upgrade the backend FMP access tier or use a supported free-tier symbol.
+                    """
+            )
+        }
+    }
+
+    func mapFMPProviderError(_ error: any Error, operation: String) -> any Error {
+        if let abort = error as? Abort {
+            return abort
+        }
+
+        if let abort = error as? AbortError {
+            return Abort(abort.status, reason: abort.reason)
+        }
+
+        return Abort(
+            .serviceUnavailable,
+            reason: """
+                FMP unavailable for \(operation). Check FMP_API_KEY.
+                """
+        )
+    }
+
+    func metricDouble(_ key: String, in response: BasicFinancialsResponse) -> Double? {
+        guard case .number(let value)? = response.metric[key] else {
+            return nil
+        }
+        return value
+    }
+
+    func metricPercent(_ key: String, in response: BasicFinancialsResponse) -> Double? {
+        metricDouble(key, in: response).map { $0 / 100 }
+    }
+
+    func latestSeriesValue(frequency: String, metric: String, in response: BasicFinancialsResponse) -> Double? {
+        response.series[frequency]?[metric]?.first?.value
+    }
+
+    func impliedForwardGrowth(ttmPE: Double?, forwardPE: Double?) -> Double? {
+        guard let ttmPE, let forwardPE, ttmPE > 0, forwardPE > 0 else {
+            return nil
+        }
+        return (ttmPE / forwardPE) - 1
+    }
+
+    func twoYearForwardPE(forwardPE: Double?, nextYearEPSGrowth: Double?) -> Double? {
+        guard let forwardPE, let nextYearEPSGrowth, forwardPE > 0, nextYearEPSGrowth > -1 else {
+            return nil
+        }
+        return forwardPE / (1 + nextYearEPSGrowth)
+    }
+
+    func stackedGrowth(first: Double?, second: Double?) -> Double? {
+        guard let first, let second else {
+            return nil
+        }
+        return ((1 + first) * (1 + second)) - 1
+    }
+
+    func delta(lhs: Double?, rhs: Double?) -> Double? {
+        guard let lhs, let rhs else {
+            return nil
+        }
+        return lhs - rhs
+    }
+}
+
+private extension DefaultMarketDataService {
+    func normalizeFMPResultLimit(_ rawLimit: Int?, defaultLimit: Int? = nil) throws -> Int? {
+        let resolved = rawLimit ?? defaultLimit
+
+        guard let resolved else {
+            return nil
+        }
+
+        guard resolved > 0 else {
+            throw Abort(.badRequest, reason: "`limit` must be greater than 0.")
+        }
+
+        switch fmpAccessTier {
+        case .free, .starter:
+            return min(resolved, 5)
+        case .premium:
+            return resolved
+        }
     }
 }

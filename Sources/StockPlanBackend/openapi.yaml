@@ -4,7 +4,9 @@ info:
   description: |
     Stock planner backend.
     Finnhub-backed market data is configured on the backend with `FINNHUB_API_KEY`, `FINNHUB_WEBHOOK_URL`, and `FINNHUB_WEBHOOK_SECRET`.
+    FMP-backed cash-flow, balance-sheet, ratios, growth, consensus, and sector-performance endpoints are configured on the backend with `FMP_API_KEY`.
     All direct Finnhub GET requests require either `token=<apiKey>` in the URL or `X-Finnhub-Token: <apiKey>` as a header. You can find the API key in the Finnhub Dashboard.
+    All direct FMP GET requests require `apikey=<apiKey>` in the URL query string. In Bruno, set `FMP_API_KEY`.
   version: 1.0.0
 servers:
   - url: http://localhost:8080
@@ -21,6 +23,8 @@ tags:
   - name: MarketData
   - name: Finnhub
     description: Direct Finnhub reference endpoints used by the backend market-data provider and Bruno collection examples. Backend Finnhub configuration uses `FINNHUB_API_KEY`, `FINNHUB_WEBHOOK_URL`, and `FINNHUB_WEBHOOK_SECRET`.
+  - name: FMP
+    description: Direct FMP reference endpoints and backend-backed FMP flows. Backend FMP configuration uses `FMP_API_KEY`.
   - name: Webhooks
     description: Public inbound webhook endpoints for provider event delivery.
   - name: Portfolio
@@ -976,46 +980,6 @@ paths:
         '404':
           description: Not Found
 
-  /v1/earnings/calendar:
-    get:
-      operationId: getEarningsCalendar
-      tags: [Earnings]
-      summary: Get earnings calendar
-      security:
-        - bearerAuth: []
-      parameters:
-        - name: from
-          in: query
-          required: false
-          schema:
-            type: string
-        - name: to
-          in: query
-          required: false
-          schema:
-            type: string
-        - name: symbol
-          in: query
-          required: false
-          schema:
-            type: string
-        - name: international
-          in: query
-          required: false
-          schema:
-            type: boolean
-      responses:
-        '200':
-          description: OK
-          content:
-            application/json:
-              schema:
-                type: array
-                items:
-                  $ref: '#/components/schemas/EarningsItemResponse'
-        '401':
-          description: Unauthorized
-
   /webhooks/finnhub/news:
     post:
       operationId: finnhubNewsWebhook
@@ -1284,7 +1248,7 @@ paths:
           description: Unauthorized
         '503':
           description: Market news provider unavailable or misconfigured
-  /v1/quote/batch:
+  /v1/market/quote/batch:
     get:
       operationId: getQuoteBatch
       tags: [MarketData]
@@ -1308,7 +1272,7 @@ paths:
                 $ref: '#/components/schemas/QuoteBatchResponse'
         '401':
           description: Unauthorized
-  /v1/profile/{symbol}:
+  /v1/market/profile/{symbol}:
     parameters:
       - name: symbol
         in: path
@@ -1335,7 +1299,9 @@ paths:
           description: Not Found or provider missing data
         '502':
           description: Bad Gateway for market provider
-  /v1/quote/{symbol}:
+        '503':
+          description: Market data provider unavailable or misconfigured
+  /v1/market/basic-financials/{symbol}:
     parameters:
       - name: symbol
         in: path
@@ -1343,10 +1309,10 @@ paths:
         schema:
           type: string
     get:
-      operationId: getQuote
+      operationId: getBasicFinancials
       tags: [MarketData]
-      summary: Get a quote for a symbol
-      description: Returns the backend's normalized and cached quote for a symbol.
+      summary: Get basic financials for a symbol
+      description: Returns the backend's normalized and cached basic financials for a symbol. When `MARKET_PROVIDER=finnhub`, data is fetched from Finnhub `/stock/metric` with `metric=all` and cached by the backend.
       security:
         - bearerAuth: []
       responses:
@@ -1355,12 +1321,512 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/QuoteResponse'
+                $ref: '#/components/schemas/BasicFinancialsResponse'
         '401':
           description: Unauthorized
+        '404':
+          description: Not Found or provider missing data
+        '502':
+          description: Bad Gateway for market provider
         '503':
           description: Market data provider unavailable or misconfigured
-  /v1/history/{symbol}:
+  /v1/market/compare:
+    get:
+      operationId: getMarketCompare
+      tags: [MarketData]
+      summary: Compare analysis metrics for multiple symbols
+      description: Returns the Analysis-tab metrics computed server-side for up to 3 symbols at once.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: symbols
+          in: query
+          required: true
+          schema:
+            type: string
+          description: A comma-separated list of up to 3 symbols (e.g. AAPL,MSFT,GOOG).
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/StockAnalysisMetricsResponse'
+        '401':
+          description: Unauthorized
+        '402':
+          description: Payment Required for one or more symbols outside free tier
+        '429':
+          description: Rate limit exceeded
+        '502':
+          description: Bad Gateway for market provider
+  /v1/market/analysis/{symbol}:
+    parameters:
+      - name: symbol
+        in: path
+        required: true
+        schema:
+          type: string
+    get:
+      operationId: getMarketAnalysis
+      tags: [MarketData]
+      summary: Get server-computed analysis metrics for a symbol
+      description: Returns the Analysis-tab metrics computed server-side from basic financials, TTM ratios, and financial growth data. Growth and margin values are returned as fractions for direct percent formatting on the client. When `FMP_SYMBOL_ACCESS_TIER=free`, symbols outside FMP's free-tier coverage return `402 Payment Required`.
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StockAnalysisMetricsResponse'
+        '401':
+          description: Unauthorized
+        '402':
+          description: Premium or paid FMP plan required for this symbol
+        '404':
+          description: Not Found or provider missing data
+        '502':
+          description: Bad Gateway for upstream providers
+        '503':
+          description: Market data provider unavailable or misconfigured
+  /v1/market/cash-flow-statement/{symbol}:
+    parameters:
+      - name: symbol
+        in: path
+        required: true
+        schema:
+          type: string
+    get:
+      operationId: getCashFlowStatement
+      tags: [MarketData]
+      summary: Get cash flow statements for a symbol
+      description: Returns FMP-backed cash flow statements for a symbol using the backend's configured `FMP_API_KEY`. Supports optional `limit` and `period` filters. When `FMP_SYMBOL_ACCESS_TIER=free`, symbols outside FMP's free-tier coverage return `402 Payment Required`.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            format: int32
+        - name: period
+          in: query
+          required: false
+          description: Optional FMP period such as `Q1`, `Q2`, `Q3`, `Q4`, `FY`, `annual`, or `quarter`.
+          schema:
+            type: string
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/CashFlowStatementResponse'
+        '401':
+          description: Unauthorized
+        '402':
+          description: Premium or paid FMP plan required for this symbol
+        '404':
+          description: Not Found or provider missing data
+        '502':
+          description: Bad Gateway for FMP provider
+        '503':
+          description: FMP provider unavailable or misconfigured
+  /v1/market/balance-sheet-statement/{symbol}:
+    parameters:
+      - name: symbol
+        in: path
+        required: true
+        schema:
+          type: string
+    get:
+      operationId: getBalanceSheetStatement
+      tags: [MarketData]
+      summary: Get balance sheet statements for a symbol
+      description: Returns FMP-backed balance sheet statements for a symbol using the backend's configured `FMP_API_KEY`. Supports optional `limit` and `period` filters. When `FMP_SYMBOL_ACCESS_TIER=free`, symbols outside FMP's free-tier coverage return `402 Payment Required`.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            format: int32
+        - name: period
+          in: query
+          required: false
+          description: Optional FMP period such as `Q1`, `Q2`, `Q3`, `Q4`, `FY`, `annual`, or `quarter`.
+          schema:
+            type: string
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/BalanceSheetStatementResponse'
+        '401':
+          description: Unauthorized
+        '402':
+          description: Premium or paid FMP plan required for this symbol
+        '404':
+          description: Not Found or provider missing data
+        '502':
+          description: Bad Gateway for FMP provider
+        '503':
+          description: FMP provider unavailable or misconfigured
+  /v1/market/ratios-ttm/{symbol}:
+    parameters:
+      - name: symbol
+        in: path
+        required: true
+        schema:
+          type: string
+    get:
+      operationId: getRatiosTTM
+      tags: [MarketData]
+      summary: Get trailing-twelve-month ratios for a symbol
+      description: Returns FMP-backed TTM ratios for a symbol using the backend's configured `FMP_API_KEY`. When `FMP_SYMBOL_ACCESS_TIER=free`, symbols outside FMP's free-tier coverage return `402 Payment Required`.
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/RatiosTTMResponse'
+        '401':
+          description: Unauthorized
+        '402':
+          description: Premium or paid FMP plan required for this symbol
+        '404':
+          description: Not Found or provider missing data
+        '502':
+          description: Bad Gateway for FMP provider
+        '503':
+          description: FMP provider unavailable or misconfigured
+  /v1/market/grades-consensus/{symbol}:
+    parameters:
+      - name: symbol
+        in: path
+        required: true
+        schema:
+          type: string
+    get:
+      operationId: getGradesConsensus
+      tags: [MarketData]
+      summary: Get analyst grades consensus for a symbol
+      description: Returns FMP-backed analyst grades consensus for a symbol using the backend's configured `FMP_API_KEY`. On limited FMP plans, unsupported symbols return `402 Payment Required` so the client can treat this as a paid or pro-only feature.
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/GradesConsensusResponse'
+        '401':
+          description: Unauthorized
+        '402':
+          description: Premium or paid FMP plan required for this symbol
+        '404':
+          description: Not Found or provider missing data
+        '502':
+          description: Bad Gateway for FMP provider
+        '503':
+          description: FMP provider unavailable or misconfigured
+  /v1/market/financial-growth/{symbol}:
+    parameters:
+      - name: symbol
+        in: path
+        required: true
+        schema:
+          type: string
+    get:
+      operationId: getFinancialGrowth
+      tags: [MarketData]
+      summary: Get financial growth for a symbol
+      description: Returns FMP-backed financial growth data for a symbol using the backend's configured `FMP_API_KEY`. When `FMP_SYMBOL_ACCESS_TIER=free`, symbols outside FMP's free-tier coverage return `402 Payment Required`.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            format: int32
+        - name: period
+          in: query
+          required: false
+          description: Optional FMP period such as `FY`, `annual`, or `quarter`.
+          schema:
+            type: string
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/FinancialGrowthResponse'
+        '401':
+          description: Unauthorized
+        '402':
+          description: Premium or paid FMP plan required for this symbol
+        '404':
+          description: Not Found or provider missing data
+        '502':
+          description: Bad Gateway for FMP provider
+        '503':
+          description: FMP provider unavailable or misconfigured
+  /v1/market/earnings/{symbol}:
+    parameters:
+      - name: symbol
+        in: path
+        required: true
+        schema:
+          type: string
+    get:
+      operationId: getMarketEarnings
+      tags: [MarketData]
+      summary: Get earnings report for a symbol
+      description: Returns FMP-backed earnings report for a symbol. On limited FMP plans, unsupported symbols return `402 Payment Required`. Free tier is capped at 5 responses.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+          description: Maximum number of records to return.
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/EarningsResponse'
+        '401':
+          description: Unauthorized
+        '402':
+          description: Premium or paid FMP plan required for this symbol
+        '404':
+          description: Not Found or provider missing data
+        '502':
+          description: Bad Gateway for FMP provider
+        '503':
+          description: FMP provider unavailable or misconfigured
+
+  /v1/market/earnings-calendar:
+    get:
+      operationId: getMarketEarningsCalendar
+      tags: [MarketData]
+      summary: Get earnings calendar
+      description: Returns FMP-backed earnings calendar. `from` parameter is restricted based on plan (Free: 1 month, Starter: 1 year, Premium: 5 years).
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: from
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date
+          description: Start date (YYYY-MM-DD).
+        - name: to
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date
+          description: End date (YYYY-MM-DD).
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/EarningsResponse'
+        '401':
+          description: Unauthorized
+        '402':
+          description: Premium or paid FMP plan required for this date range
+        '502':
+          description: Bad Gateway for FMP provider
+        '503':
+          description: FMP provider unavailable or misconfigured
+
+  /v1/market/analyst-estimates/{symbol}:
+    parameters:
+      - name: symbol
+        in: path
+        required: true
+        schema:
+          type: string
+    get:
+      operationId: getAnalystEstimates
+      tags: [MarketData]
+      summary: Get analyst estimates for a symbol
+      description: Returns FMP-backed analyst financial estimates data for a symbol using the backend's configured `FMP_API_KEY`. When `FMP_SYMBOL_ACCESS_TIER` is `free` or `starter`, symbols outside FMP's free-tier coverage return `402 Payment Required`, and `period` is limited to `annual`.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: period
+          in: query
+          required: false
+          description: FMP period such as `annual` or `quarter`. Defaults to `annual`.
+          schema:
+            type: string
+        - name: page
+          in: query
+          required: false
+          schema:
+            type: integer
+            format: int32
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            format: int32
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/AnalystEstimatesResponse'
+        '401':
+          description: Unauthorized
+        '402':
+          description: Premium or paid FMP plan required for this symbol
+        '404':
+          description: Not Found or provider missing data
+        '502':
+          description: Bad Gateway for FMP provider
+        '503':
+          description: FMP provider unavailable or misconfigured
+
+  /v1/market/ratios/{symbol}:
+    parameters:
+      - name: symbol
+        in: path
+        required: true
+        schema:
+          type: string
+    get:
+      operationId: getRatios
+      tags: [MarketData]
+      summary: Get financial ratios for a symbol
+      description: Returns FMP-backed financial ratios data for a symbol using the backend's configured `FMP_API_KEY`. When `FMP_SYMBOL_ACCESS_TIER` is `free` or `starter`, symbols outside FMP's free-tier coverage return `402 Payment Required`, and `period` is limited to `annual`.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            format: int32
+        - name: period
+          in: query
+          required: false
+          description: FMP period such as `annual` or `quarter`. Defaults to `annual`.
+          schema:
+            type: string
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/RatiosResponse'
+        '401':
+          description: Unauthorized
+        '402':
+          description: Premium or paid FMP plan required for this symbol
+        '404':
+          description: Not Found or provider missing data
+        '502':
+          description: Bad Gateway for FMP provider
+        '503':
+          description: FMP provider unavailable or misconfigured
+  /v1/market/historical-sector-performance:
+    get:
+      operationId: getHistoricalSectorPerformance
+      tags: [MarketData]
+      summary: Get historical sector performance
+      description: Returns FMP-backed historical sector performance data using the backend's configured `FMP_API_KEY`.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: sector
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: exchange
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: from
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date
+        - name: to
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/HistoricalSectorPerformanceResponse'
+        '400':
+          description: Missing or invalid sector/date filters
+        '401':
+          description: Unauthorized
+        '502':
+          description: Bad Gateway for FMP provider
+        '503':
+          description: FMP provider unavailable or misconfigured
+  /v1/market/history/{symbol}:
     parameters:
       - name: symbol
         in: path
@@ -1402,7 +1868,7 @@ paths:
           description: Unauthorized
         '503':
           description: Market data provider unavailable or misconfigured
-  /v1/search:
+  /v1/market/search:
     get:
       operationId: searchSymbols
       tags: [MarketData]
@@ -1431,7 +1897,7 @@ paths:
           description: Unauthorized
         '503':
           description: Market data provider unavailable or misconfigured
-  /v1/fx:
+  /v1/market/fx:
     get:
       operationId: getFxRate
       tags: [MarketData]
@@ -1562,6 +2028,39 @@ paths:
                 type: array
                 items:
                   $ref: '#/components/schemas/FinnhubCompanyNewsItem'
+  /stock/metric:
+    get:
+      operationId: finnhubBasicFinancials
+      tags: [Finnhub]
+      summary: Finnhub basic financials
+      description: 'Direct Finnhub basic-financials reference endpoint. Authentication can use the `token` query parameter or the `X-Finnhub-Token` header.'
+      servers:
+        - url: https://finnhub.io/api/v1
+          description: Finnhub direct API
+      security:
+        - finnhubQueryToken: []
+        - finnhubHeaderToken: []
+      parameters:
+        - name: symbol
+          in: query
+          required: true
+          description: Company symbol, for example `AAPL`.
+          schema:
+            type: string
+        - name: metric
+          in: query
+          required: true
+          description: Metric type. Finnhub currently supports `all`.
+          schema:
+            type: string
+            enum: [all]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BasicFinancialsResponse'
 
   /stock/candle:
     get:
@@ -1682,6 +2181,224 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/FinnhubForexRatesResponse'
+
+  /stable/ratios-ttm:
+    get:
+      operationId: fmpRatiosTTM
+      tags: [FMP]
+      summary: FMP ratios TTM
+      description: Direct FMP ratios TTM reference endpoint. Authentication uses the `apikey` query parameter.
+      servers:
+        - url: https://financialmodelingprep.com
+          description: FMP direct API
+      security:
+        - fmpQueryApiKey: []
+      parameters:
+        - name: symbol
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/RatiosTTMResponse'
+
+  /stable/balance-sheet-statement:
+    get:
+      operationId: fmpBalanceSheetStatement
+      tags: [FMP]
+      summary: FMP balance sheet statement
+      description: Direct FMP balance sheet statement reference endpoint. Authentication uses the `apikey` query parameter.
+      servers:
+        - url: https://financialmodelingprep.com
+          description: FMP direct API
+      security:
+        - fmpQueryApiKey: []
+      parameters:
+        - name: symbol
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            format: int32
+        - name: period
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/BalanceSheetStatementResponse'
+        '402':
+          description: Premium or paid FMP plan required for this symbol
+
+  /stable/cash-flow-statement:
+    get:
+      operationId: fmpCashFlowStatement
+      tags: [FMP]
+      summary: FMP cash flow statement
+      description: Direct FMP cash flow statement reference endpoint. Authentication uses the `apikey` query parameter. On limited FMP plans, some symbols return `402 Payment Required`.
+      servers:
+        - url: https://financialmodelingprep.com
+          description: FMP direct API
+      security:
+        - fmpQueryApiKey: []
+      parameters:
+        - name: symbol
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            format: int32
+        - name: period
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/CashFlowStatementResponse'
+        '402':
+          description: Premium or paid FMP plan required for this symbol
+
+  /stable/grades-consensus:
+    get:
+      operationId: fmpGradesConsensus
+      tags: [FMP]
+      summary: FMP grades consensus
+      description: Direct FMP grades consensus reference endpoint. Authentication uses the `apikey` query parameter. On limited FMP plans, some symbols return `402 Payment Required`.
+      servers:
+        - url: https://financialmodelingprep.com
+          description: FMP direct API
+      security:
+        - fmpQueryApiKey: []
+      parameters:
+        - name: symbol
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/GradesConsensusResponse'
+        '402':
+          description: Premium or paid FMP plan required for this symbol
+
+  /stable/financial-growth:
+    get:
+      operationId: fmpFinancialGrowth
+      tags: [FMP]
+      summary: FMP financial growth
+      description: Direct FMP financial growth reference endpoint. Authentication uses the `apikey` query parameter.
+      servers:
+        - url: https://financialmodelingprep.com
+          description: FMP direct API
+      security:
+        - fmpQueryApiKey: []
+      parameters:
+        - name: symbol
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            format: int32
+        - name: period
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/FinancialGrowthResponse'
+
+  /stable/historical-sector-performance:
+    get:
+      operationId: fmpHistoricalSectorPerformance
+      tags: [FMP]
+      summary: FMP historical sector performance
+      description: Direct FMP historical sector performance reference endpoint. Authentication uses the `apikey` query parameter.
+      servers:
+        - url: https://financialmodelingprep.com
+          description: FMP direct API
+      security:
+        - fmpQueryApiKey: []
+      parameters:
+        - name: sector
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: exchange
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: from
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date
+        - name: to
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/HistoricalSectorPerformanceResponse'
 
   /v1/dashboard:
     get:
@@ -2199,6 +2916,11 @@ components:
       in: header
       name: X-Finnhub-Token
       description: Finnhub API key from the Finnhub Dashboard passed as the `X-Finnhub-Token` header. In Bruno, set `FINNHUB_API_KEY`.
+    fmpQueryApiKey:
+      type: apiKey
+      in: query
+      name: apikey
+      description: FMP API key passed as the `apikey` query parameter. In Bruno, set `FMP_API_KEY`.
     finnhubWebhookSecretHeader:
       type: apiKey
       in: header
@@ -2922,6 +3644,447 @@ components:
         date:
           type: string
       required: [title, url, date]
+    BasicFinancialSeriesPoint:
+      type: object
+      properties:
+        period:
+          type: string
+        v:
+          type: number
+          format: double
+      required: [period, v]
+    BasicFinancialsResponse:
+      type: object
+      properties:
+        symbol:
+          type: string
+        metricType:
+          type: string
+        metric:
+          type: object
+          description: Map of key ratios and metrics. Values may be numeric, string, boolean, or null depending on the metric.
+          additionalProperties: {}
+        series:
+          type: object
+          description: Map of frequency to metric name to time-series points.
+          additionalProperties:
+            type: object
+            additionalProperties:
+              type: array
+              items:
+                $ref: '#/components/schemas/BasicFinancialSeriesPoint'
+      required: [symbol, metricType, metric, series]
+    YearlyProjectionResponse:
+      type: object
+      properties:
+        year: { type: integer }
+        revenue: { type: number, format: double }
+        revenueGrowth: { type: number, format: double }
+        netIncome: { type: number, format: double }
+        netIncomeGrowth: { type: number, format: double }
+        netMargin: { type: number, format: double }
+        eps: { type: number, format: double }
+        fcf: { type: number, format: double, nullable: true }
+        fcfMargin: { type: number, format: double, nullable: true }
+      required: [year, revenue, revenueGrowth, netIncome, netIncomeGrowth, netMargin, eps]
+    StockAnalysisMetricsResponse:
+      type: object
+      properties:
+        symbol: { type: string }
+        ttmPE: { type: number, format: double }
+        forwardPE: { type: number, format: double }
+        twoYearForwardPE: { type: number, format: double }
+        ttmEPSGrowth: { type: number, format: double }
+        currentYearExpectedEPSGrowth: { type: number, format: double }
+        nextYearEPSGrowth: { type: number, format: double }
+        ttmRevenueGrowth: { type: number, format: double }
+        currentYearExpectedRevenueGrowth: { type: number, format: double }
+        nextYearRevenueGrowth: { type: number, format: double }
+        grossMargin: { type: number, format: double }
+        netMargin: { type: number, format: double }
+        ttmPEGRatio: { type: number, format: double }
+        lastYearEPSGrowth: { type: number, format: double }
+        ttmVsNTMEPSGrowth: { type: number, format: double }
+        currentQuarterEPSGrowthVsPreviousYear: { type: number, format: double }
+        twoYearStackExpectedEPSGrowth: { type: number, format: double }
+        lastYearRevenueGrowth: { type: number, format: double }
+        ttmVsNTMRevenueGrowth: { type: number, format: double }
+        currentQuarterRevenueGrowthVsPreviousYear: { type: number, format: double }
+        twoYearStackExpectedRevenueGrowth: { type: number, format: double }
+        currentPrice: { type: number, format: double, nullable: true }
+        marketCap: { type: number, format: double, nullable: true }
+        sharesOutstanding: { type: number, format: double, nullable: true }
+        baseYear: { type: integer, nullable: true }
+        yearlyProjections:
+          type: array
+          items:
+            $ref: '#/components/schemas/YearlyProjectionResponse'
+          nullable: true
+        wacc: { type: number, format: double, nullable: true }
+        terminalGrowthRate: { type: number, format: double, nullable: true }
+        terminalMargin: { type: number, format: double, nullable: true }
+        exitPELow: { type: number, format: double, nullable: true }
+        exitPEHigh: { type: number, format: double, nullable: true }
+        dcfBasePrice: { type: number, format: double, nullable: true }
+        dcfBearPrice: { type: number, format: double, nullable: true }
+        dcfBullPrice: { type: number, format: double, nullable: true }
+        netDebt: { type: number, format: double, nullable: true }
+      required: [symbol]
+    BalanceSheetStatementResponse:
+      type: object
+      properties:
+        date: { type: string, format: date }
+        symbol: { type: string }
+        reportedCurrency: { type: string }
+        cik: { type: string }
+        filingDate: { type: string, format: date }
+        acceptedDate: { type: string }
+        fiscalYear: { type: string }
+        period: { type: string }
+        cashAndCashEquivalents: { type: number, format: double }
+        shortTermInvestments: { type: number, format: double }
+        cashAndShortTermInvestments: { type: number, format: double }
+        netReceivables: { type: number, format: double }
+        accountsReceivables: { type: number, format: double }
+        otherReceivables: { type: number, format: double }
+        inventory: { type: number, format: double }
+        prepaids: { type: number, format: double }
+        otherCurrentAssets: { type: number, format: double }
+        totalCurrentAssets: { type: number, format: double }
+        propertyPlantEquipmentNet: { type: number, format: double }
+        goodwill: { type: number, format: double }
+        intangibleAssets: { type: number, format: double }
+        goodwillAndIntangibleAssets: { type: number, format: double }
+        longTermInvestments: { type: number, format: double }
+        taxAssets: { type: number, format: double }
+        otherNonCurrentAssets: { type: number, format: double }
+        totalNonCurrentAssets: { type: number, format: double }
+        otherAssets: { type: number, format: double }
+        totalAssets: { type: number, format: double }
+        totalPayables: { type: number, format: double }
+        accountPayables: { type: number, format: double }
+        otherPayables: { type: number, format: double }
+        accruedExpenses: { type: number, format: double }
+        shortTermDebt: { type: number, format: double }
+        capitalLeaseObligationsCurrent: { type: number, format: double }
+        taxPayables: { type: number, format: double }
+        deferredRevenue: { type: number, format: double }
+        otherCurrentLiabilities: { type: number, format: double }
+        totalCurrentLiabilities: { type: number, format: double }
+        longTermDebt: { type: number, format: double }
+        deferredRevenueNonCurrent: { type: number, format: double }
+        deferredTaxLiabilitiesNonCurrent: { type: number, format: double }
+        otherNonCurrentLiabilities: { type: number, format: double }
+        totalNonCurrentLiabilities: { type: number, format: double }
+        otherLiabilities: { type: number, format: double }
+        capitalLeaseObligations: { type: number, format: double }
+        totalLiabilities: { type: number, format: double }
+        treasuryStock: { type: number, format: double }
+        preferredStock: { type: number, format: double }
+        commonStock: { type: number, format: double }
+        retainedEarnings: { type: number, format: double }
+        additionalPaidInCapital: { type: number, format: double }
+        accumulatedOtherComprehensiveIncomeLoss: { type: number, format: double }
+        otherTotalStockholdersEquity: { type: number, format: double }
+        totalStockholdersEquity: { type: number, format: double }
+        totalEquity: { type: number, format: double }
+        minorityInterest: { type: number, format: double }
+        totalLiabilitiesAndTotalEquity: { type: number, format: double }
+        totalInvestments: { type: number, format: double }
+        totalDebt: { type: number, format: double }
+        netDebt: { type: number, format: double }
+      required: [date, symbol]
+    CashFlowStatementResponse:
+      type: object
+      properties:
+        date: { type: string, format: date }
+        symbol: { type: string }
+        reportedCurrency: { type: string }
+        cik: { type: string }
+        filingDate: { type: string, format: date }
+        acceptedDate: { type: string }
+        fiscalYear: { type: string }
+        period: { type: string }
+        netIncome: { type: number, format: double }
+        depreciationAndAmortization: { type: number, format: double }
+        deferredIncomeTax: { type: number, format: double }
+        stockBasedCompensation: { type: number, format: double }
+        changeInWorkingCapital: { type: number, format: double }
+        accountsReceivables: { type: number, format: double }
+        inventory: { type: number, format: double }
+        accountsPayables: { type: number, format: double }
+        otherWorkingCapital: { type: number, format: double }
+        otherNonCashItems: { type: number, format: double }
+        netCashProvidedByOperatingActivities: { type: number, format: double }
+        investmentsInPropertyPlantAndEquipment: { type: number, format: double }
+        acquisitionsNet: { type: number, format: double }
+        purchasesOfInvestments: { type: number, format: double }
+        salesMaturitiesOfInvestments: { type: number, format: double }
+        otherInvestingActivities: { type: number, format: double }
+        netCashProvidedByInvestingActivities: { type: number, format: double }
+        netDebtIssuance: { type: number, format: double }
+        longTermNetDebtIssuance: { type: number, format: double }
+        shortTermNetDebtIssuance: { type: number, format: double }
+        netStockIssuance: { type: number, format: double }
+        netCommonStockIssuance: { type: number, format: double }
+        commonStockIssuance: { type: number, format: double }
+        commonStockRepurchased: { type: number, format: double }
+        netPreferredStockIssuance: { type: number, format: double }
+        netDividendsPaid: { type: number, format: double }
+        commonDividendsPaid: { type: number, format: double }
+        preferredDividendsPaid: { type: number, format: double }
+        otherFinancingActivities: { type: number, format: double }
+        netCashProvidedByFinancingActivities: { type: number, format: double }
+        effectOfForexChangesOnCash: { type: number, format: double }
+        netChangeInCash: { type: number, format: double }
+        cashAtEndOfPeriod: { type: number, format: double }
+        cashAtBeginningOfPeriod: { type: number, format: double }
+        operatingCashFlow: { type: number, format: double }
+        capitalExpenditure: { type: number, format: double }
+        freeCashFlow: { type: number, format: double }
+        incomeTaxesPaid: { type: number, format: double }
+        interestPaid: { type: number, format: double }
+      required: [date, symbol]
+    RatiosTTMResponse:
+      type: object
+      properties:
+        symbol: { type: string }
+        grossProfitMarginTTM: { type: number, format: double }
+        ebitMarginTTM: { type: number, format: double }
+        ebitdaMarginTTM: { type: number, format: double }
+        operatingProfitMarginTTM: { type: number, format: double }
+        pretaxProfitMarginTTM: { type: number, format: double }
+        continuousOperationsProfitMarginTTM: { type: number, format: double }
+        netProfitMarginTTM: { type: number, format: double }
+        bottomLineProfitMarginTTM: { type: number, format: double }
+        receivablesTurnoverTTM: { type: number, format: double }
+        payablesTurnoverTTM: { type: number, format: double }
+        inventoryTurnoverTTM: { type: number, format: double }
+        fixedAssetTurnoverTTM: { type: number, format: double }
+        assetTurnoverTTM: { type: number, format: double }
+        currentRatioTTM: { type: number, format: double }
+        quickRatioTTM: { type: number, format: double }
+        solvencyRatioTTM: { type: number, format: double }
+        cashRatioTTM: { type: number, format: double }
+        priceToEarningsRatioTTM: { type: number, format: double }
+        priceToEarningsGrowthRatioTTM: { type: number, format: double }
+        forwardPriceToEarningsGrowthRatioTTM: { type: number, format: double }
+        priceToBookRatioTTM: { type: number, format: double }
+        priceToSalesRatioTTM: { type: number, format: double }
+        priceToFreeCashFlowRatioTTM: { type: number, format: double }
+        priceToOperatingCashFlowRatioTTM: { type: number, format: double }
+        debtToAssetsRatioTTM: { type: number, format: double }
+        debtToEquityRatioTTM: { type: number, format: double }
+        debtToCapitalRatioTTM: { type: number, format: double }
+        longTermDebtToCapitalRatioTTM: { type: number, format: double }
+        financialLeverageRatioTTM: { type: number, format: double }
+        workingCapitalTurnoverRatioTTM: { type: number, format: double }
+        operatingCashFlowRatioTTM: { type: number, format: double }
+        operatingCashFlowSalesRatioTTM: { type: number, format: double }
+        freeCashFlowOperatingCashFlowRatioTTM: { type: number, format: double }
+        debtServiceCoverageRatioTTM: { type: number, format: double }
+        interestCoverageRatioTTM: { type: number, format: double }
+        shortTermOperatingCashFlowCoverageRatioTTM: { type: number, format: double }
+        operatingCashFlowCoverageRatioTTM: { type: number, format: double }
+        capitalExpenditureCoverageRatioTTM: { type: number, format: double }
+        dividendPaidAndCapexCoverageRatioTTM: { type: number, format: double }
+        dividendPayoutRatioTTM: { type: number, format: double }
+        dividendYieldTTM: { type: number, format: double }
+        enterpriseValueTTM: { type: number, format: double }
+        revenuePerShareTTM: { type: number, format: double }
+        netIncomePerShareTTM: { type: number, format: double }
+        interestDebtPerShareTTM: { type: number, format: double }
+        cashPerShareTTM: { type: number, format: double }
+        bookValuePerShareTTM: { type: number, format: double }
+        tangibleBookValuePerShareTTM: { type: number, format: double }
+        shareholdersEquityPerShareTTM: { type: number, format: double }
+        operatingCashFlowPerShareTTM: { type: number, format: double }
+        capexPerShareTTM: { type: number, format: double }
+        freeCashFlowPerShareTTM: { type: number, format: double }
+        netIncomePerEBTTTM: { type: number, format: double }
+        ebtPerEbitTTM: { type: number, format: double }
+        priceToFairValueTTM: { type: number, format: double }
+        debtToMarketCapTTM: { type: number, format: double }
+        effectiveTaxRateTTM: { type: number, format: double }
+        enterpriseValueMultipleTTM: { type: number, format: double }
+      required: [symbol]
+    GradesConsensusResponse:
+      type: object
+      properties:
+        symbol: { type: string }
+        strongBuy: { type: integer, format: int32 }
+        buy: { type: integer, format: int32 }
+        hold: { type: integer, format: int32 }
+        sell: { type: integer, format: int32 }
+        strongSell: { type: integer, format: int32 }
+        consensus: { type: string }
+      required: [symbol]
+    EarningsResponse:
+      type: object
+      properties:
+        symbol: { type: string }
+        date: { type: string, format: date }
+        epsActual: { type: number, format: double, nullable: true }
+        epsEstimated: { type: number, format: double, nullable: true }
+        revenueActual: { type: number, format: double, nullable: true }
+        revenueEstimated: { type: number, format: double, nullable: true }
+        lastUpdated: { type: string, format: date, nullable: true }
+      required: [symbol, date]
+    FinancialGrowthResponse:
+      type: object
+      properties:
+        symbol: { type: string }
+        date: { type: string, format: date }
+        fiscalYear: { type: string }
+        period: { type: string }
+        reportedCurrency: { type: string }
+        revenueGrowth: { type: number, format: double }
+        grossProfitGrowth: { type: number, format: double }
+        ebitgrowth: { type: number, format: double }
+        operatingIncomeGrowth: { type: number, format: double }
+        netIncomeGrowth: { type: number, format: double }
+        epsgrowth: { type: number, format: double }
+        epsdilutedGrowth: { type: number, format: double }
+        weightedAverageSharesGrowth: { type: number, format: double }
+        weightedAverageSharesDilutedGrowth: { type: number, format: double }
+        dividendsPerShareGrowth: { type: number, format: double }
+        operatingCashFlowGrowth: { type: number, format: double }
+        receivablesGrowth: { type: number, format: double }
+        inventoryGrowth: { type: number, format: double }
+        assetGrowth: { type: number, format: double }
+        bookValueperShareGrowth: { type: number, format: double }
+        debtGrowth: { type: number, format: double }
+        rdexpenseGrowth: { type: number, format: double }
+        sgaexpensesGrowth: { type: number, format: double }
+        freeCashFlowGrowth: { type: number, format: double }
+        tenYRevenueGrowthPerShare: { type: number, format: double }
+        fiveYRevenueGrowthPerShare: { type: number, format: double }
+        threeYRevenueGrowthPerShare: { type: number, format: double }
+        tenYOperatingCFGrowthPerShare: { type: number, format: double }
+        fiveYOperatingCFGrowthPerShare: { type: number, format: double }
+        threeYOperatingCFGrowthPerShare: { type: number, format: double }
+        tenYNetIncomeGrowthPerShare: { type: number, format: double }
+        fiveYNetIncomeGrowthPerShare: { type: number, format: double }
+        threeYNetIncomeGrowthPerShare: { type: number, format: double }
+        tenYShareholdersEquityGrowthPerShare: { type: number, format: double }
+        fiveYShareholdersEquityGrowthPerShare: { type: number, format: double }
+        threeYShareholdersEquityGrowthPerShare: { type: number, format: double }
+        tenYDividendperShareGrowthPerShare: { type: number, format: double }
+        fiveYDividendperShareGrowthPerShare: { type: number, format: double }
+        threeYDividendperShareGrowthPerShare: { type: number, format: double }
+        ebitdaGrowth: { type: number, format: double }
+        growthCapitalExpenditure: { type: number, format: double }
+        tenYBottomLineNetIncomeGrowthPerShare: { type: number, format: double }
+        fiveYBottomLineNetIncomeGrowthPerShare: { type: number, format: double }
+        threeYBottomLineNetIncomeGrowthPerShare: { type: number, format: double }
+      required: [symbol, date]
+    AnalystEstimatesResponse:
+      type: object
+      properties:
+        symbol: { type: string }
+        date: { type: string, format: date }
+        revenueLow: { type: number, format: double }
+        revenueHigh: { type: number, format: double }
+        revenueAvg: { type: number, format: double }
+        ebitdaLow: { type: number, format: double }
+        ebitdaHigh: { type: number, format: double }
+        ebitdaAvg: { type: number, format: double }
+        ebitLow: { type: number, format: double }
+        ebitHigh: { type: number, format: double }
+        ebitAvg: { type: number, format: double }
+        netIncomeLow: { type: number, format: double }
+        netIncomeHigh: { type: number, format: double }
+        netIncomeAvg: { type: number, format: double }
+        sgaExpenseLow: { type: number, format: double }
+        sgaExpenseHigh: { type: number, format: double }
+        sgaExpenseAvg: { type: number, format: double }
+        epsAvg: { type: number, format: double }
+        epsHigh: { type: number, format: double }
+        epsLow: { type: number, format: double }
+        numAnalystsRevenue: { type: integer }
+        numAnalystsEps: { type: integer }
+      required: [symbol, date]
+    RatiosResponse:
+      type: object
+      properties:
+        symbol: { type: string }
+        date: { type: string, format: date }
+        fiscalYear: { type: string }
+        period: { type: string }
+        reportedCurrency: { type: string }
+        grossProfitMargin: { type: number, format: double }
+        ebitMargin: { type: number, format: double }
+        ebitdaMargin: { type: number, format: double }
+        operatingProfitMargin: { type: number, format: double }
+        pretaxProfitMargin: { type: number, format: double }
+        continuousOperationsProfitMargin: { type: number, format: double }
+        netProfitMargin: { type: number, format: double }
+        bottomLineProfitMargin: { type: number, format: double }
+        receivablesTurnover: { type: number, format: double }
+        payablesTurnover: { type: number, format: double }
+        inventoryTurnover: { type: number, format: double }
+        fixedAssetTurnover: { type: number, format: double }
+        assetTurnover: { type: number, format: double }
+        currentRatio: { type: number, format: double }
+        quickRatio: { type: number, format: double }
+        solvencyRatio: { type: number, format: double }
+        cashRatio: { type: number, format: double }
+        priceToEarningsRatio: { type: number, format: double }
+        priceToEarningsGrowthRatio: { type: number, format: double }
+        forwardPriceToEarningsGrowthRatio: { type: number, format: double }
+        priceToBookRatio: { type: number, format: double }
+        priceToSalesRatio: { type: number, format: double }
+        priceToFreeCashFlowRatio: { type: number, format: double }
+        priceToOperatingCashFlowRatio: { type: number, format: double }
+        debtToAssetsRatio: { type: number, format: double }
+        debtToEquityRatio: { type: number, format: double }
+        debtToCapitalRatio: { type: number, format: double }
+        longTermDebtToCapitalRatio: { type: number, format: double }
+        financialLeverageRatio: { type: number, format: double }
+        workingCapitalTurnoverRatio: { type: number, format: double }
+        operatingCashFlowRatio: { type: number, format: double }
+        operatingCashFlowSalesRatio: { type: number, format: double }
+        freeCashFlowOperatingCashFlowRatio: { type: number, format: double }
+        debtServiceCoverageRatio: { type: number, format: double }
+        interestCoverageRatio: { type: number, format: double }
+        shortTermOperatingCashFlowCoverageRatio: { type: number, format: double }
+        operatingCashFlowCoverageRatio: { type: number, format: double }
+        capitalExpenditureCoverageRatio: { type: number, format: double }
+        dividendPaidAndCapexCoverageRatio: { type: number, format: double }
+        dividendPayoutRatio: { type: number, format: double }
+        dividendYield: { type: number, format: double }
+        dividendYieldPercentage: { type: number, format: double }
+        revenuePerShare: { type: number, format: double }
+        netIncomePerShare: { type: number, format: double }
+        interestDebtPerShare: { type: number, format: double }
+        cashPerShare: { type: number, format: double }
+        bookValuePerShare: { type: number, format: double }
+        tangibleBookValuePerShare: { type: number, format: double }
+        shareholdersEquityPerShare: { type: number, format: double }
+        operatingCashFlowPerShare: { type: number, format: double }
+        capexPerShare: { type: number, format: double }
+        freeCashFlowPerShare: { type: number, format: double }
+        netIncomePerEBT: { type: number, format: double }
+        ebtPerEbit: { type: number, format: double }
+        priceToFairValue: { type: number, format: double }
+        debtToMarketCap: { type: number, format: double }
+        effectiveTaxRate: { type: number, format: double }
+        enterpriseValueMultiple: { type: number, format: double }
+      required: [symbol, date]
+    HistoricalSectorPerformanceResponse:
+      type: object
+      properties:
+        date:
+          type: string
+          format: date
+        sector:
+          type: string
+        exchange:
+          type: string
+        averageChange:
+          type: number
+          format: double
+      required: [date, sector, exchange, averageChange]
     FxRateResponse:
       type: object
       properties:

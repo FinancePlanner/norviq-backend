@@ -61,6 +61,8 @@ public func configure(_ app: Application) async throws {
         .trimmingCharacters(in: .whitespacesAndNewlines)
     let finnhubAPIKey = Environment.get("FINNHUB_API_KEY")?
         .trimmingCharacters(in: .whitespacesAndNewlines)
+    let fmpAPIKey = Environment.get("FMP_API_KEY")?
+        .trimmingCharacters(in: .whitespacesAndNewlines)
 
     let marketProvider: any MarketDataProvider
     switch configuredMarketProvider {
@@ -90,9 +92,18 @@ public func configure(_ app: Application) async throws {
         }
     }
 
+    let fmpProvider: (any FMPMarketDataProvider)?
+    if let fmpAPIKey, !fmpAPIKey.isEmpty {
+        fmpProvider = LiveFMPMarketDataProvider(apiKey: fmpAPIKey)
+    } else {
+        fmpProvider = nil
+    }
+
     app.marketDataService = DefaultMarketDataService(
         provider: marketProvider,
-        cacheConfig: MarketDataCacheConfig.fromEnvironment()
+        fmpProvider: fmpProvider,
+        cacheConfig: MarketDataCacheConfig.fromEnvironment(),
+        fmpAccessTier: FMPAccessTier.fromEnvironment()
     )
     app.statisticsRepository = DatabaseStatisticsRepository()
     app.statisticsService = DefaultStatisticsService(repo: app.statisticsRepository)
@@ -154,7 +165,13 @@ public func configure(_ app: Application) async throws {
     app.migrations.add(AddUserScopedQueryIndexes())
     app.migrations.add(CreateStockValuation())
     app.migrations.add(CreateProfileCache())
+    app.migrations.add(CreateBasicFinancialsCache())
+    app.migrations.add(CreateAnalystEstimatesCache())
+    app.migrations.add(CreateFinancialGrowthCache())
+    app.migrations.add(CreateRatiosTTMCache())
+    app.migrations.add(CreateRatiosCache())
     app.migrations.add(AddDatabaseOptimizations())
+    app.migrations.add(CreateFeedback())
 
     // register routes
     try routes(app)

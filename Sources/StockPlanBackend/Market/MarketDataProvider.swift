@@ -1,4 +1,5 @@
 import Foundation
+import StockPlanShared
 import Vapor
 
 struct MarketProviderQuote: Sendable {
@@ -61,6 +62,13 @@ struct MarketProviderCompanyProfile: Sendable {
     let weburl: String?
 }
 
+struct MarketProviderBasicFinancials: Sendable {
+    let symbol: String
+    let metricType: String
+    let metric: [String: BasicFinancialMetricValue]
+    let series: [String: [String: [BasicFinancialSeriesPoint]]]
+}
+
 protocol MarketDataProvider: Sendable {
     var name: String { get }
 
@@ -70,4 +78,5 @@ protocol MarketDataProvider: Sendable {
     func search(query: String, on req: Request) async throws -> [MarketProviderSearchResult]
     func fx(base: String, quote: String, on req: Request) async throws -> MarketProviderFxRate
     func profile(symbol: String, on req: Request) async throws -> MarketProviderCompanyProfile?
+    func basicFinancials(symbol: String, on req: Request) async throws -> MarketProviderBasicFinancials?
 }

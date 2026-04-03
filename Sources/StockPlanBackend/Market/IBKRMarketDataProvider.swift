@@ -151,6 +151,10 @@ struct IBKRMarketDataProvider: MarketDataProvider {
     func profile(symbol: String, on req: Request) async throws -> MarketProviderCompanyProfile? {
         return nil // IBKR doesn't natively expose a /profile equivalent.
     }
+
+    func basicFinancials(symbol: String, on req: Request) async throws -> MarketProviderBasicFinancials? {
+        return nil // IBKR doesn't natively expose a /stock/metric equivalent.
+    }
 }
 
 private extension IBKRMarketDataProvider {
