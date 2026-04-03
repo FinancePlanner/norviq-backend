@@ -4,6 +4,7 @@ import Foundation
 import Redis
 
 protocol MarketDataService: Sendable {
+    var fmpProvider: (any FMPMarketDataProvider)? { get }
     func quote(symbol: String, on req: Request) async throws -> QuoteResponse
     func quoteBatch(symbols: [String], on req: Request) async throws -> QuoteBatchResponse
     func history(symbol: String, from: String?, to: String?, on req: Request) async throws -> HistoryResponse

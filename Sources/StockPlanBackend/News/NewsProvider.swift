@@ -7,12 +7,14 @@ struct ProviderNewsItem: Sendable {
     let source: String?
     let url: String?
     let summary: String?
+    let image: String?
     let publishedAt: Date
 }
 
 protocol NewsProvider: Sendable {
     var name: String { get }
     func fetch(symbols: [String], on req: Request) async throws -> [ProviderNewsItem]
+    func fetchGeneral(on req: Request) async throws -> [ProviderNewsItem]
 }
 
 struct FinnhubNewsProvider: NewsProvider {
@@ -71,6 +73,7 @@ struct FinnhubNewsProvider: NewsProvider {
                     source: article.source,
                     url: article.url,
                     summary: article.summary,
+                    image: article.image,
                     publishedAt: article.datetime.map(Date.init(timeIntervalSince1970:)) ?? Date()
                 )
             }
@@ -84,6 +87,26 @@ struct FinnhubNewsProvider: NewsProvider {
 
         return items
     }
+
+    func fetchGeneral(on req: Request) async throws -> [ProviderNewsItem] {
+        let payload: [FinnhubCompanyNewsPayload] = try await fetchJSON(
+            path: "/news",
+            query: [("category", "general")],
+            on: req
+        )
+
+        return payload.compactMap { article in
+            ProviderNewsItem(
+                symbol: "GENERAL",
+                headline: article.headline ?? "",
+                source: article.source,
+                url: article.url,
+                summary: article.summary,
+                image: article.image,
+                publishedAt: article.datetime.map(Date.init(timeIntervalSince1970:)) ?? Date()
+            )
+        }
+    }
 }
 
 struct ExternalAPINewsProvider: NewsProvider {
@@ -92,6 +115,10 @@ struct ExternalAPINewsProvider: NewsProvider {
     func fetch(symbols: [String], on req: Request) async throws -> [ProviderNewsItem] {
         throw Abort(.notImplemented, reason: "External API news provider fetch is not implemented yet.")
     }
+
+    func fetchGeneral(on req: Request) async throws -> [ProviderNewsItem] {
+        throw Abort(.notImplemented, reason: "External API news provider fetchGeneral is not implemented yet.")
+    }
 }
 
 struct RSSNewsProvider: NewsProvider {
@@ -99,6 +126,10 @@ struct RSSNewsProvider: NewsProvider {
 
     func fetch(symbols: [String], on req: Request) async throws -> [ProviderNewsItem] {
         throw Abort(.notImplemented, reason: "RSS news provider fetch is not implemented yet.")
+    }
+
+    func fetchGeneral(on req: Request) async throws -> [ProviderNewsItem] {
+        throw Abort(.notImplemented, reason: "RSS news provider fetchGeneral is not implemented yet.")
     }
 }
 

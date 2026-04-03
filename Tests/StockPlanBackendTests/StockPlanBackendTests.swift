@@ -40,6 +40,10 @@ struct StockPlanBackendTests {
         func fetch(symbols: [String], on req: Request) async throws -> [ProviderNewsItem] {
             await state.next()
         }
+
+        func fetchGeneral(on req: Request) async throws -> [ProviderNewsItem] {
+            await state.next()
+        }
     }
 
     private func withApp(_ test: (Application) async throws -> ()) async throws {
@@ -355,6 +359,7 @@ struct StockPlanBackendTests {
                 source: "Example Wire",
                 url: "https://example.com/zeta",
                 summary: "Summary",
+                imageURL: nil,
                 publishedAt: Date(),
                 fetchedAt: Date()
             )
@@ -450,6 +455,7 @@ struct StockPlanBackendTests {
                     source: "Example Wire",
                     url: "https://example.com/news/apple-archive",
                     summary: "Archived market news",
+                    image: nil,
                     publishedAt: Date(timeIntervalSince1970: 1_774_884_000)
                 )
             ]])
@@ -1634,6 +1640,7 @@ struct StockPlanBackendTests {
                         source: "Reuters",
                         url: "https://example.com/news/apple-enterprise-service",
                         summary: "Initial summary",
+                        image: nil,
                         publishedAt: publishedAt
                     ),
                     ProviderNewsItem(
@@ -1642,6 +1649,7 @@ struct StockPlanBackendTests {
                         source: "Reuters",
                         url: "https://example.com/news/tesla-new-plant",
                         summary: "Untracked symbol should be skipped",
+                        image: nil,
                         publishedAt: publishedAt
                     )
                 ],
@@ -1652,6 +1660,7 @@ struct StockPlanBackendTests {
                         source: "Reuters",
                         url: "https://example.com/news/apple-enterprise-service",
                         summary: "Updated summary",
+                        image: nil,
                         publishedAt: publishedAt.addingTimeInterval(5)
                     ),
                     ProviderNewsItem(
@@ -1660,6 +1669,7 @@ struct StockPlanBackendTests {
                         source: "Reuters",
                         url: "https://example.com/news/tesla-new-plant",
                         summary: "Untracked symbol should still be skipped",
+                        image: nil,
                         publishedAt: publishedAt
                     )
                 ]
@@ -2655,6 +2665,16 @@ struct TestFMPMarketDataProvider: FMPMarketDataProvider {
             )
         ]
     }
+
+    func fetchGeneralMarketNews(
+        page: Int?,
+        limit: Int?,
+        from: Date?,
+        to: Date?,
+        on req: Request
+    ) async throws -> [FMPMarketNewsItem] {
+        []
+    }
 }
 
 private func formatISODateOnly(_ date: Date) -> String {
@@ -2741,6 +2761,16 @@ struct TestPaymentRequiredFMPMarketDataProvider: FMPMarketDataProvider {
         to: Date?,
         on req: Request
     ) async throws -> [HistoricalSectorPerformanceResponse] {
+        []
+    }
+
+    func fetchGeneralMarketNews(
+        page: Int?,
+        limit: Int?,
+        from: Date?,
+        to: Date?,
+        on req: Request
+    ) async throws -> [FMPMarketNewsItem] {
         []
     }
 }

@@ -114,7 +114,10 @@ public func configure(_ app: Application) async throws {
     } else {
         newsProvider = nil
     }
-    app.marketNewsArchiveService = DefaultMarketNewsArchiveService(provider: newsProvider)
+    app.marketNewsArchiveService = DefaultMarketNewsArchiveService(
+        provider: newsProvider,
+        fmpProvider: app.marketDataService.fmpProvider
+    )
     app.newsService = DefaultNewsService(repo: app.newsRepository, provider: newsProvider)
     app.dashboardRepository = DatabaseDashboardRepository()
     app.dashboardService = DefaultDashboardService(
@@ -161,7 +164,8 @@ public func configure(_ app: Application) async throws {
     app.migrations.add(CreateStatisticsSnapshot())
     app.migrations.add(CreateBrokerConnection())
     app.migrations.add(CreateMarketNewsArchive())
-    app.migrations.add(CreateNewsItem())
+    app.migrations.add(AddImageURLToMarketNewsArchive())
+    app.migrations.add(CreatePosition())
     app.migrations.add(AddUserScopedQueryIndexes())
     app.migrations.add(CreateStockValuation())
     app.migrations.add(CreateProfileCache())

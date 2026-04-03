@@ -1,5 +1,5 @@
 {
-  "originHash" : "9e471be2b5efc80b070f4bd3644ffc62a7bcd74e059fa57b79390093827ab257",
+  "originHash" : "41911605a4a578ec37215867f5a9606b77f09de0582f1106888bcd88e90b23c4",
   "pins" : [
     {
       "identity" : "async-http-client",
@@ -51,8 +51,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/FinancePlanner/FinanceShared.git",
       "state" : {
-        "revision" : "6645a883d4248d326572da4f7ad9b725760689bc",
-        "version" : "0.2.7"
+        "revision" : "489eda67e1891e496b91134ae598ce24791303a7",
+        "version" : "0.2.8"
       }
     },
     {
@@ -474,8 +474,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/vapor/websocket-kit.git",
       "state" : {
-        "revision" : "8666c92dbbb3c8eefc8008c9c8dcf50bfd302167",
-        "version" : "2.16.1"
+        "revision" : "90bbbdab3ede12c803cfbe91646f291c092517a3",
+        "version" : "2.16.2"
       }
     },
     {

@@ -5,6 +5,7 @@ import Vapor
 
 protocol MarketNewsArchiveService: Sendable {
     func news(symbol: String, limit: Int?, on req: Request) async throws -> [StockNews]
+    func generalNews(limit: Int?, on req: Request) async throws -> [StockNews]
     func archivedNews(symbol: String, limit: Int?, on db: any Database) async throws -> [StockNews]
     func refreshNews(symbol: String, limit: Int?, on req: Request) async throws -> [StockNews]
 }
@@ -29,13 +30,16 @@ struct MarketNewsArchiveConfig: Sendable {
 
 struct DefaultMarketNewsArchiveService: MarketNewsArchiveService {
     let provider: (any NewsProvider)?
+    let fmpProvider: (any FMPMarketDataProvider)?
     let config: MarketNewsArchiveConfig
 
     init(
         provider: (any NewsProvider)?,
+        fmpProvider: (any FMPMarketDataProvider)? = nil,
         config: MarketNewsArchiveConfig = .fromEnvironment()
     ) {
         self.provider = provider
+        self.fmpProvider = fmpProvider
         self.config = config
     }
 
@@ -57,6 +61,59 @@ struct DefaultMarketNewsArchiveService: MarketNewsArchiveService {
         } catch {
             if !archived.isEmpty {
                 req.logger.warning("market.news stale fallback symbol=\(symbol)")
+                return archived.compactMap(makeStockNews)
+            }
+            throw mapProviderError(error)
+        }
+    }
+
+    func generalNews(limit rawLimit: Int?, on req: Request) async throws -> [StockNews] {
+        let symbol = "GENERAL"
+        let limit = resolveLimit(rawLimit)
+        let archived = try await archivedRows(symbol: symbol, limit: limit, on: req.db)
+
+        if isFresh(archived, now: Date()) {
+            return archived.compactMap(makeStockNews)
+        }
+
+        let fetchedAt = Date()
+
+        if let fmp = fmpProvider {
+            do {
+                let articles = try await fmp.fetchGeneralMarketNews(page: 0, limit: limit, from: nil, to: nil, on: req)
+                for article in articles {
+                    guard let normalized = try normalizeFMP(article, expectedSymbol: symbol, provider: fmp.name) else {
+                        continue
+                    }
+                    try await upsert(normalized, fetchedAt: fetchedAt, on: req.db)
+                }
+                let updated = try await archivedRows(symbol: symbol, limit: limit, on: req.db)
+                return updated.compactMap(makeStockNews)
+            } catch {
+                req.logger.error("market.generalNews FMP failed error=\(error)")
+                // Fallback to legacy news provider if FMP fails
+            }
+        }
+
+        guard let provider else {
+            return archived.compactMap(makeStockNews)
+        }
+
+        do {
+            let articles = try await provider.fetchGeneral(on: req)
+
+            for article in articles {
+                guard let normalized = try normalize(article, expectedSymbol: symbol, provider: provider.name) else {
+                    continue
+                }
+                try await upsert(normalized, fetchedAt: fetchedAt, on: req.db)
+            }
+
+            let updated = try await archivedRows(symbol: symbol, limit: limit, on: req.db)
+            return updated.compactMap(makeStockNews)
+        } catch {
+            if !archived.isEmpty {
+                req.logger.warning("market.generalNews legacy stale fallback error=\(error)")
                 return archived.compactMap(makeStockNews)
             }
             throw mapProviderError(error)
@@ -103,6 +160,7 @@ private extension DefaultMarketNewsArchiveService {
         let source: String?
         let url: String
         let summary: String?
+        let imageURL: String?
         let publishedAt: Date
     }
 
@@ -111,7 +169,7 @@ private extension DefaultMarketNewsArchiveService {
         expectedSymbol: String,
         provider: String
     ) throws -> NormalizedArchiveArticle? {
-        let symbol = try normalizeSymbol(raw.symbol)
+        let symbol = raw.symbol.uppercased()
         guard symbol == expectedSymbol else {
             return nil
         }
@@ -132,8 +190,40 @@ private extension DefaultMarketNewsArchiveService {
             source: trimToNil(raw.source),
             url: url,
             summary: trimToNil(raw.summary),
+            imageURL: trimToNil(raw.image),
             publishedAt: raw.publishedAt
         )
+    }
+
+    func normalizeFMP(
+        _ raw: FMPMarketNewsItem,
+        expectedSymbol: String,
+        provider: String
+    ) throws -> NormalizedArchiveArticle? {
+        let headline = raw.title?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard !headline.isEmpty else { return nil }
+
+        guard let url = try normalizeURL(raw.url) else { return nil }
+
+        let publishedAt = raw.publishedDate.flatMap(parseFMPDate) ?? Date()
+
+        return NormalizedArchiveArticle(
+            provider: provider,
+            symbol: expectedSymbol,
+            headline: headline,
+            source: trimToNil(raw.site),
+            url: url,
+            summary: trimToNil(raw.text),
+            imageURL: trimToNil(raw.image),
+            publishedAt: publishedAt
+        )
+    }
+
+    func parseFMPDate(_ string: String) -> Date? {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy-MM-dd HH:mm:ss"
+        formatter.timeZone = TimeZone(secondsFromGMT: 0)
+        return formatter.date(from: string)
     }
 
     func upsert(
@@ -146,6 +236,7 @@ private extension DefaultMarketNewsArchiveService {
             existing.source = article.source
             existing.url = article.url
             existing.summary = article.summary
+            existing.imageURL = article.imageURL
             existing.publishedAt = article.publishedAt
             existing.fetchedAt = fetchedAt
             try await existing.save(on: db)
@@ -159,6 +250,7 @@ private extension DefaultMarketNewsArchiveService {
             source: article.source,
             url: article.url,
             summary: article.summary,
+            imageURL: article.imageURL,
             publishedAt: article.publishedAt,
             fetchedAt: fetchedAt
         )
@@ -204,7 +296,7 @@ private extension DefaultMarketNewsArchiveService {
             .all()
     }
 
-    func makeStockNews(from row: MarketNewsArchive) -> StockNews? {
+    func makeStockNews(_ row: MarketNewsArchive) -> StockNews? {
         guard let url = trimToNil(row.url) else {
             return nil
         }
@@ -212,7 +304,10 @@ private extension DefaultMarketNewsArchiveService {
         return StockNews(
             title: row.headline,
             url: url,
-            date: formatISODateTime(row.publishedAt)
+            date: formatISODateTime(row.publishedAt),
+            imageURL: row.imageURL,
+            source: row.source,
+            summary: row.summary
         )
     }
 

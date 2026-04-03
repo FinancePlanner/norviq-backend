@@ -54,6 +54,23 @@ protocol FMPMarketDataProvider: Sendable {
         to: Date?,
         on req: Request
     ) async throws -> [HistoricalSectorPerformanceResponse]
+    func fetchGeneralMarketNews(
+        page: Int?,
+        limit: Int?,
+        from: Date?,
+        to: Date?,
+        on req: Request
+    ) async throws -> [FMPMarketNewsItem]
+}
+
+struct FMPMarketNewsItem: Codable, Sendable {
+    let symbol: String?
+    let publishedDate: String?
+    let title: String?
+    let image: String?
+    let site: String?
+    let text: String?
+    let url: String?
 }
 
 struct LiveFMPMarketDataProvider: FMPMarketDataProvider {
@@ -266,6 +283,26 @@ struct LiveFMPMarketDataProvider: FMPMarketDataProvider {
                 ("from", from.map(formatISODateOnly)),
                 ("to", to.map(formatISODateOnly))
             ],
+            on: req
+        )
+    }
+
+    func fetchGeneralMarketNews(
+        page: Int?,
+        limit: Int?,
+        from: Date?,
+        to: Date?,
+        on req: Request
+    ) async throws -> [FMPMarketNewsItem] {
+        var query: [(String, String?)] = []
+        if let page { query.append(("page", String(page))) }
+        if let limit { query.append(("limit", String(limit))) }
+        if let from { query.append(("from", formatISODateOnly(from))) }
+        if let to { query.append(("to", formatISODateOnly(to))) }
+
+        return try await fetchJSON(
+            path: "/stable/news/stock-latest",
+            query: query,
             on: req
         )
     }

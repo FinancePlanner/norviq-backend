@@ -26,6 +26,9 @@ final class MarketNewsArchive: Model, Content, @unchecked Sendable {
     @Field(key: "summary")
     var summary: String?
 
+    @Field(key: "image_url")
+    var imageURL: String?
+
     @Field(key: "published_at")
     var publishedAt: Date
 
@@ -48,6 +51,7 @@ final class MarketNewsArchive: Model, Content, @unchecked Sendable {
         source: String?,
         url: String?,
         summary: String?,
+        imageURL: String?,
         publishedAt: Date,
         fetchedAt: Date
     ) {
@@ -58,6 +62,7 @@ final class MarketNewsArchive: Model, Content, @unchecked Sendable {
         self.source = source
         self.url = url
         self.summary = summary
+        self.imageURL = imageURL
         self.publishedAt = publishedAt
         self.fetchedAt = fetchedAt
     }

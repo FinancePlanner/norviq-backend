@@ -11,6 +11,7 @@ struct MarketDataController: RouteCollection {
         market.get("history", "archive", use: archivedStockHistory)
         market.post("history", "archive", "sync", use: syncArchivedStockHistory)
         market.get("news", use: stockNews)
+        market.get("news", "general", use: generalMarketNews)
         market.get("news", "archive", use: archivedStockNews)
         market.post("news", "archive", "sync", use: syncArchivedStockNews)
 
@@ -125,6 +126,15 @@ struct MarketDataController: RouteCollection {
         let limit = req.query[Int.self, at: "limit"]
         return try await req.application.marketNewsArchiveService.news(
             symbol: symbol,
+            limit: limit,
+            on: req
+        )
+    }
+
+    @Sendable
+    func generalMarketNews(req: Request) async throws -> [StockNews] {
+        let limit = req.query[Int.self, at: "limit"]
+        return try await req.application.marketNewsArchiveService.generalNews(
             limit: limit,
             on: req
         )
