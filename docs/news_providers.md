@@ -30,6 +30,7 @@ struct ProviderNewsItem: Sendable {
     let source: String?
     let url: String?
     let summary: String?
+    let image: String?
     let publishedAt: Date
 }
 ```

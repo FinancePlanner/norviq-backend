@@ -211,7 +211,7 @@ private extension DefaultMarketNewsArchiveService {
             provider: provider,
             symbol: expectedSymbol,
             headline: headline,
-            source: trimToNil(raw.site),
+            source: trimToNil(raw.publisher ?? raw.site),
             url: url,
             summary: trimToNil(raw.text),
             imageURL: trimToNil(raw.image),

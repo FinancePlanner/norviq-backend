@@ -69,6 +69,7 @@ struct FMPMarketNewsItem: Codable, Sendable {
     let title: String?
     let image: String?
     let site: String?
+    let publisher: String?
     let text: String?
     let url: String?
 }
