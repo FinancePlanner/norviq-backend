@@ -74,7 +74,7 @@ struct FMPMarketNewsItem: Codable, Sendable {
     let url: String?
 }
 
-struct LiveFMPMarketDataProvider: FMPMarketDataProvider {
+struct LiveFMPMarketDataProvider: FMPMarketDataProvider, CryptoDataProvider {
     let baseURL: String
     let apiKey: String
 
@@ -87,6 +87,126 @@ struct LiveFMPMarketDataProvider: FMPMarketDataProvider {
         self.baseURL = baseURL
         self.apiKey = apiKey
     }
+
+    // MARK: - CryptoDataProvider
+
+    func cryptocurrencyList(on req: Request) async throws -> [CryptoAssetResponse] {
+        try await fetchJSON(path: "/stable/cryptocurrency-list", query: [], on: req)
+    }
+
+    func quote(symbols: String, on req: Request) async throws -> [CryptoQuoteResponse] {
+        let symbols = try normalizeSymbols(symbols)
+        return try await fetchJSON(
+            path: "/stable/quote",
+            query: [("symbol", symbols)],
+            on: req
+        )
+    }
+
+    func quoteShort(symbol: String, on req: Request) async throws -> [CryptoQuoteShortResponse] {
+        let symbol = try normalizeSymbol(symbol)
+        return try await fetchJSON(
+            path: "/stable/quote-short",
+            query: [("symbol", symbol)],
+            on: req
+        )
+    }
+
+    func batchQuotes(short: Bool, on req: Request) async throws -> [CryptoQuoteShortResponse] {
+        var query: [(String, String?)] = []
+        if short {
+            query.append(("short", "true"))
+        }
+        return try await fetchJSON(
+            path: "/stable/batch-crypto-quotes",
+            query: query,
+            on: req
+        )
+    }
+
+    func historicalLight(symbol: String, from: String?, to: String?, on req: Request) async throws -> [CryptoHistoricalLightPoint] {
+        let symbol = try normalizeSymbol(symbol)
+        var query: [(String, String?)] = [("symbol", symbol)]
+        if let from { query.append(("from", from)) }
+        if let to { query.append(("to", to)) }
+        return try await fetchJSON(
+            path: "/stable/historical-price-eod/light",
+            query: query,
+            on: req
+        )
+    }
+
+    func historicalFull(symbol: String, from: String?, to: String?, on req: Request) async throws -> [CryptoHistoricalFullPoint] {
+        let symbol = try normalizeSymbol(symbol)
+        var query: [(String, String?)] = [("symbol", symbol)]
+        if let from { query.append(("from", from)) }
+        if let to { query.append(("to", to)) }
+        return try await fetchJSON(
+            path: "/stable/historical-price-eod/full",
+            query: query,
+            on: req
+        )
+    }
+
+    func intraday1min(symbol: String, from: String?, to: String?, on req: Request) async throws -> [CryptoHistoricalPoint] {
+        try await fetchIntraday(interval: "1min", symbol: symbol, from: from, to: to, on: req)
+    }
+
+    func intraday5min(symbol: String, from: String?, to: String?, on req: Request) async throws -> [CryptoHistoricalPoint] {
+        try await fetchIntraday(interval: "5min", symbol: symbol, from: from, to: to, on: req)
+    }
+
+    func intraday1hour(symbol: String, from: String?, to: String?, on req: Request) async throws -> [CryptoHistoricalPoint] {
+        try await fetchIntraday(interval: "1hour", symbol: symbol, from: from, to: to, on: req)
+    }
+
+    func fetchCryptoNews(
+        symbol: String?,
+        page: Int?,
+        limit: Int?,
+        from: String?,
+        to: String?,
+        on req: Request
+    ) async throws -> [FMPMarketNewsItem] {
+        var query: [(String, String?)] = []
+        if let symbol { query.append(("symbol", try normalizeSymbol(symbol))) }
+        if let page { query.append(("page", String(page))) }
+        if let limit { query.append(("limit", String(limit))) }
+        if let from { query.append(("from", from)) }
+        if let to { query.append(("to", to)) }
+
+        return try await fetchJSON(
+            path: "/stable/news/crypto-latest",
+            query: query,
+            on: req
+        )
+    }
+
+    private func fetchIntraday(interval: String, symbol: String, from: String?, to: String?, on req: Request) async throws -> [CryptoHistoricalPoint] {
+        let symbol = try normalizeSymbol(symbol)
+        var query: [(String, String?)] = [("symbol", symbol)]
+        if let from { query.append(("from", from)) }
+        if let to { query.append(("to", to)) }
+        return try await fetchJSON(
+            path: "/stable/historical-chart/\(interval)",
+            query: query,
+            on: req
+        )
+    }
+
+    private func normalizeSymbols(_ raw: String) throws -> String {
+        let normalized = raw.split(separator: ",")
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines).uppercased() }
+            .filter { !$0.isEmpty }
+            .joined(separator: ",")
+        
+        guard !normalized.isEmpty else {
+            throw Abort(.badRequest, reason: "At least one symbol is required.")
+        }
+        return normalized
+    }
+
+    // MARK: - FMPMarketDataProvider
 
     func cashFlowStatement(
         symbol rawSymbol: String,
@@ -336,29 +456,22 @@ private extension LiveFMPMarketDataProvider {
             throw Abort(.notFound, reason: "FMP resource not found for \(path).")
 
         case .unauthorized, .forbidden:
+            let body = extractResponseBody(response)
             let maskedApiKey = apiKey.count > 4
                 ? String(repeating: "*", count: apiKey.count - 4) + apiKey.suffix(4)
                 : "****"
-            req.logger.error("FMP rejected the request. status=\(response.status.code) url=\(uri) apiKeyLength=\(apiKey.count) maskedKey=\(maskedApiKey)")
+            req.logger.error("FMP rejected the request. status=\(response.status.code) url=\(uri) apiKeyLength=\(apiKey.count) maskedKey=\(maskedApiKey) response=\(body)")
             throw Abort(.badGateway, reason: "FMP rejected the request. Check FMP_API_KEY.")
 
         case .paymentRequired:
-            let body = response.body
-                .flatMap { buffer in
-                    buffer.getString(at: buffer.readerIndex, length: buffer.readableBytes)
-                }?
-                .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            let body = extractResponseBody(response)
             let reason = body.isEmpty
                 ? "FMP plan upgrade required for \(path). This endpoint is not available for the requested symbol on the current subscription."
                 : "FMP plan upgrade required for \(path). This endpoint is not available for the requested symbol on the current subscription. Upstream response: \(body)"
             throw Abort(.paymentRequired, reason: reason)
 
         default:
-            let body = response.body
-                .flatMap { buffer in
-                    buffer.getString(at: buffer.readerIndex, length: buffer.readableBytes)
-                }?
-                .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            let body = extractResponseBody(response)
             let reason = body.isEmpty
                 ? "FMP request failed for \(path) with status \(response.status.code)."
                 : "FMP request failed for \(path) with status \(response.status.code): \(body)"
@@ -405,6 +518,14 @@ private extension LiveFMPMarketDataProvider {
         guard let raw else { return nil }
         let normalized = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         return normalized.isEmpty ? nil : normalized
+    }
+
+    func extractResponseBody(_ response: ClientResponse) -> String {
+        response.body
+            .flatMap { buffer in
+                buffer.getString(at: buffer.readerIndex, length: buffer.readableBytes)
+            }?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
     }
 
     func formatISODateOnly(_ date: Date) -> String {

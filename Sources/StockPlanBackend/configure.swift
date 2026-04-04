@@ -92,7 +92,7 @@ public func configure(_ app: Application) async throws {
         }
     }
 
-    let fmpProvider: (any FMPMarketDataProvider)?
+    let fmpProvider: (any FMPMarketDataProvider & CryptoDataProvider)?
     if let fmpAPIKey, !fmpAPIKey.isEmpty {
         fmpProvider = LiveFMPMarketDataProvider(apiKey: fmpAPIKey)
     } else {
@@ -135,12 +135,11 @@ public func configure(_ app: Application) async throws {
     }
     app.earningsService = DefaultEarningsService(provider: earningsProvider)
 
-    if let fmpAPIKey, !fmpAPIKey.isEmpty {
-        let cryptoProvider = FMPCryptoDataProvider(apiKey: fmpAPIKey)
-        app.cryptoService = DefaultCryptoService(provider: cryptoProvider)
+    if let fmpProvider {
+        app.cryptoService = DefaultCryptoService(provider: fmpProvider)
     } else {
-        app.logger.warning("FMP_API_KEY is not configured; crypto market data will be unavailable.")
-        app.cryptoService = DefaultCryptoService(provider: DisabledCryptoDataProvider())
+        app.logger.warning("FMP_API_KEY is not configured; using MockCryptoDataProvider for market data.")
+        app.cryptoService = DefaultCryptoService(provider: MockCryptoDataProvider())
     }
 
     let cleanupIntervalMinutes = Environment.get("AUTH_TOKEN_CLEANUP_INTERVAL_MINUTES").flatMap(Int.init(_:)) ?? 60
@@ -185,6 +184,7 @@ public func configure(_ app: Application) async throws {
     app.migrations.add(AddDatabaseOptimizations())
     app.migrations.add(CreateFeedback())
     app.migrations.add(CreateCryptoPortfolioItem())
+    app.migrations.add(CreateExpensesTables())
 
     // register routes
     try routes(app)

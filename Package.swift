@@ -26,6 +26,7 @@ let package = Package(
         .package(url: "https://github.com/vapor/redis.git", from: "4.8.0"),
         // Shared API contracts used by backend and iOS app.
         .package(url: "https://github.com/FinancePlanner/FinanceShared.git", from: "0.2.8"),
+        .package(url: "https://github.com/vapor/console-kit.git", "4.0.0"..<"4.16.0"),
         .package(url: "https://github.com/realm/SwiftLint.git", from: "0.50.3")
     ],
     targets: [
@@ -45,7 +46,7 @@ let package = Package(
                 .product(name: "Logging", package: "swift-log"),
                 // Optional Redis cache integration.
                 .product(name: "Redis", package: "redis"),
-                .product(name: "StockPlanShared", package: "FinanceShared")
+                .product(name: "StockPlanShared", package: "financeshared")
             ],
             resources: [
                 .copy("openapi.yaml")

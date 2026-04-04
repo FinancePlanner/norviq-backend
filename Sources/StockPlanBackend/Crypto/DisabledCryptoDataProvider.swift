@@ -6,7 +6,7 @@ struct DisabledCryptoDataProvider: CryptoDataProvider {
         throw Abort(.serviceUnavailable, reason: "Crypto market data is not configured.")
     }
 
-    func quote(symbol: String, on req: Request) async throws -> [CryptoQuoteResponse] {
+    func quote(symbols: String, on req: Request) async throws -> [CryptoQuoteResponse] {
         throw Abort(.serviceUnavailable, reason: "Crypto market data is not configured.")
     }
 
@@ -35,6 +35,10 @@ struct DisabledCryptoDataProvider: CryptoDataProvider {
     }
 
     func intraday1hour(symbol: String, from: String?, to: String?, on req: Request) async throws -> [CryptoHistoricalPoint] {
+        throw Abort(.serviceUnavailable, reason: "Crypto market data is not configured.")
+    }
+
+    func fetchCryptoNews(symbol: String?, page: Int?, limit: Int?, from: String?, to: String?, on req: Request) async throws -> [FMPMarketNewsItem] {
         throw Abort(.serviceUnavailable, reason: "Crypto market data is not configured.")
     }
 }

@@ -19,10 +19,16 @@ protocol CryptoService: Sendable {
     func intraday1min(symbol: String, from: String?, to: String?, on req: Request) async throws -> [CryptoHistoricalPoint]
     func intraday5min(symbol: String, from: String?, to: String?, on req: Request) async throws -> [CryptoHistoricalPoint]
     func intraday1hour(symbol: String, from: String?, to: String?, on req: Request) async throws -> [CryptoHistoricalPoint]
+    func fetchCryptoNews(symbol: String?, page: Int?, limit: Int?, from: String?, to: String?, on req: Request) async throws -> [FMPMarketNewsItem]
 }
 
-struct DefaultCryptoService: CryptoService {
+final class DefaultCryptoService: CryptoService {
+
     let provider: any CryptoDataProvider
+
+    init(provider: any CryptoDataProvider) {
+        self.provider = provider
+    }
 
     // MARK: - Portfolio CRUD
 
@@ -140,7 +146,10 @@ struct DefaultCryptoService: CryptoService {
         try await provider.intraday1hour(symbol: symbol, from: from, to: to, on: req)
     }
 
-    // MARK: - Helpers
+    func fetchCryptoNews(symbol: String?, page: Int?, limit: Int?, from: String?, to: String?, on req: Request) async throws -> [FMPMarketNewsItem] {
+        try await provider.fetchCryptoNews(symbol: symbol, page: page, limit: limit, from: from, to: to, on: req)
+    }
+    // MARK: - Private Helpers
 
     private func normalizeSymbol(_ raw: String) -> String {
         raw.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()

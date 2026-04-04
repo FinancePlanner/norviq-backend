@@ -1,5 +1,6 @@
 import Vapor
 import Foundation
+import StockPlanShared
 
 struct CryptoController: RouteCollection {
     func boot(routes: any RoutesBuilder) throws {
@@ -11,11 +12,9 @@ struct CryptoController: RouteCollection {
         crypto.get("quote", ":symbol", use: quote)
         crypto.get("quote-short", ":symbol", use: quoteShort)
         crypto.get("batch-quotes", use: batchQuotes)
-        crypto.get("history", "light", ":symbol", use: historicalLight)
-        crypto.get("history", "full", ":symbol", use: historicalFull)
-        crypto.get("history", "1min", ":symbol", use: intraday1min)
-        crypto.get("history", "5min", ":symbol", use: intraday5min)
-        crypto.get("history", "1hour", ":symbol", use: intraday1hour)
+        crypto.get("history", ":resolution", ":symbol", use: history)
+        crypto.get("news", use: generalNews)
+        crypto.get("news", ":symbol", use: news)
 
         // Portfolio CRUD
         let portfolio = crypto.grouped("portfolio")
@@ -36,13 +35,13 @@ struct CryptoController: RouteCollection {
 
     @Sendable
     func quote(req: Request) async throws -> [CryptoQuoteResponse] {
-        let symbols = try requireSymbolParameter(req)
-        return try await req.application.cryptoService.quote(symbols: symbols, on: req)
+        let symbol = try requireSymbol(req)
+        return try await req.application.cryptoService.quote(symbols: symbol, on: req)
     }
 
     @Sendable
     func quoteShort(req: Request) async throws -> [CryptoQuoteShortResponse] {
-        let symbol = try requireSymbolParameter(req)
+        let symbol = try requireSymbol(req)
         return try await req.application.cryptoService.quoteShort(symbol: symbol, on: req)
     }
 
@@ -53,53 +52,85 @@ struct CryptoController: RouteCollection {
     }
 
     @Sendable
-    func historicalLight(req: Request) async throws -> [CryptoHistoricalLightPoint] {
-        let symbol = try requireSymbolParameter(req)
+    func history(req: Request) async throws -> [CryptoHistoricalPoint] {
+        let symbol = try requireSymbol(req)
+        let resolution = try req.parameters.require("resolution")
         let from = req.query[String.self, at: "from"]
         let to = req.query[String.self, at: "to"]
-        return try await req.application.cryptoService.historicalLight(
-            symbol: symbol, from: from, to: to, on: req
-        )
+
+        switch resolution {
+        case "1min":
+            return try await req.application.cryptoService.intraday1min(symbol: symbol, from: from, to: to, on: req)
+        case "5min":
+            return try await req.application.cryptoService.intraday5min(symbol: symbol, from: from, to: to, on: req)
+        case "1hour":
+            return try await req.application.cryptoService.intraday1hour(symbol: symbol, from: from, to: to, on: req)
+        case "light":
+            let points = try await req.application.cryptoService.historicalLight(symbol: symbol, from: from, to: to, on: req)
+            return points.map { CryptoHistoricalPoint(date: $0.date, close: $0.price, volume: $0.volume) }
+        case "full":
+            let points = try await req.application.cryptoService.historicalFull(symbol: symbol, from: from, to: to, on: req)
+            return points.map { CryptoHistoricalPoint(date: $0.date, open: $0.open, low: $0.low, high: $0.high, close: $0.close, volume: $0.volume) }
+        default:
+            throw Abort(.badRequest, reason: "Invalid resolution.")
+        }
     }
 
     @Sendable
-    func historicalFull(req: Request) async throws -> [CryptoHistoricalFullPoint] {
-        let symbol = try requireSymbolParameter(req)
+    func generalNews(req: Request) async throws -> [StockNews] {
+        let page = req.query[Int.self, at: "page"]
+        let limit = req.query[Int.self, at: "limit"]
         let from = req.query[String.self, at: "from"]
         let to = req.query[String.self, at: "to"]
-        return try await req.application.cryptoService.historicalFull(
-            symbol: symbol, from: from, to: to, on: req
+
+        let items = try await req.application.cryptoService.fetchCryptoNews(
+            symbol: nil,
+            page: page,
+            limit: limit,
+            from: from,
+            to: to,
+            on: req
         )
+
+        return items.map { item in
+            StockNews(
+                title: item.title ?? "No Title",
+                url: item.url ?? "",
+                date: item.publishedDate ?? "",
+                imageURL: item.image,
+                source: item.publisher ?? item.site,
+                summary: item.text
+            )
+        }
     }
 
     @Sendable
-    func intraday1min(req: Request) async throws -> [CryptoHistoricalPoint] {
-        let symbol = try requireSymbolParameter(req)
+    func news(req: Request) async throws -> [StockNews] {
+        let symbol = try requireSymbol(req)
+        let page = req.query[Int.self, at: "page"]
+        let limit = req.query[Int.self, at: "limit"]
         let from = req.query[String.self, at: "from"]
         let to = req.query[String.self, at: "to"]
-        return try await req.application.cryptoService.intraday1min(
-            symbol: symbol, from: from, to: to, on: req
-        )
-    }
 
-    @Sendable
-    func intraday5min(req: Request) async throws -> [CryptoHistoricalPoint] {
-        let symbol = try requireSymbolParameter(req)
-        let from = req.query[String.self, at: "from"]
-        let to = req.query[String.self, at: "to"]
-        return try await req.application.cryptoService.intraday5min(
-            symbol: symbol, from: from, to: to, on: req
+        let items = try await req.application.cryptoService.fetchCryptoNews(
+            symbol: symbol,
+            page: page,
+            limit: limit,
+            from: from,
+            to: to,
+            on: req
         )
-    }
 
-    @Sendable
-    func intraday1hour(req: Request) async throws -> [CryptoHistoricalPoint] {
-        let symbol = try requireSymbolParameter(req)
-        let from = req.query[String.self, at: "from"]
-        let to = req.query[String.self, at: "to"]
-        return try await req.application.cryptoService.intraday1hour(
-            symbol: symbol, from: from, to: to, on: req
-        )
+        return items.map { item in
+            StockNews(
+                title: item.title ?? "No Title",
+                url: item.url ?? "",
+                date: item.publishedDate ?? "",
+                imageURL: item.image,
+                source: item.publisher ?? item.site,
+                summary: item.text
+            )
+        }
     }
 
     // MARK: - Portfolio
@@ -146,15 +177,14 @@ struct CryptoController: RouteCollection {
 
     // MARK: - Helpers
 
-    private func requireSymbolParameter(_ req: Request) throws -> String {
-        guard let symbol = req.parameters.get("symbol") else {
-            throw Abort(.badRequest, reason: "Missing symbol.")
+    private func requireSymbol(_ req: Request) throws -> String {
+        if let querySymbol = req.query[String.self, at: "symbol"] {
+            return querySymbol.trimmingCharacters(in: .whitespacesAndNewlines)
         }
-        let trimmed = symbol.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else {
-            throw Abort(.badRequest, reason: "Symbol is required.")
+        if let pathSymbol = req.parameters.get("symbol") {
+            return pathSymbol.trimmingCharacters(in: .whitespacesAndNewlines)
         }
-        return trimmed
+        throw Abort(.badRequest, reason: "Symbol is required.")
     }
 
     private func requireUUIDParameter(_ req: Request, name: String) throws -> UUID {

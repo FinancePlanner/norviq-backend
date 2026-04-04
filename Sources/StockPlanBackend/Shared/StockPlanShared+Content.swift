@@ -97,3 +97,13 @@ extension LooklistStatisticsDTO: @retroactive Content {}
 extension LooklistConvictionDTO: @retroactive Content {}
 extension MarketStatisticsDTO: @retroactive Content {}
 extension MarketHeatmapDTO: @retroactive Content {}
+
+// MARK: - Crypto
+extension CryptoAssetResponse: @retroactive Content {}
+extension CryptoQuoteResponse: @retroactive Content {}
+extension CryptoQuoteShortResponse: @retroactive Content {}
+extension CryptoHistoricalLightPoint: @retroactive Content {}
+extension CryptoHistoricalFullPoint: @retroactive Content {}
+extension CryptoHistoricalPoint: @retroactive Content {}
+extension CryptoPortfolioItemRequest: @retroactive Content {}
+extension CryptoPortfolioItemResponse: @retroactive Content {}
