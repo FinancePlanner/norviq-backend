@@ -16,6 +16,11 @@ watch_paths=(
 ignore_regex='(^|/)\.build/|(^|/)\.git/|(^|/)\.swiftpm/|(^|/)DerivedData/|\.swp$|\.tmp$'
 
 run_server() {
+  # Run migrations before starting the server
+  echo "Running migrations..."
+  swift run -c "$build_config" StockPlanBackend migrate --yes
+  
+  echo "Starting server..."
   swift run -c "$build_config" StockPlanBackend serve --env development --hostname 0.0.0.0 --port 8080
 }
 

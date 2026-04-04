@@ -1,0 +1,27 @@
+# ================================
+# Development image
+# ================================
+FROM swift:6.0-noble
+
+# Install OS updates and dev dependencies
+RUN export DEBIAN_FRONTEND=noninteractive DEBCONF_NONINTERACTIVE_SEEN=true \
+    && apt-get -q update \
+    && apt-get -q dist-upgrade -y \
+    && apt-get install -y libjemalloc-dev inotify-tools
+
+# Set up a build area
+WORKDIR /workspace
+
+# Fetch dependencies
+# This caches the download of dependencies
+COPY ./Package.swift ./Package.resolved ./
+RUN swift package resolve
+
+# Copy the rest of the source
+COPY . .
+
+# Expose port 8080
+EXPOSE 8080
+
+# Default to running the dev-watch script
+CMD ["bash", "scripts/dev-watch.sh"]

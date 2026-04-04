@@ -31,6 +31,7 @@ tags:
   - name: Brokers
   - name: Statistics
   - name: News
+  - name: Crypto
   - name: Dashboard
   - name: UserProfile
 paths:
@@ -2448,6 +2449,151 @@ paths:
                 items:
                   $ref: '#/components/schemas/HistoricalSectorPerformanceResponse'
 
+  /v1/crypto/list:
+    get:
+      operationId: listCrypto
+      tags: [Crypto]
+      summary: List all cryptocurrencies
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/CryptoAssetResponse'
+        '401':
+          description: Unauthorized
+
+  /v1/crypto/quote:
+    get:
+      operationId: getCryptoQuote
+      tags: [Crypto]
+      summary: Get full crypto quote
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: symbol
+          in: query
+          required: true
+          schema:
+            type: string
+          example: BTCUSD
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/CryptoQuoteResponse'
+        '401':
+          description: Unauthorized
+
+  /v1/crypto/quote-short:
+    get:
+      operationId: getCryptoQuoteShort
+      tags: [Crypto]
+      summary: Get short crypto quote
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: symbol
+          in: query
+          required: true
+          schema:
+            type: string
+          example: BTCUSD
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    symbol: { type: string }
+                    price: { type: number, format: double }
+                    change: { type: number, format: double }
+                    volume: { type: number, format: double }
+        '401':
+          description: Unauthorized
+
+  /v1/crypto/batch-quotes:
+    get:
+      operationId: getCryptoBatchQuotes
+      tags: [Crypto]
+      summary: Get batch crypto quotes
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    symbol: { type: string }
+                    price: { type: number, format: double }
+                    change: { type: number, format: double }
+                    volume: { type: number, format: double }
+        '401':
+          description: Unauthorized
+
+  /v1/crypto/history:
+    get:
+      operationId: getCryptoHistory
+      tags: [Crypto]
+      summary: Get crypto price history
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: symbol
+          in: query
+          required: true
+          schema:
+            type: string
+          example: BTCUSD
+        - name: resolution
+          in: query
+          required: true
+          schema:
+            type: string
+            enum: [1min, 5min, 1hour, light, full]
+          example: 1hour
+        - name: from
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date
+        - name: to
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/CryptoHistoricalPoint'
+        '401':
+          description: Unauthorized
+
   /v1/dashboard:
     get:
       operationId: dashboardHome
@@ -3155,6 +3301,119 @@ components:
           description: Optional confirmation message returned by the API.
           example: User account deleted
       required: [success]
+
+    CryptoAssetResponse:
+      type: object
+      properties:
+        symbol:
+          type: string
+        name:
+          type: string
+        exchange:
+          type: string
+          nullable: true
+        icoDate:
+          type: string
+          format: date
+          nullable: true
+        circulatingSupply:
+          type: number
+          format: double
+          nullable: true
+        totalSupply:
+          type: number
+          format: double
+          nullable: true
+      required: [symbol, name]
+
+    CryptoQuoteResponse:
+      type: object
+      properties:
+        symbol:
+          type: string
+        name:
+          type: string
+        price:
+          type: number
+          format: double
+        changePercentage:
+          type: number
+          format: double
+        change:
+          type: number
+          format: double
+        volume:
+          type: number
+          format: double
+          nullable: true
+        dayLow:
+          type: number
+          format: double
+          nullable: true
+        dayHigh:
+          type: number
+          format: double
+          nullable: true
+        yearHigh:
+          type: number
+          format: double
+          nullable: true
+        yearLow:
+          type: number
+          format: double
+          nullable: true
+        marketCap:
+          type: number
+          format: double
+          nullable: true
+        priceAvg50:
+          type: number
+          format: double
+          nullable: true
+        priceAvg200:
+          type: number
+          format: double
+          nullable: true
+        exchange:
+          type: string
+          nullable: true
+        open:
+          type: number
+          format: double
+          nullable: true
+        previousClose:
+          type: number
+          format: double
+          nullable: true
+        timestamp:
+          type: integer
+      required: [symbol, name, price, changePercentage, change, timestamp]
+
+    CryptoHistoricalPoint:
+      type: object
+      properties:
+        date:
+          type: string
+        open:
+          type: number
+          format: double
+          nullable: true
+        low:
+          type: number
+          format: double
+          nullable: true
+        high:
+          type: number
+          format: double
+          nullable: true
+        close:
+          type: number
+          format: double
+        volume:
+          type: number
+          format: double
+          nullable: true
+      required: [date, close]
 
     StockRequest:
       type: object

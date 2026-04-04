@@ -1,0 +1,64 @@
+# Docker Compose for faster Swift development
+#
+# Usage:
+#   docker compose -f docker-compose.dev.yml up --build app
+#
+
+volumes:
+  db_data:
+  redis_data:
+  # Persistent volume for Swift build artifacts between runs
+  # This makes subsequent 'up' commands much faster
+  swift_build_cache:
+
+x-shared_environment: &shared_environment
+  LOG_LEVEL: ${LOG_LEVEL:-debug}
+  DATABASE_HOST: db
+  DATABASE_NAME: stockplan_dev
+  DATABASE_USERNAME: stockplan_user
+  DATABASE_PASSWORD: stockplan_password
+  REDIS_URL: redis://redis:6379
+  MARKET_PROVIDER: ${MARKET_PROVIDER:-}
+  FINNHUB_API_KEY: ${FINNHUB_API_KEY:-}
+  FMP_API_KEY: ${FMP_API_KEY:-}
+  # Enable faster debug configuration
+  SWIFT_BUILD_CONFIGURATION: debug
+
+services:
+  app:
+    image: stockplanbackend:debug
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    environment:
+      <<: *shared_environment
+    depends_on:
+      - db
+      - redis
+    ports:
+      - "8080:8080"
+    volumes:
+      # Mount current directory to /workspace for hot-reloading
+      - .:/workspace
+      # Map the build cache volume separately so it's not overriden by the local .build mount
+      - swift_build_cache:/workspace/.build
+    # Hot-reloading via inotifywait in Docker
+    command: ["bash", "scripts/dev-watch.sh"]
+
+  db:
+    image: postgres:18-alpine
+    volumes:
+      - db_data:/var/lib/postgresql/data
+    environment:
+      POSTGRES_USER: stockplan_user
+      POSTGRES_PASSWORD: stockplan_password
+      POSTGRES_DB: stockplan_dev
+    ports:
+      - "5432:5432"
+
+  redis:
+    image: redis:7-alpine
+    volumes:
+      - redis_data:/data
+    ports:
+      - "6379:6379"

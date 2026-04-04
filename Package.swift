@@ -26,7 +26,7 @@ let package = Package(
         .package(url: "https://github.com/vapor/redis.git", from: "4.8.0"),
         // Shared API contracts used by backend and iOS app.
         .package(url: "https://github.com/FinancePlanner/FinanceShared.git", from: "0.2.8"),
-        .package(url: "https://github.com/realm/SwiftLint.git", from: "0.50.3"),
+        .package(url: "https://github.com/realm/SwiftLint.git", from: "0.50.3")
     ],
     targets: [
         .executableTarget(
@@ -45,7 +45,7 @@ let package = Package(
                 .product(name: "Logging", package: "swift-log"),
                 // Optional Redis cache integration.
                 .product(name: "Redis", package: "redis"),
-                .product(name: "StockPlanShared", package: "FinanceShared"),
+                .product(name: "StockPlanShared", package: "FinanceShared")
             ],
             resources: [
                 .copy("openapi.yaml")
@@ -53,17 +53,17 @@ let package = Package(
             swiftSettings: swiftSettings,
             plugins: [
                 .plugin(name: "OpenAPIGenerator", package: "swift-openapi-generator"),
-                .plugin(name: "SwiftLintBuildToolPlugin", package: "SwiftLint"),
-            ],
+                .plugin(name: "SwiftLintBuildToolPlugin", package: "SwiftLint")
+            ]
         ),
         .testTarget(
             name: "StockPlanBackendTests",
             dependencies: [
                 .target(name: "StockPlanBackend"),
-                .product(name: "VaporTesting", package: "vapor"),
+                .product(name: "VaporTesting", package: "vapor")
             ],
             swiftSettings: swiftSettings
-        ),
+        )
     ]
 )
 

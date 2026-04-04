@@ -3,7 +3,7 @@ import Vapor
 import StockPlanShared
 
 struct FeedbackController: RouteCollection {
-    func boot(routes: RoutesBuilder) throws {
+    func boot(routes: any RoutesBuilder) throws {
         let protected = routes.grouped(SessionToken.authenticator(), SessionToken.guardMiddleware())
         let feedbacks = protected.grouped("feedback")
         feedbacks.post(use: submitFeedback)

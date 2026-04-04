@@ -1798,7 +1798,7 @@ private extension DefaultMarketDataService {
             return abort
         }
 
-        if let abort = error as? AbortError {
+        if let abort = error as? any AbortError {
             return Abort(abort.status, reason: abort.reason)
         }
 
@@ -1837,7 +1837,7 @@ private extension DefaultMarketDataService {
             return abort
         }
 
-        if let abort = error as? AbortError {
+        if let abort = error as? any AbortError {
             return Abort(abort.status, reason: abort.reason)
         }
 

@@ -35,6 +35,7 @@ func routes(_ app: Application) throws {
     try api.register(collection: UserProfileController())
     try api.register(collection: EarningsController())
     try api.register(collection: FeedbackController())
+    try api.register(collection: CryptoController())
 }
 
 private func registerOpenAPIDocsRoutes(_ app: Application) throws {

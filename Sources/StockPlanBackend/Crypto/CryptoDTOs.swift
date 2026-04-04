@@ -1,0 +1,10 @@
+import StockPlanShared
+
+typealias CryptoAssetResponse = StockPlanShared.CryptoAssetResponse
+typealias CryptoQuoteResponse = StockPlanShared.CryptoQuoteResponse
+typealias CryptoQuoteShortResponse = StockPlanShared.CryptoQuoteShortResponse
+typealias CryptoHistoricalLightPoint = StockPlanShared.CryptoHistoricalLightPoint
+typealias CryptoHistoricalFullPoint = StockPlanShared.CryptoHistoricalFullPoint
+typealias CryptoHistoricalPoint = StockPlanShared.CryptoHistoricalPoint
+typealias CryptoPortfolioItemRequest = StockPlanShared.CryptoPortfolioItemRequest
+typealias CryptoPortfolioItemResponse = StockPlanShared.CryptoPortfolioItemResponse

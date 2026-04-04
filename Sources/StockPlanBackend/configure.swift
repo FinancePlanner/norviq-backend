@@ -135,6 +135,14 @@ public func configure(_ app: Application) async throws {
     }
     app.earningsService = DefaultEarningsService(provider: earningsProvider)
 
+    if let fmpAPIKey, !fmpAPIKey.isEmpty {
+        let cryptoProvider = FMPCryptoDataProvider(apiKey: fmpAPIKey)
+        app.cryptoService = DefaultCryptoService(provider: cryptoProvider)
+    } else {
+        app.logger.warning("FMP_API_KEY is not configured; crypto market data will be unavailable.")
+        app.cryptoService = DefaultCryptoService(provider: DisabledCryptoDataProvider())
+    }
+
     let cleanupIntervalMinutes = Environment.get("AUTH_TOKEN_CLEANUP_INTERVAL_MINUTES").flatMap(Int.init(_:)) ?? 60
     app.lifecycle.use(AuthTokenCleanup(interval: TimeInterval(cleanupIntervalMinutes * 60)))
 
@@ -176,6 +184,7 @@ public func configure(_ app: Application) async throws {
     app.migrations.add(CreateRatiosCache())
     app.migrations.add(AddDatabaseOptimizations())
     app.migrations.add(CreateFeedback())
+    app.migrations.add(CreateCryptoPortfolioItem())
 
     // register routes
     try routes(app)
