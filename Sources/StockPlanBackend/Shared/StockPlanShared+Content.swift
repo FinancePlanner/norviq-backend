@@ -107,3 +107,14 @@ extension CryptoHistoricalFullPoint: @retroactive Content {}
 extension CryptoHistoricalPoint: @retroactive Content {}
 extension CryptoPortfolioItemRequest: @retroactive Content {}
 extension CryptoPortfolioItemResponse: @retroactive Content {}
+
+// MARK: - Expenses
+extension BudgetSnapshotRequest: @retroactive Content {}
+extension BudgetSnapshotResponse: @retroactive Content {}
+extension BudgetPlanItemRequest: @retroactive Content {}
+extension BudgetPlanItemResponse: @retroactive Content {}
+extension ExpenseRequest: @retroactive Content {}
+extension ExpenseResponse: @retroactive Content {}
+extension PillarPlanningSummaryResponse: @retroactive Content {}
+extension BudgetMonthSummaryResponse: @retroactive Content {}
+extension BudgetYearSummaryResponse: @retroactive Content {}

@@ -126,6 +126,7 @@ public func configure(_ app: Application) async throws {
     )
     app.userProfileRepository = DatabaseUserProfileRepository()
     app.userProfileService = DefaultUserProfileService(repo: app.userProfileRepository)
+    app.expensesService = DefaultExpensesService()
 
     let earningsProvider: any EarningsProvider
     if let finnhubAPIKey, !finnhubAPIKey.isEmpty {

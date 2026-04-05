@@ -2746,6 +2746,341 @@ paths:
         '401':
           description: Unauthorized
 
+  /v1/budget/snapshots:
+    get:
+      operationId: getSnapshots
+      tags: [Expenses]
+      summary: Get budget snapshots
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: year
+          in: query
+          required: false
+          schema:
+            type: integer
+        - name: month
+          in: query
+          required: false
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/BudgetSnapshotResponse'
+        '401':
+          description: Unauthorized
+    post:
+      operationId: createSnapshot
+      tags: [Expenses]
+      summary: Create a budget snapshot
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BudgetSnapshotRequest'
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BudgetSnapshotResponse'
+        '401':
+          description: Unauthorized
+
+  /v1/budget/snapshots/{snapshotId}:
+    parameters:
+      - name: snapshotId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    patch:
+      operationId: updateSnapshot
+      tags: [Expenses]
+      summary: Update a budget snapshot
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BudgetSnapshotRequest'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BudgetSnapshotResponse'
+        '401':
+          description: Unauthorized
+    delete:
+      operationId: deleteSnapshot
+      tags: [Expenses]
+      summary: Delete a budget snapshot
+      security:
+        - bearerAuth: []
+      responses:
+        '204':
+          description: No Content
+        '401':
+          description: Unauthorized
+
+  /v1/budget/snapshots/{snapshotId}/items:
+    parameters:
+      - name: snapshotId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    get:
+      operationId: getSnapshotItems
+      tags: [Expenses]
+      summary: Get items for a budget snapshot
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/BudgetPlanItemResponse'
+        '401':
+          description: Unauthorized
+
+  /v1/budget/items:
+    get:
+      operationId: getAllPlanItems
+      tags: [Expenses]
+      summary: Get all plan items
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/BudgetPlanItemResponse'
+        '401':
+          description: Unauthorized
+    post:
+      operationId: createPlanItem
+      tags: [Expenses]
+      summary: Create a plan item
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BudgetPlanItemRequest'
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BudgetPlanItemResponse'
+        '401':
+          description: Unauthorized
+
+  /v1/budget/items/{itemId}:
+    parameters:
+      - name: itemId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    patch:
+      operationId: updatePlanItem
+      tags: [Expenses]
+      summary: Update a plan item
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BudgetPlanItemRequest'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BudgetPlanItemResponse'
+        '401':
+          description: Unauthorized
+    delete:
+      operationId: deletePlanItem
+      tags: [Expenses]
+      summary: Delete a plan item
+      security:
+        - bearerAuth: []
+      responses:
+        '204':
+          description: No Content
+        '401':
+          description: Unauthorized
+
+  /v1/expenses:
+    get:
+      operationId: getExpenses
+      tags: [Expenses]
+      summary: Get expenses
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: from
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date
+        - name: to
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ExpenseResponse'
+        '401':
+          description: Unauthorized
+    post:
+      operationId: createExpense
+      tags: [Expenses]
+      summary: Create an expense
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ExpenseRequest'
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ExpenseResponse'
+        '401':
+          description: Unauthorized
+
+  /v1/expenses/{expenseId}:
+    parameters:
+      - name: expenseId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    patch:
+      operationId: updateExpense
+      tags: [Expenses]
+      summary: Update an expense
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ExpenseRequest'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ExpenseResponse'
+        '401':
+          description: Unauthorized
+    delete:
+      operationId: deleteExpense
+      tags: [Expenses]
+      summary: Delete an expense
+      security:
+        - bearerAuth: []
+      responses:
+        '204':
+          description: No Content
+        '401':
+          description: Unauthorized
+
+  /v1/reports/expenses:
+    get:
+      operationId: getExpenseReports
+      tags: [Expenses]
+      summary: Get expense reports
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: from
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date
+        - name: to
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date
+        - name: granularity
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [month, year]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - type: array
+                    items:
+                      $ref: '#/components/schemas/BudgetMonthSummaryResponse'
+                  - type: array
+                    items:
+                      $ref: '#/components/schemas/BudgetYearSummaryResponse'
+        '401':
+          description: Unauthorized
+
   /v1/dashboard:
     get:
       operationId: dashboardHome
@@ -3607,6 +3942,186 @@ components:
           format: date-time
           nullable: true
       required: [id, symbol, name, quantity, averageBuyPrice]
+
+    BudgetSnapshotRequest:
+      type: object
+      properties:
+        monthStart:
+          type: string
+          format: date
+        netSalary:
+          type: number
+          format: double
+        targetShares:
+          type: object
+          additionalProperties:
+            type: number
+            format: double
+      required: [monthStart, netSalary, targetShares]
+
+    BudgetSnapshotResponse:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        monthStart:
+          type: string
+          format: date
+        netSalary:
+          type: number
+          format: double
+        targetShares:
+          type: object
+          additionalProperties:
+            type: number
+            format: double
+        createdAt:
+          type: string
+          format: date-time
+          nullable: true
+        updatedAt:
+          type: string
+          format: date-time
+          nullable: true
+      required: [id, monthStart, netSalary, targetShares]
+
+    BudgetPlanItemRequest:
+      type: object
+      properties:
+        snapshotId:
+          type: string
+          format: uuid
+        title:
+          type: string
+        plannedAmount:
+          type: number
+          format: double
+        pillar:
+          type: string
+          enum: [fundamentals, futureYou, fun]
+      required: [snapshotId, title, plannedAmount, pillar]
+
+    BudgetPlanItemResponse:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        snapshotId:
+          type: string
+          format: uuid
+        title:
+          type: string
+        plannedAmount:
+          type: number
+          format: double
+        pillar:
+          type: string
+          enum: [fundamentals, futureYou, fun]
+        createdAt:
+          type: string
+          format: date-time
+          nullable: true
+        updatedAt:
+          type: string
+          format: date-time
+          nullable: true
+      required: [id, snapshotId, title, plannedAmount, pillar]
+
+    ExpenseRequest:
+      type: object
+      properties:
+        title:
+          type: string
+        amount:
+          type: number
+          format: double
+        pillar:
+          type: string
+          enum: [fundamentals, futureYou, fun]
+        occurredOn:
+          type: string
+          format: date
+        linkedPlanItemId:
+          type: string
+          format: uuid
+          nullable: true
+      required: [title, amount, pillar, occurredOn]
+
+    ExpenseResponse:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        title:
+          type: string
+        amount:
+          type: number
+          format: double
+        pillar:
+          type: string
+          enum: [fundamentals, futureYou, fun]
+        occurredOn:
+          type: string
+          format: date
+        linkedPlanItemId:
+          type: string
+          format: uuid
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+          nullable: true
+        updatedAt:
+          type: string
+          format: date-time
+          nullable: true
+      required: [id, title, amount, pillar, occurredOn]
+
+    BudgetMonthSummaryResponse:
+      type: object
+      properties:
+        monthStart:
+          type: string
+          format: date
+        planned:
+          type: number
+          format: double
+        actual:
+          type: number
+          format: double
+        salary:
+          type: number
+          format: double
+        pillarActuals:
+          type: object
+          additionalProperties:
+            type: number
+            format: double
+        pillarPlans:
+          type: object
+          additionalProperties:
+            type: number
+            format: double
+      required: [monthStart, planned, actual, salary, pillarActuals, pillarPlans]
+
+    BudgetYearSummaryResponse:
+      type: object
+      properties:
+        year:
+          type: integer
+        planned:
+          type: number
+          format: double
+        actual:
+          type: number
+          format: double
+        salary:
+          type: number
+          format: double
+      required: [year, planned, actual, salary]
 
     StockRequest:
       type: object
