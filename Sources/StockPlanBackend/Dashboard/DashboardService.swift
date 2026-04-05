@@ -1,9 +1,11 @@
 import Vapor
 import Fluent
+import StockPlanShared
 import Foundation
 
 protocol DashboardService: Sendable {
     func dashboard(userId: UUID, on db: any Database) async throws -> DashboardResponse
+    func insights(userId: UUID, on db: any Database) async throws -> DashboardInsightsResponse
 }
 
 struct DefaultDashboardService: DashboardService {
@@ -47,6 +49,46 @@ struct DefaultDashboardService: DashboardService {
                     percent: $0.weightPercent
                 )
             }
+        )
+    }
+
+    func insights(userId: UUID, on db: any Database) async throws -> DashboardInsightsResponse {
+        // Cash Buffer
+        let accounts = try await Account.query(on: db).filter(\.$userId == userId).all()
+        let accountIds = Set(accounts.compactMap { $0.id })
+        var cashBuffer: Double = 0
+        if !accountIds.isEmpty {
+            let balances = try await CashBalance.query(on: db).filter(\.$accountId ~~ accountIds).all()
+            cashBuffer = balances.reduce(0) { $0 + $1.balance }
+        }
+
+        // Watchlist Count
+        let watchlistCount = try await WatchlistItem.query(on: db).filter(\.$userId == userId).count()
+
+        // Expenses logic
+        let expensesService = DefaultExpensesService()
+        let monthlyReports = try await expensesService.getMonthlyReports(userId: userId, from: nil, to: nil, on: db)
+        
+        var budgetStreak = 0
+        for report in monthlyReports.reversed() { // newest first, because getMonthlyReports is sorted asc
+            if report.actual <= report.planned && report.planned > 0 {
+                budgetStreak += 1
+            } else {
+                break
+            }
+        }
+        
+        var savingsRate: Double = 0
+        if let lastReport = monthlyReports.last, lastReport.salary > 0 {
+            savingsRate = (lastReport.salary - lastReport.actual) / lastReport.salary * 100
+            savingsRate = max(0, savingsRate)
+        }
+        
+        return DashboardInsightsResponse(
+            savingsRate: round2(savingsRate),
+            budgetStreak: budgetStreak,
+            watchlistCount: watchlistCount,
+            cashBuffer: round2(cashBuffer)
         )
     }
 }

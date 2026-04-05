@@ -118,3 +118,8 @@ extension ExpenseResponse: @retroactive Content {}
 extension PillarPlanningSummaryResponse: @retroactive Content {}
 extension BudgetMonthSummaryResponse: @retroactive Content {}
 extension BudgetYearSummaryResponse: @retroactive Content {}
+
+// MARK: - Goals & Dashboard Insights
+extension GoalRequest: @retroactive Content {}
+extension GoalResponse: @retroactive Content {}
+extension DashboardInsightsResponse: @retroactive Content {}

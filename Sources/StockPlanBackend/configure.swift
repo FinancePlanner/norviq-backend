@@ -150,6 +150,7 @@ public func configure(_ app: Application) async throws {
     app.migrations.add(AddUserProfileFields())
     app.migrations.add(AddUserProfileMetadataFields())
     app.migrations.add(CreateTodo())
+    app.migrations.add(CreateGoal())
     app.migrations.add(CreateAccount())
     app.migrations.add(CreateInstrument())
     app.migrations.add(CreateTransaction())
