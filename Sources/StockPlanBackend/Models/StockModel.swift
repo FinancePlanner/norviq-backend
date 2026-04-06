@@ -26,6 +26,9 @@ final class Stock: Model, Content, @unchecked Sendable {
     @Field(key: "notes")
     var notes: String?
 
+    @Enum(key: "category")
+    var category: AssetCategory
+
     @Timestamp(key: "created_at", on: .create)
     var createdAt: Date?
 
@@ -41,7 +44,8 @@ final class Stock: Model, Content, @unchecked Sendable {
         shares: Double,
         buyPrice: Double,
         buyDate: Date,
-        notes: String? = nil
+        notes: String? = nil,
+        category: AssetCategory = .stock
     ) {
         self.id = id
         self.userId = userId
@@ -50,5 +54,6 @@ final class Stock: Model, Content, @unchecked Sendable {
         self.buyPrice = buyPrice
         self.buyDate = buyDate
         self.notes = notes
+        self.category = category
     }
 }

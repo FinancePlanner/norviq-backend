@@ -92,6 +92,8 @@ struct DatabaseStocksRepository: StocksRepository {
                 primary.notes = payloadNotes
             }
 
+            primary.category = payload.category
+
             try await primary.save(on: db)
 
             // Delete extra duplicates so subsequent creates don't keep multiple rows.
@@ -108,7 +110,8 @@ struct DatabaseStocksRepository: StocksRepository {
             shares: payload.shares,
             buyPrice: payload.buyPrice,
             buyDate: buyDate,
-            notes: payload.notes
+            notes: payload.notes,
+            category: payload.category
         )
         try await stock.save(on: db)
         return stock
@@ -160,6 +163,7 @@ struct DatabaseStocksRepository: StocksRepository {
         stock.buyPrice = payload.buyPrice
         stock.buyDate = try parseISODateOnly(payload.buyDate)
         stock.notes = payload.notes
+        stock.category = payload.category
         try await stock.save(on: db)
         return stock
     }

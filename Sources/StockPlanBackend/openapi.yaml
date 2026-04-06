@@ -4115,6 +4115,10 @@ components:
           format: double
       required: [year, planned, actual, salary]
 
+    AssetCategory:
+      type: string
+      enum: [stock, etf, crypto]
+
     StockRequest:
       type: object
       properties:
@@ -4131,7 +4135,9 @@ components:
           format: date
         notes:
           type: string
-      required: [symbol, shares, buyPrice, buyDate]
+        category:
+          $ref: '#/components/schemas/AssetCategory'
+      required: [symbol, shares, buyPrice, buyDate, category]
     StockResponse:
       type: object
       properties:
@@ -4151,7 +4157,9 @@ components:
           format: date
         notes:
           type: string
-      required: [id, symbol, shares, buyPrice, buyDate]
+        category:
+          $ref: '#/components/schemas/AssetCategory'
+      required: [id, symbol, shares, buyPrice, buyDate, category]
     BulkStockRequest:
       type: object
       properties:

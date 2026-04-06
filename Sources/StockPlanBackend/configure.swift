@@ -163,6 +163,7 @@ public func configure(_ app: Application) async throws {
     app.migrations.add(CreatePasswordResetToken())
     app.migrations.add(CreateRefreshToken())
     app.migrations.add(CreateStock())
+    app.migrations.add(AddAssetCategoryToStocks())
     app.migrations.add(CreateWatchlistItem())
     app.migrations.add(AddWatchlistMetadataFields())
     app.migrations.add(CreateResearchNote())

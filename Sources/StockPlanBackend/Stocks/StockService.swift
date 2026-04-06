@@ -267,7 +267,8 @@ extension StockResponse {
             shares: model.shares,
             buyPrice: model.buyPrice,
             buyDate: Self.formatISODateOnly(model.buyDate),
-            notes: model.notes
+            notes: model.notes,
+            category: model.category
         )
     }
 
