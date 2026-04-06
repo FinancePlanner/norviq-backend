@@ -9,8 +9,6 @@ protocol AuthService: Sendable {
         username: String,
         email: String,
         password: String,
-        firstName: String,
-        lastName: String,
         dateOfBirth: Date,
         on req: Request
     ) async throws -> AuthResponse
@@ -29,21 +27,15 @@ struct DefaultAuthService: AuthService {
         username: String,
         email: String,
         password: String,
-        firstName: String,
-        lastName: String,
         dateOfBirth: Date,
         on req: Request
     ) async throws -> AuthResponse {
         let normalizedUsername = normalizeUsername(username)
         let normalizedEmail = normalizeEmail(email)
-        let normalizedFirstName = normalizeName(firstName)
-        let normalizedLastName = normalizeName(lastName)
 
         try validateUsername(normalizedUsername)
         try validateEmail(normalizedEmail)
         try validatePassword(password)
-        try validateName(normalizedFirstName, field: "First name")
-        try validateName(normalizedLastName, field: "Last name")
         try validateDateOfBirth(dateOfBirth)
 
         if try await repo.findUser(username: normalizedUsername, on: req.db) != nil {
@@ -59,8 +51,6 @@ struct DefaultAuthService: AuthService {
             username: normalizedUsername,
             email: normalizedEmail,
             passwordHash: hash,
-            firstName: normalizedFirstName,
-            lastName: normalizedLastName,
             dateOfBirth: dateOfBirth,
             on: req.db
         )
@@ -93,8 +83,6 @@ struct DefaultAuthService: AuthService {
             id: user.id?.uuidString ?? "",
             username: responseUsername(for: user),
             email: user.email,
-            firstName: responseFirstName(for: user),
-            lastName: responseLastName(for: user),
             dateOfBirth: responseDateOfBirth(for: user)
         )
     }
@@ -173,8 +161,6 @@ struct DefaultAuthService: AuthService {
             refreshExpiresIn: refreshExpiresIn,
             username: responseUsername(for: user),
             email: user.email,
-            firstName: responseFirstName(for: user),
-            lastName: responseLastName(for: user),
             dateOfBirth: responseDateOfBirth(for: user)
         )
     }
@@ -227,10 +213,6 @@ struct DefaultAuthService: AuthService {
         email.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
     }
 
-    private func normalizeName(_ value: String) -> String {
-        value.trimmingCharacters(in: .whitespacesAndNewlines)
-    }
-
     private func validateUsername(_ username: String) throws {
         let pattern = #"^[a-zA-Z0-9_]{4,30}$"#
         if username.range(of: pattern, options: .regularExpression) == nil {
@@ -241,12 +223,6 @@ struct DefaultAuthService: AuthService {
     private func validateEmail(_ email: String) throws {
         if email.isEmpty || !email.contains("@") {
             throw Abort(.badRequest, reason: "Invalid email")
-        }
-    }
-
-    private func validateName(_ value: String, field: String) throws {
-        if value.isEmpty {
-            throw Abort(.badRequest, reason: "\(field) is required")
         }
     }
 
@@ -270,14 +246,6 @@ struct DefaultAuthService: AuthService {
             return String(prefix)
         }
         return user.email
-    }
-
-    private func responseFirstName(for user: User) -> String {
-        user.firstName?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-    }
-
-    private func responseLastName(for user: User) -> String {
-        user.lastName?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
     }
 
     private func responseDateOfBirth(for user: User) -> Date {

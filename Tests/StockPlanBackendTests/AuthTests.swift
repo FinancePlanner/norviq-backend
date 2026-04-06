@@ -27,16 +27,12 @@ struct AuthTests {
         email: String,
         password: String = "Password123",
         username: String = "valid_user",
-        firstName: String = "Test",
-        lastName: String = "User",
         dateOfBirth: Date = Date(timeIntervalSince1970: 946_684_800)
     ) -> AuthRegisterRequest {
         AuthRegisterRequest(
             username: username,
             password: password,
             email: email,
-            firstName: firstName,
-            lastName: lastName,
             dateOfBirth: dateOfBirth
         )
     }

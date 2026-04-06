@@ -22,8 +22,6 @@ struct AuthController: RouteCollection {
             username: payload.username,
             email: payload.email,
             password: payload.password,
-            firstName: payload.firstName,
-            lastName: payload.lastName,
             dateOfBirth: payload.dateOfBirth,
             on: req
         )

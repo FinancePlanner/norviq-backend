@@ -5,8 +5,6 @@ BASE_URL="${BASE_URL:-http://localhost:8080}"
 EMAIL="${EMAIL:-}"
 PASSWORD="${PASSWORD:-}"
 USERNAME="${USERNAME:-}"
-FIRST_NAME="${FIRST_NAME:-Test}"
-LAST_NAME="${LAST_NAME:-User}"
 DATE_OF_BIRTH_REF_SECONDS="${DATE_OF_BIRTH_REF_SECONDS:--31622400}"
 REGISTER_FIRST=false
 OUTPUT_MODE="token" # token|header|json
@@ -17,7 +15,7 @@ Usage:
   scripts/get_access_token.sh -e <email> -p <password> [--base-url <url>] [--register] [--header|--json]
 
 Environment variables (optional):
-  BASE_URL, EMAIL, PASSWORD, USERNAME, FIRST_NAME, LAST_NAME, DATE_OF_BIRTH_REF_SECONDS
+  BASE_URL, EMAIL, PASSWORD, USERNAME, DATE_OF_BIRTH_REF_SECONDS
 
 Examples:
   TOKEN=$(scripts/get_access_token.sh -e user@example.com -p 'password123')
@@ -72,8 +70,6 @@ build_register_payload() {
     EMAIL="$EMAIL" \
     PASSWORD="$PASSWORD" \
     USERNAME="$username_value" \
-    FIRST_NAME="$FIRST_NAME" \
-    LAST_NAME="$LAST_NAME" \
     DATE_OF_BIRTH_REF_SECONDS="$DATE_OF_BIRTH_REF_SECONDS" \
       python3 - <<'PY'
 import json, os
@@ -81,8 +77,6 @@ print(json.dumps({
     "username": os.environ["USERNAME"],
     "password": os.environ["PASSWORD"],
     "email": os.environ["EMAIL"],
-    "firstName": os.environ["FIRST_NAME"],
-    "lastName": os.environ["LAST_NAME"],
     "dateOfBirth": float(os.environ["DATE_OF_BIRTH_REF_SECONDS"]),
 }))
 PY
@@ -94,10 +88,8 @@ PY
       --arg username "$username_value" \
       --arg password "$PASSWORD" \
       --arg email "$EMAIL" \
-      --arg firstName "$FIRST_NAME" \
-      --arg lastName "$LAST_NAME" \
       --argjson dateOfBirth "$DATE_OF_BIRTH_REF_SECONDS" \
-      '{username:$username,password:$password,email:$email,firstName:$firstName,lastName:$lastName,dateOfBirth:$dateOfBirth}'
+      '{username:$username,password:$password,email:$email,dateOfBirth:$dateOfBirth}'
     return 0
   fi
 

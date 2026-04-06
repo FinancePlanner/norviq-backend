@@ -24,8 +24,6 @@ struct DefaultUserProfileService: UserProfileService {
         let user = try await requireUser(id: userId, on: db)
         let normalizedEmail = normalizeEmail(payload.userProfile.email)
         let normalizedUsername = normalizeOptional(payload.userProfile.username)?.lowercased()
-        let normalizedFirstName = normalizeOptional(payload.userProfile.firstName)
-        let normalizedLastName = normalizeOptional(payload.userProfile.lastName)
         let normalizedBio = normalizeOptional(payload.userProfile.bio)
 
         try validateEmail(normalizedEmail)
@@ -44,8 +42,6 @@ struct DefaultUserProfileService: UserProfileService {
 
         user.email = normalizedEmail
         user.username = normalizedUsername
-        user.firstName = normalizedFirstName
-        user.lastName = normalizedLastName
         user.bio = normalizedBio
         user.avatarURLString = payload.userProfile.avatarURL?.absoluteString
         user.bannerAvatarURLString = payload.userProfile.bannerAvatarURL?.absoluteString
@@ -74,9 +70,7 @@ struct DefaultUserProfileService: UserProfileService {
             bio: normalizeOptional(user.bio),
             avatarURL: user.avatarURLString.flatMap(URL.init(string:)),
             bannerAvatarURL: user.bannerAvatarURLString.flatMap(URL.init(string:)),
-            username: normalizeOptional(user.username),
-            firstName: normalizeOptional(user.firstName),
-            lastName: normalizeOptional(user.lastName)
+            username: normalizeOptional(user.username)
         )
     }
 

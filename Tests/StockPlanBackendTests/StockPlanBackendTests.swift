@@ -72,8 +72,6 @@ struct StockPlanBackendTests {
             username: "test_\(normalizedIdentifier)",
             password: "Password123",
             email: "test+\(normalizedIdentifier)@example.com",
-            firstName: "Test",
-            lastName: "User",
             dateOfBirth: Date(timeIntervalSince1970: 946_684_800)
         )
         var response: AuthResponse?

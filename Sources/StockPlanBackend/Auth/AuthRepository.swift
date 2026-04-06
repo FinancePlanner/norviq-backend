@@ -10,8 +10,6 @@ protocol AuthRepository: Sendable {
         username: String,
         email: String,
         passwordHash: String,
-        firstName: String,
-        lastName: String,
         dateOfBirth: Date,
         on db: any Database
     ) async throws -> User
@@ -42,8 +40,6 @@ struct DatabaseAuthRepository: AuthRepository {
         username: String = UUID().uuidString.replacingOccurrences(of: "-", with: "_"),
         email: String,
         passwordHash: String,
-        firstName: String = "Test",
-        lastName: String = "User",
         dateOfBirth: Date = Date(timeIntervalSince1970: 946_684_800),
         on db: any Database
     ) async throws -> User {
@@ -51,8 +47,6 @@ struct DatabaseAuthRepository: AuthRepository {
             email: email,
             passwordHash: passwordHash,
             username: username,
-            firstName: firstName,
-            lastName: lastName,
             dateOfBirth: dateOfBirth
         )
         try await user.save(on: db)

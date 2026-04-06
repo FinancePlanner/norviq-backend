@@ -17,12 +17,6 @@ final class User: Model, Authenticatable, @unchecked Sendable {
     @OptionalField(key: "username")
     var username: String?
 
-    @OptionalField(key: "first_name")
-    var firstName: String?
-
-    @OptionalField(key: "last_name")
-    var lastName: String?
-
     @OptionalField(key: "bio")
     var bio: String?
 
@@ -48,8 +42,6 @@ final class User: Model, Authenticatable, @unchecked Sendable {
         email: String,
         passwordHash: String,
         username: String? = nil,
-        firstName: String? = nil,
-        lastName: String? = nil,
         bio: String? = nil,
         avatarURLString: String? = nil,
         bannerAvatarURLString: String? = nil,
@@ -59,8 +51,6 @@ final class User: Model, Authenticatable, @unchecked Sendable {
         self.email = email
         self.passwordHash = passwordHash
         self.username = username
-        self.firstName = firstName
-        self.lastName = lastName
         self.bio = bio
         self.avatarURLString = avatarURLString
         self.bannerAvatarURLString = bannerAvatarURLString

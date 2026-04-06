@@ -27,16 +27,12 @@ struct UserProfileTests {
         email: String,
         password: String = "Password123",
         username: String = "valid_user",
-        firstName: String = "Test",
-        lastName: String = "User",
         dateOfBirth: Date = Date(timeIntervalSince1970: 946_684_800)
     ) -> AuthRegisterRequest {
         AuthRegisterRequest(
             username: username,
             password: password,
             email: email,
-            firstName: firstName,
-            lastName: lastName,
             dateOfBirth: dateOfBirth
         )
     }
@@ -72,8 +68,6 @@ struct UserProfileTests {
                 #expect(response.userProfile.id == auth.userId.uuidString)
                 #expect(response.userProfile.email == "profile@example.com")
                 #expect(response.userProfile.username == "profile_user")
-                #expect(response.userProfile.firstName == "Test")
-                #expect(response.userProfile.lastName == "User")
             })
         }
     }
@@ -120,9 +114,7 @@ struct UserProfileTests {
                     bio: "Focused on long-term compounding",
                     avatarURL: URL(string: "https://example.com/avatar.png"),
                     bannerAvatarURL: URL(string: "https://example.com/banner.png"),
-                    username: "updated_user",
-                    firstName: "Jane",
-                    lastName: "Investor"
+                    username: "updated_user"
                 )
             )
 
@@ -135,8 +127,6 @@ struct UserProfileTests {
                 #expect(response.userProfile.email == "updated@example.com")
                 #expect(response.userProfile.bio == "Focused on long-term compounding")
                 #expect(response.userProfile.username == "updated_user")
-                #expect(response.userProfile.firstName == "Jane")
-                #expect(response.userProfile.lastName == "Investor")
                 #expect(response.userProfile.avatarURL == URL(string: "https://example.com/avatar.png"))
                 #expect(response.userProfile.bannerAvatarURL == URL(string: "https://example.com/banner.png"))
             })
@@ -154,9 +144,7 @@ struct UserProfileTests {
                     bio: "Updated through path id",
                     avatarURL: URL(string: "https://example.com/avatar-id.png"),
                     bannerAvatarURL: URL(string: "https://example.com/banner-id.png"),
-                    username: "updated_user_id",
-                    firstName: "Janet",
-                    lastName: "Investor"
+                    username: "updated_user_id"
                 )
             )
 
@@ -169,8 +157,6 @@ struct UserProfileTests {
                 #expect(response.userProfile.email == "updated-by-id@example.com")
                 #expect(response.userProfile.bio == "Updated through path id")
                 #expect(response.userProfile.username == "updated_user_id")
-                #expect(response.userProfile.firstName == "Janet")
-                #expect(response.userProfile.lastName == "Investor")
             })
         }
     }

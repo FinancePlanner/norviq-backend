@@ -31,8 +31,6 @@ struct ExpensesTests {
             username: "exp_user_\(identifier)",
             password: "Password123",
             email: "exp_\(identifier)@example.com",
-            firstName: "Exp",
-            lastName: "Tester",
             dateOfBirth: Date(timeIntervalSince1970: 946_684_800)
         )
         var token: String = ""
