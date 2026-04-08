@@ -50,14 +50,14 @@ struct StockController: RouteCollection {
     @Sendable
     func listStocks(req: Request) async throws -> [StockResponse] {
         let session = try req.auth.require(SessionToken.self)
-        return try await req.application.stocksService.list(userId: session.userId, on: req.db)
+        return try await req.stocksService.list(userId: session.userId, on: req.db)
     }
 
     @Sendable
     func createStock(req: Request) async throws -> Response {
         let session = try req.auth.require(SessionToken.self)
         let payload = try req.content.decode(StockRequest.self)
-        let created = try await req.application.stocksService.create(
+        let created = try await req.stocksService.create(
             payload: payload, userId: session.userId, on: req.db)
         let res = Response(status: .created)
         try res.content.encode(created)
@@ -68,7 +68,7 @@ struct StockController: RouteCollection {
     func bulkCreateStocks(req: Request) async throws -> Response {
         let session = try req.auth.require(SessionToken.self)
         let payload = try req.content.decode(BulkStockRequest.self)
-        let result = try await req.application.stocksService.bulkCreate(
+        let result = try await req.stocksService.bulkCreate(
             payloads: payload.stocks, userId: session.userId, on: req.db)
         let res = Response(status: .ok)
         try res.content.encode(result)
@@ -79,7 +79,7 @@ struct StockController: RouteCollection {
     func getStock(req: Request) async throws -> StockResponse {
         let session = try req.auth.require(SessionToken.self)
         let stockId = try requireUUIDParameter(req, name: "stockId", reason: "Invalid stock ID")
-        return try await req.application.stocksService.get(
+        return try await req.stocksService.get(
             id: stockId, userId: session.userId, on: req.db)
     }
 
@@ -88,7 +88,7 @@ struct StockController: RouteCollection {
         let session = try req.auth.require(SessionToken.self)
         let stockId = try requireUUIDParameter(req, name: "stockId", reason: "Invalid stock ID")
         let payload = try req.content.decode(StockRequest.self)
-        return try await req.application.stocksService.update(
+        return try await req.stocksService.update(
             id: stockId, payload: payload, userId: session.userId, on: req.db)
     }
 
@@ -96,7 +96,7 @@ struct StockController: RouteCollection {
     func deleteStock(req: Request) async throws -> HTTPStatus {
         let session = try req.auth.require(SessionToken.self)
         let stockId = try requireUUIDParameter(req, name: "stockId", reason: "Invalid stock ID")
-        try await req.application.stocksService.delete(
+        try await req.stocksService.delete(
             id: stockId, userId: session.userId, on: req.db)
         return .noContent
     }
@@ -137,7 +137,7 @@ struct StockController: RouteCollection {
             userId=\(session.userId.uuidString)
             """
         )
-        let created = try await req.application.stocksService.createValuation(
+        let created = try await req.stocksService.createValuation(
             symbol: symbol,
             payload: payload,
             userId: session.userId,
@@ -161,7 +161,7 @@ struct StockController: RouteCollection {
             userId=\(session.userId.uuidString)
             """
         )
-        let updated = try await req.application.stocksService.updateValuation(
+        let updated = try await req.stocksService.updateValuation(
             symbol: symbol,
             payload: payload,
             userId: session.userId,

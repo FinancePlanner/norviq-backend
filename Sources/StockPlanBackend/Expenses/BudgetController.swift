@@ -35,7 +35,7 @@ struct BudgetController: RouteCollection {
         let year = req.query[Int.self, at: "year"]
         let month = req.query[Int.self, at: "month"]
         
-        return try await req.application.expensesService.getSnapshots(
+        return try await req.expensesService.getSnapshots(
             userId: session.userId,
             year: year,
             month: month,
@@ -48,7 +48,7 @@ struct BudgetController: RouteCollection {
         let session = try req.auth.require(SessionToken.self)
         let payload = try req.content.decode(BudgetSnapshotRequest.self)
         
-        let created = try await req.application.expensesService.createSnapshot(
+        let created = try await req.expensesService.createBudgetSnapshot(
             userId: session.userId,
             request: payload,
             on: req.db
@@ -64,7 +64,7 @@ struct BudgetController: RouteCollection {
         let snapshotId = try requireUUIDParameter(req, name: "snapshotId")
         let payload = try req.content.decode(BudgetSnapshotRequest.self)
         
-        return try await req.application.expensesService.updateSnapshot(
+        return try await req.expensesService.updateSnapshot(
             userId: session.userId,
             snapshotId: snapshotId,
             request: payload,
@@ -77,7 +77,7 @@ struct BudgetController: RouteCollection {
         let session = try req.auth.require(SessionToken.self)
         let snapshotId = try requireUUIDParameter(req, name: "snapshotId")
         
-        try await req.application.expensesService.deleteSnapshot(
+        try await req.expensesService.deleteSnapshot(
             userId: session.userId,
             snapshotId: snapshotId,
             on: req.db
@@ -90,7 +90,7 @@ struct BudgetController: RouteCollection {
     @Sendable
     func getAllPlanItems(req: Request) async throws -> [BudgetPlanItemResponse] {
         let session = try req.auth.require(SessionToken.self)
-        return try await req.application.expensesService.getAllPlanItems(
+        return try await req.expensesService.getAllPlanItems(
             userId: session.userId,
             on: req.db
         )
@@ -101,7 +101,7 @@ struct BudgetController: RouteCollection {
         let session = try req.auth.require(SessionToken.self)
         let snapshotId = try requireUUIDParameter(req, name: "snapshotId")
         
-        return try await req.application.expensesService.getPlanItems(
+        return try await req.expensesService.getPlanItems(
             userId: session.userId,
             snapshotId: snapshotId,
             on: req.db
@@ -113,7 +113,7 @@ struct BudgetController: RouteCollection {
         let session = try req.auth.require(SessionToken.self)
         let payload = try req.content.decode(BudgetPlanItemRequest.self)
         
-        let created = try await req.application.expensesService.createPlanItem(
+        let created = try await req.expensesService.createPlanItem(
             userId: session.userId,
             request: payload,
             on: req.db
@@ -129,7 +129,7 @@ struct BudgetController: RouteCollection {
         let itemId = try requireUUIDParameter(req, name: "itemId")
         let payload = try req.content.decode(BudgetPlanItemRequest.self)
         
-        return try await req.application.expensesService.updatePlanItem(
+        return try await req.expensesService.updatePlanItem(
             userId: session.userId,
             itemId: itemId,
             request: payload,
@@ -142,7 +142,7 @@ struct BudgetController: RouteCollection {
         let session = try req.auth.require(SessionToken.self)
         let itemId = try requireUUIDParameter(req, name: "itemId")
         
-        try await req.application.expensesService.deletePlanItem(
+        try await req.expensesService.deletePlanItem(
             userId: session.userId,
             itemId: itemId,
             on: req.db

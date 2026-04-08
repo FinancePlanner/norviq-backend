@@ -1,6 +1,7 @@
 import Fluent
 import Vapor
 import Foundation
+import StockPlanShared
 
 final class Goal: Model, Content, @unchecked Sendable {
     static let schema = "goals"
@@ -14,6 +15,15 @@ final class Goal: Model, Content, @unchecked Sendable {
     @Field(key: "title")
     var title: String
 
+    @Field(key: "status")
+    var status: String
+
+    @OptionalField(key: "status_updated_by")
+    var statusUpdatedBy: String?
+
+    @OptionalField(key: "completed_at")
+    var completedAt: Date?
+
     @Timestamp(key: "created_at", on: .create)
     var createdAt: Date?
 
@@ -22,10 +32,20 @@ final class Goal: Model, Content, @unchecked Sendable {
 
     init() { }
 
-    init(id: UUID? = nil, userId: UUID, title: String) {
+    init(
+        id: UUID? = nil,
+        userId: UUID,
+        title: String,
+        status: String = GoalStatus.pending.rawValue,
+        statusUpdatedBy: String? = GoalStatusSource.manual.rawValue,
+        completedAt: Date? = nil
+    ) {
         self.id = id
         self.userId = userId
         self.title = title
+        self.status = status
+        self.statusUpdatedBy = statusUpdatedBy
+        self.completedAt = completedAt
     }
 
     // MARK: - Active Record helpers (ownership-scoped)

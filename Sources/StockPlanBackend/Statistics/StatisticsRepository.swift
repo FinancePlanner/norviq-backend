@@ -1,4 +1,5 @@
 import Fluent
+import FluentSQL
 import Foundation
 import Vapor
 
@@ -151,6 +152,12 @@ private extension DatabaseStatisticsRepository {
         let unrealizedPnl: Double
     }
 
+    struct LatestQuoteSnapshot: Sendable {
+        let symbol: String
+        let currency: String
+        let price: Double
+    }
+
     func buildOverview(
         userId: UUID,
         options: StatisticsQueryOptions,
@@ -159,19 +166,24 @@ private extension DatabaseStatisticsRepository {
         let generatedAt = Date()
         let asOf = startOfDay(options.asOfDate ?? generatedAt)
 
-        let stocks = try await Stock.query(on: db)
+        async let stocksTask: [Stock] = Stock.query(on: db)
             .filter(\.$userId == userId)
             .all()
-        let watchlist = try await WatchlistItem.query(on: db)
+        async let watchlistTask: [WatchlistItem] = WatchlistItem.query(on: db)
             .filter(\.$userId == userId)
             .filter(\.$status != "archived")
             .all()
-        let notes = try await ResearchNote.query(on: db)
+        async let notesTask: [ResearchNote] = ResearchNote.query(on: db)
             .filter(\.$userId == userId)
             .all()
-        let targets = try await Target.query(on: db)
+        async let targetsTask: [Target] = Target.query(on: db)
             .filter(\.$userId == userId)
             .all()
+
+        let stocks = try await stocksTask
+        let watchlist = try await watchlistTask
+        let notes = try await notesTask
+        let targets = try await targetsTask
 
         let stockSymbols = uniqueSymbols(from: stocks.map(\.symbol))
         let watchlistSymbols = uniqueSymbols(from: watchlist.map(\.symbol))
@@ -179,13 +191,15 @@ private extension DatabaseStatisticsRepository {
         let targetsSymbols = uniqueSymbols(from: targets.map(\.symbol))
 
         let combinedSymbols = uniqueSymbols(from: stockSymbols + watchlistSymbols + notesSymbols + targetsSymbols + [options.benchmarkSymbol])
-        let quoteBySymbol = try await loadLatestQuotes(symbols: combinedSymbols, on: db)
-        let historyBySymbol = try await loadPriceHistoryBySymbol(
+        async let quoteBySymbolTask: [String: LatestQuoteSnapshot] = loadLatestQuotes(symbols: combinedSymbols, on: db)
+        async let historyBySymbolTask: [String: [PriceHistory]] = loadPriceHistoryBySymbol(
             symbols: combinedSymbols,
             period: options.period,
             asOf: asOf,
             on: db
         )
+        let quoteBySymbol = try await quoteBySymbolTask
+        let historyBySymbol = try await historyBySymbolTask
 
         let notesBySymbol = Dictionary(grouping: notes) { normalizeSymbol($0.symbol) }
         let targetsBySymbol = Dictionary(grouping: targets) { normalizeSymbol($0.symbol) }
@@ -238,7 +252,7 @@ private extension DatabaseStatisticsRepository {
 
     func buildStockSnapshots(
         stocks: [Stock],
-        quoteBySymbol: [String: QuoteCache],
+        quoteBySymbol: [String: LatestQuoteSnapshot],
         historyBySymbol: [String: [PriceHistory]],
         asOf: Date
     ) -> [SnapshotRow] {
@@ -433,7 +447,7 @@ private extension DatabaseStatisticsRepository {
     func buildMarketStatistics(
         benchmark: String,
         symbols: [String],
-        quoteBySymbol: [String: QuoteCache],
+        quoteBySymbol: [String: LatestQuoteSnapshot],
         historyBySymbol: [String: [PriceHistory]],
         asOf: Date,
         top: Int
@@ -542,21 +556,64 @@ private extension DatabaseStatisticsRepository {
         return result
     }
 
-    func loadLatestQuotes(symbols: [String], on db: any Database) async throws -> [String: QuoteCache] {
+    func loadLatestQuotes(symbols rawSymbols: [String], on db: any Database) async throws -> [String: LatestQuoteSnapshot] {
+        let symbols = uniqueSymbols(from: rawSymbols)
         guard !symbols.isEmpty else { return [:] }
-        let query = QuoteCache.query(on: db).sort(\.$asOf, .descending)
-        query.group(.or) { group in
-            for symbol in symbols {
-                group.filter(\.$symbol == symbol)
+
+        if let sql = db as? any SQLDatabase {
+            // Use SQL-level "latest per symbol" to avoid loading stale rows and deduping in memory.
+            let rows = try await sql.raw(
+                """
+                SELECT DISTINCT ON (symbol)
+                    symbol,
+                    currency,
+                    price
+                FROM quote_cache
+                WHERE symbol = ANY(\(bind: symbols))
+                ORDER BY symbol, as_of DESC
+                """
+            ).all()
+
+            var result: [String: LatestQuoteSnapshot] = [:]
+            result.reserveCapacity(rows.count)
+            for row in rows {
+                guard
+                    let symbol = try? row.decode(column: "symbol", as: String.self),
+                    let currency = try? row.decode(column: "currency", as: String.self),
+                    let price = try? row.decode(column: "price", as: Double.self)
+                else {
+                    continue
+                }
+
+                let normalized = normalizeSymbol(symbol)
+                result[normalized] = LatestQuoteSnapshot(
+                    symbol: normalized,
+                    currency: currency,
+                    price: price
+                )
+            }
+
+            if !result.isEmpty {
+                return result
             }
         }
 
-        let quotes = try await query.all()
-        var result: [String: QuoteCache] = [:]
+        let quotes = try await QuoteCache.query(on: db)
+            .filter(\.$symbol ~~ symbols)
+            .sort(\.$symbol, .ascending)
+            .sort(\.$asOf, .descending)
+            .all()
+
+        var result: [String: LatestQuoteSnapshot] = [:]
+        result.reserveCapacity(quotes.count)
         for row in quotes {
             let symbol = normalizeSymbol(row.symbol)
             if result[symbol] == nil {
-                result[symbol] = row
+                result[symbol] = LatestQuoteSnapshot(
+                    symbol: symbol,
+                    currency: row.currency,
+                    price: row.price
+                )
             }
         }
         return result
@@ -570,12 +627,11 @@ private extension DatabaseStatisticsRepository {
     ) async throws -> [String: [PriceHistory]] {
         guard !symbols.isEmpty else { return [:] }
 
-        let query = PriceHistory.query(on: db).sort(\.$date, .ascending)
-        query.group(.or) { group in
-            for symbol in symbols {
-                group.filter(\.$symbol == symbol)
-            }
-        }
+        let normalizedSymbols = uniqueSymbols(from: symbols)
+        let query = PriceHistory.query(on: db)
+            .filter(\.$symbol ~~ normalizedSymbols)
+            .sort(\.$symbol, .ascending)
+            .sort(\.$date, .ascending)
 
         if let fromDate = defaultFromDate(period: period, asOf: asOf) {
             query.filter(\.$date >= fromDate)

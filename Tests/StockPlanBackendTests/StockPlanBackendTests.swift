@@ -155,6 +155,86 @@ struct StockPlanBackendTests {
         )
     }
 
+    private func monthStartDate(year: Int, month: Int) -> Date {
+        let calendar = Calendar(identifier: .gregorian)
+        var components = DateComponents()
+        components.calendar = calendar
+        components.timeZone = TimeZone(secondsFromGMT: 0)
+        components.year = year
+        components.month = month
+        components.day = 1
+        return calendar.date(from: components)!
+    }
+
+    private func seedMonthlyBudgetData(
+        app: Application,
+        userId: UUID,
+        year: Int,
+        month: Int,
+        salary: Double,
+        planned: Double,
+        actual: Double,
+        includeExpense: Bool = true
+    ) async throws {
+        let monthStart = monthStartDate(year: year, month: month)
+        let snapshot = BudgetSnapshot(
+            userID: userId,
+            monthStart: monthStart,
+            netSalary: salary,
+            targetShares: ["fundamentals": 0.5]
+        )
+        try await snapshot.save(on: app.db)
+
+        if planned > 0, let snapshotId = snapshot.id {
+            let item = BudgetPlanItem(
+                snapshotID: snapshotId,
+                userID: userId,
+                title: "Planned \(year)-\(month)",
+                plannedAmount: planned,
+                pillar: .fundamentals
+            )
+            try await item.save(on: app.db)
+        }
+
+        if includeExpense, actual > 0 {
+            let expense = Expense(
+                userID: userId,
+                title: "Actual \(year)-\(month)",
+                amount: actual,
+                pillar: .fundamentals,
+                occurredOn: monthStart
+            )
+            try await expense.save(on: app.db)
+        }
+    }
+
+    private func seedCashBuffer(
+        app: Application,
+        userId: UUID,
+        balance: Double
+    ) async throws {
+        let account = Account(
+            userId: userId,
+            externalId: "acct-\(UUID().uuidString)",
+            broker: "manual",
+            displayName: "Primary",
+            baseCurrency: "USD"
+        )
+        try await account.save(on: app.db)
+
+        guard let accountId = account.id else {
+            throw Abort(.internalServerError, reason: "Account id missing after save")
+        }
+
+        let cash = CashBalance(
+            accountId: accountId,
+            currency: "USD",
+            balance: balance,
+            asOf: Date()
+        )
+        try await cash.save(on: app.db)
+    }
+
     @Test("Test Hello World Route")
     func helloWorld() async throws {
         try await withApp { app in
@@ -1816,6 +1896,200 @@ struct StockPlanBackendTests {
             #expect(response?.sectorAllocation.first?.sector == "Unknown")
             #expect(response?.sectorAllocation.first?.value == 2_100)
             #expect(response?.sectorAllocation.first?.percent == 100)
+        }
+    }
+
+    @Test("Dashboard insights endpoint returns financial health payload")
+    func dashboardInsightsReturnsFinancialHealthPayload() async throws {
+        try await withApp { app in
+            let (token, userId) = try await registerTestUser(app: app)
+
+            try await seedMonthlyBudgetData(
+                app: app,
+                userId: userId,
+                year: 2026,
+                month: 1,
+                salary: 5_000,
+                planned: 1_500,
+                actual: 1_000
+            )
+            try await seedCashBuffer(app: app, userId: userId, balance: 2_000)
+
+            var response: DashboardInsightsResponse?
+            try await app.testing().test(.GET, "v1/dashboard/insights", beforeRequest: { req in
+                req.headers.bearerAuthorization = .init(token: token)
+            }, afterResponse: { res async throws in
+                #expect(res.status == .ok)
+                response = try res.content.decode(DashboardInsightsResponse.self)
+            })
+
+            #expect(response != nil)
+            #expect(response?.financialHealth.maxScore == 100)
+            #expect((response?.financialHealth.score ?? -1) >= 0)
+            #expect((response?.financialHealth.score ?? -1) <= 100)
+        }
+    }
+
+    @Test("Dashboard insights score strong profile is excellent")
+    func dashboardInsightsStrongProfile() async throws {
+        try await withApp { app in
+            let (token, userId) = try await registerTestUser(app: app)
+
+            for month in 1...6 {
+                try await seedMonthlyBudgetData(
+                    app: app,
+                    userId: userId,
+                    year: 2026,
+                    month: month,
+                    salary: 10_000,
+                    planned: 4_000,
+                    actual: 1_000
+                )
+            }
+            try await seedCashBuffer(app: app, userId: userId, balance: 10_000)
+
+            var response: DashboardInsightsResponse?
+            try await app.testing().test(.GET, "v1/dashboard/insights", beforeRequest: { req in
+                req.headers.bearerAuthorization = .init(token: token)
+            }, afterResponse: { res async throws in
+                #expect(res.status == .ok)
+                response = try res.content.decode(DashboardInsightsResponse.self)
+            })
+
+            #expect((response?.financialHealth.score ?? 0) >= 90)
+            #expect(response?.financialHealth.status == .excellent)
+        }
+    }
+
+    @Test("Dashboard insights score medium profile is healthy")
+    func dashboardInsightsMediumProfile() async throws {
+        try await withApp { app in
+            let (token, userId) = try await registerTestUser(app: app)
+
+            for month in 1...3 {
+                try await seedMonthlyBudgetData(
+                    app: app,
+                    userId: userId,
+                    year: 2026,
+                    month: month,
+                    salary: 10_000,
+                    planned: 3_000,
+                    actual: 2_000
+                )
+            }
+            try await seedCashBuffer(app: app, userId: userId, balance: 1_000)
+
+            var response: DashboardInsightsResponse?
+            try await app.testing().test(.GET, "v1/dashboard/insights", beforeRequest: { req in
+                req.headers.bearerAuthorization = .init(token: token)
+            }, afterResponse: { res async throws in
+                #expect(res.status == .ok)
+                response = try res.content.decode(DashboardInsightsResponse.self)
+            })
+
+            let score = response?.financialHealth.score ?? -1
+            #expect(score >= 70)
+            #expect(score <= 89)
+            #expect(response?.financialHealth.status == .healthy)
+        }
+    }
+
+    @Test("Dashboard insights score weak profile is at risk")
+    func dashboardInsightsWeakProfile() async throws {
+        try await withApp { app in
+            let (token, userId) = try await registerTestUser(app: app)
+
+            try await seedMonthlyBudgetData(
+                app: app,
+                userId: userId,
+                year: 2026,
+                month: 1,
+                salary: 1_000,
+                planned: 1_000,
+                actual: 1_500
+            )
+            try await seedCashBuffer(app: app, userId: userId, balance: 0)
+
+            var response: DashboardInsightsResponse?
+            try await app.testing().test(.GET, "v1/dashboard/insights", beforeRequest: { req in
+                req.headers.bearerAuthorization = .init(token: token)
+            }, afterResponse: { res async throws in
+                #expect(res.status == .ok)
+                response = try res.content.decode(DashboardInsightsResponse.self)
+            })
+
+            #expect((response?.financialHealth.score ?? 100) < 40)
+            #expect(response?.financialHealth.status == .atRisk)
+        }
+    }
+
+    @Test("Dashboard insights no-expense case keeps buffer contribution at zero")
+    func dashboardInsightsNoExpenseData() async throws {
+        try await withApp { app in
+            let (token, userId) = try await registerTestUser(app: app)
+
+            for month in 1...6 {
+                try await seedMonthlyBudgetData(
+                    app: app,
+                    userId: userId,
+                    year: 2026,
+                    month: month,
+                    salary: 8_000,
+                    planned: 2_000,
+                    actual: 0,
+                    includeExpense: false
+                )
+            }
+            try await seedCashBuffer(app: app, userId: userId, balance: 50_000)
+
+            var response: DashboardInsightsResponse?
+            try await app.testing().test(.GET, "v1/dashboard/insights", beforeRequest: { req in
+                req.headers.bearerAuthorization = .init(token: token)
+            }, afterResponse: { res async throws in
+                #expect(res.status == .ok)
+                response = try res.content.decode(DashboardInsightsResponse.self)
+            })
+
+            // savings: 40 + streak: 30 + buffer: 0 => 70
+            #expect(response?.financialHealth.score == 70)
+            #expect(response?.financialHealth.status == .healthy)
+        }
+    }
+
+    @Test("Goals can update focus status")
+    func goalsCanUpdateFocusStatus() async throws {
+        try await withApp { app in
+            let (token, _) = try await registerTestUser(app: app)
+
+            var created: GoalResponse?
+            try await app.testing().test(.POST, "v1/goals", beforeRequest: { req in
+                req.headers.bearerAuthorization = .init(token: token)
+                try req.content.encode(GoalRequest(title: "Review watchlist before earnings"))
+            }, afterResponse: { res async throws in
+                #expect(res.status == .ok)
+                created = try res.content.decode(GoalResponse.self)
+            })
+
+            guard let created else {
+                Issue.record("Expected created goal response")
+                return
+            }
+
+            #expect(created.status == .pending)
+            #expect(created.completedAt == nil)
+
+            var updated: GoalResponse?
+            try await app.testing().test(.PATCH, "v1/goals/\(created.id)/status", beforeRequest: { req in
+                req.headers.bearerAuthorization = .init(token: token)
+                try req.content.encode(GoalStatusUpdateRequest(status: .completed, source: .manual))
+            }, afterResponse: { res async throws in
+                #expect(res.status == .ok)
+                updated = try res.content.decode(GoalResponse.self)
+            })
+
+            #expect(updated?.status == .completed)
+            #expect(updated?.statusUpdatedBy == .manual)
+            #expect(updated?.completedAt != nil)
         }
     }
 

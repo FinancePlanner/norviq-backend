@@ -66,6 +66,7 @@ protocol StockService: Sendable {
 
 struct StockServiceImpl: StockService {
     let repo: any StocksRepository
+    let req: Request
 
     func list(userId: UUID, on db: any Database) async throws -> [StockResponse] {
         let stocks = try await repo.list(userId: userId, on: db)
@@ -105,6 +106,18 @@ struct StockServiceImpl: StockService {
     {
         _ = try validateSymbol(payload.symbol)
         let stock = try await repo.create(payload: payload, userId: userId, on: db)
+        
+        try? await req.userActivityService.recordActivity(
+            userId: userId,
+            type: .stockAdded,
+            title: stock.symbol,
+            subtitle: "Added to portfolio",
+            amount: stock.shares * stock.buyPrice,
+            isGrowth: true,
+            symbol: "plus.circle.fill",
+            on: db
+        )
+        
         return try StockResponse(from: stock)
     }
 
@@ -136,6 +149,20 @@ struct StockServiceImpl: StockService {
         let results = try await repo.bulkCreate(payloads: payloads, userId: userId, on: db)
         let created = results.filter { $0.stock != nil }.count
         let failed = results.filter { $0.error != nil }.count
+        
+        if created > 0 {
+            try? await req.userActivityService.recordActivity(
+                userId: userId,
+                type: .stockAdded,
+                title: "\(created) Stocks",
+                subtitle: "Bulk imported",
+                amount: nil,
+                isGrowth: true,
+                symbol: "arrow.down.doc.fill",
+                on: db
+            )
+        }
+        
         return BulkStockResponse(created: created, failed: failed, results: results)
     }
 
@@ -147,6 +174,18 @@ struct StockServiceImpl: StockService {
         else {
             throw StockServiceError.notFound
         }
+        
+        try? await req.userActivityService.recordActivity(
+            userId: userId,
+            type: .stockUpdated,
+            title: stock.symbol,
+            subtitle: "Updated holding",
+            amount: stock.shares * stock.buyPrice,
+            isGrowth: true,
+            symbol: "pencil.circle.fill",
+            on: db
+        )
+        
         return try StockResponse(from: stock)
     }
 

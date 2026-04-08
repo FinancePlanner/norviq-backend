@@ -111,6 +111,8 @@ extension CryptoPortfolioItemResponse: @retroactive Content {}
 // MARK: - Expenses
 extension BudgetSnapshotRequest: @retroactive Content {}
 extension BudgetSnapshotResponse: @retroactive Content {}
+extension HouseholdPartnerProfileRequest: @retroactive Content {}
+extension HouseholdPartnerProfileResponse: @retroactive Content {}
 extension BudgetPlanItemRequest: @retroactive Content {}
 extension BudgetPlanItemResponse: @retroactive Content {}
 extension ExpenseRequest: @retroactive Content {}
@@ -118,8 +120,22 @@ extension ExpenseResponse: @retroactive Content {}
 extension PillarPlanningSummaryResponse: @retroactive Content {}
 extension BudgetMonthSummaryResponse: @retroactive Content {}
 extension BudgetYearSummaryResponse: @retroactive Content {}
+extension ReportsCashFlowPointResponse: @retroactive Content {}
+extension ReportsOverviewResponse: @retroactive Content {}
+extension ReportSuggestionSeverity: @retroactive Content {}
+extension ReportSuggestionCategory: @retroactive Content {}
+extension ReportSuggestionResponse: @retroactive Content {}
+extension ReportSuggestionsResponse: @retroactive Content {}
 
 // MARK: - Goals & Dashboard Insights
 extension GoalRequest: @retroactive Content {}
+extension GoalStatus: @retroactive Content {}
+extension GoalStatusSource: @retroactive Content {}
+extension GoalStatusUpdateRequest: @retroactive Content {}
 extension GoalResponse: @retroactive Content {}
 extension DashboardInsightsResponse: @retroactive Content {}
+extension DashboardFinancialHealthDTO: @retroactive Content {}
+extension FinancialHealthStatus: @retroactive Content {}
+
+// MARK: - Activity
+extension UserActivityResponse: @retroactive Content {}

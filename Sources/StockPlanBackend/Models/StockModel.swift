@@ -1,6 +1,7 @@
 import Fluent
 import Vapor
 import Foundation
+import StockPlanShared
 
 final class Stock: Model, Content, @unchecked Sendable {
     static let schema = "stocks"

@@ -2998,6 +2998,44 @@ paths:
         '401':
           description: Unauthorized
 
+  /v1/expenses/partner:
+    get:
+      operationId: getHouseholdPartner
+      tags: [Expenses]
+      summary: Get household partner profile
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HouseholdPartnerProfileResponse'
+        '401':
+          description: Unauthorized
+    put:
+      operationId: updateHouseholdPartner
+      tags: [Expenses]
+      summary: Update household partner profile
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/HouseholdPartnerProfileRequest'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HouseholdPartnerProfileResponse'
+        '401':
+          description: Unauthorized
+
   /v1/expenses/{expenseId}:
     parameters:
       - name: expenseId
@@ -3036,6 +3074,36 @@ paths:
       responses:
         '204':
           description: No Content
+        '401':
+          description: Unauthorized
+
+  /v1/reports/overview:
+    get:
+      operationId: getReportsOverview
+      tags: [Expenses]
+      summary: Get aggregated reports overview
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: from
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date
+        - name: to
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReportsOverviewResponse'
         '401':
           description: Unauthorized
 
@@ -3081,6 +3149,63 @@ paths:
         '401':
           description: Unauthorized
 
+  /v1/reports/suggestions:
+    get:
+      operationId: getReportSuggestions
+      tags: [Expenses]
+      summary: Get smart report suggestions
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: from
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date
+        - name: to
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReportSuggestionsResponse'
+        '401':
+          description: Unauthorized
+
+  /v1/reports/suggestions/{id}/dismiss:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+    post:
+      operationId: dismissReportSuggestion
+      tags: [Expenses]
+      summary: Dismiss a smart report suggestion
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                required: [success]
+        '401':
+          description: Unauthorized
+
   /v1/dashboard:
     get:
       operationId: dashboardHome
@@ -3095,6 +3220,186 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/DashboardResponse'
+        '401':
+          description: Unauthorized
+
+  /v1/dashboard/insights:
+    get:
+      operationId: dashboardInsights
+      tags: [Dashboard]
+      summary: Dashboard insight metrics
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DashboardInsightsResponse'
+        '401':
+          description: Unauthorized
+
+  /v1/goals:
+    get:
+      operationId: listGoals
+      tags: [Goals]
+      summary: List focus points
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/GoalResponse'
+        '401':
+          description: Unauthorized
+    post:
+      operationId: createGoal
+      tags: [Goals]
+      summary: Create a focus point
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GoalRequest'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GoalResponse'
+        '401':
+          description: Unauthorized
+
+  /v1/goals/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    get:
+      operationId: getGoal
+      tags: [Goals]
+      summary: Get a focus point by id
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GoalResponse'
+        '401':
+          description: Unauthorized
+        '404':
+          description: Not Found
+    patch:
+      operationId: updateGoal
+      tags: [Goals]
+      summary: Update a focus point title
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GoalRequest'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GoalResponse'
+        '401':
+          description: Unauthorized
+        '404':
+          description: Not Found
+    delete:
+      operationId: deleteGoal
+      tags: [Goals]
+      summary: Delete a focus point
+      security:
+        - bearerAuth: []
+      responses:
+        '204':
+          description: No Content
+        '401':
+          description: Unauthorized
+        '404':
+          description: Not Found
+
+  /v1/goals/{id}/status:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    patch:
+      operationId: updateGoalStatus
+      tags: [Goals]
+      summary: Update a focus point status
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GoalStatusUpdateRequest'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GoalResponse'
+        '401':
+          description: Unauthorized
+        '404':
+          description: Not Found
+
+  /v1/activities:
+    get:
+      operationId: getActivities
+      tags: [Dashboard]
+      summary: Get user activity feed
+      description: Returns a list of user activities such as stock additions, stock updates, expense recordings, and expense updates, sorted by creation date (newest first).
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: limit
+          in: query
+          required: false
+          description: Maximum number of activities to return (default 20)
+          schema:
+            type: integer
+            format: int32
+            default: 20
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/UserActivityResponse'
         '401':
           description: Unauthorized
 
@@ -3978,6 +4283,24 @@ components:
           nullable: true
       required: [id, monthStart, netSalary, targetShares]
 
+    ExpenseSplitMode:
+      type: string
+      enum: [personal, shared]
+
+    HouseholdPartnerProfileRequest:
+      type: object
+      properties:
+        displayName:
+          type: string
+          nullable: true
+
+    HouseholdPartnerProfileResponse:
+      type: object
+      properties:
+        displayName:
+          type: string
+          nullable: true
+
     BudgetPlanItemRequest:
       type: object
       properties:
@@ -3992,7 +4315,14 @@ components:
         pillar:
           type: string
           enum: [fundamentals, futureYou, fun]
-      required: [snapshotId, title, plannedAmount, pillar]
+        splitMode:
+          $ref: '#/components/schemas/ExpenseSplitMode'
+        userSharePercent:
+          type: number
+          format: double
+          minimum: 0
+          maximum: 100
+      required: [snapshotId, title, plannedAmount, pillar, splitMode, userSharePercent]
 
     BudgetPlanItemResponse:
       type: object
@@ -4011,6 +4341,13 @@ components:
         pillar:
           type: string
           enum: [fundamentals, futureYou, fun]
+        splitMode:
+          $ref: '#/components/schemas/ExpenseSplitMode'
+        userSharePercent:
+          type: number
+          format: double
+          minimum: 0
+          maximum: 100
         createdAt:
           type: string
           format: date-time
@@ -4019,7 +4356,7 @@ components:
           type: string
           format: date-time
           nullable: true
-      required: [id, snapshotId, title, plannedAmount, pillar]
+      required: [id, snapshotId, title, plannedAmount, pillar, splitMode, userSharePercent]
 
     ExpenseRequest:
       type: object
@@ -4039,7 +4376,14 @@ components:
           type: string
           format: uuid
           nullable: true
-      required: [title, amount, pillar, occurredOn]
+        splitMode:
+          $ref: '#/components/schemas/ExpenseSplitMode'
+        userSharePercent:
+          type: number
+          format: double
+          minimum: 0
+          maximum: 100
+      required: [title, amount, pillar, occurredOn, splitMode, userSharePercent]
 
     ExpenseResponse:
       type: object
@@ -4062,6 +4406,13 @@ components:
           type: string
           format: uuid
           nullable: true
+        splitMode:
+          $ref: '#/components/schemas/ExpenseSplitMode'
+        userSharePercent:
+          type: number
+          format: double
+          minimum: 0
+          maximum: 100
         createdAt:
           type: string
           format: date-time
@@ -4070,7 +4421,27 @@ components:
           type: string
           format: date-time
           nullable: true
-      required: [id, title, amount, pillar, occurredOn]
+      required: [id, title, amount, pillar, occurredOn, splitMode, userSharePercent]
+
+    PillarPlanningSummaryResponse:
+      type: object
+      properties:
+        pillar:
+          type: string
+          enum: [fundamentals, futureYou, fun]
+        targetAmount:
+          type: number
+          format: double
+        plannedAmount:
+          type: number
+          format: double
+        actualAmount:
+          type: number
+          format: double
+        unplannedActualAmount:
+          type: number
+          format: double
+      required: [pillar, targetAmount, plannedAmount, actualAmount, unplannedActualAmount]
 
     BudgetMonthSummaryResponse:
       type: object
@@ -4087,6 +4458,18 @@ components:
         salary:
           type: number
           format: double
+        myPlanned:
+          type: number
+          format: double
+        partnerPlanned:
+          type: number
+          format: double
+        myActual:
+          type: number
+          format: double
+        partnerActual:
+          type: number
+          format: double
         pillarActuals:
           type: object
           additionalProperties:
@@ -4097,7 +4480,28 @@ components:
           additionalProperties:
             type: number
             format: double
-      required: [monthStart, planned, actual, salary, pillarActuals, pillarPlans]
+        myPillarActuals:
+          type: object
+          additionalProperties:
+            type: number
+            format: double
+        partnerPillarActuals:
+          type: object
+          additionalProperties:
+            type: number
+            format: double
+        myPillarPlans:
+          type: object
+          additionalProperties:
+            type: number
+            format: double
+        partnerPillarPlans:
+          type: object
+          additionalProperties:
+            type: number
+            format: double
+      required:
+        [monthStart, planned, actual, salary, myPlanned, partnerPlanned, myActual, partnerActual, pillarActuals, pillarPlans, myPillarActuals, partnerPillarActuals, myPillarPlans, partnerPillarPlans]
 
     BudgetYearSummaryResponse:
       type: object
@@ -4113,7 +4517,114 @@ components:
         salary:
           type: number
           format: double
-      required: [year, planned, actual, salary]
+        myPlanned:
+          type: number
+          format: double
+        partnerPlanned:
+          type: number
+          format: double
+        myActual:
+          type: number
+          format: double
+        partnerActual:
+          type: number
+          format: double
+      required: [year, planned, actual, salary, myPlanned, partnerPlanned, myActual, partnerActual]
+
+    ReportsCashFlowPointResponse:
+      type: object
+      properties:
+        monthStart:
+          type: string
+          format: date
+        income:
+          type: number
+          format: double
+        expenses:
+          type: number
+          format: double
+        net:
+          type: number
+          format: double
+        savingsRate:
+          type: number
+          format: double
+      required: [monthStart, income, expenses, net, savingsRate]
+
+    ReportsOverviewResponse:
+      type: object
+      properties:
+        generatedAt:
+          type: string
+          format: date-time
+        portfolioStatistics:
+          $ref: '#/components/schemas/ImportedStocksStatisticsDTO'
+        monthlySummaries:
+          type: array
+          items:
+            $ref: '#/components/schemas/BudgetMonthSummaryResponse'
+        yearlySummaries:
+          type: array
+          items:
+            $ref: '#/components/schemas/BudgetYearSummaryResponse'
+        latestMonthSummary:
+          $ref: '#/components/schemas/BudgetMonthSummaryResponse'
+          nullable: true
+        latestPillarSummaries:
+          type: array
+          items:
+            $ref: '#/components/schemas/PillarPlanningSummaryResponse'
+        cashFlow:
+          type: array
+          items:
+            $ref: '#/components/schemas/ReportsCashFlowPointResponse'
+      required:
+        [generatedAt, portfolioStatistics, monthlySummaries, yearlySummaries, latestPillarSummaries, cashFlow]
+
+    ReportSuggestionSeverity:
+      type: string
+      enum: [low, medium, high]
+
+    ReportSuggestionCategory:
+      type: string
+      enum: [overspend, unplannedSpend, savingsTrend]
+
+    ReportSuggestionResponse:
+      type: object
+      properties:
+        id:
+          type: string
+        title:
+          type: string
+        message:
+          type: string
+        severity:
+          $ref: '#/components/schemas/ReportSuggestionSeverity'
+        category:
+          $ref: '#/components/schemas/ReportSuggestionCategory'
+        monthStart:
+          type: string
+          format: date
+        recommendedSavings:
+          type: number
+          format: double
+        detailPayload:
+          type: object
+          additionalProperties:
+            type: string
+      required: [id, title, message, severity, category, monthStart, recommendedSavings, detailPayload]
+
+    ReportSuggestionsResponse:
+      type: object
+      properties:
+        generatedAt:
+          type: string
+          format: date-time
+        suggestions:
+          type: array
+          items:
+            $ref: '#/components/schemas/ReportSuggestionResponse'
+      required: [generatedAt, suggestions]
 
     AssetCategory:
       type: string
@@ -5491,6 +6002,122 @@ components:
         publishedAt:
           type: string
       required: [id, symbol, headline, publishedAt]
+
+    DashboardInsightsResponse:
+      type: object
+      properties:
+        savingsRate:
+          type: number
+          format: double
+        budgetStreak:
+          type: integer
+          format: int32
+        watchlistCount:
+          type: integer
+          format: int32
+        cashBuffer:
+          type: number
+          format: double
+        financialHealth:
+          $ref: '#/components/schemas/DashboardFinancialHealthDTO'
+      required: [savingsRate, budgetStreak, watchlistCount, cashBuffer, financialHealth]
+
+    DashboardFinancialHealthDTO:
+      type: object
+      properties:
+        score:
+          type: integer
+          format: int32
+          minimum: 0
+          maximum: 100
+        maxScore:
+          type: integer
+          format: int32
+          enum: [100]
+        status:
+          $ref: '#/components/schemas/FinancialHealthStatus'
+      required: [score, maxScore, status]
+
+    FinancialHealthStatus:
+      type: string
+      enum: [atRisk, needsAttention, healthy, excellent]
+
+    GoalStatus:
+      type: string
+      enum: [pending, completed]
+    GoalStatusSource:
+      type: string
+      enum: [manual, system]
+    GoalRequest:
+      type: object
+      properties:
+        title:
+          type: string
+      required: [title]
+    GoalStatusUpdateRequest:
+      type: object
+      properties:
+        status:
+          $ref: '#/components/schemas/GoalStatus'
+        source:
+          $ref: '#/components/schemas/GoalStatusSource'
+      required: [status, source]
+    GoalResponse:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        title:
+          type: string
+        status:
+          $ref: '#/components/schemas/GoalStatus'
+        statusUpdatedBy:
+          $ref: '#/components/schemas/GoalStatusSource'
+          nullable: true
+        completedAt:
+          type: string
+          format: date-time
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+          nullable: true
+        updatedAt:
+          type: string
+          format: date-time
+          nullable: true
+      required: [id, title, status]
+
+    UserActivityResponse:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        userId:
+          type: string
+          format: uuid
+        type:
+          type: string
+          enum: [stock_added, expense_recorded, stock_updated, expense_updated]
+        title:
+          type: string
+        subtitle:
+          type: string
+        amount:
+          type: number
+          format: double
+          nullable: true
+        isGrowth:
+          type: boolean
+        symbol:
+          type: string
+          description: SF Symbol name for iOS display
+        createdAt:
+          type: string
+          format: date-time
+      required: [id, userId, type, title, subtitle, isGrowth, symbol, createdAt]
 
     BrokerConnectionResponse:
       type: object

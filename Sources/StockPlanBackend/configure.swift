@@ -50,7 +50,6 @@ public func configure(_ app: Application) async throws {
     app.authService = DefaultAuthService(repo: app.authRepository)
     app.mailer = ConsoleMailerService()
     app.stocksRepository = DatabaseStocksRepository()
-    app.stocksService = StockServiceImpl(repo: app.stocksRepository)
     app.brokersRepository = DatabaseBrokersRepository()
     app.brokersService = DefaultBrokersService(repo: app.brokersRepository)
     app.marketDataRepository = DatabaseMarketDataRepository()
@@ -126,7 +125,6 @@ public func configure(_ app: Application) async throws {
     )
     app.userProfileRepository = DatabaseUserProfileRepository()
     app.userProfileService = DefaultUserProfileService(repo: app.userProfileRepository)
-    app.expensesService = DefaultExpensesService()
 
     let earningsProvider: any EarningsProvider
     if let finnhubAPIKey, !finnhubAPIKey.isEmpty {
@@ -152,6 +150,7 @@ public func configure(_ app: Application) async throws {
     app.migrations.add(AddUserProfileMetadataFields())
     app.migrations.add(CreateTodo())
     app.migrations.add(CreateGoal())
+    app.migrations.add(AddGoalStatusFields())
     app.migrations.add(CreateAccount())
     app.migrations.add(CreateInstrument())
     app.migrations.add(CreateTransaction())
@@ -176,8 +175,8 @@ public func configure(_ app: Application) async throws {
     app.migrations.add(CreateBrokerConnection())
     app.migrations.add(CreateMarketNewsArchive())
     app.migrations.add(AddImageURLToMarketNewsArchive())
-    app.migrations.add(CreatePosition())
     app.migrations.add(AddUserScopedQueryIndexes())
+    app.migrations.add(AddQuoteCacheLookupIndex())
     app.migrations.add(CreateStockValuation())
     app.migrations.add(CreateProfileCache())
     app.migrations.add(CreateBasicFinancialsCache())
@@ -189,6 +188,12 @@ public func configure(_ app: Application) async throws {
     app.migrations.add(CreateFeedback())
     app.migrations.add(CreateCryptoPortfolioItem())
     app.migrations.add(CreateExpensesTables())
+    app.migrations.add(AddExpenseSharingFields())
+    app.migrations.add(CreateReportSuggestionDismissals())
+    app.migrations.add(AddHouseholdPartnerDisplayNameToUsers())
+    app.migrations.add(CreateUserActivity())
+    app.migrations.add(AddNewsViewedActivityType())
+    app.migrations.add(CreateUserBadge())
 
     // register routes
     try routes(app)

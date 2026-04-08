@@ -24,6 +24,12 @@ final class BudgetPlanItem: Model, @unchecked Sendable {
     @Enum(key: "pillar")
     var pillar: BudgetPillar
 
+    @Enum(key: "split_mode")
+    var splitMode: ExpenseSplitMode
+
+    @Field(key: "user_share_percent")
+    var userSharePercent: Double
+
     @Timestamp(key: "created_at", on: .create)
     var createdAt: Date?
 
@@ -38,7 +44,9 @@ final class BudgetPlanItem: Model, @unchecked Sendable {
         userID: UUID,
         title: String,
         plannedAmount: Double,
-        pillar: BudgetPillar
+        pillar: BudgetPillar,
+        splitMode: ExpenseSplitMode = .personal,
+        userSharePercent: Double = 100
     ) {
         self.id = id
         self.$snapshot.id = snapshotID
@@ -46,5 +54,7 @@ final class BudgetPlanItem: Model, @unchecked Sendable {
         self.title = title
         self.plannedAmount = plannedAmount
         self.pillar = pillar
+        self.splitMode = splitMode
+        self.userSharePercent = userSharePercent
     }
 }

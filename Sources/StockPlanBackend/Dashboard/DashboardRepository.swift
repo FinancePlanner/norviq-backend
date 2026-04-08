@@ -1,4 +1,5 @@
 import Fluent
+import FluentSQL
 import Foundation
 
 struct DashboardSnapshotModel: Sendable {
@@ -40,19 +41,25 @@ struct DatabaseDashboardRepository: DashboardRepository {
     func snapshot(userId: UUID, on db: any Database) async throws -> DashboardSnapshotModel {
         let generatedAt = Date()
 
-        let stocks = try await Stock.query(on: db)
+        async let stocksTask: [Stock] = Stock.query(on: db)
             .filter(\.$userId == userId)
             .all()
-        let watchlistCount = try await WatchlistItem.query(on: db)
+        async let watchlistCountTask: Int = WatchlistItem.query(on: db)
             .filter(\.$userId == userId)
             .filter(\.$status != "archived")
             .count()
-        let researchCount = try await ResearchNote.query(on: db)
+        async let researchCountTask: Int = ResearchNote.query(on: db)
             .filter(\.$userId == userId)
             .count()
-        let targetsCount = try await Target.query(on: db)
+        async let targetsCountTask: Int = Target.query(on: db)
             .filter(\.$userId == userId)
             .count()
+        async let recentNewsTask: [DashboardSnapshotModel.News] = loadRecentNews(userId: userId, on: db)
+
+        let stocks = try await stocksTask
+        let watchlistCount = try await watchlistCountTask
+        let researchCount = try await researchCountTask
+        let targetsCount = try await targetsCountTask
 
         let symbols = Array(Set(stocks.map { normalizeSymbol($0.symbol) }))
         let latestQuotes = try await loadLatestQuotes(symbols: symbols, on: db)
@@ -81,21 +88,7 @@ struct DatabaseDashboardRepository: DashboardRepository {
                 )
             }
 
-        let recentNews = try await NewsItem.query(on: db)
-            .filter(\.$userId == userId)
-            .sort(\.$publishedAt, .descending)
-            .limit(5)
-            .all()
-            .compactMap { item -> DashboardSnapshotModel.News? in
-                guard let id = item.id else { return nil }
-                return .init(
-                    id: id,
-                    symbol: item.symbol,
-                    headline: item.headline,
-                    source: item.source,
-                    publishedAt: item.publishedAt
-                )
-            }
+        let recentNews = try await recentNewsTask
 
         return DashboardSnapshotModel(
             generatedAt: generatedAt,
@@ -115,23 +108,88 @@ struct DatabaseDashboardRepository: DashboardRepository {
 }
 
 private extension DatabaseDashboardRepository {
-    func loadLatestQuotes(symbols: [String], on db: any Database) async throws -> [String: QuoteCache] {
-        guard !symbols.isEmpty else { return [:] }
-        let query = QuoteCache.query(on: db)
-            .sort(\.$asOf, .descending)
+    func loadRecentNews(userId: UUID, on db: any Database) async throws -> [DashboardSnapshotModel.News] {
+        try await NewsItem.query(on: db)
+            .filter(\.$userId == userId)
+            .sort(\.$publishedAt, .descending)
+            .limit(5)
+            .all()
+            .compactMap { item -> DashboardSnapshotModel.News? in
+                guard let id = item.id else { return nil }
+                return .init(
+                    id: id,
+                    symbol: item.symbol,
+                    headline: item.headline,
+                    source: item.source,
+                    publishedAt: item.publishedAt
+                )
+            }
+    }
 
-        query.group(.or) { group in
-            for symbol in symbols {
-                group.filter(\.$symbol == symbol)
+    struct LatestQuoteSnapshot: Sendable {
+        let symbol: String
+        let currency: String
+        let price: Double
+    }
+
+    func loadLatestQuotes(symbols rawSymbols: [String], on db: any Database) async throws -> [String: LatestQuoteSnapshot] {
+        let symbols = Array(Set(rawSymbols.map(normalizeSymbol))).sorted()
+        guard !symbols.isEmpty else { return [:] }
+
+        if let sql = db as? any SQLDatabase {
+            // Use SQL-level "latest per symbol" to avoid loading stale rows and deduping in memory.
+            let rows = try await sql.raw(
+                """
+                SELECT DISTINCT ON (symbol)
+                    symbol,
+                    currency,
+                    price
+                FROM quote_cache
+                WHERE symbol = ANY(\(bind: symbols))
+                ORDER BY symbol, as_of DESC
+                """
+            ).all()
+
+            var result: [String: LatestQuoteSnapshot] = [:]
+            result.reserveCapacity(rows.count)
+            for row in rows {
+                guard
+                    let symbol = try? row.decode(column: "symbol", as: String.self),
+                    let currency = try? row.decode(column: "currency", as: String.self),
+                    let price = try? row.decode(column: "price", as: Double.self)
+                else {
+                    continue
+                }
+
+                let normalized = normalizeSymbol(symbol)
+                result[normalized] = LatestQuoteSnapshot(
+                    symbol: normalized,
+                    currency: currency,
+                    price: price
+                )
+            }
+
+            if !result.isEmpty {
+                return result
             }
         }
 
-        let rows = try await query.all()
-        var result: [String: QuoteCache] = [:]
+        let rows = try await QuoteCache.query(on: db)
+            .filter(\.$symbol ~~ symbols)
+            .sort(\.$symbol, .ascending)
+            .sort(\.$asOf, .descending)
+            .all()
+
+        var result: [String: LatestQuoteSnapshot] = [:]
+        result.reserveCapacity(rows.count)
         for row in rows {
             let symbol = normalizeSymbol(row.symbol)
             if result[symbol] == nil {
-                result[symbol] = row
+                result[symbol] = LatestQuoteSnapshot(
+                    symbol: symbol,
+                    currency: row.currency,
+                    price: row.price
+                )
             }
         }
         return result

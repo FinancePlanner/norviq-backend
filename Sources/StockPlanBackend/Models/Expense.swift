@@ -24,6 +24,12 @@ final class Expense: Model, @unchecked Sendable {
     @Field(key: "occurred_on")
     var occurredOn: Date
 
+    @Enum(key: "split_mode")
+    var splitMode: ExpenseSplitMode
+
+    @Field(key: "user_share_percent")
+    var userSharePercent: Double
+
     @OptionalParent(key: "linked_item_id")
     var linkedPlanItem: BudgetPlanItem?
 
@@ -42,7 +48,9 @@ final class Expense: Model, @unchecked Sendable {
         amount: Double,
         pillar: BudgetPillar,
         occurredOn: Date,
-        linkedPlanItemID: UUID? = nil
+        linkedPlanItemID: UUID? = nil,
+        splitMode: ExpenseSplitMode = .personal,
+        userSharePercent: Double = 100
     ) {
         self.id = id
         self.$user.id = userID
@@ -50,6 +58,8 @@ final class Expense: Model, @unchecked Sendable {
         self.amount = amount
         self.pillar = pillar
         self.occurredOn = occurredOn
+        self.splitMode = splitMode
+        self.userSharePercent = userSharePercent
         self.$linkedPlanItem.id = linkedPlanItemID
     }
 }

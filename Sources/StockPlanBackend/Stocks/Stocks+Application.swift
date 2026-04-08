@@ -19,3 +19,9 @@ extension Application {
         set { storage[StocksServiceKey.self] = newValue }
     }
 }
+
+extension Request {
+    var stocksService: any StockService {
+        StockServiceImpl(repo: application.stocksRepository, req: self)
+    }
+}

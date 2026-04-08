@@ -4,15 +4,15 @@ import StockPlanShared
 import Foundation
 
 protocol DashboardService: Sendable {
-    func dashboard(userId: UUID, on db: any Database) async throws -> DashboardResponse
-    func insights(userId: UUID, on db: any Database) async throws -> DashboardInsightsResponse
+    func dashboard(userId: UUID, req: Request, on db: any Database) async throws -> DashboardResponse
+    func insights(userId: UUID, req: Request, on db: any Database) async throws -> DashboardInsightsResponse
 }
 
 struct DefaultDashboardService: DashboardService {
     let repo: any DashboardRepository
     let statisticsRepo: any StatisticsRepository
 
-    func dashboard(userId: UUID, on db: any Database) async throws -> DashboardResponse {
+    func dashboard(userId: UUID, req: Request, on db: any Database) async throws -> DashboardResponse {
         let overview = try await statisticsRepo.overviewStatistics(
             userId: userId,
             options: StatisticsQueryOptions(
@@ -52,7 +52,7 @@ struct DefaultDashboardService: DashboardService {
         )
     }
 
-    func insights(userId: UUID, on db: any Database) async throws -> DashboardInsightsResponse {
+    func insights(userId: UUID, req: Request, on db: any Database) async throws -> DashboardInsightsResponse {
         // Cash Buffer
         let accounts = try await Account.query(on: db).filter(\.$userId == userId).all()
         let accountIds = Set(accounts.compactMap { $0.id })
@@ -66,8 +66,7 @@ struct DefaultDashboardService: DashboardService {
         let watchlistCount = try await WatchlistItem.query(on: db).filter(\.$userId == userId).count()
 
         // Expenses logic
-        let expensesService = DefaultExpensesService()
-        let monthlyReports = try await expensesService.getMonthlyReports(userId: userId, from: nil, to: nil, on: db)
+        let monthlyReports = try await req.expensesService.getMonthlyReports(userId: userId, from: nil, to: nil, on: db)
         
         var budgetStreak = 0
         for report in monthlyReports.reversed() { // newest first, because getMonthlyReports is sorted asc
@@ -83,17 +82,70 @@ struct DefaultDashboardService: DashboardService {
             savingsRate = (lastReport.salary - lastReport.actual) / lastReport.salary * 100
             savingsRate = max(0, savingsRate)
         }
+
+        let financialHealth = makeFinancialHealth(
+            savingsRate: savingsRate,
+            budgetStreak: budgetStreak,
+            cashBuffer: cashBuffer,
+            latestMonthlyActualExpenses: monthlyReports.last?.actual
+        )
         
         return DashboardInsightsResponse(
             savingsRate: round2(savingsRate),
             budgetStreak: budgetStreak,
             watchlistCount: watchlistCount,
-            cashBuffer: round2(cashBuffer)
+            cashBuffer: round2(cashBuffer),
+            financialHealth: financialHealth
         )
     }
 }
 
 private extension DefaultDashboardService {
+    func makeFinancialHealth(
+        savingsRate: Double,
+        budgetStreak: Int,
+        cashBuffer: Double,
+        latestMonthlyActualExpenses: Double?
+    ) -> DashboardFinancialHealthDTO {
+        let clampedSavingsRate = max(0, savingsRate)
+        let normalizedSavingsRate = min(clampedSavingsRate / 30.0, 1.0)
+        let savingsComponent = normalizedSavingsRate * 40.0
+
+        let clampedBudgetStreak = max(0, budgetStreak)
+        let normalizedBudgetStreak = min(Double(clampedBudgetStreak) / 6.0, 1.0)
+        let budgetStreakComponent = normalizedBudgetStreak * 30.0
+
+        let expenseBase = latestMonthlyActualExpenses ?? 0
+        let normalizedCashBufferCoverage: Double
+        if expenseBase > 0 {
+            normalizedCashBufferCoverage = min(max(cashBuffer, 0) / expenseBase, 1.0)
+        } else {
+            normalizedCashBufferCoverage = 0
+        }
+        let cashBufferComponent = normalizedCashBufferCoverage * 30.0
+
+        let rawScore = (savingsComponent + budgetStreakComponent + cashBufferComponent).rounded()
+        let clampedScore = min(max(Int(rawScore), 0), 100)
+
+        let status: FinancialHealthStatus
+        switch clampedScore {
+        case 0...39:
+            status = .atRisk
+        case 40...69:
+            status = .needsAttention
+        case 70...89:
+            status = .healthy
+        default:
+            status = .excellent
+        }
+
+        return DashboardFinancialHealthDTO(
+            score: clampedScore,
+            maxScore: 100,
+            status: status
+        )
+    }
+
     func makePerformer(_ summary: StockStatisticsSummary) -> DashboardPerformerDTO {
         DashboardPerformerDTO(
             symbol: summary.symbol,

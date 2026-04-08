@@ -4,9 +4,12 @@ import StockPlanShared
 import Foundation
 
 protocol ExpensesService: Sendable {
+    func getHouseholdPartner(userId: UUID, on db: any Database) async throws -> HouseholdPartnerProfileResponse
+    func updateHouseholdPartner(userId: UUID, request: HouseholdPartnerProfileRequest, on db: any Database) async throws -> HouseholdPartnerProfileResponse
+
     // Snapshots
     func getSnapshots(userId: UUID, year: Int?, month: Int?, on db: any Database) async throws -> [BudgetSnapshotResponse]
-    func createSnapshot(userId: UUID, request: BudgetSnapshotRequest, on db: any Database) async throws -> BudgetSnapshotResponse
+    func createBudgetSnapshot(userId: UUID, request: BudgetSnapshotRequest, on db: any Database) async throws -> BudgetSnapshotResponse
     func updateSnapshot(userId: UUID, snapshotId: UUID, request: BudgetSnapshotRequest, on db: any Database) async throws -> BudgetSnapshotResponse
     func deleteSnapshot(userId: UUID, snapshotId: UUID, on db: any Database) async throws
     
@@ -26,10 +29,32 @@ protocol ExpensesService: Sendable {
     // Reports
     func getMonthlyReports(userId: UUID, from: Date?, to: Date?, on db: any Database) async throws -> [BudgetMonthSummaryResponse]
     func getYearlyReports(userId: UUID, from: Date?, to: Date?, on db: any Database) async throws -> [BudgetYearSummaryResponse]
+    func getPillarPlanningSummaries(userId: UUID, monthStart: Date, on db: any Database) async throws -> [PillarPlanningSummaryResponse]
 }
 
 final class DefaultExpensesService: ExpensesService {
-    
+    let req: Request
+
+    init(req: Request) {
+        self.req = req
+    }
+
+    private func symbol(for pillar: BudgetPillar) -> String {
+        switch pillar {
+        case .fundamentals: return "house.fill"
+        case .futureYou: return "chart.line.uptrend.xyaxis"
+        case .fun: return "sparkles"
+        }
+    }
+
+    private func defaultTargetShare(for pillar: BudgetPillar) -> Double {
+        switch pillar {
+        case .fundamentals: return 0.50
+        case .futureYou: return 0.20
+        case .fun: return 0.30
+        }
+    }
+
     // MARK: - Formatters
     
     private func parseDate(_ string: String) -> Date? {
@@ -52,6 +77,66 @@ final class DefaultExpensesService: ExpensesService {
         let formatter = ISO8601DateFormatter()
         formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
         return formatter.string(from: date)
+    }
+
+    private func normalizeBudgetKey(_ value: String) -> String {
+        value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+    }
+
+    private func normalizePartnerName(_ value: String?) -> String? {
+        guard let value else { return nil }
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
+    }
+
+    private func normalizeSplit(
+        splitMode: ExpenseSplitMode,
+        userSharePercent: Double
+    ) throws -> (ExpenseSplitMode, Double) {
+        guard (0...100).contains(userSharePercent) else {
+            throw Abort(.badRequest, reason: "userSharePercent must be between 0 and 100.")
+        }
+
+        switch splitMode {
+        case .personal:
+            return (.personal, 100)
+        case .shared:
+            return (.shared, userSharePercent)
+        }
+    }
+
+    private func userPortion(of amount: Double, splitMode: ExpenseSplitMode, userSharePercent: Double) -> Double {
+        switch splitMode {
+        case .personal:
+            return amount
+        case .shared:
+            return amount * (userSharePercent / 100)
+        }
+    }
+
+    private func partnerPortion(of amount: Double, splitMode: ExpenseSplitMode, userSharePercent: Double) -> Double {
+        amount - userPortion(of: amount, splitMode: splitMode, userSharePercent: userSharePercent)
+    }
+
+    private func requireUser(userId: UUID, on db: any Database) async throws -> User {
+        guard let user = try await User.find(userId, on: db) else {
+            throw Abort(.notFound, reason: "User not found.")
+        }
+        return user
+    }
+
+    // MARK: - Household Partner
+
+    func getHouseholdPartner(userId: UUID, on db: any Database) async throws -> HouseholdPartnerProfileResponse {
+        let user = try await requireUser(userId: userId, on: db)
+        return HouseholdPartnerProfileResponse(displayName: normalizePartnerName(user.householdPartnerDisplayName))
+    }
+
+    func updateHouseholdPartner(userId: UUID, request: HouseholdPartnerProfileRequest, on db: any Database) async throws -> HouseholdPartnerProfileResponse {
+        let user = try await requireUser(userId: userId, on: db)
+        user.householdPartnerDisplayName = normalizePartnerName(request.displayName)
+        try await user.update(on: db)
+        return HouseholdPartnerProfileResponse(displayName: user.householdPartnerDisplayName)
     }
     
     // MARK: - Snapshots
@@ -76,7 +161,7 @@ final class DefaultExpensesService: ExpensesService {
         return filtered.map { mapSnapshot($0) }.sorted { $0.monthStart < $1.monthStart }
     }
     
-    func createSnapshot(userId: UUID, request: BudgetSnapshotRequest, on db: any Database) async throws -> BudgetSnapshotResponse {
+    func createBudgetSnapshot(userId: UUID, request: BudgetSnapshotRequest, on db: any Database) async throws -> BudgetSnapshotResponse {
         guard let monthStart = parseDate(request.monthStart) else {
             throw Abort(.badRequest, reason: "Invalid monthStart format. Expected YYYY-MM-DD.")
         }
@@ -147,12 +232,16 @@ final class DefaultExpensesService: ExpensesService {
             throw Abort(.notFound, reason: "Snapshot not found.")
         }
         
+        let split = try normalizeSplit(splitMode: request.splitMode, userSharePercent: request.userSharePercent)
+
         let item = BudgetPlanItem(
             snapshotID: snapshotId,
             userID: userId,
             title: request.title,
             plannedAmount: request.plannedAmount,
-            pillar: request.pillar
+            pillar: request.pillar,
+            splitMode: split.0,
+            userSharePercent: split.1
         )
         try await item.create(on: db)
         return mapPlanItem(item)
@@ -166,9 +255,12 @@ final class DefaultExpensesService: ExpensesService {
             throw Abort(.forbidden)
         }
         
+        let split = try normalizeSplit(splitMode: request.splitMode, userSharePercent: request.userSharePercent)
         item.title = request.title
         item.plannedAmount = request.plannedAmount
         item.pillar = request.pillar
+        item.splitMode = split.0
+        item.userSharePercent = split.1
         try await item.update(on: db)
         return mapPlanItem(item)
     }
@@ -205,7 +297,10 @@ final class DefaultExpensesService: ExpensesService {
         }
         
         var linkedId: UUID? = nil
-        if let reqLinkedId = request.linkedPlanItemId, let parsed = UUID(uuidString: reqLinkedId) {
+        if let reqLinkedId = request.linkedPlanItemId {
+            guard let parsed = UUID(uuidString: reqLinkedId) else {
+                throw Abort(.badRequest, reason: "Invalid linkedPlanItemId.")
+            }
             // Verify plan item belongs to user
             guard let planItem = try await BudgetPlanItem.find(parsed, on: db), planItem.$user.id == userId else {
                 throw Abort(.badRequest, reason: "Invalid linkedPlanItemId.")
@@ -213,15 +308,32 @@ final class DefaultExpensesService: ExpensesService {
             linkedId = parsed
         }
         
+        let split = try normalizeSplit(splitMode: request.splitMode, userSharePercent: request.userSharePercent)
+
         let expense = Expense(
             userID: userId,
             title: request.title,
             amount: request.amount,
             pillar: request.pillar,
             occurredOn: occurredOn,
-            linkedPlanItemID: linkedId
+            linkedPlanItemID: linkedId,
+            splitMode: split.0,
+            userSharePercent: split.1
         )
         try await expense.create(on: db)
+        
+        // Record activity
+        try? await req.userActivityService.recordActivity(
+            userId: userId,
+            type: .expenseRecorded,
+            title: "Expense Added",
+            subtitle: request.title,
+            amount: request.amount,
+            isGrowth: false,
+            symbol: symbol(for: request.pillar),
+            on: db
+        )
+        
         return mapExpense(expense)
     }
     
@@ -237,19 +349,39 @@ final class DefaultExpensesService: ExpensesService {
         }
         
         var linkedId: UUID? = nil
-        if let reqLinkedId = request.linkedPlanItemId, let parsed = UUID(uuidString: reqLinkedId) {
+        if let reqLinkedId = request.linkedPlanItemId {
+            guard let parsed = UUID(uuidString: reqLinkedId) else {
+                throw Abort(.badRequest, reason: "Invalid linkedPlanItemId.")
+            }
             guard let planItem = try await BudgetPlanItem.find(parsed, on: db), planItem.$user.id == userId else {
                 throw Abort(.badRequest, reason: "Invalid linkedPlanItemId.")
             }
             linkedId = parsed
         }
         
+        let split = try normalizeSplit(splitMode: request.splitMode, userSharePercent: request.userSharePercent)
+
         expense.title = request.title
         expense.amount = request.amount
         expense.pillar = request.pillar
         expense.occurredOn = occurredOn
+        expense.splitMode = split.0
+        expense.userSharePercent = split.1
         expense.$linkedPlanItem.id = linkedId
         try await expense.update(on: db)
+        
+        // Record activity
+        try? await req.userActivityService.recordActivity(
+            userId: userId,
+            type: .expenseUpdated,
+            title: "Expense Updated",
+            subtitle: request.title,
+            amount: request.amount,
+            isGrowth: false,
+            symbol: symbol(for: request.pillar),
+            on: db
+        )
+        
         return mapExpense(expense)
     }
     
@@ -313,32 +445,106 @@ final class DefaultExpensesService: ExpensesService {
             
             var plannedTotal: Double = 0
             for item in snapshotItems { plannedTotal += item.plannedAmount }
-            
+
             var actualTotal: Double = 0
             for expense in monthExpenses { actualTotal += expense.amount }
-            
+
+            var myPlannedTotal: Double = 0
+            var partnerPlannedTotal: Double = 0
+            for item in snapshotItems {
+                myPlannedTotal += userPortion(
+                    of: item.plannedAmount,
+                    splitMode: item.splitMode,
+                    userSharePercent: item.userSharePercent
+                )
+                partnerPlannedTotal += partnerPortion(
+                    of: item.plannedAmount,
+                    splitMode: item.splitMode,
+                    userSharePercent: item.userSharePercent
+                )
+            }
+
+            var myActualTotal: Double = 0
+            var partnerActualTotal: Double = 0
+            for expense in monthExpenses {
+                myActualTotal += userPortion(
+                    of: expense.amount,
+                    splitMode: expense.splitMode,
+                    userSharePercent: expense.userSharePercent
+                )
+                partnerActualTotal += partnerPortion(
+                    of: expense.amount,
+                    splitMode: expense.splitMode,
+                    userSharePercent: expense.userSharePercent
+                )
+            }
+
             var pillarPlans: [String: Double] = [:]
             var pillarActuals: [String: Double] = [:]
+            var myPillarPlans: [String: Double] = [:]
+            var partnerPillarPlans: [String: Double] = [:]
+            var myPillarActuals: [String: Double] = [:]
+            var partnerPillarActuals: [String: Double] = [:]
             
             for pillar in BudgetPillar.allCases {
                 let itemsForPillar = snapshotItems.filter { $0.pillar == pillar }
                 var plannedAmount: Double = 0
-                for item in itemsForPillar { plannedAmount += item.plannedAmount }
+                var myPlannedAmount: Double = 0
+                var partnerPlannedAmount: Double = 0
+                for item in itemsForPillar {
+                    plannedAmount += item.plannedAmount
+                    myPlannedAmount += userPortion(
+                        of: item.plannedAmount,
+                        splitMode: item.splitMode,
+                        userSharePercent: item.userSharePercent
+                    )
+                    partnerPlannedAmount += partnerPortion(
+                        of: item.plannedAmount,
+                        splitMode: item.splitMode,
+                        userSharePercent: item.userSharePercent
+                    )
+                }
                 pillarPlans[pillar.rawValue] = plannedAmount
-                
+                myPillarPlans[pillar.rawValue] = myPlannedAmount
+                partnerPillarPlans[pillar.rawValue] = partnerPlannedAmount
+
                 let expensesForPillar = monthExpenses.filter { $0.pillar == pillar }
                 var actualAmount: Double = 0
-                for expense in expensesForPillar { actualAmount += expense.amount }
+                var myActualAmount: Double = 0
+                var partnerActualAmount: Double = 0
+                for expense in expensesForPillar {
+                    actualAmount += expense.amount
+                    myActualAmount += userPortion(
+                        of: expense.amount,
+                        splitMode: expense.splitMode,
+                        userSharePercent: expense.userSharePercent
+                    )
+                    partnerActualAmount += partnerPortion(
+                        of: expense.amount,
+                        splitMode: expense.splitMode,
+                        userSharePercent: expense.userSharePercent
+                    )
+                }
                 pillarActuals[pillar.rawValue] = actualAmount
+                myPillarActuals[pillar.rawValue] = myActualAmount
+                partnerPillarActuals[pillar.rawValue] = partnerActualAmount
             }
-            
+
             let summary = BudgetMonthSummaryResponse(
                 monthStart: formatDate(monthStart),
                 planned: plannedTotal,
                 actual: actualTotal,
                 salary: snapshot.netSalary,
+                myPlanned: myPlannedTotal,
+                partnerPlanned: partnerPlannedTotal,
+                myActual: myActualTotal,
+                partnerActual: partnerActualTotal,
                 pillarActuals: pillarActuals,
-                pillarPlans: pillarPlans
+                pillarPlans: pillarPlans,
+                myPillarActuals: myPillarActuals,
+                partnerPillarActuals: partnerPillarActuals,
+                myPillarPlans: myPillarPlans,
+                partnerPillarPlans: partnerPillarPlans
             )
             summaries.append(summary)
         }
@@ -359,16 +565,80 @@ final class DefaultExpensesService: ExpensesService {
             let planned = reports.reduce(0) { $0 + $1.planned }
             let actual = reports.reduce(0) { $0 + $1.actual }
             let salary = reports.reduce(0) { $0 + $1.salary }
+            let myPlanned = reports.reduce(0) { $0 + $1.myPlanned }
+            let partnerPlanned = reports.reduce(0) { $0 + $1.partnerPlanned }
+            let myActual = reports.reduce(0) { $0 + $1.myActual }
+            let partnerActual = reports.reduce(0) { $0 + $1.partnerActual }
             
             yearlySummaries.append(BudgetYearSummaryResponse(
                 year: year,
                 planned: planned,
                 actual: actual,
-                salary: salary
+                salary: salary,
+                myPlanned: myPlanned,
+                partnerPlanned: partnerPlanned,
+                myActual: myActual,
+                partnerActual: partnerActual
             ))
         }
         
         return yearlySummaries.sorted { $0.year < $1.year }
+    }
+
+    func getPillarPlanningSummaries(userId: UUID, monthStart: Date, on db: any Database) async throws -> [PillarPlanningSummaryResponse] {
+        guard let snapshot = try await BudgetSnapshot.query(on: db)
+            .filter(\.$user.$id == userId)
+            .filter(\.$monthStart == monthStart)
+            .first()
+        else {
+            return []
+        }
+
+        let snapshotID = try snapshot.requireID()
+        let snapshotItems = try await BudgetPlanItem.query(on: db)
+            .filter(\.$user.$id == userId)
+            .filter(\.$snapshot.$id == snapshotID)
+            .all()
+
+        let calendar = Calendar(identifier: .gregorian)
+        let nextMonthStart = calendar.date(byAdding: .month, value: 1, to: monthStart)
+        var expensesQuery = Expense.query(on: db)
+            .filter(\.$user.$id == userId)
+            .filter(\.$occurredOn >= monthStart)
+
+        if let nextMonthStart {
+            expensesQuery = expensesQuery.filter(\.$occurredOn < nextMonthStart)
+        }
+
+        let monthExpenses = try await expensesQuery.all()
+
+        return BudgetPillar.allCases.map { pillar in
+            let plannedItems = snapshotItems.filter { $0.pillar == pillar }
+            let expensesForPillar = monthExpenses.filter { $0.pillar == pillar }
+            let targetShare = snapshot.targetShares[pillar.rawValue] ?? defaultTargetShare(for: pillar)
+            let plannedAmount = plannedItems.reduce(0) { $0 + $1.plannedAmount }
+            let actualAmount = expensesForPillar.reduce(0) { $0 + $1.amount }
+            let unplannedActualAmount = expensesForPillar
+                .filter { expense in
+                    if let linkedPlanItemID = expense.$linkedPlanItem.id {
+                        return !plannedItems.contains(where: { $0.id == linkedPlanItemID })
+                    }
+
+                    let normalizedExpenseTitle = normalizeBudgetKey(expense.title)
+                    return !plannedItems.contains {
+                        normalizeBudgetKey($0.title) == normalizedExpenseTitle
+                    }
+                }
+                .reduce(0) { $0 + $1.amount }
+
+            return PillarPlanningSummaryResponse(
+                pillar: pillar,
+                targetAmount: snapshot.netSalary * targetShare,
+                plannedAmount: plannedAmount,
+                actualAmount: actualAmount,
+                unplannedActualAmount: unplannedActualAmount
+            )
+        }
     }
 
     // MARK: - Mappers
@@ -391,6 +661,8 @@ final class DefaultExpensesService: ExpensesService {
             title: model.title,
             plannedAmount: model.plannedAmount,
             pillar: model.pillar,
+            splitMode: model.splitMode,
+            userSharePercent: model.userSharePercent,
             createdAt: model.createdAt.map { formatISODate($0) },
             updatedAt: model.updatedAt.map { formatISODate($0) }
         )
@@ -404,6 +676,8 @@ final class DefaultExpensesService: ExpensesService {
             pillar: model.pillar,
             occurredOn: formatDate(model.occurredOn),
             linkedPlanItemId: model.$linkedPlanItem.id?.uuidString,
+            splitMode: model.splitMode,
+            userSharePercent: model.userSharePercent,
             createdAt: model.createdAt.map { formatISODate($0) },
             updatedAt: model.updatedAt.map { formatISODate($0) }
         )

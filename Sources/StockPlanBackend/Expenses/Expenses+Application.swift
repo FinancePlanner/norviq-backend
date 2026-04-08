@@ -10,3 +10,9 @@ extension Application {
         set { storage[ExpensesServiceKey.self] = newValue }
     }
 }
+
+extension Request {
+    var expensesService: any ExpensesService {
+        DefaultExpensesService(req: self)
+    }
+}
