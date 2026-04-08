@@ -3,6 +3,28 @@ import Foundation
 import StockPlanShared
 
 struct ExpensesController: RouteCollection {
+    private struct ExpensePayload: Content {
+        let title: String
+        let amount: Double
+        let pillar: BudgetPillar
+        let occurredOn: String
+        let linkedPlanItemId: String?
+        let splitMode: ExpenseSplitMode?
+        let userSharePercent: Double?
+
+        func asRequest() -> ExpenseRequest {
+            ExpenseRequest(
+                title: title,
+                amount: amount,
+                pillar: pillar,
+                occurredOn: occurredOn,
+                linkedPlanItemId: linkedPlanItemId,
+                splitMode: splitMode ?? .personal,
+                userSharePercent: userSharePercent ?? 100
+            )
+        }
+    }
+
     func boot(routes: any RoutesBuilder) throws {
         let protected = routes.grouped(SessionToken.authenticator(), SessionToken.guardMiddleware())
         let expenses = protected.grouped("expenses")
@@ -72,7 +94,7 @@ struct ExpensesController: RouteCollection {
     @Sendable
     func createExpense(req: Request) async throws -> Response {
         let session = try req.auth.require(SessionToken.self)
-        let payload = try req.content.decode(ExpenseRequest.self)
+        let payload = try req.content.decode(ExpensePayload.self).asRequest()
         
         let created = try await req.expensesService.createExpense(
             userId: session.userId,
@@ -89,7 +111,7 @@ struct ExpensesController: RouteCollection {
     func updateExpense(req: Request) async throws -> ExpenseResponse {
         let session = try req.auth.require(SessionToken.self)
         let expenseId = try requireUUIDParameter(req, name: "expenseId")
-        let payload = try req.content.decode(ExpenseRequest.self)
+        let payload = try req.content.decode(ExpensePayload.self).asRequest()
         
         return try await req.expensesService.updateExpense(
             userId: session.userId,

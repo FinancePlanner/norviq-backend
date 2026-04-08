@@ -8,6 +8,20 @@ import Vapor
 
 @Suite("Expenses & Reports Service Tests", .serialized)
 struct ExpensesTests {
+    private struct MinimalExpensePayload: Content {
+        let title: String
+        let amount: Double
+        let pillar: BudgetPillar
+        let occurredOn: String
+    }
+
+    private struct MinimalBudgetPlanItemPayload: Content {
+        let snapshotId: String
+        let title: String
+        let plannedAmount: Double
+        let pillar: BudgetPillar
+    }
+
     private func withExpensesApp(_ test: @escaping (Application) async throws -> Void) async throws {
         try await DatabaseTestLock.withLock {
             let app = try await Application.make(.testing)
@@ -143,6 +157,63 @@ struct ExpensesTests {
                 #expect(reports[0].partnerActual == 400)
                 #expect(reports[0].myPillarActuals["fundamentals"] == 600)
                 #expect(reports[0].partnerPillarPlans["fundamentals"] == 400)
+            })
+        }
+    }
+
+    @Test("Creating expense defaults split fields when omitted")
+    func createExpenseDefaultsSplitFieldsWhenOmitted() async throws {
+        try await withExpensesApp { app in
+            let token = try await registerTestUser(app: app)
+
+            try await app.testing().test(.POST, "v1/expenses", beforeRequest: { req in
+                req.headers.bearerAuthorization = .init(token: token)
+                try req.content.encode(
+                    MinimalExpensePayload(
+                        title: "Supermarket run",
+                        amount: 120.50,
+                        pillar: .fundamentals,
+                        occurredOn: "2026-05-08"
+                    )
+                )
+            }, afterResponse: { res async throws in
+                #expect(res.status == .created)
+                let expense = try res.content.decode(ExpenseResponse.self)
+                #expect(expense.splitMode == .personal)
+                #expect(expense.userSharePercent == 100)
+            })
+        }
+    }
+
+    @Test("Creating plan item defaults split fields when omitted")
+    func createPlanItemDefaultsSplitFieldsWhenOmitted() async throws {
+        try await withExpensesApp { app in
+            let token = try await registerTestUser(app: app)
+
+            var snapshotId = ""
+            try await app.testing().test(.POST, "v1/budget/snapshots", beforeRequest: { req in
+                req.headers.bearerAuthorization = .init(token: token)
+                try req.content.encode(BudgetSnapshotRequest(monthStart: "2026-05-01", netSalary: 3000, targetShares: [:]))
+            }, afterResponse: { res async throws in
+                #expect(res.status == .created)
+                snapshotId = try res.content.decode(BudgetSnapshotResponse.self).id
+            })
+
+            try await app.testing().test(.POST, "v1/budget/items", beforeRequest: { req in
+                req.headers.bearerAuthorization = .init(token: token)
+                try req.content.encode(
+                    MinimalBudgetPlanItemPayload(
+                        snapshotId: snapshotId,
+                        title: "Rent",
+                        plannedAmount: 1200,
+                        pillar: .fundamentals
+                    )
+                )
+            }, afterResponse: { res async throws in
+                #expect(res.status == .created)
+                let item = try res.content.decode(BudgetPlanItemResponse.self)
+                #expect(item.splitMode == .personal)
+                #expect(item.userSharePercent == 100)
             })
         }
     }

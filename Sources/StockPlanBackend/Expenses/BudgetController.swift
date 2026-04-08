@@ -3,6 +3,26 @@ import Foundation
 import StockPlanShared
 
 struct BudgetController: RouteCollection {
+    private struct BudgetPlanItemPayload: Content {
+        let snapshotId: String
+        let title: String
+        let plannedAmount: Double
+        let pillar: BudgetPillar
+        let splitMode: ExpenseSplitMode?
+        let userSharePercent: Double?
+
+        func asRequest() -> BudgetPlanItemRequest {
+            BudgetPlanItemRequest(
+                snapshotId: snapshotId,
+                title: title,
+                plannedAmount: plannedAmount,
+                pillar: pillar,
+                splitMode: splitMode ?? .personal,
+                userSharePercent: userSharePercent ?? 100
+            )
+        }
+    }
+
     func boot(routes: any RoutesBuilder) throws {
         let protected = routes.grouped(SessionToken.authenticator(), SessionToken.guardMiddleware())
         let budget = protected.grouped("budget")
@@ -111,7 +131,7 @@ struct BudgetController: RouteCollection {
     @Sendable
     func createPlanItem(req: Request) async throws -> Response {
         let session = try req.auth.require(SessionToken.self)
-        let payload = try req.content.decode(BudgetPlanItemRequest.self)
+        let payload = try req.content.decode(BudgetPlanItemPayload.self).asRequest()
         
         let created = try await req.expensesService.createPlanItem(
             userId: session.userId,
@@ -127,7 +147,7 @@ struct BudgetController: RouteCollection {
     func updatePlanItem(req: Request) async throws -> BudgetPlanItemResponse {
         let session = try req.auth.require(SessionToken.self)
         let itemId = try requireUUIDParameter(req, name: "itemId")
-        let payload = try req.content.decode(BudgetPlanItemRequest.self)
+        let payload = try req.content.decode(BudgetPlanItemPayload.self).asRequest()
         
         return try await req.expensesService.updatePlanItem(
             userId: session.userId,
