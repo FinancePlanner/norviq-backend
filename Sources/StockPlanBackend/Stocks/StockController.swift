@@ -106,7 +106,7 @@ struct StockController: RouteCollection {
         let session = try req.auth.require(SessionToken.self)
         let symbol = try requireStringParameter(req, name: "symbol", reason: "Invalid stock symbol")
         do {
-            let valuation = try await req.application.stocksService.getValuation(
+            let valuation = try await req.stocksService.getValuation(
                 symbol: symbol,
                 userId: session.userId,
                 on: req.db

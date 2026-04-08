@@ -107,10 +107,10 @@ struct BrokerController: RouteCollection {
 
             do {
                 if let existing, let id = existing.id {
-                    let stock = try await req.application.stocksService.update(id: id, payload: payload, userId: session.userId, on: req.db)
+                    let stock = try await req.stocksService.update(id: id, payload: payload, userId: session.userId, on: req.db)
                     updated.append(stock)
                 } else {
-                    let stock = try await req.application.stocksService.create(payload: payload, userId: session.userId, on: req.db)
+                    let stock = try await req.stocksService.create(payload: payload, userId: session.userId, on: req.db)
                     inserted.append(stock)
                 }
             } catch {
