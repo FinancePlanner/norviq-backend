@@ -17,6 +17,9 @@ extension AuthForgotPasswordRequest: @retroactive Content {}
 extension AuthForgotPasswordResponse: @retroactive Content {}
 extension AuthResetPasswordRequest: @retroactive Content {}
 extension AuthRefreshRequest: @retroactive Content {}
+extension OAuthStartRequest: @retroactive Content {}
+extension OAuthStartResponse: @retroactive Content {}
+extension OAuthExchangeRequest: @retroactive Content {}
 
 // MARK: - Stocks
 extension StockRequest: @retroactive Content {}
@@ -126,6 +129,14 @@ extension ReportSuggestionSeverity: @retroactive Content {}
 extension ReportSuggestionCategory: @retroactive Content {}
 extension ReportSuggestionResponse: @retroactive Content {}
 extension ReportSuggestionsResponse: @retroactive Content {}
+
+// MARK: - Market Data
+extension RatiosTTMResponse: @retroactive Content {}
+extension BalanceSheetStatementResponse: @retroactive Content {}
+extension CashFlowStatementResponse: @retroactive Content {}
+extension FinancialGrowthResponse: @retroactive Content {}
+extension AnalystEstimatesResponse: @retroactive Content {}
+extension RatiosResponse: @retroactive Content {}
 
 // MARK: - Goals & Dashboard Insights
 extension GoalRequest: @retroactive Content {}

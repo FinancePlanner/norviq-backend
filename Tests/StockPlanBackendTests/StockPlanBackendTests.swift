@@ -423,6 +423,80 @@ struct StockPlanBackendTests {
         }
     }
 
+    @Test("Stock insights endpoint returns deterministic projections and excludes primary symbol from peers")
+    func stockInsightsEndpointReturnsDeterministicPayload() async throws {
+        try await withApp { app in
+            let state = TestMarketProviderState()
+            let fmpState = TestFMPProviderState()
+            app.marketDataService = makeTestMarketService(state: state, fmpState: fmpState)
+            let (token, _) = try await registerTestUser(app: app, identifier: "stockinsights")
+
+            for symbol in ["AAPL", "TSLA"] {
+                try await app.testing().test(.POST, "v1/stocks", beforeRequest: { req in
+                    req.headers.bearerAuthorization = .init(token: token)
+                    try req.content.encode(
+                        StockRequest(
+                            symbol: symbol,
+                            shares: 2,
+                            buyPrice: 100,
+                            buyDate: "2026-01-02",
+                            notes: nil
+                        )
+                    )
+                }, afterResponse: { res async in
+                    #expect(res.status == .created)
+                })
+            }
+
+            for symbol in ["MSFT", "AAPL"] {
+                try await app.testing().test(.POST, "v1/watchlist", beforeRequest: { req in
+                    req.headers.bearerAuthorization = .init(token: token)
+                    try req.content.encode(
+                        WatchlistItemRequest(
+                            symbol: symbol,
+                            note: nil,
+                            status: .active,
+                            nextReviewAt: nil
+                        )
+                    )
+                }, afterResponse: { res async in
+                    #expect(res.status == .created)
+                })
+            }
+
+            var first: StockInsightsResponse?
+            try await app.testing().test(.GET, "v1/stocks/AAPL/insights", beforeRequest: { req in
+                req.headers.bearerAuthorization = .init(token: token)
+            }, afterResponse: { res async throws in
+                #expect(res.status == .ok)
+                first = try res.content.decode(StockInsightsResponse.self)
+            })
+
+            var second: StockInsightsResponse?
+            try await app.testing().test(.GET, "v1/stocks/AAPL/insights", beforeRequest: { req in
+                req.headers.bearerAuthorization = .init(token: token)
+            }, afterResponse: { res async throws in
+                #expect(res.status == .ok)
+                second = try res.content.decode(StockInsightsResponse.self)
+            })
+
+            let firstPayload = try #require(first)
+            let secondPayload = try #require(second)
+
+            #expect(firstPayload.symbol == "AAPL")
+            #expect(firstPayload.profile.symbol == "AAPL")
+            #expect(firstPayload.peers.contains(where: { $0.symbol == "MSFT" }))
+            #expect(firstPayload.peers.contains(where: { $0.symbol == "TSLA" }))
+            #expect(!firstPayload.peers.contains(where: { $0.symbol == "AAPL" }))
+            #expect(firstPayload.peers.first?.symbol == "MSFT")
+            #expect(firstPayload.projectionScenarios.count == 3)
+            #expect(Set(firstPayload.projectionScenarios.map(\.kind)) == Set(["bear", "base", "bull"]))
+            #expect(firstPayload.projectionScenarios.allSatisfy { !$0.years.isEmpty })
+            #expect(firstPayload.peers == secondPayload.peers)
+            #expect(firstPayload.projectionScenarios == secondPayload.projectionScenarios)
+        }
+    }
+
     @Test("Market compatibility endpoints return stock details, history, and news")
     func marketCompatibilityEndpoints() async throws {
         try await withApp { app in

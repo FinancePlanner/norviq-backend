@@ -440,6 +440,20 @@ struct StockServiceImpl: StockService {
         }
     }
 
+    private struct ProjectionScenarioConfig {
+        let kind: String
+        let growthShift: Double
+        let peLowShift: Double
+        let peHighShift: Double
+    }
+
+    private struct FallbackProjectionScenarioConfig {
+        let kind: String
+        let growth: Double
+        let peLow: Double
+        let peHigh: Double
+    }
+
     private func makeProjectionScenarios(
         from metrics: StockAnalysisMetricsResponse,
         fallbackCurrentPrice: Double,
@@ -476,10 +490,10 @@ struct StockServiceImpl: StockService {
         let terminalMargin = max(metrics.terminalMargin ?? 0.22, 0.08)
         let baseNetMargin = max(metrics.netMargin ?? firstProjection.netMargin, 0.05)
 
-        let config: [(kind: String, growthShift: Double, peLowShift: Double, peHighShift: Double)] = [
-            ("bear", -0.03, -2, -2),
-            ("base", 0, 0, 0),
-            ("bull", 0.03, 2, 2),
+        let config: [ProjectionScenarioConfig] = [
+            ProjectionScenarioConfig(kind: "bear", growthShift: -0.03, peLowShift: -2, peHighShift: -2),
+            ProjectionScenarioConfig(kind: "base", growthShift: 0, peLowShift: 0, peHighShift: 0),
+            ProjectionScenarioConfig(kind: "bull", growthShift: 0.03, peLowShift: 2, peHighShift: 2)
         ]
 
         return config.map { item in
@@ -563,25 +577,25 @@ struct StockServiceImpl: StockService {
         let baseNetMargin = 0.12
         let baseNetIncome = baseRevenue * baseNetMargin
         let startYear = Calendar(identifier: .gregorian).component(.year, from: Date())
-        let config: [(String, Double, Double, Double)] = [
-            ("bear", 0.03, 12, 15),
-            ("base", 0.07, 16, 20),
-            ("bull", 0.11, 20, 25),
+        let config: [FallbackProjectionScenarioConfig] = [
+            FallbackProjectionScenarioConfig(kind: "bear", growth: 0.03, peLow: 12, peHigh: 15),
+            FallbackProjectionScenarioConfig(kind: "base", growth: 0.07, peLow: 16, peHigh: 20),
+            FallbackProjectionScenarioConfig(kind: "bull", growth: 0.11, peLow: 20, peHigh: 25)
         ]
 
-        return config.map { kind, growth, peLow, peHigh in
+        return config.map { scenario in
             var years: [StockInsightProjectionYearDTO] = []
             var revenue = baseRevenue
             var netIncome = baseNetIncome
             years.reserveCapacity(4)
 
             for offset in 1...4 {
-                revenue *= (1 + growth)
-                netIncome *= (1 + growth + 0.01)
+                revenue *= (1 + scenario.growth)
+                netIncome *= (1 + scenario.growth + 0.01)
                 let margin = min(max(netIncome / revenue, 0.06), 0.35)
                 let eps = netIncome / baseShares
-                let low = eps * peLow
-                let high = eps * peHigh
+                let low = eps * scenario.peLow
+                let high = eps * scenario.peHigh
                 let yearsForward = Double(offset)
                 let cagrLow = pow(low / basePrice, 1.0 / yearsForward) - 1
                 let cagrHigh = pow(high / basePrice, 1.0 / yearsForward) - 1
@@ -590,13 +604,13 @@ struct StockServiceImpl: StockService {
                     StockInsightProjectionYearDTO(
                         year: startYear + offset,
                         revenue: revenue,
-                        revenueGrowth: growth,
+                        revenueGrowth: scenario.growth,
                         netIncome: netIncome,
-                        netIncomeGrowth: growth + 0.01,
+                        netIncomeGrowth: scenario.growth + 0.01,
                         netMargin: margin,
                         eps: eps,
-                        peLowEstimate: peLow,
-                        peHighEstimate: peHigh,
+                        peLowEstimate: scenario.peLow,
+                        peHighEstimate: scenario.peHigh,
                         sharePriceLow: low,
                         sharePriceHigh: high,
                         cagrLow: cagrLow,
@@ -604,7 +618,7 @@ struct StockServiceImpl: StockService {
                     )
                 )
             }
-            return StockInsightProjectionScenarioDTO(kind: kind, years: years)
+            return StockInsightProjectionScenarioDTO(kind: scenario.kind, years: years)
         }
     }
 
