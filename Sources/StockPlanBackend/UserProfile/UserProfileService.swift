@@ -1,10 +1,14 @@
 import Fluent
 import Foundation
 import Vapor
+import StockPlanShared
 
 protocol UserProfileService: Sendable {
     func get(userId: UUID, on db: any Database) async throws -> GetUserProfileResponse
     func update(userId: UUID, payload: UpdateUserProfileRequest, on db: any Database) async throws -> UpdateUserProfileResponse
+    func updateUsername(userId: UUID, payload: UpdateUsernameRequest, on db: any Database) async throws -> UpdateUserProfileResponse
+    func updateEmail(userId: UUID, payload: UpdateEmailRequest, on db: any Database) async throws -> UpdateUserProfileResponse
+    func updatePassword(userId: UUID, payload: UpdatePasswordRequest, on db: any Database) async throws
     func delete(userId: UUID, on db: any Database) async throws -> DeleteUserProfileResponse
 }
 
@@ -54,6 +58,50 @@ struct DefaultUserProfileService: UserProfileService {
         let user = try await requireUser(id: userId, on: db)
         try await repo.delete(user, on: db)
         return DeleteUserProfileResponse(success: true, message: "User account deleted")
+    }
+
+    func updateUsername(userId: UUID, payload: UpdateUsernameRequest, on db: any Database) async throws -> UpdateUserProfileResponse {
+        let user = try await requireUser(id: userId, on: db)
+        let normalizedUsername = normalizeOptional(payload.username)?.lowercased()
+        try validateUsername(normalizedUsername)
+
+        if let normalizedUsername,
+           let existing = try await repo.find(username: normalizedUsername, on: db),
+           existing.id != user.id {
+            throw Abort(.conflict, reason: "Username already registered")
+        }
+
+        user.username = normalizedUsername
+        try await repo.save(user, on: db)
+        return UpdateUserProfileResponse(userProfile: makeProfile(from: user))
+    }
+
+    func updateEmail(userId: UUID, payload: UpdateEmailRequest, on db: any Database) async throws -> UpdateUserProfileResponse {
+        let user = try await requireUser(id: userId, on: db)
+        let normalizedEmail = normalizeEmail(payload.email)
+        try validateEmail(normalizedEmail)
+
+        if let existing = try await repo.find(email: normalizedEmail, on: db),
+           existing.id != user.id {
+            throw Abort(.conflict, reason: "Email already registered")
+        }
+
+        user.email = normalizedEmail
+        try await repo.save(user, on: db)
+        return UpdateUserProfileResponse(userProfile: makeProfile(from: user))
+    }
+
+    func updatePassword(userId: UUID, payload: UpdatePasswordRequest, on db: any Database) async throws {
+        let user = try await requireUser(id: userId, on: db)
+        
+        // Verify current password
+        guard try Bcrypt.verify(payload.currentPassword, created: user.passwordHash) else {
+            throw Abort(.unauthorized, reason: "Invalid current password")
+        }
+
+        // Hash and save new password
+        user.passwordHash = try Bcrypt.hash(payload.newPassword)
+        try await repo.save(user, on: db)
     }
 
     private func requireUser(id: UUID, on db: any Database) async throws -> User {

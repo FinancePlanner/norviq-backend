@@ -1,4 +1,5 @@
 import Vapor
+import StockPlanShared
 
 struct UserProfileController: RouteCollection {
     func boot(routes: any RoutesBuilder) throws {
@@ -8,6 +9,9 @@ struct UserProfileController: RouteCollection {
 
         userProfile.get(use: getProfile)
         userProfile.put(use: updateProfile)
+        userProfile.patch("username", use: updateUsername)
+        userProfile.patch("email", use: updateEmail)
+        userProfile.patch("password", use: updatePassword)
         userProfile.delete(use: deleteProfile)
 
         userProfileByID.get(use: getProfileByID)
@@ -32,6 +36,28 @@ struct UserProfileController: RouteCollection {
     func deleteProfile(req: Request) async throws -> DeleteUserProfileResponse {
         let session = try req.auth.require(SessionToken.self)
         return try await req.application.userProfileService.delete(userId: session.userId, on: req.db)
+    }
+
+    @Sendable
+    func updateUsername(req: Request) async throws -> UpdateUserProfileResponse {
+        let session = try req.auth.require(SessionToken.self)
+        let payload = try req.content.decode(UpdateUsernameRequest.self)
+        return try await req.application.userProfileService.updateUsername(userId: session.userId, payload: payload, on: req.db)
+    }
+
+    @Sendable
+    func updateEmail(req: Request) async throws -> UpdateUserProfileResponse {
+        let session = try req.auth.require(SessionToken.self)
+        let payload = try req.content.decode(UpdateEmailRequest.self)
+        return try await req.application.userProfileService.updateEmail(userId: session.userId, payload: payload, on: req.db)
+    }
+
+    @Sendable
+    func updatePassword(req: Request) async throws -> APIMessageResponse {
+        let session = try req.auth.require(SessionToken.self)
+        let payload = try req.content.decode(UpdatePasswordRequest.self)
+        try await req.application.userProfileService.updatePassword(userId: session.userId, payload: payload, on: req.db)
+        return APIMessageResponse(success: true, message: "Password updated successfully")
     }
 
     @Sendable

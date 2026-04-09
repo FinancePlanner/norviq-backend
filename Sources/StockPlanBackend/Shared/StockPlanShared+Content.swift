@@ -58,6 +58,9 @@ extension GetUserProfileRequest: @retroactive Content {}
 extension GetUserProfileResponse: @retroactive Content {}
 extension UpdateUserProfileRequest: @retroactive Content {}
 extension UpdateUserProfileResponse: @retroactive Content {}
+extension UpdateUsernameRequest: @retroactive Content {}
+extension UpdateEmailRequest: @retroactive Content {}
+extension UpdatePasswordRequest: @retroactive Content {}
 extension DeleteUserProfileRequest: @retroactive Content {}
 extension DeleteUserProfileResponse: @retroactive Content {}
 
