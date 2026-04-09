@@ -41,4 +41,3 @@ enum BrokerProvider {
         return normalized
     }
 }
-

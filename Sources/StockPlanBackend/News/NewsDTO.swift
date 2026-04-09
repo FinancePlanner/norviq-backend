@@ -6,7 +6,6 @@ typealias NewsItemResponse = StockPlanShared.NewsItemResponse
 typealias NewsSyncResponse = StockPlanShared.NewsSyncResponse
 typealias FinnhubNewsWebhookResponse = StockPlanShared.FinnhubNewsWebhookResponse
 
-
 struct FinnhubNewsWebhookRequest: Content {
     let news: [FinnhubNewsWebhookItem]
 

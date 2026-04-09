@@ -14,8 +14,7 @@ struct DisabledMarketDataProvider: MarketDataProvider {
     }
 
     func history(symbol: String, from: Date?, to: Date?, on req: Request) async throws
-        -> MarketProviderHistory
-    {
+        -> MarketProviderHistory {
         throw MarketDataProviderDisabledError()
     }
 

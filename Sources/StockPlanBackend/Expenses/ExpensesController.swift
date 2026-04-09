@@ -61,7 +61,7 @@ struct ExpensesController: RouteCollection {
     func boot(routes: any RoutesBuilder) throws {
         let protected = routes.grouped(SessionToken.authenticator(), SessionToken.guardMiddleware())
         let expenses = protected.grouped("expenses")
-        
+
         expenses.group("partner") { partner in
             partner.get(use: getHouseholdPartner)
             partner.put(use: updateHouseholdPartner)
@@ -69,7 +69,7 @@ struct ExpensesController: RouteCollection {
 
         expenses.get(use: getExpenses)
         expenses.post(use: createExpense)
-        
+
         expenses.group(":expenseId") { expense in
             expense.patch(use: updateExpense)
             expense.delete(use: deleteExpense)
@@ -99,23 +99,23 @@ struct ExpensesController: RouteCollection {
     @Sendable
     func getExpenses(req: Request) async throws -> [ExpenseResponse] {
         let session = try req.auth.require(SessionToken.self)
-        
+
         // Optional date filters
         let dateFormatter = DateFormatter()
         dateFormatter.dateFormat = "yyyy-MM-dd"
         dateFormatter.locale = Locale(identifier: "en_US_POSIX")
         dateFormatter.timeZone = TimeZone(secondsFromGMT: 0)
-        
-        var fromDate: Date? = nil
-        var toDate: Date? = nil
-        
+
+        var fromDate: Date?
+        var toDate: Date?
+
         if let from = req.query[String.self, at: "from"] {
             fromDate = dateFormatter.date(from: from)
         }
         if let to = req.query[String.self, at: "to"] {
             toDate = dateFormatter.date(from: to)
         }
-        
+
         return try await req.expensesService.getExpenses(
             userId: session.userId,
             from: fromDate,
@@ -128,13 +128,13 @@ struct ExpensesController: RouteCollection {
     func createExpense(req: Request) async throws -> Response {
         let session = try req.auth.require(SessionToken.self)
         let payload = try req.content.decode(ExpensePayload.self).asRequest()
-        
+
         let created = try await req.expensesService.createExpense(
             userId: session.userId,
             request: payload,
             on: req.db
         )
-        
+
         let res = Response(status: .created)
         try res.content.encode(created)
         return res
@@ -145,7 +145,7 @@ struct ExpensesController: RouteCollection {
         let session = try req.auth.require(SessionToken.self)
         let expenseId = try requireUUIDParameter(req, name: "expenseId")
         let payload = try req.content.decode(ExpensePayload.self).asRequest()
-        
+
         return try await req.expensesService.updateExpense(
             userId: session.userId,
             expenseId: expenseId,
@@ -158,7 +158,7 @@ struct ExpensesController: RouteCollection {
     func deleteExpense(req: Request) async throws -> HTTPStatus {
         let session = try req.auth.require(SessionToken.self)
         let expenseId = try requireUUIDParameter(req, name: "expenseId")
-        
+
         try await req.expensesService.deleteExpense(
             userId: session.userId,
             expenseId: expenseId,

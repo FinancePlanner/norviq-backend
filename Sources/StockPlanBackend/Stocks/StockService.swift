@@ -170,8 +170,7 @@ struct StockServiceImpl: StockService {
     }
 
     func getValuation(symbol: String, userId: UUID, on db: any Database) async throws
-        -> StockValuationRequest
-    {
+        -> StockValuationRequest {
         let normalizedSymbol = try validateSymbol(symbol)
         guard try await repo.find(symbol: normalizedSymbol, userId: userId, on: db) != nil else {
             throw StockServiceError.notFound
@@ -184,11 +183,10 @@ struct StockServiceImpl: StockService {
     }
 
     func create(payload: StockRequest, userId: UUID, on db: any Database) async throws
-        -> StockResponse
-    {
+        -> StockResponse {
         _ = try validateSymbol(payload.symbol)
         let stock = try await repo.create(payload: payload, userId: userId, on: db)
-        
+
         try? await req.userActivityService.recordActivity(
             userId: userId,
             type: .stockAdded,
@@ -199,7 +197,7 @@ struct StockServiceImpl: StockService {
             symbol: "plus.circle.fill",
             on: db
         )
-        
+
         return try StockResponse(from: stock)
     }
 
@@ -226,12 +224,11 @@ struct StockServiceImpl: StockService {
     }
 
     func bulkCreate(payloads: [StockRequest], userId: UUID, on db: any Database) async throws
-        -> BulkStockResponse
-    {
+        -> BulkStockResponse {
         let results = try await repo.bulkCreate(payloads: payloads, userId: userId, on: db)
         let created = results.filter { $0.stock != nil }.count
         let failed = results.filter { $0.error != nil }.count
-        
+
         if created > 0 {
             try? await req.userActivityService.recordActivity(
                 userId: userId,
@@ -244,19 +241,18 @@ struct StockServiceImpl: StockService {
                 on: db
             )
         }
-        
+
         return BulkStockResponse(created: created, failed: failed, results: results)
     }
 
     func update(id: UUID, payload: StockRequest, userId: UUID, on db: any Database) async throws
-        -> StockResponse
-    {
+        -> StockResponse {
         _ = try validateSymbol(payload.symbol)
         guard let stock = try await repo.update(id: id, payload: payload, userId: userId, on: db)
         else {
             throw StockServiceError.notFound
         }
-        
+
         try? await req.userActivityService.recordActivity(
             userId: userId,
             type: .stockUpdated,
@@ -267,7 +263,7 @@ struct StockServiceImpl: StockService {
             symbol: "pencil.circle.fill",
             on: db
         )
-        
+
         return try StockResponse(from: stock)
     }
 
@@ -310,8 +306,7 @@ struct StockServiceImpl: StockService {
     }
 
     private func normalizeValuationPayload(pathSymbol: String, payload: StockValuationRequest) throws
-        -> StockValuationRequest
-    {
+        -> StockValuationRequest {
         let normalizedPathSymbol = try validateSymbol(pathSymbol)
         let normalizedBodySymbol = try validateSymbol(payload.symbol)
         guard normalizedPathSymbol == normalizedBodySymbol else {
@@ -433,7 +428,7 @@ struct StockServiceImpl: StockService {
             "ttmVsNTMRevenueGrowth": metrics.ttmVsNTMRevenueGrowth,
             "currentQuarterRevenueGrowthVsPreviousYear": metrics.currentQuarterRevenueGrowthVsPreviousYear,
             "twoYearStackExpectedRevenueGrowth": metrics.twoYearStackExpectedRevenueGrowth,
-            "dcfFairValue": metrics.dcfBasePrice,
+            "dcfFairValue": metrics.dcfBasePrice
         ].compactMapValues { value in
             guard let value else { return nil }
             return value.isFinite ? value : nil

@@ -13,7 +13,7 @@ final class AuthTokenCleanup: LifecycleHandler, @unchecked Sendable {
 
     func didBoot(_ app: Application) throws {
         let eventLoop = app.eventLoopGroup.next()
-        scheduled = eventLoop.scheduleRepeatedTask(initialDelay: .seconds(10), delay: .seconds(Int64(interval))) { task in
+        scheduled = eventLoop.scheduleRepeatedTask(initialDelay: .seconds(10), delay: .seconds(Int64(interval))) { _ in
             Task {
                 await self.cleanup(app)
             }
@@ -37,7 +37,7 @@ final class AuthTokenCleanup: LifecycleHandler, @unchecked Sendable {
                 app.logger.warning("Password reset token cleanup failed: \(error)")
             }
         }
-        
+
         do {
             // Clean up expired or revoked refresh tokens
             _ = try await RefreshToken.query(on: app.db)
@@ -53,7 +53,7 @@ final class AuthTokenCleanup: LifecycleHandler, @unchecked Sendable {
             }
         }
     }
-    
+
     private func isTableNotFoundError(_ error: any Error) -> Bool {
         let errorString = String(reflecting: error)
         return errorString.contains("does not exist") || errorString.contains("relation") && errorString.contains("does not exist")

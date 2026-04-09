@@ -12,20 +12,20 @@ protocol ExpensesService: Sendable {
     func createBudgetSnapshot(userId: UUID, request: BudgetSnapshotRequest, on db: any Database) async throws -> BudgetSnapshotResponse
     func updateSnapshot(userId: UUID, snapshotId: UUID, request: BudgetSnapshotRequest, on db: any Database) async throws -> BudgetSnapshotResponse
     func deleteSnapshot(userId: UUID, snapshotId: UUID, on db: any Database) async throws
-    
+
     // Plan Items
     func getAllPlanItems(userId: UUID, on db: any Database) async throws -> [BudgetPlanItemResponse]
     func getPlanItems(userId: UUID, snapshotId: UUID, on db: any Database) async throws -> [BudgetPlanItemResponse]
     func createPlanItem(userId: UUID, request: BudgetPlanItemRequest, on db: any Database) async throws -> BudgetPlanItemResponse
     func updatePlanItem(userId: UUID, itemId: UUID, request: BudgetPlanItemRequest, on db: any Database) async throws -> BudgetPlanItemResponse
     func deletePlanItem(userId: UUID, itemId: UUID, on db: any Database) async throws
-    
+
     // Expenses
     func getExpenses(userId: UUID, from: Date?, to: Date?, on db: any Database) async throws -> [ExpenseResponse]
     func createExpense(userId: UUID, request: ExpenseRequest, on db: any Database) async throws -> ExpenseResponse
     func updateExpense(userId: UUID, expenseId: UUID, request: ExpenseRequest, on db: any Database) async throws -> ExpenseResponse
     func deleteExpense(userId: UUID, expenseId: UUID, on db: any Database) async throws
-    
+
     // Reports
     func getMonthlyReports(userId: UUID, from: Date?, to: Date?, on db: any Database) async throws -> [BudgetMonthSummaryResponse]
     func getYearlyReports(userId: UUID, from: Date?, to: Date?, on db: any Database) async throws -> [BudgetYearSummaryResponse]
@@ -56,7 +56,7 @@ final class DefaultExpensesService: ExpensesService {
     }
 
     // MARK: - Formatters
-    
+
     private func parseDate(_ string: String) -> Date? {
         let formatter = DateFormatter()
         formatter.dateFormat = "yyyy-MM-dd"
@@ -64,7 +64,7 @@ final class DefaultExpensesService: ExpensesService {
         formatter.timeZone = TimeZone(secondsFromGMT: 0)
         return formatter.date(from: string)
     }
-    
+
     private func formatDate(_ date: Date) -> String {
         let formatter = DateFormatter()
         formatter.dateFormat = "yyyy-MM-dd"
@@ -72,7 +72,7 @@ final class DefaultExpensesService: ExpensesService {
         formatter.timeZone = TimeZone(secondsFromGMT: 0)
         return formatter.string(from: date)
     }
-    
+
     private func formatISODate(_ date: Date) -> String {
         let formatter = ISO8601DateFormatter()
         formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
@@ -138,16 +138,16 @@ final class DefaultExpensesService: ExpensesService {
         try await user.update(on: db)
         return HouseholdPartnerProfileResponse(displayName: user.householdPartnerDisplayName)
     }
-    
+
     // MARK: - Snapshots
-    
+
     func getSnapshots(userId: UUID, year: Int?, month: Int?, on db: any Database) async throws -> [BudgetSnapshotResponse] {
         let query = BudgetSnapshot.query(on: db).filter(\.$user.$id == userId)
-        
+
         // Load items along with snapshot if needed, but the endpoint might just be snapshots.
         // Let's just return snapshots for now. We can load them if requested, but DTO doesn't include items.
         let snapshots = try await query.all()
-        
+
         // Client filtering by year/month if provided (since monthStart is a Date, easier to filter in Swift or via Postgres extract)
         // Filtering in Swift for simplicity unless data is huge
         var filtered = snapshots
@@ -157,15 +157,15 @@ final class DefaultExpensesService: ExpensesService {
         if let month = month {
             filtered = filtered.filter { Calendar.current.component(.month, from: $0.monthStart) == month }
         }
-        
+
         return filtered.map { mapSnapshot($0) }.sorted { $0.monthStart < $1.monthStart }
     }
-    
+
     func createBudgetSnapshot(userId: UUID, request: BudgetSnapshotRequest, on db: any Database) async throws -> BudgetSnapshotResponse {
         guard let rawDate = parseDate(request.monthStart) else {
             throw Abort(.badRequest, reason: "Invalid monthStart format. Expected YYYY-MM-DD.")
         }
-        
+
         // Normalize to the first day of the month to avoid timezone shifts causing day-boundary issues
         let calendar = Calendar(identifier: .gregorian)
         var components = calendar.dateComponents([.year, .month], from: rawDate)
@@ -174,20 +174,20 @@ final class DefaultExpensesService: ExpensesService {
         components.minute = 0
         components.second = 0
         components.timeZone = TimeZone(secondsFromGMT: 0)
-        
+
         guard let monthStart = calendar.date(from: components) else {
             throw Abort(.internalServerError, reason: "Could not normalize monthStart.")
         }
-        
+
         // Use a date range to find the record to be more robust against DB date/time comparison issues
         let nextMonth = calendar.date(byAdding: .month, value: 1, to: monthStart)!
-        
+
         let existing = try await BudgetSnapshot.query(on: db)
             .filter(\.$user.$id == userId)
             .filter(\.$monthStart >= monthStart)
             .filter(\.$monthStart < nextMonth)
             .first()
-            
+
         if let snapshot = existing {
             // Update existing
             snapshot.monthStart = monthStart // Update to normalized date if it was different
@@ -207,7 +207,7 @@ final class DefaultExpensesService: ExpensesService {
             return mapSnapshot(snapshot)
         }
     }
-    
+
     func updateSnapshot(userId: UUID, snapshotId: UUID, request: BudgetSnapshotRequest, on db: any Database) async throws -> BudgetSnapshotResponse {
         guard let snapshot = try await BudgetSnapshot.find(snapshotId, on: db) else {
             throw Abort(.notFound)
@@ -218,7 +218,7 @@ final class DefaultExpensesService: ExpensesService {
         guard let rawDate = parseDate(request.monthStart) else {
             throw Abort(.badRequest, reason: "Invalid monthStart format. Expected YYYY-MM-DD.")
         }
-        
+
         // Normalize
         let calendar = Calendar(identifier: .gregorian)
         var components = calendar.dateComponents([.year, .month], from: rawDate)
@@ -227,11 +227,11 @@ final class DefaultExpensesService: ExpensesService {
         components.minute = 0
         components.second = 0
         components.timeZone = TimeZone(secondsFromGMT: 0)
-        
+
         guard let monthStart = calendar.date(from: components) else {
             throw Abort(.internalServerError, reason: "Could not normalize monthStart.")
         }
-        
+
         snapshot.monthStart = monthStart
         snapshot.netSalary = request.netSalary
         snapshot.targetShares = request.targetShares
@@ -248,26 +248,26 @@ final class DefaultExpensesService: ExpensesService {
         }
         try await snapshot.delete(on: db)
     }
-    
+
     // MARK: - Plan Items
-    
+
     func getAllPlanItems(userId: UUID, on db: any Database) async throws -> [BudgetPlanItemResponse] {
         let items = try await BudgetPlanItem.query(on: db)
             .filter(\.$user.$id == userId)
             .all()
-        
+
         return items.map { mapPlanItem($0) }
     }
-    
+
     func getPlanItems(userId: UUID, snapshotId: UUID, on db: any Database) async throws -> [BudgetPlanItemResponse] {
         let items = try await BudgetPlanItem.query(on: db)
             .filter(\.$user.$id == userId)
             .filter(\.$snapshot.$id == snapshotId)
             .all()
-        
+
         return items.map { mapPlanItem($0) }
     }
-    
+
     func createPlanItem(userId: UUID, request: BudgetPlanItemRequest, on db: any Database) async throws -> BudgetPlanItemResponse {
         guard let snapshotId = UUID(uuidString: request.snapshotId) else {
             throw Abort(.badRequest, reason: "Invalid snapshotId.")
@@ -276,7 +276,7 @@ final class DefaultExpensesService: ExpensesService {
         guard let snapshot = try await BudgetSnapshot.find(snapshotId, on: db), snapshot.$user.id == userId else {
             throw Abort(.notFound, reason: "Snapshot not found.")
         }
-        
+
         let split = try normalizeSplit(splitMode: request.splitMode, userSharePercent: request.userSharePercent)
 
         let item = BudgetPlanItem(
@@ -291,7 +291,7 @@ final class DefaultExpensesService: ExpensesService {
         try await item.create(on: db)
         return mapPlanItem(item)
     }
-    
+
     func updatePlanItem(userId: UUID, itemId: UUID, request: BudgetPlanItemRequest, on db: any Database) async throws -> BudgetPlanItemResponse {
         guard let item = try await BudgetPlanItem.find(itemId, on: db) else {
             throw Abort(.notFound)
@@ -299,7 +299,7 @@ final class DefaultExpensesService: ExpensesService {
         guard item.$user.id == userId else {
             throw Abort(.forbidden)
         }
-        
+
         let split = try normalizeSplit(splitMode: request.splitMode, userSharePercent: request.userSharePercent)
         item.title = request.title
         item.plannedAmount = request.plannedAmount
@@ -309,7 +309,7 @@ final class DefaultExpensesService: ExpensesService {
         try await item.update(on: db)
         return mapPlanItem(item)
     }
-    
+
     func deletePlanItem(userId: UUID, itemId: UUID, on db: any Database) async throws {
         guard let item = try await BudgetPlanItem.find(itemId, on: db) else {
             throw Abort(.notFound)
@@ -319,29 +319,29 @@ final class DefaultExpensesService: ExpensesService {
         }
         try await item.delete(on: db)
     }
-    
+
     // MARK: - Expenses
-    
+
     func getExpenses(userId: UUID, from: Date?, to: Date?, on db: any Database) async throws -> [ExpenseResponse] {
         var query = Expense.query(on: db).filter(\.$user.$id == userId)
-        
+
         if let from = from {
             query = query.filter(\.$occurredOn >= from)
         }
         if let to = to {
             query = query.filter(\.$occurredOn <= to)
         }
-        
+
         let expenses = try await query.sort(\.$occurredOn, .descending).all()
         return expenses.map { mapExpense($0) }
     }
-    
+
     func createExpense(userId: UUID, request: ExpenseRequest, on db: any Database) async throws -> ExpenseResponse {
         guard let occurredOn = parseDate(request.occurredOn) else {
             throw Abort(.badRequest, reason: "Invalid occurredOn format. Expected YYYY-MM-DD.")
         }
-        
-        var linkedId: UUID? = nil
+
+        var linkedId: UUID?
         if let reqLinkedId = request.linkedPlanItemId {
             guard let parsed = UUID(uuidString: reqLinkedId) else {
                 throw Abort(.badRequest, reason: "Invalid linkedPlanItemId.")
@@ -352,7 +352,7 @@ final class DefaultExpensesService: ExpensesService {
             }
             linkedId = parsed
         }
-        
+
         let split = try normalizeSplit(splitMode: request.splitMode, userSharePercent: request.userSharePercent)
 
         let expense = Expense(
@@ -366,7 +366,7 @@ final class DefaultExpensesService: ExpensesService {
             userSharePercent: split.1
         )
         try await expense.create(on: db)
-        
+
         // Record activity
         try? await req.userActivityService.recordActivity(
             userId: userId,
@@ -378,10 +378,10 @@ final class DefaultExpensesService: ExpensesService {
             symbol: symbol(for: request.pillar),
             on: db
         )
-        
+
         return mapExpense(expense)
     }
-    
+
     func updateExpense(userId: UUID, expenseId: UUID, request: ExpenseRequest, on db: any Database) async throws -> ExpenseResponse {
         guard let expense = try await Expense.find(expenseId, on: db) else {
             throw Abort(.notFound)
@@ -392,8 +392,8 @@ final class DefaultExpensesService: ExpensesService {
         guard let occurredOn = parseDate(request.occurredOn) else {
             throw Abort(.badRequest, reason: "Invalid occurredOn format. Expected YYYY-MM-DD.")
         }
-        
-        var linkedId: UUID? = nil
+
+        var linkedId: UUID?
         if let reqLinkedId = request.linkedPlanItemId {
             guard let parsed = UUID(uuidString: reqLinkedId) else {
                 throw Abort(.badRequest, reason: "Invalid linkedPlanItemId.")
@@ -403,7 +403,7 @@ final class DefaultExpensesService: ExpensesService {
             }
             linkedId = parsed
         }
-        
+
         let split = try normalizeSplit(splitMode: request.splitMode, userSharePercent: request.userSharePercent)
 
         expense.title = request.title
@@ -414,7 +414,7 @@ final class DefaultExpensesService: ExpensesService {
         expense.userSharePercent = split.1
         expense.$linkedPlanItem.id = linkedId
         try await expense.update(on: db)
-        
+
         // Record activity
         try? await req.userActivityService.recordActivity(
             userId: userId,
@@ -426,10 +426,10 @@ final class DefaultExpensesService: ExpensesService {
             symbol: symbol(for: request.pillar),
             on: db
         )
-        
+
         return mapExpense(expense)
     }
-    
+
     func deleteExpense(userId: UUID, expenseId: UUID, on db: any Database) async throws {
         guard let expense = try await Expense.find(expenseId, on: db) else {
             throw Abort(.notFound)
@@ -439,14 +439,14 @@ final class DefaultExpensesService: ExpensesService {
         }
         try await expense.delete(on: db)
     }
-    
+
     // MARK: - Reports
-    
+
     func getMonthlyReports(userId: UUID, from: Date?, to: Date?, on db: any Database) async throws -> [BudgetMonthSummaryResponse] {
         var snapshotsQuery = BudgetSnapshot.query(on: db).filter(\.$user.$id == userId)
         let itemsQuery = BudgetPlanItem.query(on: db).filter(\.$user.$id == userId)
         var expensesQuery = Expense.query(on: db).filter(\.$user.$id == userId)
-        
+
         if let from = from {
             snapshotsQuery = snapshotsQuery.filter(\.$monthStart >= from)
             expensesQuery = expensesQuery.filter(\.$occurredOn >= from)
@@ -455,39 +455,39 @@ final class DefaultExpensesService: ExpensesService {
             snapshotsQuery = snapshotsQuery.filter(\.$monthStart <= to)
             expensesQuery = expensesQuery.filter(\.$occurredOn <= to)
         }
-        
+
         let snapshots = try await snapshotsQuery.all()
         let items = try await itemsQuery.all()
         let expenses = try await expensesQuery.all()
-        
+
         let calendar = Calendar(identifier: .gregorian)
-        
+
         // Group items by snapshot
         var itemsBySnapshot: [UUID: [BudgetPlanItem]] = [:]
         for item in items {
             let snapshotId = item.$snapshot.id
             itemsBySnapshot[snapshotId, default: []].append(item)
         }
-        
+
         // Group expenses by month start date
         var expensesByMonth: [Date: [Expense]] = [:]
         for expense in expenses {
             let date = calendar.date(from: calendar.dateComponents([.year, .month], from: expense.occurredOn)) ?? expense.occurredOn
             expensesByMonth[date, default: []].append(expense)
         }
-        
+
         var summaries: [BudgetMonthSummaryResponse] = []
-        
+
         for snapshot in snapshots.sorted(by: { $0.monthStart < $1.monthStart }) {
             let monthStart = snapshot.monthStart
-            
+
             var snapshotItems: [BudgetPlanItem] = []
             if let id = snapshot.id {
                 snapshotItems = itemsBySnapshot[id] ?? []
             }
-            
+
             let monthExpenses = expensesByMonth[monthStart] ?? []
-            
+
             var plannedTotal: Double = 0
             for item in snapshotItems { plannedTotal += item.plannedAmount }
 
@@ -530,7 +530,7 @@ final class DefaultExpensesService: ExpensesService {
             var partnerPillarPlans: [String: Double] = [:]
             var myPillarActuals: [String: Double] = [:]
             var partnerPillarActuals: [String: Double] = [:]
-            
+
             for pillar in BudgetPillar.allCases {
                 let itemsForPillar = snapshotItems.filter { $0.pillar == pillar }
                 var plannedAmount: Double = 0
@@ -593,18 +593,18 @@ final class DefaultExpensesService: ExpensesService {
             )
             summaries.append(summary)
         }
-        
+
         return summaries
     }
 
     func getYearlyReports(userId: UUID, from: Date?, to: Date?, on db: any Database) async throws -> [BudgetYearSummaryResponse] {
         let monthlyReports = try await getMonthlyReports(userId: userId, from: from, to: to, on: db)
-        
+
         let groupedByYear = Dictionary(grouping: monthlyReports) { report in
             guard let date = parseDate(report.monthStart) else { return 0 }
             return Calendar(identifier: .gregorian).component(.year, from: date)
         }
-        
+
         var yearlySummaries: [BudgetYearSummaryResponse] = []
         for (year, reports) in groupedByYear where year != 0 {
             let planned = reports.reduce(0) { $0 + $1.planned }
@@ -614,7 +614,7 @@ final class DefaultExpensesService: ExpensesService {
             let partnerPlanned = reports.reduce(0) { $0 + $1.partnerPlanned }
             let myActual = reports.reduce(0) { $0 + $1.myActual }
             let partnerActual = reports.reduce(0) { $0 + $1.partnerActual }
-            
+
             yearlySummaries.append(BudgetYearSummaryResponse(
                 year: year,
                 planned: planned,
@@ -626,7 +626,7 @@ final class DefaultExpensesService: ExpensesService {
                 partnerActual: partnerActual
             ))
         }
-        
+
         return yearlySummaries.sorted { $0.year < $1.year }
     }
 
@@ -687,7 +687,7 @@ final class DefaultExpensesService: ExpensesService {
     }
 
     // MARK: - Mappers
-    
+
     private func mapSnapshot(_ model: BudgetSnapshot) -> BudgetSnapshotResponse {
         BudgetSnapshotResponse(
             id: model.id?.uuidString ?? "",
@@ -698,7 +698,7 @@ final class DefaultExpensesService: ExpensesService {
             updatedAt: model.updatedAt.map { formatISODate($0) }
         )
     }
-    
+
     private func mapPlanItem(_ model: BudgetPlanItem) -> BudgetPlanItemResponse {
         BudgetPlanItemResponse(
             id: model.id?.uuidString ?? "",
@@ -712,7 +712,7 @@ final class DefaultExpensesService: ExpensesService {
             updatedAt: model.updatedAt.map { formatISODate($0) }
         )
     }
-    
+
     private func mapExpense(_ model: Expense) -> ExpenseResponse {
         ExpenseResponse(
             id: model.id?.uuidString ?? "",

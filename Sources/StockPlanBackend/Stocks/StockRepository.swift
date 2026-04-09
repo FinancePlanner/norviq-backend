@@ -48,8 +48,7 @@ struct DatabaseStocksRepository: StocksRepository {
     }
 
     func findValuation(symbol: String, userId: UUID, on db: any Database) async throws
-        -> StockValuation?
-    {
+        -> StockValuation? {
         let normalizedSymbol = normalizeSymbol(symbol)
         return try await StockValuation.query(on: db)
             .filter(\.$userId == userId)
@@ -118,8 +117,7 @@ struct DatabaseStocksRepository: StocksRepository {
     }
 
     func createValuation(payload: StockValuationRequest, userId: UUID, on db: any Database)
-        async throws -> StockValuation
-    {
+        async throws -> StockValuation {
         let valuation = StockValuation(
             userId: userId,
             symbol: normalizeSymbol(payload.symbol),
@@ -137,8 +135,7 @@ struct DatabaseStocksRepository: StocksRepository {
     }
 
     func bulkCreate(payloads: [StockRequest], userId: UUID, on db: any Database) async throws
-        -> [BulkStockResultItem]
-    {
+        -> [BulkStockResultItem] {
         var results: [BulkStockResultItem] = []
         for (index, payload) in payloads.enumerated() {
             do {
@@ -153,8 +150,7 @@ struct DatabaseStocksRepository: StocksRepository {
     }
 
     func update(id: UUID, payload: StockRequest, userId: UUID, on db: any Database) async throws
-        -> Stock?
-    {
+        -> Stock? {
         guard let stock = try await find(id: id, userId: userId, on: db) else {
             return nil
         }

@@ -10,7 +10,7 @@ private struct EnumExistsResult: Codable {
 struct AddExpenseSharingFields: AsyncMigration {
     func prepare(on database: any Database) async throws {
         let splitModeEnum: DatabaseSchema.DataType
-        
+
         if let sql = database as? any SQLDatabase {
             let enumExists = try await sql.raw("""
                 SELECT EXISTS (
@@ -18,7 +18,7 @@ struct AddExpenseSharingFields: AsyncMigration {
                 )
                 """)
                 .first(decoding: EnumExistsResult.self)
-            
+
             if enumExists?.exists == true {
                 // Enum already exists, read it
                 splitModeEnum = try await database.enum("expense_split_mode").read()

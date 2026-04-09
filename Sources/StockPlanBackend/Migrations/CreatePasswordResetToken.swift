@@ -11,7 +11,7 @@ struct CreatePasswordResetToken: AsyncMigration {
             .field("used_at", .datetime)
             .field("created_at", .datetime, .required)
             .create()
-        
+
         // Create indexes using the Database extension
         try await database.createIndex(on: "password_reset_tokens", columns: ["user_id"])
         try await database.createIndex(on: "password_reset_tokens", columns: ["expires_at"])

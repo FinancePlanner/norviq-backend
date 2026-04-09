@@ -4,7 +4,7 @@ import Foundation
 
 final class Feedback: Model, Content, @unchecked Sendable {
     static let schema = "feedbacks"
-    
+
     @ID(key: .id)
     var id: UUID?
 

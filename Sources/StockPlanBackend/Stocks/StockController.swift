@@ -10,7 +10,7 @@ struct StockController: RouteCollection {
         stocks.get(use: listStocks)
         stocks.post(use: createStock)
         stocks.post("bulk", use: bulkCreateStocks)
-        
+
         // Symbol-based routes (use explicit "symbol" prefix to avoid conflicts)
         stocks.get("symbol", ":symbol", "insights", use: getStockInsights)
         stocks.group("symbol", ":symbol", "valuation") { valuation in
@@ -18,7 +18,7 @@ struct StockController: RouteCollection {
             valuation.post(use: createStockValuation)
             valuation.put(use: updateStockValuation)
         }
-        
+
         // ID-based routes (use explicit "id" prefix to avoid conflicts)
         stocks.group("id", ":stockId") { stock in
             stock.get(use: getStock)
@@ -211,8 +211,7 @@ struct StockController: RouteCollection {
         if let existing = try await WatchlistItem.query(on: req.db)
             .filter(\.$userId == session.userId)
             .filter(\.$symbol == symbol)
-            .first()
-        {
+            .first() {
             var didChange = false
 
             if let rawNote = payload.note {
@@ -634,8 +633,7 @@ struct StockController: RouteCollection {
     }
 
     private func makeWatchlistItemResponse(from model: WatchlistItem) throws
-        -> WatchlistItemResponse
-    {
+        -> WatchlistItemResponse {
         guard let id = model.id else {
             throw Abort(.internalServerError, reason: "Watchlist item id missing.")
         }

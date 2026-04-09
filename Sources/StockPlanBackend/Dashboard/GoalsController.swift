@@ -7,7 +7,7 @@ struct GoalsController: RouteCollection {
     func boot(routes: any RoutesBuilder) throws {
         let protected = routes.grouped(SessionToken.authenticator(), SessionToken.guardMiddleware())
         let goals = protected.grouped("goals")
-        
+
         goals.get(use: index)
         goals.post(use: create)
         goals.get(":id", use: show)
@@ -19,29 +19,29 @@ struct GoalsController: RouteCollection {
     @Sendable
     func index(req: Request) async throws -> [GoalResponse] {
         let session = try req.auth.require(SessionToken.self)
-        
+
         let manualGoals = try await Goal.owned(by: session.userId, on: req.db)
             .sort(\.$createdAt, .descending)
             .all()
             .map { $0.toDTO() }
-            
+
         // System Evaluated Goals
         let systemGoals = try await evaluateSystemGoals(userId: session.userId, on: req.db)
-        
+
         return systemGoals + manualGoals
     }
-    
+
     private func evaluateSystemGoals(userId: UUID, on db: any Database) async throws -> [GoalResponse] {
         var systemGoals: [GoalResponse] = []
         let formatter = ISO8601DateFormatter()
         let nowString = formatter.string(from: Date())
-        
+
         // Goal 1: Build a Watchlist
         let watchlistCount = try await WatchlistItem.query(on: db)
             .filter(\.$userId == userId)
             .filter(\.$status != WatchlistStatus.archived.rawValue)
             .count()
-            
+
         let isWatchlistCompleted = watchlistCount >= 3
         systemGoals.append(GoalResponse(
             id: UUID(uuidString: "00000000-0000-0000-0000-000000000001")!.uuidString,
@@ -52,12 +52,12 @@ struct GoalsController: RouteCollection {
             createdAt: nil,
             updatedAt: nowString
         ))
-        
+
         // Goal 2: Set up a Monthly Budget
         let budgetCount = try await BudgetSnapshot.query(on: db)
             .filter(\.$user.$id == userId)
             .count()
-            
+
         let isBudgetCompleted = budgetCount >= 1
         systemGoals.append(GoalResponse(
             id: UUID(uuidString: "00000000-0000-0000-0000-000000000002")!.uuidString,
@@ -68,12 +68,12 @@ struct GoalsController: RouteCollection {
             createdAt: nil,
             updatedAt: nowString
         ))
-        
+
         // Goal 3: Log an Expense
         let expenseCount = try await Expense.query(on: db)
             .filter(\.$user.$id == userId)
             .count()
-            
+
         let isExpenseCompleted = expenseCount >= 1
         systemGoals.append(GoalResponse(
             id: UUID(uuidString: "00000000-0000-0000-0000-000000000003")!.uuidString,
@@ -84,7 +84,7 @@ struct GoalsController: RouteCollection {
             createdAt: nil,
             updatedAt: nowString
         ))
-        
+
         return systemGoals
     }
 

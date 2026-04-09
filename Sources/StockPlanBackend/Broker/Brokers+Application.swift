@@ -19,4 +19,3 @@ extension Application {
         set { storage[BrokersServiceKey.self] = newValue }
     }
 }
-

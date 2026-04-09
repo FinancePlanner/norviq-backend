@@ -16,7 +16,6 @@ typealias LooklistConvictionDTO = StockPlanShared.LooklistConvictionDTO
 typealias MarketStatisticsDTO = StockPlanShared.MarketStatisticsDTO
 typealias MarketHeatmapDTO = StockPlanShared.MarketHeatmapDTO
 
-
 extension StatisticsDTO {
     init(from model: StatisticsViewModel) {
         self.init(

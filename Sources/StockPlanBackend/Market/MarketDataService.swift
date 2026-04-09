@@ -131,7 +131,7 @@ enum FMPSymbolPlanAccess {
         "UAL", "AAL", "TSM", "SONY", "ET", "MRO", "COIN", "RIVN", "RIOT", "CPRX",
         "VWO", "SPYG", "NOK", "ROKU", "VIAC", "ATVI", "BIDU", "DOCU", "ZM", "PINS",
         "TLRY", "WBA", "MGM", "NIO", "C", "GS", "WFC", "ADBE", "PEP", "UNH",
-        "CARR", "HCA", "TWTR", "BILI", "SIRI", "FUBO", "RKT",
+        "CARR", "HCA", "TWTR", "BILI", "SIRI", "FUBO", "RKT"
     ]
 
     static func isSupportedOnFreeTier(_ symbol: String) -> Bool {
@@ -165,8 +165,7 @@ struct DefaultMarketDataService: MarketDataService {
         let redisKey = makeQuoteRedisKey(provider: providerName, symbol: symbol)
 
         if let hotCached: QuoteResponse = await redisGetValue(
-            redisKey, as: QuoteResponse.self, on: req)
-        {
+            redisKey, as: QuoteResponse.self, on: req) {
             return hotCached
         }
 
@@ -203,8 +202,7 @@ struct DefaultMarketDataService: MarketDataService {
     }
 
     func quoteBatch(symbols rawSymbols: [String], on req: Request) async throws
-        -> QuoteBatchResponse
-    {
+        -> QuoteBatchResponse {
         var seen: Set<String> = []
         let normalized =
             try rawSymbols
@@ -248,8 +246,7 @@ struct DefaultMarketDataService: MarketDataService {
         }
 
         if let hotCached: HistoryResponse = await redisGetValue(
-            redisKey, as: HistoryResponse.self, on: req)
-        {
+            redisKey, as: HistoryResponse.self, on: req) {
             return hotCached
         }
 
@@ -346,8 +343,7 @@ struct DefaultMarketDataService: MarketDataService {
         let redisKey = makeSearchRedisKey(provider: providerName, query: query)
 
         if let hotCached: [SearchResultResponse] = await redisGetValue(
-            redisKey, as: [SearchResultResponse].self, on: req)
-        {
+            redisKey, as: [SearchResultResponse].self, on: req) {
             return hotCached
         }
 
@@ -360,8 +356,7 @@ struct DefaultMarketDataService: MarketDataService {
             isFresh(
                 existing.updatedAt ?? existing.createdAt, ttlSeconds: cacheConfig.searchTTLSeconds,
                 now: now),
-            let cachedResults = decodeSearchPayload(existing.payload)
-        {
+            let cachedResults = decodeSearchPayload(existing.payload) {
             await redisSetValue(
                 redisKey, value: cachedResults, ttlSeconds: cacheConfig.searchTTLSeconds, on: req)
             return cachedResults
@@ -409,8 +404,7 @@ struct DefaultMarketDataService: MarketDataService {
         let redisKey = makeFxRedisKey(provider: provider.name, base: base, quote: quote)
 
         if let hotCached: FxRateResponse = await redisGetValue(
-            redisKey, as: FxRateResponse.self, on: req)
-        {
+            redisKey, as: FxRateResponse.self, on: req) {
             return hotCached
         }
 
@@ -454,8 +448,7 @@ struct DefaultMarketDataService: MarketDataService {
         let redisKey = makeProfileRedisKey(provider: providerName, symbol: symbol)
 
         if let hotCached: CompanyProfileResponse = await redisGetValue(
-            redisKey, as: CompanyProfileResponse.self, on: req)
-        {
+            redisKey, as: CompanyProfileResponse.self, on: req) {
             return hotCached
         }
 
@@ -467,8 +460,7 @@ struct DefaultMarketDataService: MarketDataService {
         if let existing,
             isFresh(
                 existing.updatedAt ?? existing.createdAt ?? .distantPast,
-                ttlSeconds: cacheConfig.profileTTLSeconds, now: now)
-        {
+                ttlSeconds: cacheConfig.profileTTLSeconds, now: now) {
             let response = makeProfileResponse(from: existing)
             await redisSetValue(
                 redisKey, value: response, ttlSeconds: cacheConfig.profileTTLSeconds, on: req)
@@ -498,16 +490,14 @@ struct DefaultMarketDataService: MarketDataService {
     }
 
     func basicFinancials(symbol rawSymbol: String, on req: Request) async throws
-        -> BasicFinancialsResponse
-    {
+        -> BasicFinancialsResponse {
         let symbol = try normalizeSymbol(rawSymbol)
         let now = Date()
         let providerName = provider.name
         let redisKey = makeBasicFinancialsRedisKey(provider: providerName, symbol: symbol)
 
         if let hotCached: BasicFinancialsResponse = await redisGetValue(
-            redisKey, as: BasicFinancialsResponse.self, on: req)
-        {
+            redisKey, as: BasicFinancialsResponse.self, on: req) {
             return hotCached
         }
 
@@ -532,8 +522,7 @@ struct DefaultMarketDataService: MarketDataService {
             isFresh(
                 existing.updatedAt ?? existing.createdAt ?? .distantPast,
                 ttlSeconds: cacheConfig.basicFinancialsTTLSeconds, now: now),
-            let cached = decodeBasicFinancialsPayload(existing.payload)
-        {
+            let cached = decodeBasicFinancialsPayload(existing.payload) {
             await redisSetValue(
                 redisKey, value: cached, ttlSeconds: cacheConfig.basicFinancialsTTLSeconds, on: req)
             return cached
@@ -580,8 +569,7 @@ struct DefaultMarketDataService: MarketDataService {
     }
 
     func analysis(symbol rawSymbol: String, on req: Request) async throws
-        -> StockAnalysisMetricsResponse
-    {
+        -> StockAnalysisMetricsResponse {
         let symbol = try normalizeSymbol(rawSymbol)
         try validateFMPSymbolAccess(symbol: symbol, operation: "analysis")
 
@@ -823,8 +811,7 @@ struct DefaultMarketDataService: MarketDataService {
         )
     }
 
-    func compare(symbols: [String], on req: Request) async throws -> [StockAnalysisMetricsResponse]
-    {
+    func compare(symbols: [String], on req: Request) async throws -> [StockAnalysisMetricsResponse] {
         let uniqueSymbols = Array(Set(symbols)).prefix(3)
         guard !uniqueSymbols.isEmpty else { return [] }
 
@@ -902,8 +889,7 @@ struct DefaultMarketDataService: MarketDataService {
         let redisKey = makeRatiosTTMRedisKey(provider: providerName, symbol: symbol)
 
         if let hotCached: [RatiosTTMResponse] = await redisGetValue(
-            redisKey, as: [RatiosTTMResponse].self, on: req)
-        {
+            redisKey, as: [RatiosTTMResponse].self, on: req) {
             return hotCached
         }
 
@@ -915,8 +901,7 @@ struct DefaultMarketDataService: MarketDataService {
         if let existing,
             isFresh(
                 existing.updatedAt ?? existing.createdAt, ttlSeconds: cacheConfig.fmpTTLSeconds,
-                now: now)
-        {
+                now: now) {
             if let response = decodeRatiosTTMPayload(existing.payload) {
                 await redisSetValue(
                     redisKey, value: response, ttlSeconds: cacheConfig.fmpTTLSeconds, on: req)
@@ -946,8 +931,7 @@ struct DefaultMarketDataService: MarketDataService {
     }
 
     func gradesConsensus(symbol rawSymbol: String, on req: Request) async throws
-        -> [GradesConsensusResponse]
-    {
+        -> [GradesConsensusResponse] {
         let symbol = try normalizeSymbol(rawSymbol)
         try validateFMPSymbolAccess(symbol: symbol, operation: "grades-consensus")
         let fmpProvider = try requireFMPProvider()
@@ -978,8 +962,7 @@ struct DefaultMarketDataService: MarketDataService {
         }
 
         if let hotCached: [FinancialGrowthResponse] = await redisGetValue(
-            redisKey, as: [FinancialGrowthResponse].self, on: req)
-        {
+            redisKey, as: [FinancialGrowthResponse].self, on: req) {
             return hotCached
         }
 
@@ -993,8 +976,7 @@ struct DefaultMarketDataService: MarketDataService {
         if let existing,
             isFresh(
                 existing.updatedAt ?? existing.createdAt, ttlSeconds: cacheConfig.fmpTTLSeconds,
-                now: now)
-        {
+                now: now) {
             if let response = decodeFinancialGrowthPayload(existing.payload) {
                 await redisSetValue(
                     redisKey, value: response, ttlSeconds: cacheConfig.fmpTTLSeconds, on: req)
@@ -1049,8 +1031,7 @@ struct DefaultMarketDataService: MarketDataService {
         }
 
         if let hotCached: [AnalystEstimatesResponse] = await redisGetValue(
-            redisKey, as: [AnalystEstimatesResponse].self, on: req)
-        {
+            redisKey, as: [AnalystEstimatesResponse].self, on: req) {
             return hotCached
         }
 
@@ -1063,8 +1044,7 @@ struct DefaultMarketDataService: MarketDataService {
         if let existing,
             isFresh(
                 existing.updatedAt ?? existing.createdAt, ttlSeconds: cacheConfig.fmpTTLSeconds,
-                now: now)
-        {
+                now: now) {
             if let response = decodeAnalystEstimatesPayload(existing.payload) {
                 await redisSetValue(
                     redisKey, value: response, ttlSeconds: cacheConfig.fmpTTLSeconds, on: req)
@@ -1074,8 +1054,7 @@ struct DefaultMarketDataService: MarketDataService {
 
         try validateFMPSymbolAccess(symbol: symbol, operation: "analyst-estimates")
 
-        if (fmpAccessTier == .free || fmpAccessTier == .starter) && period.lowercased() != "annual"
-        {
+        if (fmpAccessTier == .free || fmpAccessTier == .starter) && period.lowercased() != "annual" {
             throw Abort(
                 .paymentRequired,
                 reason:
@@ -1128,8 +1107,7 @@ struct DefaultMarketDataService: MarketDataService {
         }
 
         if let hotCached: [RatiosResponse] = await redisGetValue(
-            redisKey, as: [RatiosResponse].self, on: req)
-        {
+            redisKey, as: [RatiosResponse].self, on: req) {
             return hotCached
         }
 
@@ -1143,8 +1121,7 @@ struct DefaultMarketDataService: MarketDataService {
         if let existing,
             isFresh(
                 existing.updatedAt ?? existing.createdAt, ttlSeconds: cacheConfig.fmpTTLSeconds,
-                now: now)
-        {
+                now: now) {
             if let response = decodeRatiosPayload(existing.payload) {
                 await redisSetValue(
                     redisKey, value: response, ttlSeconds: cacheConfig.fmpTTLSeconds, on: req)
@@ -1190,8 +1167,7 @@ struct DefaultMarketDataService: MarketDataService {
         let redisKey = "market:earnings:\(providerName):\(symbol):\(limit)"
 
         if let hotCached: [EarningsResponse] = await redisGetValue(
-            redisKey, as: [EarningsResponse].self, on: req)
-        {
+            redisKey, as: [EarningsResponse].self, on: req) {
             return hotCached
         }
 
@@ -1222,8 +1198,7 @@ struct DefaultMarketDataService: MarketDataService {
         let redisKey = "market:earnings-calendar:\(providerName):\(fromStr):\(toStr)"
 
         if let hotCached: [EarningsResponse] = await redisGetValue(
-            redisKey, as: [EarningsResponse].self, on: req)
-        {
+            redisKey, as: [EarningsResponse].self, on: req) {
             return hotCached
         }
 
@@ -1306,8 +1281,7 @@ extension DefaultMarketDataService {
         if let existing = try await QuoteCache.query(on: db)
             .filter(\.$provider == providerName)
             .filter(\.$symbol == quote.symbol)
-            .first()
-        {
+            .first() {
             existing.price = quote.price
             existing.currency = quote.currency
             existing.asOf = quote.asOf
@@ -1347,8 +1321,7 @@ extension DefaultMarketDataService {
         if let existing = try await SearchCache.query(on: db)
             .filter(\.$provider == providerName)
             .filter(\.$normalizedQuery == query)
-            .first()
-        {
+            .first() {
             existing.payload = payload
             try await existing.save(on: db)
             return existing
@@ -1369,8 +1342,7 @@ extension DefaultMarketDataService {
             if let existing = try await PriceHistory.query(on: db)
                 .filter(\.$symbol == symbol)
                 .filter(\.$date == day)
-                .first()
-            {
+                .first() {
                 existing.open = bar.open
                 existing.high = bar.high
                 existing.low = bar.low
@@ -1394,15 +1366,13 @@ extension DefaultMarketDataService {
     }
 
     fileprivate func upsertFxRate(_ rate: MarketProviderFxRate, on db: any Database) async throws
-        -> FxRate
-    {
+        -> FxRate {
         let day = startOfDay(rate.asOf)
         if let existing = try await FxRate.query(on: db)
             .filter(\.$date == day)
             .filter(\.$base == rate.base)
             .filter(\.$quote == rate.quote)
-            .first()
-        {
+            .first() {
             existing.rate = rate.rate
             try await existing.save(on: db)
             return existing
@@ -1426,8 +1396,7 @@ extension DefaultMarketDataService {
         if let existing = try await ProfileCache.query(on: db)
             .filter(\.$provider == providerName)
             .filter(\.$symbol == profile.symbol)
-            .first()
-        {
+            .first() {
             existing.country = profile.country
             existing.currency = profile.currency
             existing.estimateCurrency = profile.estimateCurrency
@@ -1480,8 +1449,7 @@ extension DefaultMarketDataService {
         if let existing = try await BasicFinancialsCache.query(on: db)
             .filter(\.$provider == providerName)
             .filter(\.$symbol == financials.symbol)
-            .first()
-        {
+            .first() {
             existing.payload = payload
             try await existing.save(on: db)
             return existing
@@ -1513,8 +1481,7 @@ extension DefaultMarketDataService {
             .filter(\.$provider == providerName)
             .filter(\.$symbol == symbol)
             .filter(\.$period == period)
-            .first()
-        {
+            .first() {
             existing.payload = payload
             try await existing.save(on: db)
             return existing
@@ -1549,8 +1516,7 @@ extension DefaultMarketDataService {
             .filter(\.$symbol == symbol)
             .filter(\.$period == period)
             .filter(\.$limit == limit)
-            .first()
-        {
+            .first() {
             existing.payload = payload
             try await existing.save(on: db)
             return existing
@@ -1581,8 +1547,7 @@ extension DefaultMarketDataService {
         if let existing = try await RatiosTTMCache.query(on: db)
             .filter(\.$provider == providerName)
             .filter(\.$symbol == symbol)
-            .first()
-        {
+            .first() {
             existing.payload = payload
             try await existing.save(on: db)
             return existing
@@ -1615,8 +1580,7 @@ extension DefaultMarketDataService {
             .filter(\.$symbol == symbol)
             .filter(\.$period == period)
             .filter(\.$limit == limit)
-            .first()
-        {
+            .first() {
             existing.payload = payload
             try await existing.save(on: db)
             return existing
@@ -1710,8 +1674,7 @@ extension DefaultMarketDataService {
     }
 
     fileprivate func makeBasicFinancialsResponse(from model: MarketProviderBasicFinancials)
-        -> BasicFinancialsResponse
-    {
+        -> BasicFinancialsResponse {
         BasicFinancialsResponse(
             symbol: model.symbol,
             metricType: model.metricType,
@@ -1732,8 +1695,7 @@ extension DefaultMarketDataService {
     }
 
     fileprivate func makePriceHistoryModel(symbol: String, from bar: MarketProviderPriceBar)
-        -> PriceHistory
-    {
+        -> PriceHistory {
         PriceHistory(
             symbol: symbol,
             date: startOfDay(bar.date),
@@ -1787,8 +1749,7 @@ extension DefaultMarketDataService {
     }
 
     fileprivate func makeHistoryRedisKey(provider: String, symbol: String, from: Date?, to: Date?)
-        -> String
-    {
+        -> String {
         let fromPart = from.map(formatISODateOnly) ?? "none"
         let toPart = to.map(formatISODateOnly) ?? "none"
         return "market:history:\(provider):\(symbol):\(fromPart):\(toPart)"
@@ -1811,8 +1772,7 @@ extension DefaultMarketDataService {
     }
 
     fileprivate func makeAnalystEstimatesRedisKey(provider: String, symbol: String, period: String)
-        -> String
-    {
+        -> String {
         "market:analyst-estimates:\(provider):\(symbol):\(period)"
     }
 
@@ -2073,8 +2033,7 @@ extension DefaultMarketDataService {
 
 extension DefaultMarketDataService {
     fileprivate func normalizeFMPResultLimit(_ rawLimit: Int?, defaultLimit: Int? = nil) throws
-        -> Int?
-    {
+        -> Int? {
         let resolved = rawLimit ?? defaultLimit
 
         guard let resolved else {

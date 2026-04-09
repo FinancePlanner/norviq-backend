@@ -13,15 +13,15 @@ struct FeedbackController: RouteCollection {
     func submitFeedback(req: Request) async throws -> FeedbackResponse {
         let session = try req.auth.require(SessionToken.self)
         let payload = try req.content.decode(FeedbackRequest.self)
-        
+
         let feedback = Feedback(
             topic: payload.topic,
             message: payload.message,
             userID: session.userId
         )
-        
+
         try await feedback.save(on: req.db)
-        
+
         return FeedbackResponse(success: true, message: "Feedback submitted successfully.")
     }
 }

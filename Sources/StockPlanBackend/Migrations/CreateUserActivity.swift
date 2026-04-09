@@ -21,7 +21,7 @@ struct CreateUserActivity: AsyncMigration {
             .field("symbol", .string, .required)
             .field("created_at", .datetime)
             .create()
-        
+
         try await database.createIndex(on: "user_activities", columns: ["user_id", "created_at"])
     }
 

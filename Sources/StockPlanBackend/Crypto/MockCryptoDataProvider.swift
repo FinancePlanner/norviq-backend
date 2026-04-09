@@ -122,7 +122,7 @@ struct MockCryptoDataProvider: CryptoDataProvider {
                 url: "https://example.com/2"
             )
         ]
-        
+
         if let symbol {
             return allNews.filter { $0.symbol?.uppercased() == symbol.uppercased() }
         }

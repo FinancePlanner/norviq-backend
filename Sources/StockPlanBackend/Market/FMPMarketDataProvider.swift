@@ -126,8 +126,7 @@ struct LiveFMPMarketDataProvider: FMPMarketDataProvider, CryptoDataProvider {
     }
 
     func historicalLight(symbol: String, from: String?, to: String?, on req: Request) async throws
-        -> [CryptoHistoricalLightPoint]
-    {
+        -> [CryptoHistoricalLightPoint] {
         let symbol = try normalizeSymbol(symbol)
         var query: [(String, String?)] = [("symbol", symbol)]
         if let from { query.append(("from", from)) }
@@ -140,8 +139,7 @@ struct LiveFMPMarketDataProvider: FMPMarketDataProvider, CryptoDataProvider {
     }
 
     func historicalFull(symbol: String, from: String?, to: String?, on req: Request) async throws
-        -> [CryptoHistoricalFullPoint]
-    {
+        -> [CryptoHistoricalFullPoint] {
         let symbol = try normalizeSymbol(symbol)
         var query: [(String, String?)] = [("symbol", symbol)]
         if let from { query.append(("from", from)) }
@@ -154,20 +152,17 @@ struct LiveFMPMarketDataProvider: FMPMarketDataProvider, CryptoDataProvider {
     }
 
     func intraday1min(symbol: String, from: String?, to: String?, on req: Request) async throws
-        -> [CryptoHistoricalPoint]
-    {
+        -> [CryptoHistoricalPoint] {
         try await fetchIntraday(interval: "1min", symbol: symbol, from: from, to: to, on: req)
     }
 
     func intraday5min(symbol: String, from: String?, to: String?, on req: Request) async throws
-        -> [CryptoHistoricalPoint]
-    {
+        -> [CryptoHistoricalPoint] {
         try await fetchIntraday(interval: "5min", symbol: symbol, from: from, to: to, on: req)
     }
 
     func intraday1hour(symbol: String, from: String?, to: String?, on req: Request) async throws
-        -> [CryptoHistoricalPoint]
-    {
+        -> [CryptoHistoricalPoint] {
         try await fetchIntraday(interval: "1hour", symbol: symbol, from: from, to: to, on: req)
     }
 
@@ -279,8 +274,7 @@ struct LiveFMPMarketDataProvider: FMPMarketDataProvider, CryptoDataProvider {
     }
 
     func gradesConsensus(symbol rawSymbol: String, on req: Request) async throws
-        -> [GradesConsensusResponse]
-    {
+        -> [GradesConsensusResponse] {
         let symbol = try normalizeSymbol(rawSymbol)
         return try await fetchJSON(
             path: "/stable/grades-consensus",
@@ -417,7 +411,7 @@ struct LiveFMPMarketDataProvider: FMPMarketDataProvider, CryptoDataProvider {
                 ("sector", sector),
                 ("exchange", exchange),
                 ("from", from.map(formatISODateOnly)),
-                ("to", to.map(formatISODateOnly)),
+                ("to", to.map(formatISODateOnly))
             ],
             on: req
         )

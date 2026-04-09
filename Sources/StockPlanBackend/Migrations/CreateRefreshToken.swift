@@ -12,7 +12,7 @@ struct CreateRefreshToken: AsyncMigration {
             .field("created_at", .datetime, .required)
             .unique(on: "token_hash")
             .create()
-        
+
         // Create indexes using the Database extension
         try await database.createIndex(on: "refresh_tokens", columns: ["user_id"])
         try await database.createIndex(on: "refresh_tokens", columns: ["expires_at"])

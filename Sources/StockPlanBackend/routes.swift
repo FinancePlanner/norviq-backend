@@ -13,11 +13,11 @@ func routes(_ app: Application) throws {
         HealthResponse(status: "ok")
     }
 
-    api.get { req async in
+    api.get { _ async in
         "It works!"
     }
 
-    api.get("hello") { req async -> String in
+    api.get("hello") { _ async -> String in
         "Hello, world!"
     }
 

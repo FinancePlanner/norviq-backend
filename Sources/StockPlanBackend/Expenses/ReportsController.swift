@@ -8,7 +8,7 @@ struct ReportsController: RouteCollection {
         let protected = routes.grouped(SessionToken.authenticator(), SessionToken.guardMiddleware())
         let reports = protected.grouped("reports")
         let expenses = reports.grouped("expenses")
-        
+
         reports.get("overview", use: getReportsOverview)
         reports.get("suggestions", use: getSuggestions)
         reports.post("suggestions", ":id", "dismiss", use: dismissSuggestion)
@@ -19,11 +19,11 @@ struct ReportsController: RouteCollection {
     func getExpenseReports(req: Request) async throws -> Response {
         let session = try req.auth.require(SessionToken.self)
         let (fromDate, toDate) = parseDateRange(from: req)
-        
+
         let granularity = req.query[String.self, at: "granularity"] ?? "month"
-        
+
         let res = Response(status: .ok)
-        
+
         if granularity == "year" {
             let reports = try await req.expensesService.getYearlyReports(
                 userId: session.userId,
@@ -41,7 +41,7 @@ struct ReportsController: RouteCollection {
             )
             try res.content.encode(reports)
         }
-        
+
         return res
     }
 
@@ -220,7 +220,7 @@ struct ReportsController: RouteCollection {
                     detailPayload: [
                         "planned": formatAmount(planned),
                         "actual": formatAmount(actual),
-                        "overspendAmount": formatAmount(overspendAmount),
+                        "overspendAmount": formatAmount(overspendAmount)
                     ]
                 )
             )
@@ -253,7 +253,7 @@ struct ReportsController: RouteCollection {
                     detailPayload: [
                         "unplannedAmount": formatAmount(totalUnplanned),
                         "unplannedRatio": formatPercent(unplannedRatio),
-                        "plannedTotal": formatAmount(planned),
+                        "plannedTotal": formatAmount(planned)
                     ]
                 )
             )
@@ -288,7 +288,7 @@ struct ReportsController: RouteCollection {
                         "averageSavingsRate": formatPercent(avgSavingsRate / 100),
                         "latestSavingsRate": formatPercent((savingsRates.last ?? 0) / 100),
                         "monthsEvaluated": String(recent.count),
-                        "plannedItemsCount": String(planItems.count),
+                        "plannedItemsCount": String(planItems.count)
                     ]
                 )
             )

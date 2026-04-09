@@ -16,13 +16,6 @@ struct AddDatabaseOptimizations: AsyncMigration {
             name: "idx_password_reset_tokens_code_hash"
         )
 
-        // 2. Productivity & Data Isolation
-        try await database.createIndex(
-            on: "todos",
-            columns: ["user_id"],
-            name: "idx_todos_user_id"
-        )
-
         // 3. Market Data Search
         try await database.createIndex(
             on: "search_cache",
@@ -33,10 +26,9 @@ struct AddDatabaseOptimizations: AsyncMigration {
 
     func revert(on database: any Database) async throws {
         guard let sql = database as? any SQLDatabase else { return }
-        
+
         try await sql.raw("DROP INDEX IF EXISTS idx_users_username").run()
         try await sql.raw("DROP INDEX IF EXISTS idx_password_reset_tokens_code_hash").run()
-        try await sql.raw("DROP INDEX IF EXISTS idx_todos_user_id").run()
         try await sql.raw("DROP INDEX IF EXISTS idx_search_cache_normalized_query").run()
     }
 }

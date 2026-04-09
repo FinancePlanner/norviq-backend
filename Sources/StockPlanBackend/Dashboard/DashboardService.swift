@@ -67,7 +67,7 @@ struct DefaultDashboardService: DashboardService {
 
         // Expenses logic
         let monthlyReports = try await req.expensesService.getMonthlyReports(userId: userId, from: nil, to: nil, on: db)
-        
+
         var budgetStreak = 0
         for report in monthlyReports.reversed() { // newest first, because getMonthlyReports is sorted asc
             if report.actual <= report.planned && report.planned > 0 {
@@ -76,7 +76,7 @@ struct DefaultDashboardService: DashboardService {
                 break
             }
         }
-        
+
         var savingsRate: Double = 0
         if let lastReport = monthlyReports.last, lastReport.salary > 0 {
             savingsRate = (lastReport.salary - lastReport.actual) / lastReport.salary * 100
@@ -89,7 +89,7 @@ struct DefaultDashboardService: DashboardService {
             cashBuffer: cashBuffer,
             latestMonthlyActualExpenses: monthlyReports.last?.actual
         )
-        
+
         return DashboardInsightsResponse(
             savingsRate: round2(savingsRate),
             budgetStreak: budgetStreak,

@@ -51,8 +51,7 @@ final class DefaultCryptoService: CryptoService {
         if let existing = try await CryptoPortfolioItem.query(on: db)
             .filter(\.$userId == userId)
             .filter(\.$symbol == symbol)
-            .first()
-        {
+            .first() {
             let oldCost = existing.quantity * existing.averageBuyPrice
             let newCost = payload.quantity * payload.averageBuyPrice
             let totalQuantity = existing.quantity + payload.quantity

@@ -265,8 +265,7 @@ private extension DefaultMarketNewsArchiveService {
             .filter(\.$provider == article.provider)
             .filter(\.$symbol == article.symbol)
             .filter(\.$url == article.url)
-            .first()
-        {
+            .first() {
             return existing
         }
 
@@ -362,8 +361,7 @@ private extension DefaultMarketNewsArchiveService {
 
     func mapProviderError(_ error: any Error) -> any Error {
         if let abort = error as? any AbortError,
-           abort.status == .notFound || abort.status == .badRequest || abort.status == .notImplemented
-        {
+           abort.status == .notFound || abort.status == .badRequest || abort.status == .notImplemented {
             return abort
         }
 

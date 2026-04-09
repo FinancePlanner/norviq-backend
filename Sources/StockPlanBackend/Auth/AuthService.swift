@@ -112,14 +112,12 @@ struct DefaultAuthService: AuthService {
         try await issueResetCode(email: email, on: req)
     }
 
-    func resendResetCode(email: String, on req: Request) async throws -> AuthForgotPasswordResponse
-    {
+    func resendResetCode(email: String, on req: Request) async throws -> AuthForgotPasswordResponse {
         try await issueResetCode(email: email, on: req)
     }
 
     func resetPassword(email: String, code: String, newPassword: String, on req: Request)
-        async throws -> HTTPStatus
-    {
+        async throws -> HTTPStatus {
         let normalizedEmail = normalizeEmail(email)
         try validateEmail(normalizedEmail)
         try validatePassword(newPassword)
@@ -171,8 +169,7 @@ struct DefaultAuthService: AuthService {
     }
 
     func oauthStart(provider: OAuthProvider, redirectURI: String, on req: Request) async throws
-        -> OAuthStartResponse
-    {
+        -> OAuthStartResponse {
         let normalizedRedirectURI = try normalizeRedirectURI(redirectURI)
         try validateRedirectURI(normalizedRedirectURI)
 
@@ -280,8 +277,7 @@ struct DefaultAuthService: AuthService {
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .lowercased()
         if let normalizedIdentityEmail,
-            try await repo.findUser(email: normalizedIdentityEmail, on: req.db) != nil
-        {
+            try await repo.findUser(email: normalizedIdentityEmail, on: req.db) != nil {
             throw Abort(.conflict, reason: "ACCOUNT_EXISTS_LINK_REQUIRED")
         }
         let resolvedUserEmail =
@@ -347,8 +343,7 @@ struct DefaultAuthService: AuthService {
     }
 
     private func issueResetCode(email: String, on req: Request) async throws
-        -> AuthForgotPasswordResponse
-    {
+        -> AuthForgotPasswordResponse {
         let normalizedEmail = normalizeEmail(email)
         try validateEmail(normalizedEmail)
 
@@ -394,8 +389,7 @@ struct DefaultAuthService: AuthService {
         return (rawToken, expiresIn)
     }
 
-    private func oauthProviderClient(for provider: OAuthProvider) throws -> any OAuthProviderClient
-    {
+    private func oauthProviderClient(for provider: OAuthProvider) throws -> any OAuthProviderClient {
         guard let client = oauthProviders[provider] else {
             throw Abort(
                 .serviceUnavailable,
@@ -565,8 +559,7 @@ struct DefaultAuthService: AuthService {
 
     private func responseUsername(for user: User) -> String {
         if let username = user.username?.trimmingCharacters(in: .whitespacesAndNewlines),
-            !username.isEmpty
-        {
+            !username.isEmpty {
             return username
         }
         if let prefix = user.email.split(separator: "@").first, !prefix.isEmpty {

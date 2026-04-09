@@ -18,7 +18,7 @@ struct AddAssetCategoryToStocks: AsyncMigration {
         try await database.schema("stocks")
             .deleteField("category")
             .update()
-        
+
         try await database.enum("asset_category").delete()
     }
 }
