@@ -3,7 +3,7 @@ import Foundation
 import StockPlanShared
 
 struct ExpensesController: RouteCollection {
-    private struct ExpensePayload: Content {
+    private struct ExpensePayload: Decodable {
         let title: String
         let amount: Double
         let pillar: BudgetPillar
@@ -11,6 +11,39 @@ struct ExpensesController: RouteCollection {
         let linkedPlanItemId: String?
         let splitMode: ExpenseSplitMode?
         let userSharePercent: Double?
+
+        private enum CodingKeys: String, CodingKey {
+            case title
+            case amount
+            case pillar
+            case occurredOnSnake = "occurred_on"
+            case occurredOnCamel = "occurredOn"
+            case linkedPlanItemIdSnake = "linked_plan_item_id"
+            case linkedPlanItemIdCamel = "linkedPlanItemId"
+            case splitModeSnake = "split_mode"
+            case splitModeCamel = "splitMode"
+            case userSharePercentSnake = "user_share_percent"
+            case userSharePercentCamel = "userSharePercent"
+        }
+
+        init(from decoder: any Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            self.title = try container.decode(String.self, forKey: .title)
+            self.amount = try container.decode(Double.self, forKey: .amount)
+            self.pillar = try container.decode(BudgetPillar.self, forKey: .pillar)
+            self.occurredOn =
+                try container.decodeIfPresent(String.self, forKey: .occurredOnSnake)
+                ?? container.decode(String.self, forKey: .occurredOnCamel)
+            self.linkedPlanItemId =
+                try container.decodeIfPresent(String.self, forKey: .linkedPlanItemIdSnake)
+                ?? container.decodeIfPresent(String.self, forKey: .linkedPlanItemIdCamel)
+            self.splitMode =
+                try container.decodeIfPresent(ExpenseSplitMode.self, forKey: .splitModeSnake)
+                ?? container.decodeIfPresent(ExpenseSplitMode.self, forKey: .splitModeCamel)
+            self.userSharePercent =
+                try container.decodeIfPresent(Double.self, forKey: .userSharePercentSnake)
+                ?? container.decodeIfPresent(Double.self, forKey: .userSharePercentCamel)
+        }
 
         func asRequest() -> ExpenseRequest {
             ExpenseRequest(

@@ -28,3 +28,51 @@ typealias BulkStockResponse = StockPlanShared.BulkStockResponse
 typealias TargetRequest = StockPlanShared.TargetRequest
 typealias TargetResponse = StockPlanShared.TargetResponse
 
+struct StockInsightsResponse: Content, Sendable, Equatable {
+    let generatedAt: String
+    let symbol: String
+    let profile: StockInsightProfileDTO
+    let peers: [StockInsightPeerDTO]
+    let projectionScenarios: [StockInsightProjectionScenarioDTO]
+}
+
+struct StockInsightProfileDTO: Content, Sendable, Equatable {
+    let symbol: String
+    let companyName: String
+    let currentPrice: Double
+    let marketCap: Double
+    let sharesOutstanding: Double
+    let metrics: [String: Double]
+    let dcfBasePrice: Double?
+    let dcfBearPrice: Double?
+    let dcfBullPrice: Double?
+}
+
+struct StockInsightPeerDTO: Content, Sendable, Equatable {
+    let symbol: String
+    let companyName: String
+    let currentPrice: Double
+    let marketCap: Double
+    let sharesOutstanding: Double
+}
+
+struct StockInsightProjectionScenarioDTO: Content, Sendable, Equatable {
+    let kind: String
+    let years: [StockInsightProjectionYearDTO]
+}
+
+struct StockInsightProjectionYearDTO: Content, Sendable, Equatable {
+    let year: Int
+    let revenue: Double
+    let revenueGrowth: Double
+    let netIncome: Double
+    let netIncomeGrowth: Double
+    let netMargin: Double
+    let eps: Double
+    let peLowEstimate: Double
+    let peHighEstimate: Double
+    let sharePriceLow: Double
+    let sharePriceHigh: Double
+    let cagrLow: Double?
+    let cagrHigh: Double?
+}

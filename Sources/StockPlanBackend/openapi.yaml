@@ -34,6 +34,7 @@ tags:
   - name: Crypto
   - name: Dashboard
   - name: UserProfile
+  - name: Assets
 paths:
   /health:
     get:
@@ -176,6 +177,62 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/AuthResponse'
+  /v1/auth/oauth/{provider}/start:
+    post:
+      operationId: authOAuthStart
+      tags: [Auth]
+      summary: Start OAuth authorization flow
+      parameters:
+        - name: provider
+          in: path
+          required: true
+          schema:
+            $ref: '#/components/schemas/OAuthProvider'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/OAuthStartRequest'
+      responses:
+        '200':
+          description: OAuth flow initialized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OAuthStartResponse'
+        '400':
+          description: Invalid provider or redirect URI
+        '503':
+          description: OAuth provider is not configured on the backend
+  /v1/auth/oauth/{provider}/exchange:
+    post:
+      operationId: authOAuthExchange
+      tags: [Auth]
+      summary: Exchange OAuth authorization code for app tokens
+      parameters:
+        - name: provider
+          in: path
+          required: true
+          schema:
+            $ref: '#/components/schemas/OAuthProvider'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/OAuthExchangeRequest'
+      responses:
+        '200':
+          description: OAuth exchange successful
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+        '401':
+          description: OAuth flow invalid/expired or provider verification failed
+        '409':
+          description: Account with this email already exists and requires linking
   /v1/auth/me:
     get:
       operationId: authMe
@@ -384,6 +441,31 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/StockResponse'
+        '401':
+          description: Unauthorized
+  /v1/stocks/{symbol}/insights:
+    parameters:
+      - name: symbol
+        in: path
+        required: true
+        schema:
+          type: string
+    get:
+      operationId: getStockInsights
+      tags: [Stocks]
+      summary: Get aggregate stock insights
+      description: Returns a deterministic aggregate of profile metrics, peer candidates, and projection scenarios for the requested symbol.
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StockInsightsResponse'
+        '400':
+          description: Invalid symbol
         '401':
           description: Unauthorized
   /v1/stocks/symbol/{symbol}/valuation:
@@ -1931,6 +2013,44 @@ paths:
           required: true
           schema:
             type: string
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/SearchResultResponse'
+        '400':
+          description: Missing query parameter `q`
+        '401':
+          description: Unauthorized
+        '503':
+          description: Market data provider unavailable or misconfigured
+  /v1/assets/search:
+    get:
+      operationId: searchAssets
+      tags: [Assets]
+      summary: Search stocks, ETFs, and owned assets
+      description: Returns merged asset search results for the authenticated user by prioritizing owned holdings and including market matches.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: q
+          in: query
+          required: true
+          description: Search query (symbol or company name)
+          schema:
+            type: string
+        - name: limit
+          in: query
+          required: false
+          description: Max number of results to return (1-50, default 20)
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 50
       responses:
         '200':
           description: OK
@@ -3928,12 +4048,20 @@ components:
     AuthRegisterRequest:
       type: object
       properties:
+        username:
+          type: string
+          minLength: 4
+          maxLength: 30
+          pattern: '^[a-zA-Z0-9_]{4,30}$'
         email:
           type: string
           format: email
         password:
           type: string
-      required: [email, password]
+        dateOfBirth:
+          type: string
+          format: date-time
+      required: [username, email, password, dateOfBirth]
     AuthLoginRequest:
       type: object
       properties:
@@ -3959,17 +4087,30 @@ components:
         refreshExpiresIn:
           type: integer
           format: int32
-      required: [token, userId, expiresIn, refreshToken, refreshExpiresIn]
+        username:
+          type: string
+        email:
+          type: string
+          format: email
+        dateOfBirth:
+          type: string
+          format: date-time
+      required: [token, userId, expiresIn, refreshToken, refreshExpiresIn, username, email, dateOfBirth]
     AuthUserResponse:
       type: object
       properties:
         id:
           type: string
           format: uuid
+        username:
+          type: string
         email:
           type: string
           format: email
-      required: [id, email]
+        dateOfBirth:
+          type: string
+          format: date-time
+      required: [id, username, email, dateOfBirth]
     AuthForgotPasswordRequest:
       type: object
       properties:
@@ -4002,6 +4143,43 @@ components:
         refreshToken:
           type: string
       required: [refreshToken]
+    OAuthProvider:
+      type: string
+      enum: [apple, google, x]
+    OAuthStartRequest:
+      type: object
+      properties:
+        redirectURI:
+          type: string
+          format: uri
+      required: [redirectURI]
+    OAuthStartResponse:
+      type: object
+      properties:
+        flowId:
+          type: string
+          format: uuid
+        authorizationURL:
+          type: string
+          format: uri
+        expiresIn:
+          type: integer
+          format: int32
+      required: [flowId, authorizationURL, expiresIn]
+    OAuthExchangeRequest:
+      type: object
+      properties:
+        flowId:
+          type: string
+          format: uuid
+        code:
+          type: string
+        state:
+          type: string
+        redirectURI:
+          type: string
+          format: uri
+      required: [flowId, code, state, redirectURI]
     UserProfile:
       type: object
       description: Profile fields returned for the authenticated user and accepted when updating the profile.
@@ -4671,6 +4849,132 @@ components:
         category:
           $ref: '#/components/schemas/AssetCategory'
       required: [id, symbol, shares, buyPrice, buyDate, category]
+    StockInsightsResponse:
+      type: object
+      properties:
+        generatedAt:
+          type: string
+          format: date-time
+        symbol:
+          type: string
+        profile:
+          $ref: '#/components/schemas/StockInsightProfileDTO'
+        peers:
+          type: array
+          items:
+            $ref: '#/components/schemas/StockInsightPeerDTO'
+        projectionScenarios:
+          type: array
+          items:
+            $ref: '#/components/schemas/StockInsightProjectionScenarioDTO'
+      required: [generatedAt, symbol, profile, peers, projectionScenarios]
+    StockInsightProfileDTO:
+      type: object
+      properties:
+        symbol:
+          type: string
+        companyName:
+          type: string
+        currentPrice:
+          type: number
+          format: double
+        marketCap:
+          type: number
+          format: double
+        sharesOutstanding:
+          type: number
+          format: double
+        metrics:
+          type: object
+          additionalProperties:
+            type: number
+            format: double
+        dcfBasePrice:
+          type: number
+          format: double
+          nullable: true
+        dcfBearPrice:
+          type: number
+          format: double
+          nullable: true
+        dcfBullPrice:
+          type: number
+          format: double
+          nullable: true
+      required: [symbol, companyName, currentPrice, marketCap, sharesOutstanding, metrics]
+    StockInsightPeerDTO:
+      type: object
+      properties:
+        symbol:
+          type: string
+        companyName:
+          type: string
+        currentPrice:
+          type: number
+          format: double
+        marketCap:
+          type: number
+          format: double
+        sharesOutstanding:
+          type: number
+          format: double
+      required: [symbol, companyName, currentPrice, marketCap, sharesOutstanding]
+    StockInsightProjectionScenarioDTO:
+      type: object
+      properties:
+        kind:
+          type: string
+          enum: [bear, base, bull]
+        years:
+          type: array
+          items:
+            $ref: '#/components/schemas/StockInsightProjectionYearDTO'
+      required: [kind, years]
+    StockInsightProjectionYearDTO:
+      type: object
+      properties:
+        year:
+          type: integer
+        revenue:
+          type: number
+          format: double
+        revenueGrowth:
+          type: number
+          format: double
+        netIncome:
+          type: number
+          format: double
+        netIncomeGrowth:
+          type: number
+          format: double
+        netMargin:
+          type: number
+          format: double
+        eps:
+          type: number
+          format: double
+        peLowEstimate:
+          type: number
+          format: double
+        peHighEstimate:
+          type: number
+          format: double
+        sharePriceLow:
+          type: number
+          format: double
+        sharePriceHigh:
+          type: number
+          format: double
+        cagrLow:
+          type: number
+          format: double
+          nullable: true
+        cagrHigh:
+          type: number
+          format: double
+          nullable: true
+      required:
+        [year, revenue, revenueGrowth, netIncome, netIncomeGrowth, netMargin, eps, peLowEstimate, peHighEstimate, sharePriceLow, sharePriceHigh]
     BulkStockRequest:
       type: object
       properties:

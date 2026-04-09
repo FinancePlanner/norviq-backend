@@ -21,6 +21,28 @@ protocol AuthRepository: Sendable {
     func createRefreshToken(userId: UUID, tokenHash: String, expiresAt: Date, on db: any Database) async throws
     func findValidRefreshToken(tokenHash: String, now: Date, on db: any Database) async throws -> RefreshToken?
     func revokeRefreshToken(_ token: RefreshToken, revokedAt: Date, on db: any Database) async throws
+
+    func createOAuthFlow(
+        provider: String,
+        state: String,
+        nonce: String,
+        codeVerifier: String,
+        redirectURI: String,
+        expiresAt: Date,
+        on db: any Database
+    ) async throws -> OAuthFlow
+    func findValidOAuthFlow(id: UUID, provider: String, now: Date, on db: any Database) async throws -> OAuthFlow?
+    func markOAuthFlowUsed(_ flow: OAuthFlow, usedAt: Date, on db: any Database) async throws
+
+    func findOAuthIdentity(provider: String, providerUserID: String, on db: any Database) async throws -> OAuthIdentity?
+    func createOAuthIdentity(
+        userId: UUID,
+        provider: String,
+        providerUserID: String,
+        email: String?,
+        emailVerified: Bool,
+        on db: any Database
+    ) async throws -> OAuthIdentity
 }
 
 struct DatabaseAuthRepository: AuthRepository {
@@ -89,6 +111,67 @@ struct DatabaseAuthRepository: AuthRepository {
     func revokeRefreshToken(_ token: RefreshToken, revokedAt: Date, on db: any Database) async throws {
         token.revokedAt = revokedAt
         try await token.save(on: db)
+    }
+
+    func createOAuthFlow(
+        provider: String,
+        state: String,
+        nonce: String,
+        codeVerifier: String,
+        redirectURI: String,
+        expiresAt: Date,
+        on db: any Database
+    ) async throws -> OAuthFlow {
+        let flow = OAuthFlow(
+            provider: provider,
+            state: state,
+            nonce: nonce,
+            codeVerifier: codeVerifier,
+            redirectURI: redirectURI,
+            expiresAt: expiresAt
+        )
+        try await flow.save(on: db)
+        return flow
+    }
+
+    func findValidOAuthFlow(id: UUID, provider: String, now: Date, on db: any Database) async throws -> OAuthFlow? {
+        try await OAuthFlow.query(on: db)
+            .filter(\.$id == id)
+            .filter(\.$provider == provider)
+            .filter(\.$usedAt == nil)
+            .filter(\.$expiresAt > now)
+            .first()
+    }
+
+    func markOAuthFlowUsed(_ flow: OAuthFlow, usedAt: Date, on db: any Database) async throws {
+        flow.usedAt = usedAt
+        try await flow.save(on: db)
+    }
+
+    func findOAuthIdentity(provider: String, providerUserID: String, on db: any Database) async throws -> OAuthIdentity? {
+        try await OAuthIdentity.query(on: db)
+            .filter(\.$provider == provider)
+            .filter(\.$providerUserID == providerUserID)
+            .first()
+    }
+
+    func createOAuthIdentity(
+        userId: UUID,
+        provider: String,
+        providerUserID: String,
+        email: String?,
+        emailVerified: Bool,
+        on db: any Database
+    ) async throws -> OAuthIdentity {
+        let identity = OAuthIdentity(
+            userID: userId,
+            provider: provider,
+            providerUserID: providerUserID,
+            email: email,
+            emailVerified: emailVerified
+        )
+        try await identity.save(on: db)
+        return identity
     }
 }
 

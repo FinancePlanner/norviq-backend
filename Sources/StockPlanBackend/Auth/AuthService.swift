@@ -18,10 +18,28 @@ protocol AuthService: Sendable {
     func resendResetCode(email: String, on req: Request) async throws -> AuthForgotPasswordResponse
     func resetPassword(email: String, code: String, newPassword: String, on req: Request) async throws -> HTTPStatus
     func refresh(using refreshToken: String, on req: Request) async throws -> AuthResponse
+    func oauthStart(provider: OAuthProvider, redirectURI: String, on req: Request) async throws -> OAuthStartResponse
+    func oauthExchange(
+        provider: OAuthProvider,
+        flowId: UUID,
+        code: String,
+        state: String,
+        redirectURI: String,
+        on req: Request
+    ) async throws -> AuthResponse
 }
 
 struct DefaultAuthService: AuthService {
     let repo: any AuthRepository
+    let oauthProviders: [OAuthProvider: any OAuthProviderClient]
+
+    init(
+        repo: any AuthRepository,
+        oauthProviders: [OAuthProvider: any OAuthProviderClient] = [:]
+    ) {
+        self.repo = repo
+        self.oauthProviders = oauthProviders
+    }
 
     func register(
         username: String,
@@ -139,6 +157,150 @@ struct DefaultAuthService: AuthService {
         return try await makeAuthResponse(for: user, on: req)
     }
 
+    func oauthStart(provider: OAuthProvider, redirectURI: String, on req: Request) async throws -> OAuthStartResponse {
+        let normalizedRedirectURI = try normalizeRedirectURI(redirectURI)
+        try validateRedirectURI(normalizedRedirectURI)
+
+        let oauthProvider = try oauthProviderClient(for: provider)
+        let state = randomURLSafeString(length: 32)
+        let nonce = randomURLSafeString(length: 32)
+        let codeVerifier = randomURLSafeString(length: 64)
+        let codeChallenge = codeChallenge(for: codeVerifier)
+
+        let authorizationURL = try oauthProvider.makeAuthorizationURL(
+            context: OAuthAuthorizationContext(
+                state: state,
+                nonce: nonce,
+                codeChallenge: codeChallenge,
+                redirectURI: normalizedRedirectURI
+            )
+        )
+
+        let expiresIn = 600
+        let expiresAt = Date().addingTimeInterval(TimeInterval(expiresIn))
+        let flow = try await repo.createOAuthFlow(
+            provider: provider.rawValue,
+            state: state,
+            nonce: nonce,
+            codeVerifier: codeVerifier,
+            redirectURI: normalizedRedirectURI,
+            expiresAt: expiresAt,
+            on: req.db
+        )
+
+        guard let flowID = flow.id else {
+            throw Abort(.internalServerError, reason: "OAuth flow id missing")
+        }
+
+        return OAuthStartResponse(
+            flowId: flowID,
+            authorizationURL: authorizationURL.absoluteString,
+            expiresIn: expiresIn
+        )
+    }
+
+    func oauthExchange(
+        provider: OAuthProvider,
+        flowId: UUID,
+        code: String,
+        state: String,
+        redirectURI: String,
+        on req: Request
+    ) async throws -> AuthResponse {
+        let oauthProvider = try oauthProviderClient(for: provider)
+        let normalizedCode = code.trimmingCharacters(in: .whitespacesAndNewlines)
+        let normalizedState = state.trimmingCharacters(in: .whitespacesAndNewlines)
+        let normalizedRedirectURI = try normalizeRedirectURI(redirectURI)
+
+        guard !normalizedCode.isEmpty else {
+            throw Abort(.badRequest, reason: "OAuth authorization code is required")
+        }
+        guard !normalizedState.isEmpty else {
+            throw Abort(.badRequest, reason: "OAuth state is required")
+        }
+
+        let now = Date()
+        guard let flow = try await repo.findValidOAuthFlow(
+            id: flowId,
+            provider: provider.rawValue,
+            now: now,
+            on: req.db
+        ) else {
+            throw Abort(.unauthorized, reason: "OAuth flow is invalid or expired")
+        }
+
+        guard flow.state == normalizedState else {
+            throw Abort(.unauthorized, reason: "OAuth state mismatch")
+        }
+
+        guard flow.redirectURI == normalizedRedirectURI else {
+            throw Abort(.unauthorized, reason: "OAuth redirect URI mismatch")
+        }
+
+        let identityInfo = try await oauthProvider.resolveIdentity(
+            code: normalizedCode,
+            redirectURI: normalizedRedirectURI,
+            codeVerifier: flow.codeVerifier,
+            nonce: flow.nonce,
+            on: req
+        )
+
+        try await repo.markOAuthFlowUsed(flow, usedAt: now, on: req.db)
+
+        if let existingIdentity = try await repo.findOAuthIdentity(
+            provider: provider.rawValue,
+            providerUserID: identityInfo.providerUserID,
+            on: req.db
+        ) {
+            let userId = existingIdentity.$user.id
+            guard let user = try await repo.findUser(id: userId, on: req.db) else {
+                throw Abort(.unauthorized, reason: "OAuth identity user not found")
+            }
+            return try await makeAuthResponse(for: user, on: req)
+        }
+
+        let normalizedIdentityEmail = identityInfo.email?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        if let normalizedIdentityEmail,
+           try await repo.findUser(email: normalizedIdentityEmail, on: req.db) != nil {
+            throw Abort(.conflict, reason: "ACCOUNT_EXISTS_LINK_REQUIRED")
+        }
+        let resolvedUserEmail = normalizedIdentityEmail
+            ?? syntheticOAuthEmail(provider: provider, providerUserID: identityInfo.providerUserID)
+
+        let oauthUsername = try await generateOAuthUsername(
+            suggestedUsername: identityInfo.suggestedUsername,
+            email: resolvedUserEmail,
+            on: req
+        )
+        let oauthPassword = randomURLSafeString(length: 48)
+        let oauthPasswordHash = try req.password.hash(oauthPassword)
+
+        let user = try await repo.createUser(
+            username: oauthUsername,
+            email: resolvedUserEmail,
+            passwordHash: oauthPasswordHash,
+            dateOfBirth: defaultDateOfBirth(),
+            on: req.db
+        )
+
+        guard let userID = user.id else {
+            throw Abort(.internalServerError, reason: "User id missing after OAuth user creation")
+        }
+
+        _ = try await repo.createOAuthIdentity(
+            userId: userID,
+            provider: provider.rawValue,
+            providerUserID: identityInfo.providerUserID,
+            email: normalizedIdentityEmail,
+            emailVerified: identityInfo.emailVerified,
+            on: req.db
+        )
+
+        return try await makeAuthResponse(for: user, on: req)
+    }
+
     // MARK: - Internals
 
     private func makeAuthResponse(for user: User, on req: Request) async throws -> AuthResponse {
@@ -203,6 +365,134 @@ struct DefaultAuthService: AuthService {
 
         try await repo.createRefreshToken(userId: userId, tokenHash: tokenHash, expiresAt: expiresAt, on: req.db)
         return (rawToken, expiresIn)
+    }
+
+    private func oauthProviderClient(for provider: OAuthProvider) throws -> any OAuthProviderClient {
+        guard let client = oauthProviders[provider] else {
+            throw Abort(.serviceUnavailable, reason: "OAuth provider '\(provider.rawValue)' is not configured")
+        }
+        return client
+    }
+
+    private func normalizeRedirectURI(_ redirectURI: String) throws -> String {
+        let trimmed = redirectURI.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let components = URLComponents(string: trimmed),
+              components.scheme != nil,
+              components.host != nil || trimmed.contains("://"),
+              let normalized = components.url?.absoluteString else {
+            throw Abort(.badRequest, reason: "Invalid OAuth redirect URI")
+        }
+        return normalized
+    }
+
+    private func validateRedirectURI(_ redirectURI: String) throws {
+        let allowlist = allowedRedirectURIs()
+        guard !allowlist.isEmpty else {
+            return
+        }
+
+        guard allowlist.contains(redirectURI) else {
+            throw Abort(.badRequest, reason: "OAuth redirect URI is not allowed")
+        }
+    }
+
+    private func allowedRedirectURIs() -> Set<String> {
+        guard let raw = Environment.get("OAUTH_ALLOWED_REDIRECT_URIS") else {
+            return []
+        }
+
+        return Set(
+            raw
+                .split(separator: ",")
+                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                .filter { !$0.isEmpty }
+        )
+    }
+
+    private func codeChallenge(for codeVerifier: String) -> String {
+        let digest = SHA256.hash(data: Data(codeVerifier.utf8))
+        let data = Data(digest)
+        return data.base64EncodedString()
+            .replacingOccurrences(of: "+", with: "-")
+            .replacingOccurrences(of: "/", with: "_")
+            .replacingOccurrences(of: "=", with: "")
+    }
+
+    private func randomURLSafeString(length: Int) -> String {
+        let byteCount = max(length, 32)
+        let bytes = (0..<byteCount).map { _ in UInt8.random(in: 0...255) }
+        let raw = Data(bytes).base64EncodedString()
+            .replacingOccurrences(of: "+", with: "-")
+            .replacingOccurrences(of: "/", with: "_")
+            .replacingOccurrences(of: "=", with: "")
+        if raw.count >= length {
+            return String(raw.prefix(length))
+        }
+        return raw + UUID().uuidString.replacingOccurrences(of: "-", with: "")
+    }
+
+    private func generateOAuthUsername(
+        suggestedUsername: String?,
+        email: String,
+        on req: Request
+    ) async throws -> String {
+        let emailPrefix = email.split(separator: "@").first.map(String.init) ?? "user"
+        let normalizedSuggestedUsername: String? = {
+            guard let suggestedUsername else { return nil }
+            let trimmed = suggestedUsername.trimmingCharacters(in: .whitespacesAndNewlines)
+            return trimmed.isEmpty ? nil : trimmed
+        }()
+        let source = normalizedSuggestedUsername ?? emailPrefix
+
+        let sanitized = source
+            .lowercased()
+            .map { char -> Character in
+                if char.isLetter || char.isNumber || char == "_" {
+                    return char
+                }
+                return "_"
+            }
+        var base = String(sanitized)
+            .replacingOccurrences(of: "__", with: "_")
+            .trimmingCharacters(in: CharacterSet(charactersIn: "_"))
+
+        if base.count < 4 {
+            base += String(repeating: "0", count: 4 - base.count)
+        }
+        if base.count > 30 {
+            base = String(base.prefix(30))
+        }
+
+        for attempt in 0..<10 {
+            let candidate: String
+            if attempt == 0 {
+                candidate = base
+            } else {
+                let suffix = "\(Int.random(in: 1000...9999))"
+                let maxBaseLength = max(4, 30 - suffix.count)
+                let candidateBase = String(base.prefix(maxBaseLength))
+                candidate = "\(candidateBase)\(suffix)"
+            }
+
+            if try await repo.findUser(username: candidate, on: req.db) == nil {
+                return candidate
+            }
+        }
+
+        return "user_\(UUID().uuidString.replacingOccurrences(of: "-", with: "").prefix(20))"
+    }
+
+    private func syntheticOAuthEmail(provider: OAuthProvider, providerUserID: String) -> String {
+        let normalizedProviderUserID = providerUserID
+            .lowercased()
+            .map { char -> Character in
+                if char.isLetter || char.isNumber || char == "_" || char == "-" {
+                    return char
+                }
+                return "_"
+            }
+        let sanitizedID = String(normalizedProviderUserID)
+        return "oauth_\(provider.rawValue)_\(sanitizedID)@oauth.norviqa.invalid"
     }
 
     private func normalizeUsername(_ username: String) -> String {

@@ -300,6 +300,45 @@ struct AuthTests {
         }
     }
 
+    // MARK: - OAuth Tests
+
+    @Test("OAuth start succeeds for configured Google provider")
+    func oauthStartGoogleSuccess() async throws {
+        setenv("OAUTH_GOOGLE_CLIENT_ID", "google-client-id", 1)
+        setenv("OAUTH_GOOGLE_CLIENT_SECRET", "google-client-secret", 1)
+        setenv("OAUTH_ALLOWED_REDIRECT_URIS", "norviqa://oauth/callback", 1)
+        defer {
+            unsetenv("OAUTH_GOOGLE_CLIENT_ID")
+            unsetenv("OAUTH_GOOGLE_CLIENT_SECRET")
+            unsetenv("OAUTH_ALLOWED_REDIRECT_URIS")
+        }
+
+        try await withApp { app in
+            let startReq = OAuthStartRequest(redirectURI: "norviqa://oauth/callback")
+            try await app.testing().test(.POST, "v1/auth/oauth/google/start", beforeRequest: { req in
+                try req.content.encode(startReq)
+            }, afterResponse: { res async throws in
+                #expect(res.status == .ok)
+                let response = try res.content.decode(OAuthStartResponse.self)
+                #expect(response.expiresIn > 0)
+                #expect(!response.authorizationURL.isEmpty)
+                #expect(response.authorizationURL.contains("accounts.google.com"))
+            })
+        }
+    }
+
+    @Test("OAuth start fails for unsupported provider")
+    func oauthStartUnsupportedProvider() async throws {
+        try await withApp { app in
+            let startReq = OAuthStartRequest(redirectURI: "norviqa://oauth/callback")
+            try await app.testing().test(.POST, "v1/auth/oauth/unknown/start", beforeRequest: { req in
+                try req.content.encode(startReq)
+            }, afterResponse: { res async in
+                #expect(res.status == .badRequest)
+            })
+        }
+    }
+
     // MARK: - Password Reset Tests
 
     @Test("Forgot password returns success message")

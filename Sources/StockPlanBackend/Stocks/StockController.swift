@@ -10,6 +10,7 @@ struct StockController: RouteCollection {
         stocks.get(use: listStocks)
         stocks.post(use: createStock)
         stocks.post("bulk", use: bulkCreateStocks)
+        stocks.get(":symbol", "insights", use: getStockInsights)
         stocks.group("symbol", ":symbol", "valuation") { valuation in
             valuation.get(use: getStockValuation)
             valuation.post(use: createStockValuation)
@@ -90,6 +91,17 @@ struct StockController: RouteCollection {
         let payload = try req.content.decode(StockRequest.self)
         return try await req.stocksService.update(
             id: stockId, payload: payload, userId: session.userId, on: req.db)
+    }
+
+    @Sendable
+    func getStockInsights(req: Request) async throws -> StockInsightsResponse {
+        let session = try req.auth.require(SessionToken.self)
+        let symbol = try requireStringParameter(req, name: "symbol", reason: "Invalid stock symbol")
+        return try await req.stocksService.getInsights(
+            symbol: symbol,
+            userId: session.userId,
+            on: req.db
+        )
     }
 
     @Sendable

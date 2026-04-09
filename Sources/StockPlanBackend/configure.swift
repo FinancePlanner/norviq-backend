@@ -47,7 +47,26 @@ public func configure(_ app: Application) async throws {
     let jwtSecret = Environment.get("JWT_SECRET") ?? "dev-secret"
     await app.jwt.keys.add(hmac: HMACKey(from: jwtSecret), digestAlgorithm: .sha256)
     app.authRepository = DatabaseAuthRepository()
-    app.authService = DefaultAuthService(repo: app.authRepository)
+    var oauthProviders: [OAuthProvider: any OAuthProviderClient] = [:]
+    if let appleConfig = AppleOAuthProviderClient.Config.fromEnvironment() {
+        oauthProviders[.apple] = AppleOAuthProviderClient(config: appleConfig)
+    } else {
+        app.logger.warning("Apple OAuth is disabled. Configure OAUTH_APPLE_CLIENT_ID, OAUTH_APPLE_TEAM_ID, OAUTH_APPLE_KEY_ID, and OAUTH_APPLE_PRIVATE_KEY.")
+    }
+    if let googleConfig = GoogleOAuthProviderClient.Config.fromEnvironment() {
+        oauthProviders[.google] = GoogleOAuthProviderClient(config: googleConfig)
+    } else {
+        app.logger.warning("Google OAuth is disabled. Configure OAUTH_GOOGLE_CLIENT_ID and OAUTH_GOOGLE_CLIENT_SECRET.")
+    }
+    if let xConfig = XOAuthProviderClient.Config.fromEnvironment() {
+        oauthProviders[.x] = XOAuthProviderClient(config: xConfig)
+    } else {
+        app.logger.warning("X OAuth is disabled. Configure OAUTH_X_CLIENT_ID (and optionally OAUTH_X_CLIENT_SECRET).")
+    }
+    app.authService = DefaultAuthService(
+        repo: app.authRepository,
+        oauthProviders: oauthProviders
+    )
     app.mailer = ConsoleMailerService()
     app.stocksRepository = DatabaseStocksRepository()
     app.brokersRepository = DatabaseBrokersRepository()
@@ -161,6 +180,7 @@ public func configure(_ app: Application) async throws {
     app.migrations.add(CreatePrice())
     app.migrations.add(CreatePasswordResetToken())
     app.migrations.add(CreateRefreshToken())
+    app.migrations.add(CreateOAuthTables())
     app.migrations.add(CreateStock())
     app.migrations.add(AddAssetCategoryToStocks())
     app.migrations.add(CreateWatchlistItem())

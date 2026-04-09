@@ -3,13 +3,44 @@ import Foundation
 import StockPlanShared
 
 struct BudgetController: RouteCollection {
-    private struct BudgetPlanItemPayload: Content {
+    private struct BudgetPlanItemPayload: Decodable {
         let snapshotId: String
         let title: String
         let plannedAmount: Double
         let pillar: BudgetPillar
         let splitMode: ExpenseSplitMode?
         let userSharePercent: Double?
+
+        private enum CodingKeys: String, CodingKey {
+            case snapshotIdSnake = "snapshot_id"
+            case snapshotIdCamel = "snapshotId"
+            case title
+            case plannedAmountSnake = "planned_amount"
+            case plannedAmountCamel = "plannedAmount"
+            case pillar
+            case splitModeSnake = "split_mode"
+            case splitModeCamel = "splitMode"
+            case userSharePercentSnake = "user_share_percent"
+            case userSharePercentCamel = "userSharePercent"
+        }
+
+        init(from decoder: any Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            self.snapshotId =
+                try container.decodeIfPresent(String.self, forKey: .snapshotIdSnake)
+                ?? container.decode(String.self, forKey: .snapshotIdCamel)
+            self.title = try container.decode(String.self, forKey: .title)
+            self.plannedAmount =
+                try container.decodeIfPresent(Double.self, forKey: .plannedAmountSnake)
+                ?? container.decode(Double.self, forKey: .plannedAmountCamel)
+            self.pillar = try container.decode(BudgetPillar.self, forKey: .pillar)
+            self.splitMode =
+                try container.decodeIfPresent(ExpenseSplitMode.self, forKey: .splitModeSnake)
+                ?? container.decodeIfPresent(ExpenseSplitMode.self, forKey: .splitModeCamel)
+            self.userSharePercent =
+                try container.decodeIfPresent(Double.self, forKey: .userSharePercentSnake)
+                ?? container.decodeIfPresent(Double.self, forKey: .userSharePercentCamel)
+        }
 
         func asRequest() -> BudgetPlanItemRequest {
             BudgetPlanItemRequest(

@@ -41,6 +41,7 @@ protocol StockService: Sendable {
     func list(userId: UUID, on db: any Database) async throws -> [StockResponse]
     func get(id: UUID, userId: UUID, on db: any Database) async throws -> StockResponse
     func get(symbol: String, userId: UUID, on db: any Database) async throws -> StockResponse
+    func getInsights(symbol: String, userId: UUID, on db: any Database) async throws -> StockInsightsResponse
     func getValuation(symbol: String, userId: UUID, on db: any Database) async throws
         -> StockValuationRequest
     func create(payload: StockRequest, userId: UUID, on db: any Database) async throws
@@ -85,6 +86,87 @@ struct StockServiceImpl: StockService {
             throw StockServiceError.notFound
         }
         return try StockResponse(from: stock)
+    }
+
+    func getInsights(symbol: String, userId: UUID, on db: any Database) async throws -> StockInsightsResponse {
+        let normalizedSymbol = try validateSymbol(symbol)
+        let primaryMetrics = try await req.application.marketDataService.analysis(
+            symbol: normalizedSymbol,
+            on: req
+        )
+        let primaryProfile = try? await req.application.marketDataService.profile(
+            symbol: normalizedSymbol,
+            on: req
+        )
+
+        let currentPrice = max(0, primaryMetrics.currentPrice ?? 0)
+        let marketCap = max(0, primaryMetrics.marketCap ?? primaryProfile?.marketCapitalization ?? 0)
+        let sharesOutstanding = max(
+            0,
+            primaryMetrics.sharesOutstanding ?? primaryProfile?.shareOutstanding ?? 0
+        )
+        let scenarios = makeProjectionScenarios(
+            from: primaryMetrics,
+            fallbackCurrentPrice: currentPrice,
+            fallbackMarketCap: marketCap,
+            fallbackSharesOutstanding: sharesOutstanding
+        )
+
+        let peerSymbols = try await prioritizedPeerSymbols(
+            userId: userId,
+            excluding: normalizedSymbol,
+            on: db
+        )
+        var peers: [StockInsightPeerDTO] = []
+        peers.reserveCapacity(peerSymbols.count)
+
+        for peerSymbol in peerSymbols {
+            let peerMetrics = try? await req.application.marketDataService.analysis(
+                symbol: peerSymbol,
+                on: req
+            )
+            let peerProfile = try? await req.application.marketDataService.profile(
+                symbol: peerSymbol,
+                on: req
+            )
+            let peerPrice = max(0, peerMetrics?.currentPrice ?? 0)
+            let peerMarketCap = max(
+                0,
+                peerMetrics?.marketCap ?? peerProfile?.marketCapitalization ?? 0
+            )
+            let peerSharesOutstanding = max(
+                0,
+                peerMetrics?.sharesOutstanding ?? peerProfile?.shareOutstanding ?? 0
+            )
+
+            peers.append(
+                StockInsightPeerDTO(
+                    symbol: peerSymbol,
+                    companyName: resolvedCompanyName(peerProfile?.name, symbol: peerSymbol),
+                    currentPrice: peerPrice,
+                    marketCap: peerMarketCap,
+                    sharesOutstanding: peerSharesOutstanding
+                )
+            )
+        }
+
+        return StockInsightsResponse(
+            generatedAt: isoTimestamp(Date()),
+            symbol: normalizedSymbol,
+            profile: StockInsightProfileDTO(
+                symbol: normalizedSymbol,
+                companyName: resolvedCompanyName(primaryProfile?.name, symbol: normalizedSymbol),
+                currentPrice: currentPrice,
+                marketCap: marketCap,
+                sharesOutstanding: sharesOutstanding,
+                metrics: comparisonMetricsMap(from: primaryMetrics),
+                dcfBasePrice: primaryMetrics.dcfBasePrice,
+                dcfBearPrice: primaryMetrics.dcfBearPrice,
+                dcfBullPrice: primaryMetrics.dcfBullPrice
+            ),
+            peers: peers,
+            projectionScenarios: scenarios
+        )
     }
 
     func getValuation(symbol: String, userId: UUID, on db: any Database) async throws
@@ -291,6 +373,245 @@ struct StockServiceImpl: StockService {
             throw Abort(.badRequest, reason: "Invalid targetDate. Expected YYYY-MM-DD.")
         }
         return formatter.string(from: value)
+    }
+
+    private func resolvedCompanyName(_ value: String?, symbol: String) -> String {
+        guard let value else { return symbol }
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? symbol : trimmed
+    }
+
+    private func prioritizedPeerSymbols(
+        userId: UUID,
+        excluding primarySymbol: String,
+        on db: any Database
+    ) async throws -> [String] {
+        let watchlistSymbols = try await WatchlistItem.query(on: db)
+            .filter(\.$userId == userId)
+            .sort(\.$updatedAt, .descending)
+            .sort(\.$createdAt, .descending)
+            .all()
+            .map { $0.symbol.uppercased() }
+
+        let holdingSymbols = try await Stock.query(on: db)
+            .filter(\.$userId == userId)
+            .sort(\.$updatedAt, .descending)
+            .sort(\.$createdAt, .descending)
+            .all()
+            .map { $0.symbol.uppercased() }
+
+        var seen: Set<String> = [primarySymbol]
+        var ordered: [String] = []
+        ordered.reserveCapacity(watchlistSymbols.count + holdingSymbols.count)
+
+        for symbol in watchlistSymbols + holdingSymbols {
+            guard seen.insert(symbol).inserted else { continue }
+            ordered.append(symbol)
+        }
+        return Array(ordered.prefix(8))
+    }
+
+    private func comparisonMetricsMap(from metrics: StockAnalysisMetricsResponse) -> [String: Double] {
+        [
+            "ttmPE": metrics.ttmPE,
+            "forwardPE": metrics.forwardPE,
+            "twoYearForwardPE": metrics.twoYearForwardPE,
+            "ttmEPSGrowth": metrics.ttmEPSGrowth,
+            "currentYearExpectedEPSGrowth": metrics.currentYearExpectedEPSGrowth,
+            "nextYearEPSGrowth": metrics.nextYearEPSGrowth,
+            "ttmRevenueGrowth": metrics.ttmRevenueGrowth,
+            "currentYearExpectedRevenueGrowth": metrics.currentYearExpectedRevenueGrowth,
+            "nextYearRevenueGrowth": metrics.nextYearRevenueGrowth,
+            "grossMargin": metrics.grossMargin,
+            "netMargin": metrics.netMargin,
+            "ttmPEGRatio": metrics.ttmPEGRatio,
+            "lastYearEPSGrowth": metrics.lastYearEPSGrowth,
+            "ttmVsNTMEPSGrowth": metrics.ttmVsNTMEPSGrowth,
+            "currentQuarterEPSGrowthVsPreviousYear": metrics.currentQuarterEPSGrowthVsPreviousYear,
+            "twoYearStackExpectedEPSGrowth": metrics.twoYearStackExpectedEPSGrowth,
+            "lastYearRevenueGrowth": metrics.lastYearRevenueGrowth,
+            "ttmVsNTMRevenueGrowth": metrics.ttmVsNTMRevenueGrowth,
+            "currentQuarterRevenueGrowthVsPreviousYear": metrics.currentQuarterRevenueGrowthVsPreviousYear,
+            "twoYearStackExpectedRevenueGrowth": metrics.twoYearStackExpectedRevenueGrowth,
+            "dcfFairValue": metrics.dcfBasePrice,
+        ].compactMapValues { value in
+            guard let value else { return nil }
+            return value.isFinite ? value : nil
+        }
+    }
+
+    private func makeProjectionScenarios(
+        from metrics: StockAnalysisMetricsResponse,
+        fallbackCurrentPrice: Double,
+        fallbackMarketCap: Double,
+        fallbackSharesOutstanding: Double
+    ) -> [StockInsightProjectionScenarioDTO] {
+        guard
+            let baseProjections = metrics.yearlyProjections,
+            !baseProjections.isEmpty,
+            let currentPrice = metrics.currentPrice,
+            currentPrice > 0,
+            let marketCap = metrics.marketCap,
+            marketCap > 0,
+            let sharesOutstanding = metrics.sharesOutstanding,
+            sharesOutstanding > 0
+        else {
+            return fallbackProjectionScenarios(
+                currentPrice: fallbackCurrentPrice,
+                marketCap: fallbackMarketCap,
+                sharesOutstanding: fallbackSharesOutstanding
+            )
+        }
+
+        let baseYear = metrics.baseYear ?? ((baseProjections.first?.year ?? 2026) - 1)
+        let firstProjection = baseProjections[0]
+        let revenueDenominator = max(1.0 + firstProjection.revenueGrowth, 0.1)
+        let incomeDenominator = max(1.0 + firstProjection.netIncomeGrowth, 0.1)
+        let trailingRevenue = firstProjection.revenue / revenueDenominator
+        let trailingNetIncome = firstProjection.netIncome / incomeDenominator
+
+        let peLowBase = max((metrics.forwardPE ?? 20) * 0.9, 8)
+        let peHighBase = max((metrics.ttmPE ?? peLowBase) * 1.05, peLowBase + 1)
+        let terminalGrowthRate = metrics.terminalGrowthRate ?? 0.025
+        let terminalMargin = max(metrics.terminalMargin ?? 0.22, 0.08)
+        let baseNetMargin = max(metrics.netMargin ?? firstProjection.netMargin, 0.05)
+
+        let config: [(kind: String, growthShift: Double, peLowShift: Double, peHighShift: Double)] = [
+            ("bear", -0.03, -2, -2),
+            ("base", 0, 0, 0),
+            ("bull", 0.03, 2, 2),
+        ]
+
+        return config.map { item in
+            var years: [StockInsightProjectionYearDTO] = []
+            years.reserveCapacity(baseProjections.count + 1)
+
+            let trailingEPS = trailingNetIncome / sharesOutstanding
+            years.append(
+                StockInsightProjectionYearDTO(
+                    year: baseYear,
+                    revenue: trailingRevenue,
+                    revenueGrowth: metrics.ttmRevenueGrowth ?? 0,
+                    netIncome: trailingNetIncome,
+                    netIncomeGrowth: metrics.ttmEPSGrowth ?? 0,
+                    netMargin: baseNetMargin,
+                    eps: trailingEPS,
+                    peLowEstimate: peLowBase,
+                    peHighEstimate: peHighBase,
+                    sharePriceLow: trailingEPS * peLowBase,
+                    sharePriceHigh: trailingEPS * peHighBase,
+                    cagrLow: nil,
+                    cagrHigh: nil
+                )
+            )
+
+            var runningRevenue = trailingRevenue
+            var runningNetIncome = trailingNetIncome
+
+            for (index, projection) in baseProjections.enumerated() {
+                let revenueGrowth = max(projection.revenueGrowth + item.growthShift, terminalGrowthRate)
+                let netIncomeGrowth = max(projection.netIncomeGrowth + item.growthShift, terminalGrowthRate)
+                runningRevenue = runningRevenue * (1 + revenueGrowth)
+                runningNetIncome = runningNetIncome * (1 + netIncomeGrowth)
+
+                let margin = min(
+                    max(baseNetMargin + Double(index + 1) * 0.01, 0.03),
+                    max(terminalMargin, baseNetMargin)
+                )
+                let actualNetIncome = runningRevenue * margin
+                let eps = actualNetIncome / sharesOutstanding
+                let peLow = max(8, peLowBase + item.peLowShift)
+                let peHigh = max(peLow + 1, peHighBase + item.peHighShift)
+                let priceLow = eps * peLow
+                let priceHigh = eps * peHigh
+
+                let yearsForward = Double(index + 1)
+                let cagrLow = pow(priceLow / currentPrice, 1.0 / yearsForward) - 1
+                let cagrHigh = pow(priceHigh / currentPrice, 1.0 / yearsForward) - 1
+
+                years.append(
+                    StockInsightProjectionYearDTO(
+                        year: projection.year,
+                        revenue: runningRevenue,
+                        revenueGrowth: revenueGrowth,
+                        netIncome: actualNetIncome,
+                        netIncomeGrowth: netIncomeGrowth,
+                        netMargin: margin,
+                        eps: eps,
+                        peLowEstimate: peLow,
+                        peHighEstimate: peHigh,
+                        sharePriceLow: priceLow,
+                        sharePriceHigh: priceHigh,
+                        cagrLow: cagrLow,
+                        cagrHigh: cagrHigh
+                    )
+                )
+            }
+
+            return StockInsightProjectionScenarioDTO(kind: item.kind, years: years)
+        }
+    }
+
+    private func fallbackProjectionScenarios(
+        currentPrice: Double,
+        marketCap: Double,
+        sharesOutstanding: Double
+    ) -> [StockInsightProjectionScenarioDTO] {
+        let basePrice = max(currentPrice, 1)
+        let baseShares = max(sharesOutstanding, 1)
+        let baseRevenue = max(marketCap * 0.22, 1_000_000)
+        let baseNetMargin = 0.12
+        let baseNetIncome = baseRevenue * baseNetMargin
+        let startYear = Calendar(identifier: .gregorian).component(.year, from: Date())
+        let config: [(String, Double, Double, Double)] = [
+            ("bear", 0.03, 12, 15),
+            ("base", 0.07, 16, 20),
+            ("bull", 0.11, 20, 25),
+        ]
+
+        return config.map { kind, growth, peLow, peHigh in
+            var years: [StockInsightProjectionYearDTO] = []
+            var revenue = baseRevenue
+            var netIncome = baseNetIncome
+            years.reserveCapacity(4)
+
+            for offset in 1...4 {
+                revenue *= (1 + growth)
+                netIncome *= (1 + growth + 0.01)
+                let margin = min(max(netIncome / revenue, 0.06), 0.35)
+                let eps = netIncome / baseShares
+                let low = eps * peLow
+                let high = eps * peHigh
+                let yearsForward = Double(offset)
+                let cagrLow = pow(low / basePrice, 1.0 / yearsForward) - 1
+                let cagrHigh = pow(high / basePrice, 1.0 / yearsForward) - 1
+
+                years.append(
+                    StockInsightProjectionYearDTO(
+                        year: startYear + offset,
+                        revenue: revenue,
+                        revenueGrowth: growth,
+                        netIncome: netIncome,
+                        netIncomeGrowth: growth + 0.01,
+                        netMargin: margin,
+                        eps: eps,
+                        peLowEstimate: peLow,
+                        peHighEstimate: peHigh,
+                        sharePriceLow: low,
+                        sharePriceHigh: high,
+                        cagrLow: cagrLow,
+                        cagrHigh: cagrHigh
+                    )
+                )
+            }
+            return StockInsightProjectionScenarioDTO(kind: kind, years: years)
+        }
+    }
+
+    private func isoTimestamp(_ date: Date) -> String {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return formatter.string(from: date)
     }
 }
 
