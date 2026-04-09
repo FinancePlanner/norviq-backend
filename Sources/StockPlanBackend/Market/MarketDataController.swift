@@ -1,5 +1,6 @@
 import Vapor
 import Foundation
+import StockPlanShared
 
 struct MarketDataController: RouteCollection {
     func boot(routes: any RoutesBuilder) throws {

@@ -1,8 +1,9 @@
-import Vapor
-import Fluent
-import JWT
 import Crypto
+import Fluent
 import Foundation
+import JWT
+import StockPlanShared
+import Vapor
 
 protocol AuthService: Sendable {
     func register(
@@ -16,9 +17,11 @@ protocol AuthService: Sendable {
     func currentUser(from req: Request) async throws -> AuthUserResponse
     func forgotPassword(email: String, on req: Request) async throws -> AuthForgotPasswordResponse
     func resendResetCode(email: String, on req: Request) async throws -> AuthForgotPasswordResponse
-    func resetPassword(email: String, code: String, newPassword: String, on req: Request) async throws -> HTTPStatus
+    func resetPassword(email: String, code: String, newPassword: String, on req: Request)
+        async throws -> HTTPStatus
     func refresh(using refreshToken: String, on req: Request) async throws -> AuthResponse
-    func oauthStart(provider: OAuthProvider, redirectURI: String, on req: Request) async throws -> OAuthStartResponse
+    func oauthStart(provider: OAuthProvider, redirectURI: String, on req: Request) async throws
+        -> OAuthStartResponse
     func oauthExchange(
         provider: OAuthProvider,
         flowId: UUID,
@@ -109,28 +112,35 @@ struct DefaultAuthService: AuthService {
         try await issueResetCode(email: email, on: req)
     }
 
-    func resendResetCode(email: String, on req: Request) async throws -> AuthForgotPasswordResponse {
+    func resendResetCode(email: String, on req: Request) async throws -> AuthForgotPasswordResponse
+    {
         try await issueResetCode(email: email, on: req)
     }
 
-    func resetPassword(email: String, code: String, newPassword: String, on req: Request) async throws -> HTTPStatus {
+    func resetPassword(email: String, code: String, newPassword: String, on req: Request)
+        async throws -> HTTPStatus
+    {
         let normalizedEmail = normalizeEmail(email)
         try validateEmail(normalizedEmail)
         try validatePassword(newPassword)
 
-        guard let user = try await repo.findUser(email: normalizedEmail, on: req.db), let userId = user.id else {
+        guard let user = try await repo.findUser(email: normalizedEmail, on: req.db),
+            let userId = user.id
+        else {
             throw Abort(.unauthorized, reason: "Invalid reset code")
         }
 
         let now = Date()
         let codeHash = hashToken(code)
 
-        guard let resetToken = try await repo.findValidPasswordResetToken(
-            userId: userId,
-            codeHash: codeHash,
-            now: now,
-            on: req.db
-        ) else {
+        guard
+            let resetToken = try await repo.findValidPasswordResetToken(
+                userId: userId,
+                codeHash: codeHash,
+                now: now,
+                on: req.db
+            )
+        else {
             throw Abort(.unauthorized, reason: "Invalid reset code")
         }
 
@@ -145,7 +155,10 @@ struct DefaultAuthService: AuthService {
         let tokenHash = hashToken(refreshToken)
         let now = Date()
 
-        guard let storedToken = try await repo.findValidRefreshToken(tokenHash: tokenHash, now: now, on: req.db) else {
+        guard
+            let storedToken = try await repo.findValidRefreshToken(
+                tokenHash: tokenHash, now: now, on: req.db)
+        else {
             throw Abort(.unauthorized, reason: "Invalid refresh token")
         }
 
@@ -157,7 +170,9 @@ struct DefaultAuthService: AuthService {
         return try await makeAuthResponse(for: user, on: req)
     }
 
-    func oauthStart(provider: OAuthProvider, redirectURI: String, on req: Request) async throws -> OAuthStartResponse {
+    func oauthStart(provider: OAuthProvider, redirectURI: String, on req: Request) async throws
+        -> OAuthStartResponse
+    {
         let normalizedRedirectURI = try normalizeRedirectURI(redirectURI)
         try validateRedirectURI(normalizedRedirectURI)
 
@@ -220,12 +235,14 @@ struct DefaultAuthService: AuthService {
         }
 
         let now = Date()
-        guard let flow = try await repo.findValidOAuthFlow(
-            id: flowId,
-            provider: provider.rawValue,
-            now: now,
-            on: req.db
-        ) else {
+        guard
+            let flow = try await repo.findValidOAuthFlow(
+                id: flowId,
+                provider: provider.rawValue,
+                now: now,
+                on: req.db
+            )
+        else {
             throw Abort(.unauthorized, reason: "OAuth flow is invalid or expired")
         }
 
@@ -263,10 +280,12 @@ struct DefaultAuthService: AuthService {
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .lowercased()
         if let normalizedIdentityEmail,
-           try await repo.findUser(email: normalizedIdentityEmail, on: req.db) != nil {
+            try await repo.findUser(email: normalizedIdentityEmail, on: req.db) != nil
+        {
             throw Abort(.conflict, reason: "ACCOUNT_EXISTS_LINK_REQUIRED")
         }
-        let resolvedUserEmail = normalizedIdentityEmail
+        let resolvedUserEmail =
+            normalizedIdentityEmail
             ?? syntheticOAuthEmail(provider: provider, providerUserID: identityInfo.providerUserID)
 
         let oauthUsername = try await generateOAuthUsername(
@@ -327,21 +346,28 @@ struct DefaultAuthService: AuthService {
         )
     }
 
-    private func issueResetCode(email: String, on req: Request) async throws -> AuthForgotPasswordResponse {
+    private func issueResetCode(email: String, on req: Request) async throws
+        -> AuthForgotPasswordResponse
+    {
         let normalizedEmail = normalizeEmail(email)
         try validateEmail(normalizedEmail)
 
-        guard let user = try await repo.findUser(email: normalizedEmail, on: req.db), let userId = user.id else {
-            return AuthForgotPasswordResponse(message: "If the account exists, a reset code has been sent.", resetCode: nil)
+        guard let user = try await repo.findUser(email: normalizedEmail, on: req.db),
+            let userId = user.id
+        else {
+            return AuthForgotPasswordResponse(
+                message: "If the account exists, a reset code has been sent.", resetCode: nil)
         }
 
         let code = generateResetCode()
         let codeHash = hashToken(code)
         let expiresAt = Date().addingTimeInterval(15 * 60)
 
-        try await repo.createPasswordResetToken(userId: userId, codeHash: codeHash, expiresAt: expiresAt, on: req.db)
+        try await repo.createPasswordResetToken(
+            userId: userId, codeHash: codeHash, expiresAt: expiresAt, on: req.db)
 
-        let shouldReturnCode = (Environment.get("AUTH_RESET_RETURN_CODE") ?? "false").lowercased() == "true"
+        let shouldReturnCode =
+            (Environment.get("AUTH_RESET_RETURN_CODE") ?? "false").lowercased() == "true"
         let responseCode = shouldReturnCode ? code : nil
 
         let message = MailMessage(
@@ -363,13 +389,17 @@ struct DefaultAuthService: AuthService {
         let tokenHash = hashToken(rawToken)
         let expiresAt = Date().addingTimeInterval(TimeInterval(expiresIn))
 
-        try await repo.createRefreshToken(userId: userId, tokenHash: tokenHash, expiresAt: expiresAt, on: req.db)
+        try await repo.createRefreshToken(
+            userId: userId, tokenHash: tokenHash, expiresAt: expiresAt, on: req.db)
         return (rawToken, expiresIn)
     }
 
-    private func oauthProviderClient(for provider: OAuthProvider) throws -> any OAuthProviderClient {
+    private func oauthProviderClient(for provider: OAuthProvider) throws -> any OAuthProviderClient
+    {
         guard let client = oauthProviders[provider] else {
-            throw Abort(.serviceUnavailable, reason: "OAuth provider '\(provider.rawValue)' is not configured")
+            throw Abort(
+                .serviceUnavailable,
+                reason: "OAuth provider '\(provider.rawValue)' is not configured")
         }
         return client
     }
@@ -377,9 +407,10 @@ struct DefaultAuthService: AuthService {
     private func normalizeRedirectURI(_ redirectURI: String) throws -> String {
         let trimmed = redirectURI.trimmingCharacters(in: .whitespacesAndNewlines)
         guard let components = URLComponents(string: trimmed),
-              components.scheme != nil,
-              components.host != nil || trimmed.contains("://"),
-              let normalized = components.url?.absoluteString else {
+            components.scheme != nil,
+            components.host != nil || trimmed.contains("://"),
+            let normalized = components.url?.absoluteString
+        else {
             throw Abort(.badRequest, reason: "Invalid OAuth redirect URI")
         }
         return normalized
@@ -444,7 +475,8 @@ struct DefaultAuthService: AuthService {
         }()
         let source = normalizedSuggestedUsername ?? emailPrefix
 
-        let sanitized = source
+        let sanitized =
+            source
             .lowercased()
             .map { char -> Character in
                 if char.isLetter || char.isNumber || char == "_" {
@@ -483,7 +515,8 @@ struct DefaultAuthService: AuthService {
     }
 
     private func syntheticOAuthEmail(provider: OAuthProvider, providerUserID: String) -> String {
-        let normalizedProviderUserID = providerUserID
+        let normalizedProviderUserID =
+            providerUserID
             .lowercased()
             .map { char -> Character in
                 if char.isLetter || char.isNumber || char == "_" || char == "-" {
@@ -506,7 +539,9 @@ struct DefaultAuthService: AuthService {
     private func validateUsername(_ username: String) throws {
         let pattern = #"^[a-zA-Z0-9_]{4,30}$"#
         if username.range(of: pattern, options: .regularExpression) == nil {
-            throw Abort(.badRequest, reason: "Username must be 4-30 characters (letters, numbers, underscore)")
+            throw Abort(
+                .badRequest,
+                reason: "Username must be 4-30 characters (letters, numbers, underscore)")
         }
     }
 
@@ -529,7 +564,9 @@ struct DefaultAuthService: AuthService {
     }
 
     private func responseUsername(for user: User) -> String {
-        if let username = user.username?.trimmingCharacters(in: .whitespacesAndNewlines), !username.isEmpty {
+        if let username = user.username?.trimmingCharacters(in: .whitespacesAndNewlines),
+            !username.isEmpty
+        {
             return username
         }
         if let prefix = user.email.split(separator: "@").first, !prefix.isEmpty {
@@ -546,7 +583,8 @@ struct DefaultAuthService: AuthService {
         let calendar = Calendar.current
         let currentYear = calendar.component(.year, from: Date())
         let twentyYearsAgoYear = currentYear - 20
-        return calendar.date(from: DateComponents(year: twentyYearsAgoYear, month: 1, day: 1)) ?? Date()
+        return calendar.date(from: DateComponents(year: twentyYearsAgoYear, month: 1, day: 1))
+            ?? Date()
     }
 
     private func jwtExpiresInSeconds(from req: Request) -> Int {

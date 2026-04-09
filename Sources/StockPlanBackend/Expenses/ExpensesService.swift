@@ -162,18 +162,50 @@ final class DefaultExpensesService: ExpensesService {
     }
     
     func createBudgetSnapshot(userId: UUID, request: BudgetSnapshotRequest, on db: any Database) async throws -> BudgetSnapshotResponse {
-        guard let monthStart = parseDate(request.monthStart) else {
+        guard let rawDate = parseDate(request.monthStart) else {
             throw Abort(.badRequest, reason: "Invalid monthStart format. Expected YYYY-MM-DD.")
         }
         
-        let snapshot = BudgetSnapshot(
-            userID: userId,
-            monthStart: monthStart,
-            netSalary: request.netSalary,
-            targetShares: request.targetShares
-        )
-        try await snapshot.create(on: db)
-        return mapSnapshot(snapshot)
+        // Normalize to the first day of the month to avoid timezone shifts causing day-boundary issues
+        let calendar = Calendar(identifier: .gregorian)
+        var components = calendar.dateComponents([.year, .month], from: rawDate)
+        components.day = 1
+        components.hour = 0
+        components.minute = 0
+        components.second = 0
+        components.timeZone = TimeZone(secondsFromGMT: 0)
+        
+        guard let monthStart = calendar.date(from: components) else {
+            throw Abort(.internalServerError, reason: "Could not normalize monthStart.")
+        }
+        
+        // Use a date range to find the record to be more robust against DB date/time comparison issues
+        let nextMonth = calendar.date(byAdding: .month, value: 1, to: monthStart)!
+        
+        let existing = try await BudgetSnapshot.query(on: db)
+            .filter(\.$user.$id == userId)
+            .filter(\.$monthStart >= monthStart)
+            .filter(\.$monthStart < nextMonth)
+            .first()
+            
+        if let snapshot = existing {
+            // Update existing
+            snapshot.monthStart = monthStart // Update to normalized date if it was different
+            snapshot.netSalary = request.netSalary
+            snapshot.targetShares = request.targetShares
+            try await snapshot.update(on: db)
+            return mapSnapshot(snapshot)
+        } else {
+            // Create new
+            let snapshot = BudgetSnapshot(
+                userID: userId,
+                monthStart: monthStart,
+                netSalary: request.netSalary,
+                targetShares: request.targetShares
+            )
+            try await snapshot.create(on: db)
+            return mapSnapshot(snapshot)
+        }
     }
     
     func updateSnapshot(userId: UUID, snapshotId: UUID, request: BudgetSnapshotRequest, on db: any Database) async throws -> BudgetSnapshotResponse {
@@ -183,8 +215,21 @@ final class DefaultExpensesService: ExpensesService {
         guard snapshot.$user.id == userId else {
             throw Abort(.forbidden)
         }
-        guard let monthStart = parseDate(request.monthStart) else {
+        guard let rawDate = parseDate(request.monthStart) else {
             throw Abort(.badRequest, reason: "Invalid monthStart format. Expected YYYY-MM-DD.")
+        }
+        
+        // Normalize
+        let calendar = Calendar(identifier: .gregorian)
+        var components = calendar.dateComponents([.year, .month], from: rawDate)
+        components.day = 1
+        components.hour = 0
+        components.minute = 0
+        components.second = 0
+        components.timeZone = TimeZone(secondsFromGMT: 0)
+        
+        guard let monthStart = calendar.date(from: components) else {
+            throw Abort(.internalServerError, reason: "Could not normalize monthStart.")
         }
         
         snapshot.monthStart = monthStart

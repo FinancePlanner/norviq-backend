@@ -31,6 +31,10 @@ public func configure(_ app: Application) async throws {
     // Add custom error handling middleware first.
     app.middleware.use(TracingMiddleware())
 
+    // Configure global JSON decoder and encoder
+    ContentConfiguration.global.use(decoder: JSONDecoder.stockPlanShared, for: .json)
+    ContentConfiguration.global.use(encoder: JSONEncoder.stockPlanShared, for: .json)
+
     app.databases.use(DatabaseConfigurationFactory.postgres(configuration: .init(
         hostname: Environment.get("DATABASE_HOST") ?? "localhost",
         port: Environment.get("DATABASE_PORT").flatMap(Int.init(_:)) ?? SQLPostgresConfiguration.ianaPortNumber,

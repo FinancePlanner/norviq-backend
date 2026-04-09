@@ -68,16 +68,6 @@ extension FinnhubNewsWebhookResponse: @retroactive Content {}
 extension EarningsItemResponse: @retroactive Content {}
 extension EarningsQueryRequest: @retroactive Content {}
 
-// MARK: - Market
-extension StockDetailsResponse: @retroactive Content {}
-extension QuoteResponse: @retroactive Content {}
-extension CompanyProfileResponse: @retroactive Content {}
-extension PriceBarResponse: @retroactive Content {}
-extension HistoryResponse: @retroactive Content {}
-extension SearchResultResponse: @retroactive Content {}
-extension FxRateResponse: @retroactive Content {}
-extension QuoteBatchResponse: @retroactive Content {}
-
 // MARK: - Broker / CSV
 extension CsvImportPreviewItem: @retroactive Content {}
 extension CsvImportPreviewError: @retroactive Content {}
@@ -129,14 +119,6 @@ extension ReportSuggestionSeverity: @retroactive Content {}
 extension ReportSuggestionCategory: @retroactive Content {}
 extension ReportSuggestionResponse: @retroactive Content {}
 extension ReportSuggestionsResponse: @retroactive Content {}
-
-// MARK: - Market Data
-extension RatiosTTMResponse: @retroactive Content {}
-extension BalanceSheetStatementResponse: @retroactive Content {}
-extension CashFlowStatementResponse: @retroactive Content {}
-extension FinancialGrowthResponse: @retroactive Content {}
-extension AnalystEstimatesResponse: @retroactive Content {}
-extension RatiosResponse: @retroactive Content {}
 
 // MARK: - Goals & Dashboard Insights
 extension GoalRequest: @retroactive Content {}

@@ -1,5 +1,6 @@
-import Vapor
 import Foundation
+import StockPlanShared
+import Vapor
 
 struct AuthController: RouteCollection {
     func boot(routes: any RoutesBuilder) throws {
@@ -34,7 +35,8 @@ struct AuthController: RouteCollection {
     @Sendable
     func login(req: Request) async throws -> AuthResponse {
         let payload = try req.content.decode(AuthLoginRequest.self)
-        return try await req.application.authService.login(email: payload.email, password: payload.password, on: req)
+        return try await req.application.authService.login(
+            email: payload.email, password: payload.password, on: req)
     }
 
     @Sendable
@@ -98,7 +100,8 @@ struct AuthController: RouteCollection {
 
     private func oauthProvider(from req: Request) throws -> OAuthProvider {
         guard let rawProvider = req.parameters.get("provider")?.lowercased(),
-              let provider = OAuthProvider(rawValue: rawProvider) else {
+            let provider = OAuthProvider(rawValue: rawProvider)
+        else {
             throw Abort(.badRequest, reason: "Unsupported OAuth provider")
         }
         return provider

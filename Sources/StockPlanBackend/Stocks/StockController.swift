@@ -10,13 +10,17 @@ struct StockController: RouteCollection {
         stocks.get(use: listStocks)
         stocks.post(use: createStock)
         stocks.post("bulk", use: bulkCreateStocks)
-        stocks.get(":symbol", "insights", use: getStockInsights)
+        
+        // Symbol-based routes (use explicit "symbol" prefix to avoid conflicts)
+        stocks.get("symbol", ":symbol", "insights", use: getStockInsights)
         stocks.group("symbol", ":symbol", "valuation") { valuation in
             valuation.get(use: getStockValuation)
             valuation.post(use: createStockValuation)
             valuation.put(use: updateStockValuation)
         }
-        stocks.group(":stockId") { stock in
+        
+        // ID-based routes (use explicit "id" prefix to avoid conflicts)
+        stocks.group("id", ":stockId") { stock in
             stock.get(use: getStock)
             stock.put(use: updateStock)
             stock.delete(use: deleteStock)
