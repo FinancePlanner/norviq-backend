@@ -29,7 +29,8 @@ let package = Package(
         // Container packaging without Dockerfile builds in CI.
         .package(url: "https://github.com/apple/swift-container-plugin.git", from: "1.3.0"),
         .package(url: "https://github.com/realm/SwiftLint.git", from: "0.50.3"),
-        .package(url: "https://github.com/vapor/console-kit.git", "4.0.0" ..< "4.16.0")
+        .package(url: "https://github.com/vapor/console-kit.git", "4.0.0" ..< "4.16.0"),
+        .package(url: "https://github.com/vapor/apns.git", from: "4.0.0")
     ],
     targets: [
         .executableTarget(
@@ -48,7 +49,8 @@ let package = Package(
                 .product(name: "Logging", package: "swift-log"),
                 // Optional Redis cache integration.
                 .product(name: "Redis", package: "redis"),
-                .product(name: "StockPlanShared", package: "financeshared")
+                .product(name: "StockPlanShared", package: "financeshared"),
+                .product(name: "VaporAPNS", package: "apns")
             ],
             resources: [
                 .copy("openapi.yaml")

@@ -303,8 +303,14 @@ struct StockServiceImpl: StockService {
             throw StockServiceError.notFound
         }
 
+        _ = try parseISODateOnly(payload.sellDate, field: "sellDate")
+
         guard payload.sharesToSell > 0 else {
             throw Abort(.badRequest, reason: "Shares to sell must be greater than 0.")
+        }
+
+        guard payload.sellPrice > 0 else {
+            throw Abort(.badRequest, reason: "Sell price must be greater than 0.")
         }
 
         guard payload.sharesToSell <= stock.shares else {
@@ -323,14 +329,11 @@ struct StockServiceImpl: StockService {
                 try await stock.save(on: transactionDB)
             }
 
-            // 2. Find Account (needed for CashBalance)
-            // We look for any account belonging to the user.
-            guard let account = try await Account.query(on: transactionDB).filter(\.$userId == userId).first() else {
-                throw Abort(.badRequest, reason: "No brokerage account found to deposit cash proceeds. Please create an account first.")
-            }
+            // 2. Find or create a default manual account for cash proceeds.
+            let account = try await findOrCreateDefaultManualAccount(userId: userId, on: transactionDB)
 
             // 3. Update CashBalance
-            let currency = "USD" // Fallback, ideally should match account/stock
+            let currency = account.baseCurrency
             if let existingCash = try await CashBalance.query(on: transactionDB)
                 .filter(\.$accountId == account.id!)
                 .filter(\.$currency == currency)
@@ -435,6 +438,41 @@ struct StockServiceImpl: StockService {
             throw Abort(.badRequest, reason: "Invalid targetDate. Expected YYYY-MM-DD.")
         }
         return formatter.string(from: value)
+    }
+
+    private func parseISODateOnly(_ raw: String, field: String) throws -> Date {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            throw Abort(.badRequest, reason: "\(field) is required.")
+        }
+
+        let formatter = DateFormatter()
+        formatter.calendar = Calendar(identifier: .gregorian)
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = TimeZone(secondsFromGMT: 0)
+        formatter.isLenient = false
+        formatter.dateFormat = "yyyy-MM-dd"
+
+        guard let value = formatter.date(from: trimmed) else {
+            throw Abort(.badRequest, reason: "Invalid \(field). Expected YYYY-MM-DD.")
+        }
+        return value
+    }
+
+    private func findOrCreateDefaultManualAccount(userId: UUID, on db: any Database) async throws -> Account {
+        if let existing = try await Account.query(on: db).filter(\.$userId == userId).first() {
+            return existing
+        }
+
+        let account = Account(
+            userId: userId,
+            externalId: "manual-\(userId.uuidString.lowercased())",
+            broker: "manual",
+            displayName: "Manual Cash Account",
+            baseCurrency: "USD"
+        )
+        try await account.save(on: db)
+        return account
     }
 
     private func resolvedCompanyName(_ value: String?, symbol: String) -> String {

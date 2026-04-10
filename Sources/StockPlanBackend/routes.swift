@@ -43,6 +43,7 @@ func routes(_ app: Application) throws {
     try api.register(collection: UserActivityController())
     try api.register(collection: BadgeController())
     try api.register(collection: AssetsController())
+    try api.register(collection: PushNotificationsController())
 }
 
 private func registerOpenAPIDocsRoutes(_ app: Application) throws {

@@ -26,7 +26,7 @@ struct UserActivityTests {
 
     private func createTestUser(app: Application, email: String = "test@example.com") async throws -> (User, String) {
         let uniqueSuffix = UUID().uuidString.replacingOccurrences(of: "-", with: "").prefix(10).lowercased()
-        let registerReq = AuthRegisterRequest(
+        let registerReq = StockPlanBackend.AuthRegisterRequest(
             username: "user_\(uniqueSuffix)",
             password: "Password123!",
             confirmPassword: "Password123!",

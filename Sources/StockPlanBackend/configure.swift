@@ -2,6 +2,9 @@ import NIOSSL
 import Fluent
 import FluentPostgresDriver
 import Vapor
+import APNS
+import APNSCore
+import VaporAPNS
 import JWT
 import JWTKit
 import Redis
@@ -150,6 +153,21 @@ public func configure(_ app: Application) async throws {
     )
     app.userProfileRepository = DatabaseUserProfileRepository(encryptionService: app.userPIIEncryptionService)
     app.userProfileService = DefaultUserProfileService(repo: app.userProfileRepository)
+    app.pushDeviceService = DatabasePushDeviceService()
+    app.targetAlertEvaluator = DefaultTargetAlertEvaluator()
+
+    if let apnsConfig = APNSBootstrapConfiguration.fromEnvironment(app: app) {
+        app.apns.configure(
+            .jwt(
+                privateKey: try .loadFrom(string: apnsConfig.privateKeyP8),
+                keyIdentifier: apnsConfig.keyID,
+                teamIdentifier: apnsConfig.teamID
+            )
+        )
+        app.pushNotificationSender = APNSPushNotificationSender(topic: apnsConfig.topic)
+    } else {
+        app.pushNotificationSender = NoopPushNotificationSender()
+    }
 
     let earningsProvider: any EarningsProvider
     if let finnhubAPIKey, !finnhubAPIKey.isEmpty {
@@ -168,6 +186,8 @@ public func configure(_ app: Application) async throws {
 
     let cleanupIntervalMinutes = Environment.get("AUTH_TOKEN_CLEANUP_INTERVAL_MINUTES").flatMap(Int.init(_:)) ?? 60
     app.lifecycle.use(AuthTokenCleanup(interval: TimeInterval(cleanupIntervalMinutes * 60)))
+    let apnsAlertPollSeconds = Environment.get("APNS_ALERT_POLL_SECONDS").flatMap(Int64.init(_:)) ?? 300
+    app.lifecycle.use(TargetAlertPoller(intervalSeconds: apnsAlertPollSeconds))
 
     app.migrations.add(CreateUser())
     app.migrations.add(AddAccountLockoutAndVerificationFields())
@@ -195,6 +215,8 @@ public func configure(_ app: Application) async throws {
     app.migrations.add(CreateNewsItem())
     app.migrations.add(CreateResearchNote())
     app.migrations.add(CreateTarget())
+    app.migrations.add(AddTargetAlertFields())
+    app.migrations.add(CreatePushDevice())
     app.migrations.add(CreatePriceHistory())
     app.migrations.add(CreateQuoteCache())
     app.migrations.add(AddQuoteFields())

@@ -41,7 +41,7 @@ struct ExpensesTests {
 
     private func registerTestUser(app: Application) async throws -> String {
         let identifier = UUID().uuidString.prefix(8).lowercased()
-        let register = AuthRegisterRequest(
+        let register = StockPlanBackend.AuthRegisterRequest(
             username: "exp_user_\(identifier)",
             password: "Password123!",
             confirmPassword: "Password123!",
@@ -96,6 +96,67 @@ struct ExpensesTests {
                 #expect(reports[0].myActual == 20.0)
                 #expect(reports[0].partnerActual == 0.0)
                 #expect(reports[0].pillarActuals["fun"] == 20.0)
+            })
+        }
+    }
+
+    @Test("Saving expense in a month without snapshot auto-creates snapshot and reports include it")
+    func expenseAutoCreatesSnapshotForMonth() async throws {
+        try await withExpensesApp { app in
+            let token = try await registerTestUser(app: app)
+
+            // Seed a template month so salary/targets can be carried forward.
+            try await app.testing().test(.POST, "v1/budget/snapshots", beforeRequest: { req in
+                req.headers.bearerAuthorization = .init(token: token)
+                try req.content.encode(
+                    BudgetSnapshotRequest(
+                        monthStart: "2026-04-01",
+                        netSalary: 4200,
+                        targetShares: [
+                            BudgetPillar.fundamentals.rawValue: 0.5,
+                            BudgetPillar.futureYou.rawValue: 0.3,
+                            BudgetPillar.fun.rawValue: 0.2
+                        ]
+                    )
+                )
+            }, afterResponse: { res async throws in
+                #expect(res.status == .created)
+            })
+
+            try await app.testing().test(.POST, "v1/expenses", beforeRequest: { req in
+                req.headers.bearerAuthorization = .init(token: token)
+                try req.content.encode(
+                    ExpenseRequest(
+                        title: "Rent",
+                        amount: 700,
+                        pillar: .fundamentals,
+                        occurredOn: "2026-05-08"
+                    )
+                )
+            }, afterResponse: { res async throws in
+                #expect(res.status == .created)
+            })
+
+            try await app.testing().test(.GET, "v1/budget/snapshots?year=2026&month=5", beforeRequest: { req in
+                req.headers.bearerAuthorization = .init(token: token)
+            }, afterResponse: { res async throws in
+                #expect(res.status == .ok)
+                let snapshots = try res.content.decode([BudgetSnapshotResponse].self)
+                #expect(snapshots.count == 1)
+                #expect(snapshots[0].monthStart == "2026-05-01")
+                #expect(snapshots[0].netSalary == 4200)
+            })
+
+            try await app.testing().test(.GET, "v1/reports/overview", beforeRequest: { req in
+                req.headers.bearerAuthorization = .init(token: token)
+            }, afterResponse: { res async throws in
+                #expect(res.status == .ok)
+                let overview = try res.content.decode(ReportsOverviewResponse.self)
+                #expect(overview.latestMonthSummary != nil)
+                #expect(overview.latestMonthSummary?.monthStart == "2026-05-01")
+                #expect(overview.latestMonthSummary?.actual == 700)
+                #expect(overview.cashFlow.contains { $0.monthStart == "2026-05-01" && $0.expenses == 700 })
+                #expect(!overview.latestPillarSummaries.isEmpty)
             })
         }
     }

@@ -23,6 +23,7 @@ extension OAuthExchangeRequest: Content {}
 
 // MARK: - Stocks
 extension StockRequest: @retroactive Content {}
+extension SellStockRequest: @retroactive Content {}
 extension StockResponse: @retroactive Content {}
 extension WatchlistItemRequest: @retroactive Content {}
 extension WatchlistItemUpdateRequest: @retroactive Content {}

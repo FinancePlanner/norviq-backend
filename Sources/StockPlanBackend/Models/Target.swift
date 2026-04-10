@@ -26,6 +26,12 @@ final class Target: Model, Content, @unchecked Sendable {
     @Field(key: "rationale")
     var rationale: String?
 
+    @OptionalField(key: "alert_triggered_at")
+    var alertTriggeredAt: Date?
+
+    @OptionalField(key: "alert_triggered_price")
+    var alertTriggeredPrice: Double?
+
     @Timestamp(key: "created_at", on: .create)
     var createdAt: Date?
 
@@ -41,7 +47,9 @@ final class Target: Model, Content, @unchecked Sendable {
         scenario: String,
         targetPrice: Double,
         targetDate: Date? = nil,
-        rationale: String? = nil
+        rationale: String? = nil,
+        alertTriggeredAt: Date? = nil,
+        alertTriggeredPrice: Double? = nil
     ) {
         self.id = id
         self.userId = userId
@@ -50,5 +58,7 @@ final class Target: Model, Content, @unchecked Sendable {
         self.targetPrice = targetPrice
         self.targetDate = targetDate
         self.rationale = rationale
+        self.alertTriggeredAt = alertTriggeredAt
+        self.alertTriggeredPrice = alertTriggeredPrice
     }
 }

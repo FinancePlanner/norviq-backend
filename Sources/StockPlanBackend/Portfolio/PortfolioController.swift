@@ -20,8 +20,9 @@ struct PortfolioController: RouteCollection {
         let stocks = try await Stock.query(on: req.db)
             .filter(\.$userId == session.userId)
             .all()
+        let cashBalance = try await totalCashBalance(userId: session.userId, on: req.db)
 
-        let allocation = stocks
+        var allocation = stocks
             .map { stock in
                 AllocationItem(
                     symbol: stock.symbol,
@@ -29,7 +30,16 @@ struct PortfolioController: RouteCollection {
                     currency: "USD"
                 )
             }
-            .sorted(by: { $0.value > $1.value })
+        if cashBalance > 0 {
+            allocation.append(
+                AllocationItem(
+                    symbol: "CASH",
+                    value: cashBalance,
+                    currency: "USD"
+                )
+            )
+        }
+        allocation.sort(by: { $0.value > $1.value })
 
         let totalCost = allocation.reduce(0.0) { $0 + $1.value }
 
@@ -39,6 +49,7 @@ struct PortfolioController: RouteCollection {
             totalCost: totalCost,
             unrealizedPnl: 0,
             realizedPnl: 0,
+            cashBalance: cashBalance,
             allocation: allocation
         )
     }
@@ -50,7 +61,9 @@ struct PortfolioController: RouteCollection {
             .filter(\.$userId == session.userId)
             .all()
 
-        let totalValue = stocks.reduce(0.0) { $0 + ($1.shares * $1.buyPrice) }
+        let holdingsValue = stocks.reduce(0.0) { $0 + ($1.shares * $1.buyPrice) }
+        let cashBalance = try await totalCashBalance(userId: session.userId, on: req.db)
+        let totalValue = holdingsValue + cashBalance
 
         let calendar = Calendar(identifier: .gregorian)
         let today = Date()
@@ -94,6 +107,32 @@ struct PortfolioController: RouteCollection {
         }
 
         return PnlResponse(baseCurrency: "USD", items: items)
+    }
+
+    private func totalCashBalance(userId: UUID, on db: any Database) async throws -> Double {
+        let accounts = try await Account.query(on: db)
+            .filter(\.$userId == userId)
+            .all()
+        let accountIds = accounts.compactMap(\.id)
+        guard !accountIds.isEmpty else { return 0 }
+
+        let balances = try await CashBalance.query(on: db)
+            .filter(\.$accountId ~~ accountIds)
+            .all()
+        var latestByAccountCurrency: [String: CashBalance] = [:]
+        for balance in balances {
+            let key = "\(balance.accountId.uuidString.lowercased())::\(balance.currency.uppercased())"
+            if let existing = latestByAccountCurrency[key] {
+                let existingDate = existing.asOf
+                if balance.asOf > existingDate {
+                    latestByAccountCurrency[key] = balance
+                }
+            } else {
+                latestByAccountCurrency[key] = balance
+            }
+        }
+
+        return latestByAccountCurrency.values.reduce(0) { $0 + max(0, $1.balance) }
     }
 
     private func formatISODateOnly(_ date: Date) -> String {

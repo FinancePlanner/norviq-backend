@@ -486,7 +486,9 @@ struct StockController: RouteCollection {
             scenario: try normalizeScenario(payload.scenario),
             targetPrice: payload.targetPrice,
             targetDate: try parseISODateOnly(payload.targetDate, field: "targetDate"),
-            rationale: emptyToNil(payload.rationale)
+            rationale: emptyToNil(payload.rationale),
+            alertTriggeredAt: nil,
+            alertTriggeredPrice: nil
         )
         try await target.save(on: req.db)
 
@@ -516,6 +518,8 @@ struct StockController: RouteCollection {
         target.targetPrice = payload.targetPrice
         target.targetDate = try parseISODateOnly(payload.targetDate, field: "targetDate")
         target.rationale = emptyToNil(payload.rationale)
+        target.alertTriggeredAt = nil
+        target.alertTriggeredPrice = nil
         try await target.save(on: req.db)
 
         return try makeTargetResponse(from: target)

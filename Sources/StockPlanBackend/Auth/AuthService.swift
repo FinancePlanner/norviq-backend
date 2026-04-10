@@ -101,9 +101,11 @@ struct DefaultAuthService: AuthService {
 
         // 1. Check if the account is currently locked
         if let lockoutUntil = user.lockoutUntil, lockoutUntil > Date() {
-            let formatter = RelativeDateTimeFormatter()
-            let timeRemaining = formatter.localizedString(for: lockoutUntil, relativeTo: Date())
-            throw Abort(.forbidden, reason: "Account is temporarily locked due to multiple failed login attempts. Please try again \(timeRemaining).")
+            let timeRemaining = Int(lockoutUntil.timeIntervalSince(Date()) / 60)
+            let message = timeRemaining > 0 
+                ? "Account is temporarily locked due to multiple failed login attempts. Please try again in \(timeRemaining) minute(s)."
+                : "Account is temporarily locked due to multiple failed login attempts. Please try again shortly."
+            throw Abort(.forbidden, reason: message)
         }
 
         let isValid = try req.password.verify(password, created: user.passwordHash)

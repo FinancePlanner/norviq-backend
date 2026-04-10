@@ -1,6 +1,24 @@
 {
-  "originHash" : "dd7af312b2f531863d54a3bc96801d3a336beb7f10109d7d948f8b2254a884e1",
+  "originHash" : "1396dd0f479d0b4de11983190f641b128b2b48e611647362ea11b11f38c402aa",
   "pins" : [
+    {
+      "identity" : "apns",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/vapor/apns.git",
+      "state" : {
+        "revision" : "dedccc1243efbfcaf86dd1810a3759c4ab36cdb4",
+        "version" : "4.2.0"
+      }
+    },
+    {
+      "identity" : "apnswift",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/swift-server-community/APNSwift.git",
+      "state" : {
+        "revision" : "36fec7e6ca5e99c6049771601770a5488021e19a",
+        "version" : "5.1.0"
+      }
+    },
     {
       "identity" : "async-http-client",
       "kind" : "remoteSourceControl",
@@ -51,8 +69,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/FinancePlanner/FinanceShared.git",
       "state" : {
-        "revision" : "ee8b98307e622187bd9705c41e427e6d586cc554",
-        "version" : "0.8.0"
+        "revision" : "a08c0f891353aaef9da94aa270eafb2c197b7189",
+        "version" : "0.8.1"
       }
     },
     {
@@ -96,8 +114,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/vapor/jwt-kit.git",
       "state" : {
-        "revision" : "aa60a211797306bfb05b752ad7b4bf9f0b50d898",
-        "version" : "5.4.0"
+        "revision" : "2033b3e661238dda3d30e36a2d40987499d987de",
+        "version" : "5.2.0"
       }
     },
     {
@@ -267,8 +285,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/apple/swift-crypto.git",
       "state" : {
-        "revision" : "bb4ba815dab96d4edc1e0b86d7b9acf9ff973a84",
-        "version" : "4.3.1"
+        "revision" : "95ba0316a9b733e92bb6b071255ff46263bbe7dc",
+        "version" : "3.15.1"
       }
     },
     {
@@ -474,8 +492,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/vapor/vapor.git",
       "state" : {
-        "revision" : "a8db2dbda8b3cdc8a61bd35128590bd296e85563",
-        "version" : "4.121.3"
+        "revision" : "cfd8f434843ac7850e2d97f46c1aa5ddb906cf1c",
+        "version" : "4.121.4"
       }
     },
     {

@@ -33,6 +33,18 @@ struct StockServiceTests {
         Request(application: app, on: app.eventLoopGroup.next())
     }
 
+    private func createManualAccount(userId: UUID, on db: any Database) async throws -> Account {
+        let account = Account(
+            userId: userId,
+            externalId: "manual-\(userId.uuidString.lowercased())",
+            broker: "manual",
+            displayName: "Manual Cash Account",
+            baseCurrency: "USD"
+        )
+        try await account.save(on: db)
+        return account
+    }
+
     private func makePayload(
         symbol: String = "AAPL",
         shares: Double = 1,
@@ -62,6 +74,18 @@ struct StockServiceTests {
             bullCase: PriceRange(low: bullLow, high: bullHigh),
             rationale: rationale,
             targetDate: targetDate
+        )
+    }
+
+    private func makeSellPayload(
+        sharesToSell: Double = 1,
+        sellPrice: Double = 150,
+        sellDate: String = "2026-04-10"
+    ) -> SellStockRequest {
+        SellStockRequest(
+            sharesToSell: sharesToSell,
+            sellPrice: sellPrice,
+            sellDate: sellDate
         )
     }
 
@@ -337,6 +361,132 @@ struct StockServiceTests {
                     on: app.db
                 )
                 #expect(Bool(false), "Expected badRequest for symbol mismatch")
+            } catch let abort as Abort {
+                #expect(abort.status == .badRequest)
+            }
+        }
+    }
+
+    @Test("sell() auto-creates manual account and credits cash when account is missing")
+    func sellAutoCreatesAccountAndCreditsCash() async throws {
+        try await withApp { app in
+            let user = try await createUser(email: "service-sell-autocreate@example.com", on: app.db)
+            let userId = try user.requireID()
+
+            let repo = DatabaseStocksRepository()
+            let stock = try await repo.create(
+                payload: makePayload(symbol: "AAPL", shares: 4, buyPrice: 100, buyDate: "2024-05-06"),
+                userId: userId,
+                on: app.db
+            )
+
+            let service = StockServiceImpl(repo: repo, req: makeRequest(app))
+            let response = try await service.sell(
+                id: try stock.requireID(),
+                payload: makeSellPayload(sharesToSell: 1.5, sellPrice: 160),
+                userId: userId,
+                on: app.db
+            )
+
+            #expect(response.shares == 2.5)
+
+            let account = try await Account.query(on: app.db)
+                .filter(\.$userId == userId)
+                .first()
+            #expect(account != nil)
+            #expect(account?.broker == "manual")
+            #expect(account?.baseCurrency == "USD")
+            let accountId = try #require(account?.id)
+
+            let cash = try await CashBalance.query(on: app.db)
+                .filter(\.$accountId == accountId)
+                .filter(\.$currency == "USD")
+                .first()
+            #expect(cash != nil)
+            #expect(abs((cash?.balance ?? 0) - 240) < 0.001)
+        }
+    }
+
+    @Test("sell() fully sold position removes stock and still credits cash")
+    func sellFullyRemovesPosition() async throws {
+        try await withApp { app in
+            let user = try await createUser(email: "service-sell-full@example.com", on: app.db)
+            let userId = try user.requireID()
+            let account = try await createManualAccount(userId: userId, on: app.db)
+            try await CashBalance(
+                accountId: try #require(account.id),
+                currency: "USD",
+                balance: 50,
+                asOf: Date()
+            ).save(on: app.db)
+
+            let repo = DatabaseStocksRepository()
+            let stock = try await repo.create(
+                payload: makePayload(symbol: "MSFT", shares: 2, buyPrice: 200, buyDate: "2024-05-06"),
+                userId: userId,
+                on: app.db
+            )
+
+            let service = StockServiceImpl(repo: repo, req: makeRequest(app))
+            let response = try await service.sell(
+                id: try stock.requireID(),
+                payload: makeSellPayload(sharesToSell: 2, sellPrice: 220),
+                userId: userId,
+                on: app.db
+            )
+            let stockId = try stock.requireID()
+            let accountId = try #require(account.id)
+
+            #expect(response.shares == 0)
+
+            let remainingStock = try await Stock.query(on: app.db)
+                .filter(\.$userId == userId)
+                .filter(\.$id == stockId)
+                .first()
+            #expect(remainingStock == nil)
+
+            let updatedCash = try await CashBalance.query(on: app.db)
+                .filter(\.$accountId == accountId)
+                .filter(\.$currency == "USD")
+                .first()
+            #expect(abs((updatedCash?.balance ?? 0) - 490) < 0.001)
+        }
+    }
+
+    @Test("sell() rejects invalid sell payload")
+    func sellRejectsInvalidPayload() async throws {
+        try await withApp { app in
+            let user = try await createUser(email: "service-sell-invalid@example.com", on: app.db)
+            let userId = try user.requireID()
+
+            let repo = DatabaseStocksRepository()
+            let stock = try await repo.create(
+                payload: makePayload(symbol: "NVDA", shares: 3, buyPrice: 100, buyDate: "2024-05-06"),
+                userId: userId,
+                on: app.db
+            )
+            let service = StockServiceImpl(repo: repo, req: makeRequest(app))
+
+            do {
+                _ = try await service.sell(
+                    id: try stock.requireID(),
+                    payload: makeSellPayload(sharesToSell: 1, sellPrice: 100, sellDate: "bad-date"),
+                    userId: userId,
+                    on: app.db
+                )
+                #expect(Bool(false), "Expected badRequest for invalid sellDate")
+            } catch let abort as Abort {
+                #expect(abort.status == .badRequest)
+            }
+
+            do {
+                _ = try await service.sell(
+                    id: try stock.requireID(),
+                    payload: makeSellPayload(sharesToSell: 1, sellPrice: 0, sellDate: "2026-04-10"),
+                    userId: userId,
+                    on: app.db
+                )
+                #expect(Bool(false), "Expected badRequest for invalid sellPrice")
             } catch let abort as Abort {
                 #expect(abort.status == .badRequest)
             }

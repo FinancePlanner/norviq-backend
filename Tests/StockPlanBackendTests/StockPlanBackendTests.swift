@@ -372,6 +372,68 @@ struct StockPlanBackendTests {
         }
     }
 
+    @Test("Sell endpoint credits cash and portfolio summary/performance include cash balance")
+    func sellCreditsCashAndPortfolioReflectsIt() async throws {
+        try await withApp { app in
+            let (token, _) = try await registerTestUser(app: app, identifier: "sellcash")
+
+            var createdStock: StockResponse?
+            try await app.testing().test(.POST, "v1/stocks", beforeRequest: { req in
+                req.headers.bearerAuthorization = .init(token: token)
+                try req.content.encode(
+                    StockRequest(
+                        symbol: "AAPL",
+                        shares: 5,
+                        buyPrice: 100,
+                        buyDate: "2026-01-02",
+                        notes: nil
+                    )
+                )
+            }, afterResponse: { res async throws in
+                #expect(res.status == .created)
+                createdStock = try res.content.decode(StockResponse.self)
+            })
+
+            let stock = try #require(createdStock)
+            let holdingsValueAfterSell = 4 * 100.0
+            let expectedCash = 1 * 150.0
+
+            try await app.testing().test(.POST, "v1/stocks/id/\(stock.id)/sell", beforeRequest: { req in
+                req.headers.bearerAuthorization = .init(token: token)
+                try req.content.encode(
+                    SellStockRequest(
+                        sharesToSell: 1,
+                        sellPrice: 150,
+                        sellDate: "2026-04-10"
+                    )
+                )
+            }, afterResponse: { res async throws in
+                #expect(res.status == .ok)
+                let updated = try res.content.decode(StockResponse.self)
+                #expect(updated.shares == 4)
+            })
+
+            try await app.testing().test(.GET, "v1/portfolio/summary", beforeRequest: { req in
+                req.headers.bearerAuthorization = .init(token: token)
+            }, afterResponse: { res async throws in
+                #expect(res.status == .ok)
+                let summary = try res.content.decode(PortfolioSummaryResponse.self)
+                #expect(abs(summary.cashBalance - expectedCash) < 0.001)
+                #expect(summary.allocation.contains(where: { $0.symbol == "CASH" }))
+                #expect(abs(summary.totalValue - (holdingsValueAfterSell + expectedCash)) < 0.001)
+            })
+
+            try await app.testing().test(.GET, "v1/portfolio/performance", beforeRequest: { req in
+                req.headers.bearerAuthorization = .init(token: token)
+            }, afterResponse: { res async throws in
+                #expect(res.status == .ok)
+                let performance = try res.content.decode(PortfolioPerformanceResponse.self)
+                #expect(!performance.points.isEmpty)
+                #expect(performance.points.allSatisfy { $0.value > holdingsValueAfterSell })
+            })
+        }
+    }
+
     @Test("Watchlist endpoints create, update, and list enriched items")
     func watchlistLifecycle() async throws {
         try await withApp { app in

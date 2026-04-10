@@ -3,6 +3,43 @@ import Foundation
 import StockPlanShared
 
 struct BudgetController: RouteCollection {
+    private struct BudgetSnapshotPayload: Decodable {
+        let monthStart: String
+        let netSalary: Double
+        let targetShares: [String: Double]
+
+        private enum CodingKeys: String, CodingKey {
+            case monthStartSnake = "month_start"
+            case monthStartCamel = "monthStart"
+            case netSalarySnake = "net_salary"
+            case netSalaryCamel = "netSalary"
+            case targetSharesSnake = "target_shares"
+            case targetSharesCamel = "targetShares"
+        }
+
+        init(from decoder: any Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            self.monthStart =
+                try container.decodeIfPresent(String.self, forKey: .monthStartSnake)
+                ?? container.decode(String.self, forKey: .monthStartCamel)
+            self.netSalary =
+                try container.decodeIfPresent(Double.self, forKey: .netSalarySnake)
+                ?? container.decode(Double.self, forKey: .netSalaryCamel)
+            self.targetShares =
+                try container.decodeIfPresent([String: Double].self, forKey: .targetSharesSnake)
+                ?? container.decodeIfPresent([String: Double].self, forKey: .targetSharesCamel)
+                ?? [:]
+        }
+
+        func asRequest() -> BudgetSnapshotRequest {
+            BudgetSnapshotRequest(
+                monthStart: monthStart,
+                netSalary: netSalary,
+                targetShares: targetShares
+            )
+        }
+    }
+
     private struct BudgetPlanItemPayload: Decodable {
         let snapshotId: String
         let title: String
@@ -97,7 +134,7 @@ struct BudgetController: RouteCollection {
     @Sendable
     func createSnapshot(req: Request) async throws -> Response {
         let session = try req.auth.require(SessionToken.self)
-        let payload = try req.content.decode(BudgetSnapshotRequest.self)
+        let payload = try req.content.decode(BudgetSnapshotPayload.self).asRequest()
 
         let created = try await req.expensesService.createBudgetSnapshot(
             userId: session.userId,
@@ -113,7 +150,7 @@ struct BudgetController: RouteCollection {
     func updateSnapshot(req: Request) async throws -> BudgetSnapshotResponse {
         let session = try req.auth.require(SessionToken.self)
         let snapshotId = try requireUUIDParameter(req, name: "snapshotId")
-        let payload = try req.content.decode(BudgetSnapshotRequest.self)
+        let payload = try req.content.decode(BudgetSnapshotPayload.self).asRequest()
 
         return try await req.expensesService.updateSnapshot(
             userId: session.userId,

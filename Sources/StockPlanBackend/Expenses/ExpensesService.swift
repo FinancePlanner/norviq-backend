@@ -343,6 +343,12 @@ final class DefaultExpensesService: ExpensesService {
         guard let occurredOn = parseDate(request.occurredOn) else {
             throw Abort(.badRequest, reason: "Invalid occurredOn format. Expected YYYY-MM-DD.")
         }
+        let monthStart = normalizedMonthStart(for: occurredOn)
+        try await ensureSnapshotExists(
+            userId: userId,
+            monthStart: monthStart,
+            on: db
+        )
 
         var linkedId: UUID?
         if let reqLinkedId = request.linkedPlanItemId {
@@ -637,10 +643,19 @@ final class DefaultExpensesService: ExpensesService {
     }
 
     func getPillarPlanningSummaries(userId: UUID, monthStart: Date, on db: any Database) async throws -> [PillarPlanningSummaryResponse] {
-        guard let snapshot = try await BudgetSnapshot.query(on: db)
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+        let normalizedMonthStart = normalizedMonthStart(for: monthStart)
+        let nextMonthStart = calendar.date(byAdding: .month, value: 1, to: normalizedMonthStart)
+
+        var snapshotQuery = BudgetSnapshot.query(on: db)
             .filter(\.$user.$id == userId)
-            .filter(\.$monthStart == monthStart)
-            .first()
+            .filter(\.$monthStart >= normalizedMonthStart)
+        if let nextMonthStart {
+            snapshotQuery = snapshotQuery.filter(\.$monthStart < nextMonthStart)
+        }
+
+        guard let snapshot = try await snapshotQuery.first()
         else {
             return []
         }
@@ -651,12 +666,9 @@ final class DefaultExpensesService: ExpensesService {
             .filter(\.$snapshot.$id == snapshotID)
             .all()
 
-        var calendar = Calendar(identifier: .gregorian)
-        calendar.timeZone = TimeZone(secondsFromGMT: 0)!
-        let nextMonthStart = calendar.date(byAdding: .month, value: 1, to: monthStart)
         var expensesQuery = Expense.query(on: db)
             .filter(\.$user.$id == userId)
-            .filter(\.$occurredOn >= monthStart)
+            .filter(\.$occurredOn >= normalizedMonthStart)
 
         if let nextMonthStart {
             expensesQuery = expensesQuery.filter(\.$occurredOn < nextMonthStart)
@@ -732,6 +744,61 @@ final class DefaultExpensesService: ExpensesService {
             userSharePercent: model.userSharePercent,
             createdAt: model.createdAt.map { formatISODate($0) },
             updatedAt: model.updatedAt.map { formatISODate($0) }
+        )
+    }
+}
+
+private extension DefaultExpensesService {
+    func normalizedMonthStart(for date: Date) -> Date {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+        var components = calendar.dateComponents([.year, .month], from: date)
+        components.day = 1
+        components.hour = 0
+        components.minute = 0
+        components.second = 0
+        components.timeZone = TimeZone(secondsFromGMT: 0)
+        return calendar.date(from: components) ?? date
+    }
+
+    func ensureSnapshotExists(
+        userId: UUID,
+        monthStart: Date,
+        on db: any Database
+    ) async throws {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+        let nextMonthStart = calendar.date(byAdding: .month, value: 1, to: monthStart)
+
+        var existingQuery = BudgetSnapshot.query(on: db)
+            .filter(\.$user.$id == userId)
+            .filter(\.$monthStart >= monthStart)
+        if let nextMonthStart {
+            existingQuery = existingQuery.filter(\.$monthStart < nextMonthStart)
+        }
+        if try await existingQuery.first() != nil {
+            return
+        }
+
+        let template = try await BudgetSnapshot.query(on: db)
+            .filter(\.$user.$id == userId)
+            .sort(\.$monthStart, .descending)
+            .first()
+
+        let defaultShares = Dictionary(uniqueKeysWithValues: BudgetPillar.allCases.map { pillar in
+            (pillar.rawValue, defaultTargetShare(for: pillar))
+        })
+        let targetShares = template?.targetShares ?? defaultShares
+        let netSalary = template?.netSalary ?? 0
+
+        _ = try await createBudgetSnapshot(
+            userId: userId,
+            request: BudgetSnapshotRequest(
+                monthStart: formatDate(monthStart),
+                netSalary: netSalary,
+                targetShares: targetShares
+            ),
+            on: db
         )
     }
 }
