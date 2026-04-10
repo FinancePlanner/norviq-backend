@@ -29,6 +29,10 @@ struct StockServiceTests {
         return user
     }
 
+    private func makeRequest(_ app: Application) -> Request {
+        Request(application: app, on: app.eventLoopGroup.next())
+    }
+
     private func makePayload(
         symbol: String = "AAPL",
         shares: Double = 1,
@@ -67,7 +71,7 @@ struct StockServiceTests {
             let user = try await createUser(email: "service-create@example.com", on: app.db)
             let userId = try user.requireID()
 
-            let service = StockServiceImpl(repo: DatabaseStocksRepository())
+            let service = StockServiceImpl(repo: DatabaseStocksRepository(), req: makeRequest(app))
             let response = try await service.create(
                 payload: makePayload(
                     symbol: "  aapl  ", shares: 2, buyPrice: 10, buyDate: "2024-05-06"),
@@ -92,7 +96,7 @@ struct StockServiceTests {
             let user = try await createUser(email: "service-merge@example.com", on: app.db)
             let userId = try user.requireID()
 
-            let service = StockServiceImpl(repo: DatabaseStocksRepository())
+            let service = StockServiceImpl(repo: DatabaseStocksRepository(), req: makeRequest(app))
 
             let first = try await service.create(
                 payload: makePayload(symbol: "AAPL", shares: 2, buyPrice: 10, buyDate: "2024-05-06"),
@@ -124,7 +128,7 @@ struct StockServiceTests {
             let user = try await createUser(
                 email: "service-create-validate@example.com", on: app.db)
             let userId = try user.requireID()
-            let service = StockServiceImpl(repo: DatabaseStocksRepository())
+            let service = StockServiceImpl(repo: DatabaseStocksRepository(), req: makeRequest(app))
 
             do {
                 _ = try await service.create(
@@ -141,7 +145,7 @@ struct StockServiceTests {
         try await withApp { app in
             let user = try await createUser(email: "service-get-missing@example.com", on: app.db)
             let userId = try user.requireID()
-            let service = StockServiceImpl(repo: DatabaseStocksRepository())
+            let service = StockServiceImpl(repo: DatabaseStocksRepository(), req: makeRequest(app))
 
             do {
                 _ = try await service.get(id: UUID(), userId: userId, on: app.db)
@@ -157,7 +161,7 @@ struct StockServiceTests {
         try await withApp { app in
             let user = try await createUser(email: "service-update-missing@example.com", on: app.db)
             let userId = try user.requireID()
-            let service = StockServiceImpl(repo: DatabaseStocksRepository())
+            let service = StockServiceImpl(repo: DatabaseStocksRepository(), req: makeRequest(app))
 
             do {
                 _ = try await service.update(
@@ -174,7 +178,7 @@ struct StockServiceTests {
         try await withApp { app in
             let user = try await createUser(email: "service-delete-missing@example.com", on: app.db)
             let userId = try user.requireID()
-            let service = StockServiceImpl(repo: DatabaseStocksRepository())
+            let service = StockServiceImpl(repo: DatabaseStocksRepository(), req: makeRequest(app))
 
             do {
                 try await service.delete(id: UUID(), userId: userId, on: app.db)
@@ -196,7 +200,7 @@ struct StockServiceTests {
                 payload: makePayload(symbol: "MSFT", buyDate: "2024-03-04"), userId: userId,
                 on: app.db)
 
-            let service = StockServiceImpl(repo: repo)
+            let service = StockServiceImpl(repo: repo, req: makeRequest(app))
             let response = try await service.get(symbol: "  msft  ", userId: userId, on: app.db)
             #expect(response.symbol == "MSFT")
             #expect(response.buyDate == "2024-03-04")
@@ -209,7 +213,7 @@ struct StockServiceTests {
             let user = try await createUser(email: "service-bulk-create@example.com", on: app.db)
             let userId = try user.requireID()
 
-            let service = StockServiceImpl(repo: DatabaseStocksRepository())
+            let service = StockServiceImpl(repo: DatabaseStocksRepository(), req: makeRequest(app))
             let payloads = [
                 makePayload(symbol: "AAPL", shares: 10, buyPrice: 150, buyDate: "2024-01-01"),
                 makePayload(symbol: "MSFT", shares: 5, buyPrice: 300, buyDate: "2024-02-01"),
@@ -239,7 +243,7 @@ struct StockServiceTests {
             let user = try await createUser(email: "service-bulk-partial@example.com", on: app.db)
             let userId = try user.requireID()
 
-            let service = StockServiceImpl(repo: DatabaseStocksRepository())
+            let service = StockServiceImpl(repo: DatabaseStocksRepository(), req: makeRequest(app))
             let payloads = [
                 makePayload(symbol: "AAPL", shares: 10, buyPrice: 150, buyDate: "2024-01-01"),
                 makePayload(symbol: "BAD", shares: 1, buyPrice: 100, buyDate: "not-a-date"),
@@ -264,7 +268,7 @@ struct StockServiceTests {
             let user = try await createUser(email: "service-bulk-empty@example.com", on: app.db)
             let userId = try user.requireID()
 
-            let service = StockServiceImpl(repo: DatabaseStocksRepository())
+            let service = StockServiceImpl(repo: DatabaseStocksRepository(), req: makeRequest(app))
             let response = try await service.bulkCreate(payloads: [], userId: userId, on: app.db)
 
             #expect(response.created == 0)
@@ -286,7 +290,7 @@ struct StockServiceTests {
                 on: app.db
             )
 
-            let service = StockServiceImpl(repo: repo)
+            let service = StockServiceImpl(repo: repo, req: makeRequest(app))
             let created = try await service.createValuation(
                 symbol: "aapl",
                 payload: makeValuationPayload(symbol: "AAPL", rationale: "  original thesis  "),
@@ -323,7 +327,7 @@ struct StockServiceTests {
                 on: app.db
             )
 
-            let service = StockServiceImpl(repo: repo)
+            let service = StockServiceImpl(repo: repo, req: makeRequest(app))
 
             do {
                 _ = try await service.createValuation(

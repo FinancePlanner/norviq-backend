@@ -2,6 +2,33 @@
 
 This document outlines the CI/CD options for the StockPlan project (iOS App, Vapor Backend, Shared Package, and Bruno Collections) and details the strategy, advantages, and disadvantages of migrating from GitHub Actions to GitLab CI/CD.
 
+## Current Production Backend Pipeline (GitHub Actions)
+
+- Workflow: `.github/workflows/deploy.yml`
+- Runtime target: Hetzner Docker Compose (no server-side image builds).
+- Packaging:
+  - Default: Swift Container Plugin (`swift package --swift-sdk x86_64-swift-linux-musl build-container-image`).
+  - Fallback: Dockerfile build path (`build_strategy=dockerfile` via workflow dispatch).
+- Deployment contract:
+  - CI produces immutable image tags (`ghcr.io/<owner>/<repo>:<git-sha>`).
+  - Server pulls and runs the same `APP_IMAGE` for `migrate` and `app`.
+- Deploy is gated by `GET /health` check before success.
+
+### Build Artifact Hygiene
+
+When SwiftPM checkout artifacts get stale, builds may show transient warnings like:
+
+- `swift-openapi-runtime ... SendableMetatype.swift.sb-*`
+
+These files are generated inside `.build/checkouts` and are not part of the application source. In CI or local troubleshooting, clear them with:
+
+```bash
+swift package reset
+rm -rf .build
+```
+
+Then re-run `swift build` / `swift test`.
+
 ## CI/CD Provider Alternatives
 
 Since the project consists of a native iOS app (SwiftUI) and a Swift backend (Vapor), the CI/CD provider needs strong support for macOS build environments (for Xcode and the iOS simulator) and Linux/Docker environments (for the backend).

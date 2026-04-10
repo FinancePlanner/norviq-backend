@@ -2214,6 +2214,215 @@ struct StockPlanBackendTests {
             })
         }
     }
+
+    @Test("Previewing CSV handles header aliases and row errors")
+    func previewCsvSupportsHeaderAliasesAndReportsRowErrors() async throws {
+        try await withApp { app in
+            let (token, _) = try await registerTestUser(app: app)
+
+            let csv = """
+            ticker,quantity,average_cost,purchase_date,memo
+            AAPL,10,120.50,2026-01-10,Core position
+            ,2,50.00,2026-01-11,Missing symbol
+            """
+
+            var previewResponse: CsvImportPreviewResponse?
+            try await app.testing().test(.POST, "v1/brokers/import/csv?provider=IBKR", beforeRequest: { req in
+                req.headers.bearerAuthorization = .init(token: token)
+                req.headers.replaceOrAdd(name: .contentType, value: "text/csv")
+                req.body = ByteBufferAllocator().buffer(string: csv)
+            }, afterResponse: { res async throws in
+                #expect(res.status == .ok)
+                previewResponse = try res.content.decode(CsvImportPreviewResponse.self)
+            })
+
+            #expect(previewResponse?.provider == "ibkr")
+            #expect(previewResponse?.items.count == 1)
+            #expect(previewResponse?.items.first?.symbol == "AAPL")
+            #expect(previewResponse?.items.first?.shares == 10)
+            #expect(previewResponse?.errors.count == 1)
+            #expect(previewResponse?.errors.first?.line == 3)
+        }
+    }
+
+    @Test("CSV preview requires provider and body")
+    func previewCsvRequiresProviderAndBody() async throws {
+        try await withApp { app in
+            let (token, _) = try await registerTestUser(app: app)
+
+            try await app.testing().test(.POST, "v1/brokers/import/csv", beforeRequest: { req in
+                req.headers.bearerAuthorization = .init(token: token)
+                req.headers.replaceOrAdd(name: .contentType, value: "text/csv")
+                req.body = ByteBufferAllocator().buffer(string: "symbol,shares\nAAPL,10")
+            }, afterResponse: { res async throws in
+                #expect(res.status == .badRequest)
+            })
+
+            try await app.testing().test(.POST, "v1/brokers/import/csv?provider=ibkr", beforeRequest: { req in
+                req.headers.bearerAuthorization = .init(token: token)
+                req.headers.replaceOrAdd(name: .contentType, value: "text/csv")
+            }, afterResponse: { res async throws in
+                #expect(res.status == .badRequest)
+            })
+        }
+    }
+
+    @Test("Committing CSV returns inserted rows and row-level validation errors")
+    func commitCsvReturnsMixedSuccessAndErrors() async throws {
+        try await withApp { app in
+            let (token, _) = try await registerTestUser(app: app)
+
+            let csv = """
+            symbol,shares,buy_price,buy_date,notes
+            AAPL,10,120.50,2026-01-10,Core
+            MSFT,5,,2026-01-11,Missing buy price
+            """
+
+            var commitResponse: CsvImportCommitResponse?
+            try await app.testing().test(.POST, "v1/brokers/import/csv/commit?provider=ibkr", beforeRequest: { req in
+                req.headers.bearerAuthorization = .init(token: token)
+                req.headers.replaceOrAdd(name: .contentType, value: "text/csv")
+                req.body = ByteBufferAllocator().buffer(string: csv)
+            }, afterResponse: { res async throws in
+                #expect(res.status == .ok)
+                commitResponse = try res.content.decode(CsvImportCommitResponse.self)
+            })
+
+            #expect(commitResponse?.provider == "ibkr")
+            #expect(commitResponse?.inserted.count == 1)
+            #expect(commitResponse?.inserted.first?.symbol == "AAPL")
+            #expect(commitResponse?.updated.isEmpty == true)
+            #expect(commitResponse?.errors.count == 1)
+            #expect(commitResponse?.errors.first?.line == 3)
+
+            try await app.testing().test(.GET, "v1/stocks", beforeRequest: { req in
+                req.headers.bearerAuthorization = .init(token: token)
+            }, afterResponse: { res async throws in
+                #expect(res.status == .ok)
+                let stocks = try res.content.decode([StockResponse].self)
+                #expect(stocks.contains(where: { $0.symbol == "AAPL" }))
+                #expect(!stocks.contains(where: { $0.symbol == "MSFT" }))
+            })
+        }
+    }
+
+    @Test("CSV commit requires provider and body")
+    func commitCsvRequiresProviderAndBody() async throws {
+        try await withApp { app in
+            let (token, _) = try await registerTestUser(app: app)
+
+            try await app.testing().test(.POST, "v1/brokers/import/csv/commit", beforeRequest: { req in
+                req.headers.bearerAuthorization = .init(token: token)
+                req.headers.replaceOrAdd(name: .contentType, value: "text/csv")
+                req.body = ByteBufferAllocator().buffer(string: "symbol,shares\nAAPL,10")
+            }, afterResponse: { res async throws in
+                #expect(res.status == .badRequest)
+            })
+
+            try await app.testing().test(.POST, "v1/brokers/import/csv/commit?provider=ibkr", beforeRequest: { req in
+                req.headers.bearerAuthorization = .init(token: token)
+                req.headers.replaceOrAdd(name: .contentType, value: "text/csv")
+            }, afterResponse: { res async throws in
+                #expect(res.status == .badRequest)
+            })
+        }
+    }
+
+    @Test("Balance sheet DTO decodes both lease-current key variants")
+    func balanceSheetDTOAcceptsBothLeaseCurrentKeys() throws {
+        let decoder = JSONDecoder()
+
+        let canonicalJSON = """
+        {"date":"2024-09-28","symbol":"AAPL","capitalLeaseObligationsCurrent":123.45}
+        """
+        let legacyJSON = """
+        {"date":"2024-09-28","symbol":"AAPL","capitalLeaseOblationsCurrent":678.9}
+        """
+
+        let canonical = try decoder.decode(
+            BalanceSheetStatementResponse.self,
+            from: canonicalJSON.data(using: .utf8)!
+        )
+        #expect(canonical.capitalLeaseObligationsCurrent == 123.45)
+
+        let legacy = try decoder.decode(
+            BalanceSheetStatementResponse.self,
+            from: legacyJSON.data(using: .utf8)!
+        )
+        #expect((legacy.capitalLeaseObligationsCurrent ?? legacy.capitalLeaseOblationsCurrent) == 678.9)
+    }
+
+    @Test("Balance sheet DTO encoding includes canonical lease-current key")
+    func balanceSheetDTOEncodingContainsCanonicalLeaseCurrentKey() throws {
+        let encoder = JSONEncoder()
+        let response = BalanceSheetStatementResponse(
+            date: "2024-09-28",
+            symbol: "AAPL",
+            reportedCurrency: "USD",
+            cik: nil,
+            filingDate: nil,
+            acceptedDate: nil,
+            fiscalYear: nil,
+            period: nil,
+            cashAndCashEquivalents: nil,
+            shortTermInvestments: nil,
+            cashAndShortTermInvestments: nil,
+            netReceivables: nil,
+            accountsReceivables: nil,
+            otherReceivables: nil,
+            inventory: nil,
+            prepaids: nil,
+            otherCurrentAssets: nil,
+            totalCurrentAssets: nil,
+            propertyPlantEquipmentNet: nil,
+            goodwill: nil,
+            intangibleAssets: nil,
+            goodwillAndIntangibleAssets: nil,
+            longTermInvestments: nil,
+            taxAssets: nil,
+            otherNonCurrentAssets: nil,
+            totalNonCurrentAssets: nil,
+            otherAssets: nil,
+            totalAssets: nil,
+            totalPayables: nil,
+            accountPayables: nil,
+            otherPayables: nil,
+            accruedExpenses: nil,
+            shortTermDebt: nil,
+            capitalLeaseObligationsCurrent: 123.45,
+            capitalLeaseOblationsCurrent: nil,
+            taxPayables: nil,
+            deferredRevenue: nil,
+            otherCurrentLiabilities: nil,
+            totalCurrentLiabilities: nil,
+            longTermDebt: nil,
+            deferredRevenueNonCurrent: nil,
+            deferredTaxLiabilitiesNonCurrent: nil,
+            otherNonCurrentLiabilities: nil,
+            totalNonCurrentLiabilities: nil,
+            otherLiabilities: nil,
+            capitalLeaseObligations: nil,
+            totalLiabilities: nil,
+            treasuryStock: nil,
+            preferredStock: nil,
+            commonStock: nil,
+            retainedEarnings: nil,
+            additionalPaidInCapital: nil,
+            accumulatedOtherComprehensiveIncomeLoss: nil,
+            otherTotalStockholdersEquity: nil,
+            totalStockholdersEquity: nil,
+            totalEquity: nil,
+            minorityInterest: nil,
+            totalLiabilitiesAndTotalEquity: nil,
+            totalInvestments: nil,
+            totalDebt: nil,
+            netDebt: nil
+        )
+
+        let payload = try encoder.encode(response)
+        let text = String(decoding: payload, as: UTF8.self)
+        #expect(text.contains("\"capitalLeaseObligationsCurrent\""))
+    }
 }
 
 actor TestMarketProviderState {

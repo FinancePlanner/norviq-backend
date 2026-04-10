@@ -460,7 +460,8 @@ final class DefaultExpensesService: ExpensesService {
         let items = try await itemsQuery.all()
         let expenses = try await expensesQuery.all()
 
-        let calendar = Calendar(identifier: .gregorian)
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(secondsFromGMT: 0)!
 
         // Group items by snapshot
         var itemsBySnapshot: [UUID: [BudgetPlanItem]] = [:]
@@ -602,7 +603,9 @@ final class DefaultExpensesService: ExpensesService {
 
         let groupedByYear = Dictionary(grouping: monthlyReports) { report in
             guard let date = parseDate(report.monthStart) else { return 0 }
-            return Calendar(identifier: .gregorian).component(.year, from: date)
+            var calendar = Calendar(identifier: .gregorian)
+            calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+            return calendar.component(.year, from: date)
         }
 
         var yearlySummaries: [BudgetYearSummaryResponse] = []
@@ -645,7 +648,8 @@ final class DefaultExpensesService: ExpensesService {
             .filter(\.$snapshot.$id == snapshotID)
             .all()
 
-        let calendar = Calendar(identifier: .gregorian)
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(secondsFromGMT: 0)!
         let nextMonthStart = calendar.date(byAdding: .month, value: 1, to: monthStart)
         var expensesQuery = Expense.query(on: db)
             .filter(\.$user.$id == userId)

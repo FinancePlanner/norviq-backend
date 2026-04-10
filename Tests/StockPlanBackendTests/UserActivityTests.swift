@@ -212,9 +212,9 @@ struct UserActivityTests {
             
             let stockReq = StockRequest(
                 symbol: "AAPL",
-                quantity: 10,
-                averagePrice: 150.00,
-                currency: "USD",
+                shares: 10,
+                buyPrice: 150.00,
+                buyDate: "2024-01-01",
                 notes: "Test stock",
                 category: .stock
             )

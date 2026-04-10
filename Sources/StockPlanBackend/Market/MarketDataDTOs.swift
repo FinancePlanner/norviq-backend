@@ -491,6 +491,7 @@ public struct BalanceSheetStatementResponse: Content, Sendable, Equatable {
     public let otherPayables: Double?
     public let accruedExpenses: Double?
     public let shortTermDebt: Double?
+    public let capitalLeaseObligationsCurrent: Double?
     public let capitalLeaseOblationsCurrent: Double?
     public let taxPayables: Double?
     public let deferredRevenue: Double?
@@ -553,7 +554,8 @@ public struct BalanceSheetStatementResponse: Content, Sendable, Equatable {
         otherPayables: Double?,
         accruedExpenses: Double?,
         shortTermDebt: Double?,
-        capitalLeaseOblationsCurrent: Double?,
+        capitalLeaseObligationsCurrent: Double? = nil,
+        capitalLeaseOblationsCurrent: Double? = nil,
         taxPayables: Double?,
         deferredRevenue: Double?,
         otherCurrentLiabilities: Double?,
@@ -614,7 +616,10 @@ public struct BalanceSheetStatementResponse: Content, Sendable, Equatable {
         self.otherPayables = otherPayables
         self.accruedExpenses = accruedExpenses
         self.shortTermDebt = shortTermDebt
-        self.capitalLeaseOblationsCurrent = capitalLeaseOblationsCurrent
+        let normalizedCapitalLeaseCurrent =
+            capitalLeaseObligationsCurrent ?? capitalLeaseOblationsCurrent
+        self.capitalLeaseObligationsCurrent = normalizedCapitalLeaseCurrent
+        self.capitalLeaseOblationsCurrent = normalizedCapitalLeaseCurrent
         self.taxPayables = taxPayables
         self.deferredRevenue = deferredRevenue
         self.otherCurrentLiabilities = otherCurrentLiabilities
@@ -641,6 +646,70 @@ public struct BalanceSheetStatementResponse: Content, Sendable, Equatable {
         self.totalInvestments = totalInvestments
         self.totalDebt = totalDebt
         self.netDebt = netDebt
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case date
+        case symbol
+        case reportedCurrency
+        case cik
+        case filingDate
+        case acceptedDate
+        case fiscalYear
+        case period
+        case cashAndCashEquivalents
+        case shortTermInvestments
+        case cashAndShortTermInvestments
+        case netReceivables
+        case accountsReceivables
+        case otherReceivables
+        case inventory
+        case prepaids
+        case otherCurrentAssets
+        case totalCurrentAssets
+        case propertyPlantEquipmentNet
+        case goodwill
+        case intangibleAssets
+        case goodwillAndIntangibleAssets
+        case longTermInvestments
+        case taxAssets
+        case otherNonCurrentAssets
+        case totalNonCurrentAssets
+        case otherAssets
+        case totalAssets
+        case totalPayables
+        case accountPayables
+        case otherPayables
+        case accruedExpenses
+        case shortTermDebt
+        case capitalLeaseObligationsCurrent
+        case capitalLeaseOblationsCurrent
+        case taxPayables
+        case deferredRevenue
+        case otherCurrentLiabilities
+        case totalCurrentLiabilities
+        case longTermDebt
+        case deferredRevenueNonCurrent
+        case deferredTaxLiabilitiesNonCurrent
+        case otherNonCurrentLiabilities
+        case totalNonCurrentLiabilities
+        case otherLiabilities
+        case capitalLeaseObligations
+        case totalLiabilities
+        case treasuryStock
+        case preferredStock
+        case commonStock
+        case retainedEarnings
+        case additionalPaidInCapital
+        case accumulatedOtherComprehensiveIncomeLoss
+        case otherTotalStockholdersEquity
+        case totalStockholdersEquity
+        case totalEquity
+        case minorityInterest
+        case totalLiabilitiesAndTotalEquity
+        case totalInvestments
+        case totalDebt
+        case netDebt
     }
 }
 

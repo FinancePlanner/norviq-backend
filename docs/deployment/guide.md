@@ -85,6 +85,7 @@ DATABASE_NAME=stockplan_prod
 DATABASE_USERNAME=stockplan_user
 DATABASE_PASSWORD=<STRONG_RANDOM_PASSWORD>   # Use: openssl rand -base64 32
 JWT_SECRET=<STRONG_RANDOM_SECRET>            # Use: openssl rand -base64 64
+APP_IMAGE=ghcr.io/yourusername/StockPlanBackend:latest   # overwritten by CI deploy with immutable SHA tag
 LOG_LEVEL=info
 ```
 
@@ -100,6 +101,7 @@ Key features:
 - **Network isolation** — database is not exposed externally  
 - **Health checks** — app waits for database to be ready
 - **Environment-based domain** — set `DOMAIN` in `.env`
+- **Image-only runtime** — `app` and `migrate` require `APP_IMAGE`; production compose never builds on the server
 
 > [!NOTE]
 > The `app` service uses `expose` instead of `ports` to keep port 8080 internal-only. Caddy handles external traffic on ports 80/443.
@@ -118,8 +120,11 @@ The `Caddyfile` in the project root configures:
 ## Step 6: Deploy
 
 ```bash
-# Build the Docker image
-docker compose -f docker-compose.production.yml build
+# Use immutable image tag produced by CI (example tag shown)
+export APP_IMAGE=ghcr.io/yourusername/StockPlanBackend:$(git rev-parse HEAD)
+
+# Pull the exact image to deploy
+docker pull "$APP_IMAGE"
 
 # Start the database first
 docker compose -f docker-compose.production.yml up -d db
@@ -127,7 +132,7 @@ docker compose -f docker-compose.production.yml up -d db
 # Run migrations
 docker compose -f docker-compose.production.yml run --rm migrate
 
-# Start the app
+# Start/update the app
 docker compose -f docker-compose.production.yml up -d app
 
 # Restart Caddy to load new config
@@ -149,6 +154,11 @@ curl https://api.yourdomain.com/auth/register \
   -d '{"email":"test@example.com","password":"Password123"}'
 ```
 
+## Additional Guides
+
+- Local packaging workflow (Point 3): `docs/deployment/local-container-workflow.md`
+- Operations hardening runbook (Point 4): `docs/deployment/operations-runbook.md`
+
 ---
 
 ### CI/CD Deployment
@@ -156,12 +166,18 @@ curl https://api.yourdomain.com/auth/register \
 Deployments are automated via GitHub Actions (`.github/workflows/deploy.yml`).
 
 **On every push to `main`:**
-1. Builds Docker image
-2. Pushes to GitHub Container Registry (GHCR)
+1. Builds and pushes an immutable image tag to GHCR
+2. Updates `latest` to the same artifact
 3. SSHs to production server
-4. Pulls new image
-5. Runs migrations
+4. Pulls that exact immutable image (`APP_IMAGE`)
+5. Runs migrations from the same image
 6. Restarts app with zero-downtime
+7. Gates deploy on `/health` before success
+8. Persists deployed `APP_IMAGE` in `.env` for future compose commands
+
+**Build strategy:**
+- Default strategy is Swift Container Plugin (`build-container-image`) with `x86_64-swift-linux-musl`.
+- Rollback strategy is available via workflow dispatch input: `build_strategy=dockerfile`.
 
 **Required GitHub Secrets** (Settings → Secrets → Actions):
 
@@ -170,6 +186,7 @@ Deployments are automated via GitHub Actions (`.github/workflows/deploy.yml`).
 | `SERVER_HOST` | Your server IP or hostname |
 | `SERVER_USER` | SSH username (e.g., `deploy`) |
 | `SERVER_SSH_KEY` | Private SSH key for server access |
+| `GITHUB_TOKEN` | Built-in token (already available in Actions) for GHCR push/pull |
 
 > [!TIP]
 > Create a dedicated deploy user on the server with Docker access:
@@ -181,6 +198,9 @@ Deployments are automated via GitHub Actions (`.github/workflows/deploy.yml`).
 **Manual deployment** (if needed):
 ```bash
 gh workflow run deploy
+
+# Trigger Dockerfile fallback build path explicitly
+gh workflow run deploy -f build_strategy=dockerfile
 ```
 
 ### Viewing Logs
@@ -212,6 +232,24 @@ cat backup_20260207.sql | docker compose -f docker-compose.production.yml exec -
 
 ```bash
 docker compose -f docker-compose.production.yml run --rm app migrate --revert --yes
+```
+
+### Rollback Application Image
+
+```bash
+# Redeploy a previous known-good immutable image
+export APP_IMAGE=ghcr.io/yourusername/StockPlanBackend:<previous_git_sha>
+docker pull "$APP_IMAGE"
+docker compose -f docker-compose.production.yml up -d --no-deps app
+```
+
+### Image Retention and Cleanup Policy
+
+- GHCR: keep immutable SHA tags for rollback history; apply package retention rules in GHCR settings.
+- Server: run periodic cleanup to remove stale layers:
+
+```bash
+docker image prune -af --filter "until=168h"
 ```
 
 ---

@@ -4,6 +4,15 @@ on:
     push:
         branches: [main]
     workflow_dispatch:
+        inputs:
+            build_strategy:
+                description: "Container build path"
+                type: choice
+                required: false
+                default: plugin
+                options:
+                    - plugin
+                    - dockerfile
 
 env:
     REGISTRY: ghcr.io
@@ -18,46 +27,106 @@ jobs:
             packages: write
 
         outputs:
-            image_tag: ${{ steps.meta.outputs.tags }}
+            app_image: ${{ steps.refs.outputs.app_image }}
+            image_repository: ${{ steps.refs.outputs.image_repository }}
+            image_sha_tag: ${{ steps.refs.outputs.image_sha_tag }}
+        env:
+            BUILD_STRATEGY: ${{ github.event.inputs.build_strategy != '' && github.event.inputs.build_strategy || 'plugin' }}
 
         steps:
             - name: Checkout
               uses: actions/checkout@v4
 
-            - name: Set up Docker Buildx
-              uses: docker/setup-buildx-action@v3
+            - name: Resolve image references
+              id: refs
+              run: |
+                  IMAGE_REPOSITORY="${REGISTRY}/${IMAGE_NAME}"
+                  IMAGE_SHA_TAG="${GITHUB_SHA}"
+                  APP_IMAGE="${IMAGE_REPOSITORY}:${IMAGE_SHA_TAG}"
+                  echo "image_repository=${IMAGE_REPOSITORY}" >> "$GITHUB_OUTPUT"
+                  echo "image_sha_tag=${IMAGE_SHA_TAG}" >> "$GITHUB_OUTPUT"
+                  echo "app_image=${APP_IMAGE}" >> "$GITHUB_OUTPUT"
+                  echo "IMAGE_REPOSITORY=${IMAGE_REPOSITORY}" >> "$GITHUB_ENV"
+                  echo "IMAGE_SHA_TAG=${IMAGE_SHA_TAG}" >> "$GITHUB_ENV"
+                  echo "APP_IMAGE=${APP_IMAGE}" >> "$GITHUB_ENV"
 
-            - name: Login to Container Registry
+            - name: Login to GHCR
               uses: docker/login-action@v3
               with:
                   registry: ${{ env.REGISTRY }}
                   username: ${{ github.actor }}
                   password: ${{ secrets.GITHUB_TOKEN }}
 
-            - name: Extract metadata
-              id: meta
-              uses: docker/metadata-action@v5
-              with:
-                  images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
-                  tags: |
-                      type=sha,prefix=
-                      type=raw,value=latest,enable={{is_default_branch}}
+            - name: Set up Docker Buildx (rollback build path)
+              if: env.BUILD_STRATEGY == 'dockerfile'
+              uses: docker/setup-buildx-action@v3
 
-            - name: Build and push
+            - name: Build and push (Dockerfile fallback)
+              if: env.BUILD_STRATEGY == 'dockerfile'
               uses: docker/build-push-action@v5
               with:
                   context: .
                   push: true
-                  tags: ${{ steps.meta.outputs.tags }}
-                  labels: ${{ steps.meta.outputs.labels }}
+                  tags: |
+                      ${{ env.IMAGE_REPOSITORY }}:${{ env.IMAGE_SHA_TAG }}
+                      ${{ env.IMAGE_REPOSITORY }}:latest
+                  labels: |
+                      org.opencontainers.image.source=https://github.com/${{ github.repository }}
+                      org.opencontainers.image.revision=${{ github.sha }}
+                  platforms: linux/amd64
                   cache-from: type=gha
                   cache-to: type=gha,mode=max
+
+            - name: Set up Swift toolchain
+              if: env.BUILD_STRATEGY == 'plugin'
+              uses: swift-actions/setup-swift@v2
+              with:
+                  swift-version: "6.3"
+
+            - name: Install Static Linux SDK (x86_64 musl)
+              if: env.BUILD_STRATEGY == 'plugin'
+              run: |
+                  swift sdk install \
+                    https://download.swift.org/swift-6.3-release/static-sdk/swift-6.3-RELEASE/swift-6.3-RELEASE_static-linux-0.1.0.artifactbundle.tar.gz \
+                    --checksum d2078b69bdeb5c31202c10e9d8a11d6f66f82938b51a4b75f032ccb35c4c286c
+
+            - name: Build and push (Swift Container Plugin)
+              if: env.BUILD_STRATEGY == 'plugin'
+              env:
+                  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+              run: |
+                  set -euo pipefail
+
+                  RESOURCE_ARGS=()
+                  if [ -d Public ]; then
+                    RESOURCE_ARGS+=(--resources Public)
+                  fi
+                  if [ -d Resources ]; then
+                    RESOURCE_ARGS+=(--resources Resources)
+                  fi
+
+                  swift package \
+                    --allow-network-connections all \
+                    --allow-writing-to-package-directory \
+                    --swift-sdk x86_64-swift-linux-musl \
+                    build-container-image \
+                    --product StockPlanBackend \
+                    --repository "${IMAGE_REPOSITORY}" \
+                    --tag "${IMAGE_SHA_TAG}" \
+                    --disable-netrc \
+                    --default-username "${GITHUB_ACTOR}" \
+                    --default-password "${GITHUB_TOKEN}" \
+                    "${RESOURCE_ARGS[@]}" \
+                    --cmd serve --env production --hostname 0.0.0.0 --port 8080
 
     deploy:
         name: Deploy to Production
         needs: build
         runs-on: ubuntu-latest
         environment: production
+        permissions:
+            contents: read
+            packages: read
 
         steps:
             - name: Deploy to server
@@ -67,16 +136,28 @@ jobs:
                   username: ${{ secrets.SERVER_USER }}
                   key: ${{ secrets.SERVER_SSH_KEY }}
                   script: |
+                      set -euo pipefail
                       cd ~/StockPlanBackend
 
                       # Pull latest code (for Caddyfile, docker-compose changes)
                       git pull origin main
 
+                      APP_IMAGE="${{ needs.build.outputs.app_image }}"
+
                       # Login to container registry
                       echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
 
-                      # Pull the new image
-                      docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
+                      # Pull immutable image built in CI
+                      docker pull "${APP_IMAGE}"
+
+                      # Persist currently deployed image reference for compose commands.
+                      if grep -q '^APP_IMAGE=' .env; then
+                        sed -i "s|^APP_IMAGE=.*|APP_IMAGE=${APP_IMAGE}|" .env
+                      else
+                        echo "APP_IMAGE=${APP_IMAGE}" >> .env
+                      fi
+
+                      export APP_IMAGE
 
                       # Run migrations
                       docker compose -f docker-compose.production.yml run --rm migrate
@@ -84,5 +165,29 @@ jobs:
                       # Deploy with zero-downtime (recreate only changed services)
                       docker compose -f docker-compose.production.yml up -d --no-deps app
 
-                      # Cleanup old images
-                      docker image prune -f
+                      # Gate deployment on health endpoint
+                      DOMAIN_VALUE="$(grep '^DOMAIN=' .env | tail -1 | cut -d '=' -f2-)"
+                      if [ -z "${DOMAIN_VALUE}" ]; then
+                        DOMAIN_VALUE="localhost"
+                      fi
+
+                      HEALTHY=0
+                      for ATTEMPT in $(seq 1 30); do
+                        if curl -fsS -H "Host: ${DOMAIN_VALUE}" http://127.0.0.1/health >/dev/null; then
+                          HEALTHY=1
+                          break
+                        fi
+                        sleep 2
+                      done
+
+                      if [ "${HEALTHY}" -ne 1 ]; then
+                        echo "Health check failed for ${APP_IMAGE}"
+                        docker compose -f docker-compose.production.yml logs --tail=120 app
+                        exit 1
+                      fi
+
+                      echo "Rollback command:"
+                      echo "APP_IMAGE=<previous_sha_image> docker compose -f docker-compose.production.yml up -d --no-deps app"
+
+                      # Cleanup old images older than 7 days
+                      docker image prune -af --filter "until=168h"

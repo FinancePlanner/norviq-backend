@@ -4,3 +4,11 @@ import StockPlanShared
 typealias DashboardResponse = StockPlanShared.DashboardResponse
 typealias DashboardPerformerDTO = StockPlanShared.DashboardPerformerDTO
 typealias DashboardAllocationDTO = StockPlanShared.DashboardAllocationDTO
+typealias GoalRequest = StockPlanShared.GoalRequest
+typealias GoalStatus = StockPlanShared.GoalStatus
+typealias GoalStatusSource = StockPlanShared.GoalStatusSource
+typealias GoalStatusUpdateRequest = StockPlanShared.GoalStatusUpdateRequest
+typealias GoalResponse = StockPlanShared.GoalResponse
+typealias DashboardInsightsResponse = StockPlanShared.DashboardInsightsResponse
+typealias DashboardFinancialHealthDTO = StockPlanShared.DashboardFinancialHealthDTO
+typealias FinancialHealthStatus = StockPlanShared.FinancialHealthStatus

@@ -2,10 +2,11 @@
 #
 # Usage:
 #   1. Copy .env.example to .env and set production values
-#   2. Build:    docker compose -f docker-compose.production.yml build
+#   2. Set APP_IMAGE to an immutable registry tag:
+#      export APP_IMAGE=ghcr.io/<owner>/<repo>:<git-sha>
 #   3. Start DB: docker compose -f docker-compose.production.yml up -d db
 #   4. Migrate:  docker compose -f docker-compose.production.yml run --rm migrate
-#   5. Deploy:   docker compose -f docker-compose.production.yml up -d
+#   5. Deploy:   docker compose -f docker-compose.production.yml up -d app caddy
 #
 
 volumes:
@@ -40,9 +41,7 @@ services:
 
   # Vapor application
   app:
-    image: stockplanbackend:latest
-    build:
-      context: .
+    image: ${APP_IMAGE:?APP_IMAGE is required}
     env_file: .env
     environment:
       DATABASE_HOST: db
@@ -75,9 +74,7 @@ services:
 
   # Migration runner (run manually with: docker compose run --rm migrate)
   migrate:
-    image: stockplanbackend:latest
-    build:
-      context: .
+    image: ${APP_IMAGE:?APP_IMAGE is required}
     env_file: .env
     environment:
       DATABASE_HOST: db

@@ -1,4 +1,5 @@
 import Fluent
+import FluentSQL
 
 struct CreateUser: AsyncMigration {
     func prepare(on database: any Database) async throws {
@@ -13,6 +14,10 @@ struct CreateUser: AsyncMigration {
     }
 
     func revert(on database: any Database) async throws {
+        if let sql = database as? any SQLDatabase {
+            try await sql.raw("DROP TABLE IF EXISTS users CASCADE").run()
+            return
+        }
         try await database.schema("users").delete()
     }
 }
