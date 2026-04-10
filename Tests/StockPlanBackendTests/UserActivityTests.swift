@@ -28,7 +28,8 @@ struct UserActivityTests {
         let uniqueSuffix = UUID().uuidString.replacingOccurrences(of: "-", with: "").prefix(10).lowercased()
         let registerReq = AuthRegisterRequest(
             username: "user_\(uniqueSuffix)",
-            password: "Password123",
+            password: "Password123!",
+            confirmPassword: "Password123!",
             email: email,
             dateOfBirth: Date(timeIntervalSince1970: 946_684_800)
         )

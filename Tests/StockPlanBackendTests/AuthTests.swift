@@ -25,16 +25,36 @@ struct AuthTests {
 
     private func makeRegisterRequest(
         email: String,
-        password: String = "Password123",
+        password: String = "Password123!",
         username: String = "valid_user",
         dateOfBirth: Date = Date(timeIntervalSince1970: 946_684_800)
     ) -> AuthRegisterRequest {
         AuthRegisterRequest(
             username: username,
             password: password,
+            confirmPassword: password,
             email: email,
             dateOfBirth: dateOfBirth
         )
+    }
+
+    @Test("Registration fails when password confirmation does not match")
+    func registerPasswordConfirmationMismatch() async throws {
+        try await withApp { app in
+            let registerReq = AuthRegisterRequest(
+                username: "mismatch_user",
+                password: "Password123!",
+                confirmPassword: "Password123",
+                email: "mismatch@example.com",
+                dateOfBirth: Date(timeIntervalSince1970: 946_684_800)
+            )
+
+            try await app.testing().test(.POST, "v1/auth/register", beforeRequest: { req in
+                try req.content.encode(registerReq)
+            }, afterResponse: { res async in
+                #expect(res.status == .badRequest)
+            })
+        }
     }
 
     // MARK: - Registration Tests
@@ -42,7 +62,7 @@ struct AuthTests {
     @Test("Successful user registration")
     func registerSuccess() async throws {
         try await withApp { app in
-            let registerReq = makeRegisterRequest(email: "newuser@example.com", password: "Password123")
+            let registerReq = makeRegisterRequest(email: "newuser@example.com", password: "Password123!")
             
             try await app.testing().test(.POST, "v1/auth/register", beforeRequest: { req in
                 try req.content.encode(registerReq)
@@ -57,10 +77,34 @@ struct AuthTests {
         }
     }
 
+    @Test("Registration persists encrypted date of birth")
+    func registerStoresEncryptedDateOfBirth() async throws {
+        try await withApp { app in
+            let registerReq = makeRegisterRequest(email: "encrypted-dob@example.com")
+            var userID: UUID?
+
+            try await app.testing().test(.POST, "v1/auth/register", beforeRequest: { req in
+                try req.content.encode(registerReq)
+            }, afterResponse: { res async throws in
+                #expect(res.status == .ok)
+                userID = try res.content.decode(AuthResponse.self).userId
+            })
+
+            guard let userID,
+                  let user = try await User.find(userID, on: app.db)
+            else {
+                Issue.record("Expected created user")
+                return
+            }
+
+            #expect(user.dateOfBirthEncrypted != nil)
+        }
+    }
+
     @Test("Registration fails with duplicate email")
     func registerDuplicateEmail() async throws {
         try await withApp { app in
-            let registerReq = makeRegisterRequest(email: "duplicate@example.com", password: "Password123")
+            let registerReq = makeRegisterRequest(email: "duplicate@example.com", password: "Password123!")
             
             // First registration should succeed
             try await app.testing().test(.POST, "v1/auth/register", beforeRequest: { req in
@@ -81,7 +125,7 @@ struct AuthTests {
     @Test("Registration fails with invalid email")
     func registerInvalidEmail() async throws {
         try await withApp { app in
-            let registerReq = makeRegisterRequest(email: "invalid-email", password: "Password123")
+            let registerReq = makeRegisterRequest(email: "invalid-email", password: "Password123!")
             
             try await app.testing().test(.POST, "v1/auth/register", beforeRequest: { req in
                 try req.content.encode(registerReq)
@@ -107,7 +151,7 @@ struct AuthTests {
     @Test("Email normalization - trims whitespace and lowercases")
     func registerEmailNormalization() async throws {
         try await withApp { app in
-            let registerReq = makeRegisterRequest(email: "  TEST@Example.COM  ", password: "Password123")
+            let registerReq = makeRegisterRequest(email: "  TEST@Example.COM  ", password: "Password123!")
             
             try await app.testing().test(.POST, "v1/auth/register", beforeRequest: { req in
                 try req.content.encode(registerReq)
@@ -116,7 +160,7 @@ struct AuthTests {
             })
             
             // Now try to login with normalized email
-            let loginReq = AuthLoginRequest(email: "test@example.com", password: "Password123")
+            let loginReq = AuthLoginRequest(email: "test@example.com", password: "Password123!")
             try await app.testing().test(.POST, "v1/auth/login", beforeRequest: { req in
                 try req.content.encode(loginReq)
             }, afterResponse: { res async in
@@ -130,7 +174,7 @@ struct AuthTests {
     @Test("Successful login")
     func loginSuccess() async throws {
         try await withApp { app in
-            let credentials = makeRegisterRequest(email: "login@example.com", password: "Password123")
+            let credentials = makeRegisterRequest(email: "login@example.com", password: "Password123!")
             
             // Register first
             try await app.testing().test(.POST, "v1/auth/register", beforeRequest: { req in
@@ -140,7 +184,7 @@ struct AuthTests {
             })
             
             // Then login
-            let loginReq = AuthLoginRequest(email: "login@example.com", password: "Password123")
+            let loginReq = AuthLoginRequest(email: "login@example.com", password: "Password123!")
             try await app.testing().test(.POST, "v1/auth/login", beforeRequest: { req in
                 try req.content.encode(loginReq)
             }, afterResponse: { res async throws in
@@ -155,7 +199,7 @@ struct AuthTests {
     @Test("Login fails with wrong password")
     func loginWrongPassword() async throws {
         try await withApp { app in
-            let registerReq = makeRegisterRequest(email: "wrongpwd@example.com", password: "Password123")
+            let registerReq = makeRegisterRequest(email: "wrongpwd@example.com", password: "Password123!")
             
             // Register first
             try await app.testing().test(.POST, "v1/auth/register", beforeRequest: { req in
@@ -165,7 +209,7 @@ struct AuthTests {
             })
             
             // Login with wrong password
-            let loginReq = AuthLoginRequest(email: "wrongpwd@example.com", password: "WrongPassword")
+            let loginReq = AuthLoginRequest(email: "wrongpwd@example.com", password: "WrongPassword1!")
             try await app.testing().test(.POST, "v1/auth/login", beforeRequest: { req in
                 try req.content.encode(loginReq)
             }, afterResponse: { res async in
@@ -177,7 +221,7 @@ struct AuthTests {
     @Test("Login fails with non-existent email")
     func loginNonExistentEmail() async throws {
         try await withApp { app in
-            let loginReq = AuthLoginRequest(email: "nonexistent@example.com", password: "Password123")
+            let loginReq = AuthLoginRequest(email: "nonexistent@example.com", password: "Password123!")
             
             try await app.testing().test(.POST, "v1/auth/login", beforeRequest: { req in
                 try req.content.encode(loginReq)
@@ -192,7 +236,7 @@ struct AuthTests {
     @Test("Get current user with valid token")
     func getCurrentUser() async throws {
         try await withApp { app in
-            let registerReq = makeRegisterRequest(email: "currentuser@example.com", password: "Password123")
+            let registerReq = makeRegisterRequest(email: "currentuser@example.com", password: "Password123!")
             var authToken: String = ""
             
             // Register to get a token
@@ -229,7 +273,7 @@ struct AuthTests {
     @Test("Successful token refresh")
     func refreshTokenSuccess() async throws {
         try await withApp { app in
-            let registerReq = makeRegisterRequest(email: "refresh@example.com", password: "Password123")
+            let registerReq = makeRegisterRequest(email: "refresh@example.com", password: "Password123!")
             var refreshToken: String = ""
             
             // Register to get refresh token
@@ -272,7 +316,7 @@ struct AuthTests {
     @Test("Refresh token fails after being used (rotation)")
     func refreshTokenRotation() async throws {
         try await withApp { app in
-            let registerReq = makeRegisterRequest(email: "rotation@example.com", password: "Password123")
+            let registerReq = makeRegisterRequest(email: "rotation@example.com", password: "Password123!")
             var refreshToken: String = ""
             
             // Register to get refresh token
@@ -345,7 +389,7 @@ struct AuthTests {
     func forgotPasswordSuccess() async throws {
         try await withApp { app in
             // Register a user first
-            let registerReq = makeRegisterRequest(email: "forgot@example.com", password: "Password123")
+            let registerReq = makeRegisterRequest(email: "forgot@example.com", password: "Password123!")
             try await app.testing().test(.POST, "v1/auth/register", beforeRequest: { req in
                 try req.content.encode(registerReq)
             }, afterResponse: { res async in
@@ -384,7 +428,7 @@ struct AuthTests {
     func resetPasswordInvalidCode() async throws {
         try await withApp { app in
             // Register a user first
-            let registerReq = makeRegisterRequest(email: "resetinvalid@example.com", password: "Password123")
+            let registerReq = makeRegisterRequest(email: "resetinvalid@example.com", password: "Password123!")
             try await app.testing().test(.POST, "v1/auth/register", beforeRequest: { req in
                 try req.content.encode(registerReq)
             }, afterResponse: { res async in
@@ -395,7 +439,7 @@ struct AuthTests {
             let resetReq = AuthResetPasswordRequest(
                 email: "resetinvalid@example.com",
                 code: "000000",
-                newPassword: "NewPassword123"
+                newPassword: "NewPassword123!"
             )
             try await app.testing().test(.POST, "v1/auth/reset-password", beforeRequest: { req in
                 try req.content.encode(resetReq)

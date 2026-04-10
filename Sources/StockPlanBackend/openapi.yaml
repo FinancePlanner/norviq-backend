@@ -4058,10 +4058,12 @@ components:
           format: email
         password:
           type: string
+        confirmPassword:
+          type: string
         dateOfBirth:
           type: string
           format: date-time
-      required: [username, email, password, dateOfBirth]
+      required: [username, email, password, confirmPassword, dateOfBirth]
     AuthLoginRequest:
       type: object
       properties:

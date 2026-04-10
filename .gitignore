@@ -17,6 +17,8 @@ default.profraw
 .idea/
 *.xcworkspace
 *.xcconfig
+vapor.log
+vapor.pid
 
 # Stray Swift compiler byproducts that should stay under .build, not repo root.
 /*.d

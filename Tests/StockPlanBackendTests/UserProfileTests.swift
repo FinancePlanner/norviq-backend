@@ -25,13 +25,14 @@ struct UserProfileTests {
 
     private func makeRegisterRequest(
         email: String,
-        password: String = "Password123",
+        password: String = "Password123!",
         username: String = "valid_user",
         dateOfBirth: Date = Date(timeIntervalSince1970: 946_684_800)
     ) -> AuthRegisterRequest {
         AuthRegisterRequest(
             username: username,
             password: password,
+            confirmPassword: password,
             email: email,
             dateOfBirth: dateOfBirth
         )

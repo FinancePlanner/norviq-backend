@@ -9,7 +9,7 @@ extension APIEnvelope: @retroactive Content {}
 extension EmptyAPIResponse: @retroactive Content {}
 
 // MARK: - Auth
-extension AuthRegisterRequest: @retroactive Content {}
+extension AuthRegisterRequest: Content {}
 extension AuthLoginRequest: @retroactive Content {}
 extension AuthResponse: @retroactive Content {}
 extension AuthUserResponse: @retroactive Content {}

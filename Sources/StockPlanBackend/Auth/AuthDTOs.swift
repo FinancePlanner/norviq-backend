@@ -2,7 +2,68 @@ import Foundation
 import StockPlanShared
 import Vapor
 
-typealias AuthRegisterRequest = StockPlanShared.AuthRegisterRequest
+struct AuthRegisterRequest: Codable, Sendable, Equatable {
+    let username: String
+    let password: String
+    let confirmPassword: String
+    let email: String
+    let dateOfBirth: Date
+
+    init(
+        username: String,
+        password: String,
+        confirmPassword: String,
+        email: String,
+        dateOfBirth: Date
+    ) {
+        self.username = username
+        self.password = password
+        self.confirmPassword = confirmPassword
+        self.email = email
+        self.dateOfBirth = dateOfBirth
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case username
+        case password
+        case confirmPassword
+        case confirm_password
+        case email
+        case dateOfBirth
+        case date_of_birth
+    }
+
+    init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        username = try container.decode(String.self, forKey: .username)
+        password = try container.decode(String.self, forKey: .password)
+        if let confirmPassword = try container.decodeIfPresent(String.self, forKey: .confirmPassword)
+            ?? container.decodeIfPresent(String.self, forKey: .confirm_password) {
+            self.confirmPassword = confirmPassword
+        } else {
+            throw DecodingError.keyNotFound(
+                CodingKeys.confirmPassword,
+                .init(codingPath: decoder.codingPath, debugDescription: "Missing confirmPassword")
+            )
+        }
+        email = try container.decode(String.self, forKey: .email)
+        if let parsedDateOfBirth = try? SharedDateDecoder.decodeDate(from: container, forKey: .dateOfBirth) {
+            dateOfBirth = parsedDateOfBirth
+        } else {
+            dateOfBirth = try SharedDateDecoder.decodeDate(from: container, forKey: .date_of_birth)
+        }
+    }
+
+    func encode(to encoder: any Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(username, forKey: .username)
+        try container.encode(password, forKey: .password)
+        try container.encode(confirmPassword, forKey: .confirmPassword)
+        try container.encode(email, forKey: .email)
+        try container.encode(dateOfBirth, forKey: .dateOfBirth)
+    }
+}
+
 typealias AuthLoginRequest = StockPlanShared.AuthLoginRequest
 typealias AuthResponse = StockPlanShared.AuthResponse
 typealias AuthRegisterResponse = StockPlanShared.AuthRegisterResponse

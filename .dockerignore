@@ -23,6 +23,8 @@ Packages/
 .env.*
 db.sqlite
 *.profraw
+vapor.log
+vapor.pid
 
 # Files not needed to build the production image
 docs/

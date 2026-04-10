@@ -1,5 +1,6 @@
 import Fluent
 import Foundation
+import Crypto
 import Vapor
 
 protocol AuthRepository: Sendable {
@@ -46,16 +47,49 @@ protocol AuthRepository: Sendable {
 }
 
 struct DatabaseAuthRepository: AuthRepository {
+    private let encryptionService: any UserPIIEncrypting
+
+    init() {
+        if let service = try? UserPIIEncryptionBootstrap.fromProcessEnvironment(
+                logger: Logger(label: "auth.repository.default-encryption"),
+                isProduction: false
+            ) {
+            self.encryptionService = service
+        } else {
+            self.encryptionService = AESGCMUserPIIEncryptionService(
+                activeKeyID: "dev-default",
+                activeKey: SymmetricKey(data: Data(repeating: 0x2A, count: 32)),
+                previousKeys: [:]
+            )
+        }
+    }
+
+    init(encryptionService: any UserPIIEncrypting) {
+        self.encryptionService = encryptionService
+    }
+
     func findUser(email: String, on db: any Database) async throws -> User? {
-        try await User.query(on: db).filter(\.$email == email).first()
+        guard let user = try await User.query(on: db).filter(\.$email == email).first() else {
+            return nil
+        }
+        try user.hydrateProtectedFields(using: encryptionService)
+        return user
     }
 
     func findUser(username: String, on db: any Database) async throws -> User? {
-        try await User.query(on: db).filter(\.$username == username).first()
+        guard let user = try await User.query(on: db).filter(\.$username == username).first() else {
+            return nil
+        }
+        try user.hydrateProtectedFields(using: encryptionService)
+        return user
     }
 
     func findUser(id: UUID, on db: any Database) async throws -> User? {
-        try await User.find(id, on: db)
+        guard let user = try await User.find(id, on: db) else {
+            return nil
+        }
+        try user.hydrateProtectedFields(using: encryptionService)
+        return user
     }
 
     func createUser(
@@ -71,7 +105,9 @@ struct DatabaseAuthRepository: AuthRepository {
             username: username,
             dateOfBirth: dateOfBirth
         )
+        try user.encryptProtectedFields(using: encryptionService)
         try await user.save(on: db)
+        try user.hydrateProtectedFields(using: encryptionService)
         return user
     }
 

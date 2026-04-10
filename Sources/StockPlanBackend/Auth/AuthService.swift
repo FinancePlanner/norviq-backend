@@ -10,6 +10,7 @@ protocol AuthService: Sendable {
         username: String,
         email: String,
         password: String,
+        confirmPassword: String,
         dateOfBirth: Date,
         on req: Request
     ) async throws -> AuthResponse
@@ -48,11 +49,16 @@ struct DefaultAuthService: AuthService {
         username: String,
         email: String,
         password: String,
+        confirmPassword: String,
         dateOfBirth: Date,
         on req: Request
     ) async throws -> AuthResponse {
         let normalizedUsername = normalizeUsername(username)
         let normalizedEmail = normalizeEmail(email)
+
+        guard password == confirmPassword else {
+            throw Abort(.badRequest, reason: "Password and confirm password do not match")
+        }
 
         try validateUsername(normalizedUsername)
         try validateEmail(normalizedEmail)
@@ -93,9 +99,39 @@ struct DefaultAuthService: AuthService {
             throw Abort(.unauthorized, reason: "Invalid email or password")
         }
 
+        // 1. Check if the account is currently locked
+        if let lockoutUntil = user.lockoutUntil, lockoutUntil > Date() {
+            let formatter = RelativeDateTimeFormatter()
+            let timeRemaining = formatter.localizedString(for: lockoutUntil, relativeTo: Date())
+            throw Abort(.forbidden, reason: "Account is temporarily locked due to multiple failed login attempts. Please try again \(timeRemaining).")
+        }
+
         let isValid = try req.password.verify(password, created: user.passwordHash)
-        guard isValid else {
+        
+        if !isValid {
+            // 2. Increment failed attempts and lock if necessary
+            user.failedLoginAttempts += 1
+            if user.failedLoginAttempts >= 5 {
+                user.lockoutUntil = Date().addingTimeInterval(15 * 60) // 15 minutes
+                req.logger.warning("Account locked for user \(user.email) until \(user.lockoutUntil!)")
+            }
+            try await persistUser(user, on: req)
             throw Abort(.unauthorized, reason: "Invalid email or password")
+        }
+
+        // 3. Reset failed attempts on successful login
+        if user.failedLoginAttempts > 0 || user.lockoutUntil != nil {
+            user.failedLoginAttempts = 0
+            user.lockoutUntil = nil
+            try await persistUser(user, on: req)
+        }
+
+        // 4. Check for email verification
+        if !user.isVerified {
+            // Note: For now, we allow login but might restrict certain features later, 
+            // or enforce it strictly here if the client is ready for the verification flow.
+            // req.logger.info("User \(user.email) logged in but is not verified.")
+            // throw Abort(.forbidden, reason: "Please verify your email address before logging in.")
         }
 
         return try await makeAuthResponse(for: user, on: req)
@@ -149,7 +185,7 @@ struct DefaultAuthService: AuthService {
         }
 
         user.passwordHash = try req.password.hash(newPassword)
-        try await user.save(on: req.db)
+        try await persistUser(user, on: req)
         try await repo.markPasswordResetTokenUsed(resetToken, usedAt: now, on: req.db)
 
         return .noContent
@@ -557,9 +593,33 @@ struct DefaultAuthService: AuthService {
         }
     }
 
+    private func persistUser(_ user: User, on req: Request) async throws {
+        try user.encryptProtectedFields(using: req.userPIIEncryptionService)
+        try await user.save(on: req.db)
+        try user.hydrateProtectedFields(using: req.userPIIEncryptionService)
+    }
+
     private func validatePassword(_ password: String) throws {
         if password.count < 8 {
-            throw Abort(.badRequest, reason: "Password must be at least 8 characters")
+            throw Abort(.badRequest, reason: "Password must be at least 8 characters long")
+        }
+
+        let uppercase = CharacterSet.uppercaseLetters
+        let lowercase = CharacterSet.lowercaseLetters
+        let digits = CharacterSet.decimalDigits
+        let symbols = CharacterSet.punctuationCharacters.union(.symbols)
+
+        guard password.unicodeScalars.contains(where: { uppercase.contains($0) }) else {
+            throw Abort(.badRequest, reason: "Password must contain at least one uppercase letter")
+        }
+        guard password.unicodeScalars.contains(where: { lowercase.contains($0) }) else {
+            throw Abort(.badRequest, reason: "Password must contain at least one lowercase letter")
+        }
+        guard password.unicodeScalars.contains(where: { digits.contains($0) }) else {
+            throw Abort(.badRequest, reason: "Password must contain at least one number")
+        }
+        guard password.unicodeScalars.contains(where: { symbols.contains($0) }) else {
+            throw Abort(.badRequest, reason: "Password must contain at least one special character")
         }
     }
 

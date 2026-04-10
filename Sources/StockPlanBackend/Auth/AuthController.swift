@@ -5,8 +5,12 @@ import Vapor
 struct AuthController: RouteCollection {
     func boot(routes: any RoutesBuilder) throws {
         let auth = routes.grouped("auth")
-        auth.post("register", use: register)
-        auth.post("login", use: login)
+        
+        let registerRateLimit = RateLimitMiddleware(limit: 5, interval: 60, keyPrefix: "ratelimit:register")
+        let loginRateLimit = RateLimitMiddleware(limit: 10, interval: 60, keyPrefix: "ratelimit:login")
+        
+        auth.grouped(registerRateLimit).post("register", use: register)
+        auth.grouped(loginRateLimit).post("login", use: login)
         auth.post("forgot-password", use: forgotPassword)
         auth.post("resend-reset", use: resendReset)
         auth.post("reset-password", use: resetPassword)
@@ -27,6 +31,7 @@ struct AuthController: RouteCollection {
             username: payload.username,
             email: payload.email,
             password: payload.password,
+            confirmPassword: payload.confirmPassword,
             dateOfBirth: payload.dateOfBirth,
             on: req
         )

@@ -28,6 +28,11 @@ typealias BulkStockResponse = StockPlanShared.BulkStockResponse
 typealias TargetRequest = StockPlanShared.TargetRequest
 typealias TargetResponse = StockPlanShared.TargetResponse
 
+struct SellStockRequest: Content, Sendable {
+    let sharesToSell: Double
+    let sellPrice: Double
+}
+
 struct StockInsightsResponse: Content, Sendable, Equatable {
     let generatedAt: String
     let symbol: String

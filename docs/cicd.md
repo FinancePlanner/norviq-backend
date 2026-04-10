@@ -14,6 +14,65 @@ This document outlines the CI/CD options for the StockPlan project (iOS App, Vap
   - Server pulls and runs the same `APP_IMAGE` for `migrate` and `app`.
 - Deploy is gated by `GET /health` check before success.
 
+### Hetzner Hosting Contract (Current)
+
+This is the exact production model in use:
+
+1. CI builds image on GitHub Actions and pushes to GHCR.
+2. Hetzner server only pulls and runs containers (no `docker build` on server).
+3. `APP_IMAGE` is the single source of truth for both `migrate` and `app`.
+4. Deploy succeeds only if `/health` passes after restart.
+
+#### One-Time Hetzner Setup
+
+1. Provision Ubuntu 22.04+ VM.
+2. Install Docker + Compose plugin.
+3. Install Caddy for HTTPS termination.
+4. Clone repo on server and create `.env`.
+5. Set `APP_IMAGE` in `.env` (CI overwrites it to immutable SHA tags on deploy).
+
+Required env contract in production `.env`:
+
+```bash
+APP_IMAGE=ghcr.io/<owner>/<repo>:<git-sha>
+DOMAIN=api.yourdomain.com
+JWT_SECRET=<secret>
+DATABASE_*...
+```
+
+`docker-compose.production.yml` must remain image-only for `app` and `migrate`:
+- keep `image: ${APP_IMAGE:?APP_IMAGE is required}`
+- do not add `build:` in production services
+
+#### Deploy Flow (What Happens on Every Main Deploy)
+
+1. CI computes immutable tag `ghcr.io/<owner>/<repo>:<sha>`.
+2. CI pushes image (and updates `latest`).
+3. CI SSHes into Hetzner host.
+4. Server logs into GHCR and pulls that exact immutable `APP_IMAGE`.
+5. Server runs `migrate` with the same image.
+6. Server restarts `app` (`docker compose ... up -d --no-deps app`).
+7. CI checks `https://<domain>/health`.
+8. CI persists deployed `APP_IMAGE` to server `.env`.
+
+#### Operations Baseline
+
+- Rollback command:
+  - `APP_IMAGE=ghcr.io/<owner>/<repo>:<previous_sha> docker compose -f docker-compose.production.yml up -d --no-deps app`
+- Image cleanup policy:
+  - `docker image prune -af --filter "until=168h"`
+- Keep rollback-safe immutable SHA tags in GHCR retention policy.
+
+#### Hetzner Sizing Baseline
+
+- `CX23` (`2 vCPU / 4 GB RAM / 40 GB SSD`) is an acceptable baseline for one API node + Caddy + Postgres in low/medium early production traffic.
+- Because builds run in CI, this plan avoids Swift compiler memory pressure on the Hetzner host.
+- Scale trigger to watch:
+  - sustained RAM pressure from Postgres + app,
+  - p95 latency drift under concurrent load,
+  - disk growth from logs/images/backups.
+- First upgrade path is usually more RAM before more CPU.
+
 ### Build Artifact Hygiene
 
 When SwiftPM checkout artifacts get stale, builds may show transient warnings like:

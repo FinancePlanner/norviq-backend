@@ -82,7 +82,8 @@ struct StockPlanBackendTests {
         let normalizedIdentifier = String(identifier.prefix(12))
         let register = AuthRegisterRequest(
             username: "test_\(normalizedIdentifier)",
-            password: "Password123",
+            password: "Password123!",
+            confirmPassword: "Password123!",
             email: "test+\(normalizedIdentifier)@example.com",
             dateOfBirth: Date(timeIntervalSince1970: 946_684_800)
         )

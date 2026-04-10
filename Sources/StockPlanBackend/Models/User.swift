@@ -18,7 +18,10 @@ final class User: Model, Authenticatable, @unchecked Sendable {
     var username: String?
 
     @OptionalField(key: "bio")
-    var bio: String?
+    private var bioPlaintext: String?
+
+    @OptionalField(key: "bio_encrypted")
+    var bioEncrypted: Data?
 
     @OptionalField(key: "avatar_url")
     var avatarURLString: String?
@@ -27,16 +30,59 @@ final class User: Model, Authenticatable, @unchecked Sendable {
     var bannerAvatarURLString: String?
 
     @OptionalField(key: "household_partner_display_name")
-    var householdPartnerDisplayName: String?
+    private var householdPartnerDisplayNamePlaintext: String?
+
+    @OptionalField(key: "household_partner_display_name_encrypted")
+    var householdPartnerDisplayNameEncrypted: Data?
 
     @OptionalField(key: "date_of_birth")
-    var dateOfBirth: Date?
+    private var dateOfBirthPlaintext: Date?
+
+    @OptionalField(key: "date_of_birth_encrypted")
+    var dateOfBirthEncrypted: Data?
+
+    @Field(key: "failed_login_attempts")
+    var failedLoginAttempts: Int
+
+    @OptionalField(key: "lockout_until")
+    var lockoutUntil: Date?
+
+    @Field(key: "is_verified")
+    var isVerified: Bool
 
     @Timestamp(key: "created_at", on: .create)
     var createdAt: Date?
 
     @Timestamp(key: "updated_at", on: .update)
     var updatedAt: Date?
+
+    private var decryptedBio: String?
+    private var decryptedHouseholdPartnerDisplayName: String?
+    private var decryptedDateOfBirth: Date?
+
+    var bio: String? {
+        get { decryptedBio ?? bioPlaintext }
+        set {
+            decryptedBio = newValue
+            bioPlaintext = newValue
+        }
+    }
+
+    var householdPartnerDisplayName: String? {
+        get { decryptedHouseholdPartnerDisplayName ?? householdPartnerDisplayNamePlaintext }
+        set {
+            decryptedHouseholdPartnerDisplayName = newValue
+            householdPartnerDisplayNamePlaintext = newValue
+        }
+    }
+
+    var dateOfBirth: Date? {
+        get { decryptedDateOfBirth ?? dateOfBirthPlaintext }
+        set {
+            decryptedDateOfBirth = newValue
+            dateOfBirthPlaintext = newValue
+        }
+    }
 
     init() { }
 
@@ -49,16 +95,75 @@ final class User: Model, Authenticatable, @unchecked Sendable {
         avatarURLString: String? = nil,
         bannerAvatarURLString: String? = nil,
         householdPartnerDisplayName: String? = nil,
-        dateOfBirth: Date? = nil
+        dateOfBirth: Date? = nil,
+        failedLoginAttempts: Int = 0,
+        lockoutUntil: Date? = nil,
+        isVerified: Bool = false
     ) {
         self.id = id
         self.email = email
         self.passwordHash = passwordHash
         self.username = username
-        self.bio = bio
+        self.bioPlaintext = bio
+        self.decryptedBio = bio
         self.avatarURLString = avatarURLString
         self.bannerAvatarURLString = bannerAvatarURLString
-        self.householdPartnerDisplayName = householdPartnerDisplayName
-        self.dateOfBirth = dateOfBirth
+        self.householdPartnerDisplayNamePlaintext = householdPartnerDisplayName
+        self.decryptedHouseholdPartnerDisplayName = householdPartnerDisplayName
+        self.dateOfBirthPlaintext = dateOfBirth
+        self.decryptedDateOfBirth = dateOfBirth
+        self.failedLoginAttempts = failedLoginAttempts
+        self.lockoutUntil = lockoutUntil
+        self.isVerified = isVerified
+    }
+}
+
+extension User {
+    func hydrateProtectedFields(using encryptionService: any UserPIIEncrypting) throws {
+        if let encryptedBio = bioEncrypted {
+            decryptedBio = try encryptionService.decryptString(encryptedBio)
+        } else {
+            decryptedBio = bioPlaintext
+        }
+
+        if let encryptedPartnerName = householdPartnerDisplayNameEncrypted {
+            decryptedHouseholdPartnerDisplayName = try encryptionService.decryptString(encryptedPartnerName)
+        } else {
+            decryptedHouseholdPartnerDisplayName = householdPartnerDisplayNamePlaintext
+        }
+
+        if let encryptedDOB = dateOfBirthEncrypted {
+            let value = try encryptionService.decryptString(encryptedDOB)
+            guard let milliseconds = Int64(value) else {
+                throw UserPIIEncryptionError.invalidPayload
+            }
+            decryptedDateOfBirth = Date(timeIntervalSince1970: TimeInterval(milliseconds) / 1000)
+        } else {
+            decryptedDateOfBirth = dateOfBirthPlaintext
+        }
+    }
+
+    func encryptProtectedFields(using encryptionService: any UserPIIEncrypting) throws {
+        if let bioValue = decryptedBio ?? bioPlaintext {
+            bioEncrypted = try encryptionService.encryptString(bioValue)
+        } else {
+            bioEncrypted = nil
+        }
+        bioPlaintext = nil
+
+        if let partnerName = decryptedHouseholdPartnerDisplayName ?? householdPartnerDisplayNamePlaintext {
+            householdPartnerDisplayNameEncrypted = try encryptionService.encryptString(partnerName)
+        } else {
+            householdPartnerDisplayNameEncrypted = nil
+        }
+        householdPartnerDisplayNamePlaintext = nil
+
+        if let dateOfBirthValue = decryptedDateOfBirth ?? dateOfBirthPlaintext {
+            let millis = Int64((dateOfBirthValue.timeIntervalSince1970 * 1000).rounded())
+            dateOfBirthEncrypted = try encryptionService.encryptString(String(millis))
+        } else {
+            dateOfBirthEncrypted = nil
+        }
+        dateOfBirthPlaintext = nil
     }
 }

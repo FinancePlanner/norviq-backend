@@ -25,6 +25,7 @@ struct StockController: RouteCollection {
         stocks.group("id", ":stockId") { stock in
             stock.get(use: getStock)
             stock.put(use: updateStock)
+            stock.post("sell", use: sellStock)
             stock.delete(use: deleteStock)
         }
 
@@ -117,6 +118,15 @@ struct StockController: RouteCollection {
         try await req.stocksService.delete(
             id: stockId, userId: session.userId, on: req.db)
         return .noContent
+    }
+
+    @Sendable
+    func sellStock(req: Request) async throws -> StockResponse {
+        let session = try req.auth.require(SessionToken.self)
+        let stockId = try requireUUIDParameter(req, name: "stockId", reason: "Invalid stock ID")
+        let payload = try req.content.decode(SellStockRequest.self)
+        return try await req.stocksService.sell(
+            id: stockId, payload: payload, userId: session.userId, on: req.db)
     }
 
     @Sendable

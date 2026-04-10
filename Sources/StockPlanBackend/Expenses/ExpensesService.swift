@@ -122,6 +122,7 @@ final class DefaultExpensesService: ExpensesService {
         guard let user = try await User.find(userId, on: db) else {
             throw Abort(.notFound, reason: "User not found.")
         }
+        try user.hydrateProtectedFields(using: req.userPIIEncryptionService)
         return user
     }
 
@@ -135,7 +136,9 @@ final class DefaultExpensesService: ExpensesService {
     func updateHouseholdPartner(userId: UUID, request: HouseholdPartnerProfileRequest, on db: any Database) async throws -> HouseholdPartnerProfileResponse {
         let user = try await requireUser(userId: userId, on: db)
         user.householdPartnerDisplayName = normalizePartnerName(request.displayName)
+        try user.encryptProtectedFields(using: req.userPIIEncryptionService)
         try await user.update(on: db)
+        try user.hydrateProtectedFields(using: req.userPIIEncryptionService)
         return HouseholdPartnerProfileResponse(displayName: user.householdPartnerDisplayName)
     }
 

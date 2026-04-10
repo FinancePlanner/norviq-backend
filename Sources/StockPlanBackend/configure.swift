@@ -17,8 +17,9 @@ public func configure(_ app: Application) async throws {
     app.traceAutoPropagation = true
     // Clear all default middleware (then, add back route logging)
     app.middleware = .init()
+    let allowedOrigins = Environment.get("ALLOWED_ORIGINS")?.split(separator: ",").map { String($0) } ?? ["http://localhost:3000", "http://localhost:8080"]
     let corsConfiguration = CORSMiddleware.Configuration(
-        allowedOrigin: .all,
+        allowedOrigin: .any(allowedOrigins), // In production, this should be more restricted.
         allowedMethods: [.GET, .POST, .PUT, .OPTIONS, .DELETE, .PATCH],
         allowedHeaders: [.accept, .authorization, .contentType, .origin, .xRequestedWith, .userAgent, .accessControlAllowOrigin]
     )
@@ -50,7 +51,8 @@ public func configure(_ app: Application) async throws {
 
     let jwtSecret = Environment.get("JWT_SECRET") ?? "dev-secret"
     await app.jwt.keys.add(hmac: HMACKey(from: jwtSecret), digestAlgorithm: .sha256)
-    app.authRepository = DatabaseAuthRepository()
+    app.userPIIEncryptionService = try UserPIIEncryptionBootstrap.fromEnvironment(app: app)
+    app.authRepository = DatabaseAuthRepository(encryptionService: app.userPIIEncryptionService)
     var oauthProviders: [OAuthProvider: any OAuthProviderClient] = [:]
     if let appleConfig = AppleOAuthProviderClient.Config.fromEnvironment() {
         oauthProviders[.apple] = AppleOAuthProviderClient(config: appleConfig)
@@ -146,7 +148,7 @@ public func configure(_ app: Application) async throws {
         repo: app.dashboardRepository,
         statisticsRepo: app.statisticsRepository
     )
-    app.userProfileRepository = DatabaseUserProfileRepository()
+    app.userProfileRepository = DatabaseUserProfileRepository(encryptionService: app.userPIIEncryptionService)
     app.userProfileService = DefaultUserProfileService(repo: app.userProfileRepository)
 
     let earningsProvider: any EarningsProvider
@@ -168,6 +170,7 @@ public func configure(_ app: Application) async throws {
     app.lifecycle.use(AuthTokenCleanup(interval: TimeInterval(cleanupIntervalMinutes * 60)))
 
     app.migrations.add(CreateUser())
+    app.migrations.add(AddAccountLockoutAndVerificationFields())
     app.migrations.add(AddUserProfileFields())
     app.migrations.add(DeleteFirstNameLastName())
     app.migrations.add(AddUserProfileMetadataFields())
@@ -216,6 +219,8 @@ public func configure(_ app: Application) async throws {
     app.migrations.add(AddExpenseSharingFields())
     app.migrations.add(CreateReportSuggestionDismissals())
     app.migrations.add(AddHouseholdPartnerDisplayNameToUsers())
+    app.migrations.add(AddEncryptedUserProfileFields())
+    app.migrations.add(BackfillEncryptedUserProfileFields())
     app.migrations.add(CreateUserActivity())
     app.migrations.add(AddNewsViewedActivityType())
     app.migrations.add(CreateUserBadge())

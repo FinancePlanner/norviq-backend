@@ -63,6 +63,7 @@ protocol StockService: Sendable {
         on db: any Database
     ) async throws -> StockValuationRequest
     func delete(id: UUID, userId: UUID, on db: any Database) async throws
+    func sell(id: UUID, payload: SellStockRequest, userId: UUID, on db: any Database) async throws -> StockResponse
 }
 
 struct StockServiceImpl: StockService {
@@ -294,6 +295,72 @@ struct StockServiceImpl: StockService {
         let deleted = try await repo.delete(id: id, userId: userId, on: db)
         guard deleted else {
             throw StockServiceError.notFound
+        }
+    }
+
+    func sell(id: UUID, payload: SellStockRequest, userId: UUID, on db: any Database) async throws -> StockResponse {
+        guard let stock = try await repo.find(id: id, userId: userId, on: db) else {
+            throw StockServiceError.notFound
+        }
+
+        guard payload.sharesToSell > 0 else {
+            throw Abort(.badRequest, reason: "Shares to sell must be greater than 0.")
+        }
+
+        guard payload.sharesToSell <= stock.shares else {
+            throw Abort(.badRequest, reason: "Cannot sell more shares than owned.")
+        }
+
+        let proceeds = payload.sharesToSell * payload.sellPrice
+
+        return try await db.transaction { transactionDB in
+            // 1. Update/Delete Stock
+            if payload.sharesToSell == stock.shares {
+                _ = try await repo.delete(id: id, userId: userId, on: transactionDB)
+                stock.shares = 0
+            } else {
+                stock.shares -= payload.sharesToSell
+                try await stock.save(on: transactionDB)
+            }
+
+            // 2. Find Account (needed for CashBalance)
+            // We look for any account belonging to the user.
+            guard let account = try await Account.query(on: transactionDB).filter(\.$userId == userId).first() else {
+                throw Abort(.badRequest, reason: "No brokerage account found to deposit cash proceeds. Please create an account first.")
+            }
+
+            // 3. Update CashBalance
+            let currency = "USD" // Fallback, ideally should match account/stock
+            if let existingCash = try await CashBalance.query(on: transactionDB)
+                .filter(\.$accountId == account.id!)
+                .filter(\.$currency == currency)
+                .first() {
+                existingCash.balance += proceeds
+                existingCash.asOf = Date()
+                try await existingCash.save(on: transactionDB)
+            } else {
+                let newCash = CashBalance(
+                    accountId: account.id!,
+                    currency: currency,
+                    balance: proceeds,
+                    asOf: Date()
+                )
+                try await newCash.save(on: transactionDB)
+            }
+
+            // 4. Record Activity
+            try? await req.userActivityService.recordActivity(
+                userId: userId,
+                type: .stockUpdated,
+                title: stock.symbol,
+                subtitle: "Sold \(payload.sharesToSell) shares",
+                amount: proceeds,
+                isGrowth: true,
+                symbol: "minus.circle.fill",
+                on: transactionDB
+            )
+
+            return try StockResponse(from: stock)
         }
     }
 

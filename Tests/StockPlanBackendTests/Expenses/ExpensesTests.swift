@@ -43,7 +43,8 @@ struct ExpensesTests {
         let identifier = UUID().uuidString.prefix(8).lowercased()
         let register = AuthRegisterRequest(
             username: "exp_user_\(identifier)",
-            password: "Password123",
+            password: "Password123!",
+            confirmPassword: "Password123!",
             email: "exp_\(identifier)@example.com",
             dateOfBirth: Date(timeIntervalSince1970: 946_684_800)
         )
