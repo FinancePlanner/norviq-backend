@@ -32,8 +32,8 @@ public func configure(_ app: Application) async throws {
     app.middleware.use(TracingMiddleware())
 
     // Configure global JSON decoder and encoder
-    ContentConfiguration.global.use(decoder: JSONDecoder.stockPlanShared, for: .json)
-    ContentConfiguration.global.use(encoder: JSONEncoder.stockPlanShared, for: .json)
+    ContentConfiguration.global.use(decoder: JSONDecoder.backendAPI, for: .json)
+    ContentConfiguration.global.use(encoder: JSONEncoder.backendAPI, for: .json)
 
     app.databases.use(DatabaseConfigurationFactory.postgres(configuration: .init(
         hostname: Environment.get("DATABASE_HOST") ?? "localhost",
@@ -172,6 +172,7 @@ public func configure(_ app: Application) async throws {
     app.migrations.add(DeleteFirstNameLastName())
     app.migrations.add(AddUserProfileMetadataFields())
 
+    app.migrations.add(CreateGoal())
     app.migrations.add(AddGoalStatusFields())
     app.migrations.add(CreateAccount())
     app.migrations.add(CreateInstrument())
@@ -188,6 +189,7 @@ public func configure(_ app: Application) async throws {
     app.migrations.add(AddAssetCategoryToStocks())
     app.migrations.add(CreateWatchlistItem())
     app.migrations.add(AddWatchlistMetadataFields())
+    app.migrations.add(CreateNewsItem())
     app.migrations.add(CreateResearchNote())
     app.migrations.add(CreateTarget())
     app.migrations.add(CreatePriceHistory())

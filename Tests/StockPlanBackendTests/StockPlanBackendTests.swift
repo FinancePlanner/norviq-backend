@@ -48,18 +48,30 @@ struct StockPlanBackendTests {
 
     private func withApp(_ test: (Application) async throws -> ()) async throws {
         try await DatabaseTestLock.withLock {
-            let app = try await Application.make(.testing)
-            do {
-                try await configure(app)
-                try await app.autoMigrate()
-                try await test(app)
-                try await app.autoRevert()
-            } catch {
-                try? await app.autoRevert()
-                try await app.asyncShutdown()
-                throw error
+            for attempt in 0..<2 {
+                let app = try await Application.make(.testing)
+                do {
+                    try await configure(app)
+                    try await app.autoMigrate()
+                    try await test(app)
+                    try await app.autoRevert()
+                    try await app.asyncShutdown()
+                    return
+                } catch {
+                    try? await app.autoRevert()
+                    try? await app.asyncShutdown()
+                    let reflected = String(reflecting: error)
+                    let isTransientDBRestart = reflected.contains("sqlState: 57P01")
+                        || reflected.contains("sqlState: 57P03")
+                        || reflected.contains("database system is shutting down")
+                        || reflected.contains("terminating connection due to administrator command")
+                    if attempt == 0 && isTransientDBRestart {
+                        try await Task.sleep(for: .milliseconds(750))
+                        continue
+                    }
+                    throw error
+                }
             }
-            try await app.asyncShutdown()
         }
     }
 

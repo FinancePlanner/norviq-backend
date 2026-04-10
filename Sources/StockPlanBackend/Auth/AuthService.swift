@@ -68,13 +68,19 @@ struct DefaultAuthService: AuthService {
         }
 
         let hash = try req.password.hash(password)
-        let user = try await repo.createUser(
-            username: normalizedUsername,
-            email: normalizedEmail,
-            passwordHash: hash,
-            dateOfBirth: dateOfBirth,
-            on: req.db
-        )
+        let user: User
+        do {
+            user = try await repo.createUser(
+                username: normalizedUsername,
+                email: normalizedEmail,
+                passwordHash: hash,
+                dateOfBirth: dateOfBirth,
+                on: req.db
+            )
+        } catch {
+            req.logger.error("Error creating user: \(String(reflecting: error))")
+            throw error
+        }
         return try await makeAuthResponse(for: user, on: req)
     }
 

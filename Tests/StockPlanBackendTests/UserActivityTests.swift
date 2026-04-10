@@ -25,8 +25,9 @@ struct UserActivityTests {
     }
 
     private func createTestUser(app: Application, email: String = "test@example.com") async throws -> (User, String) {
+        let uniqueSuffix = UUID().uuidString.replacingOccurrences(of: "-", with: "").prefix(10).lowercased()
         let registerReq = AuthRegisterRequest(
-            username: "testuser",
+            username: "user_\(uniqueSuffix)",
             password: "Password123",
             email: email,
             dateOfBirth: Date(timeIntervalSince1970: 946_684_800)
@@ -36,6 +37,7 @@ struct UserActivityTests {
         try await app.testing().test(.POST, "v1/auth/register", beforeRequest: { req in
             try req.content.encode(registerReq)
         }, afterResponse: { res async throws in
+            #expect(res.status == .ok)
             let response = try res.content.decode(AuthResponse.self)
             token = response.token
         })
@@ -223,7 +225,7 @@ struct UserActivityTests {
                 req.headers.bearerAuthorization = BearerAuthorization(token: token)
                 try req.content.encode(stockReq)
             }, afterResponse: { res async in
-                #expect(res.status == .ok)
+                #expect(res.status == .created)
             })
             
             // Check that activity was recorded
@@ -234,7 +236,8 @@ struct UserActivityTests {
                 let activities = try res.content.decode([UserActivityResponse].self)
                 #expect(activities.count == 1)
                 #expect(activities[0].type == .stockAdded)
-                #expect(activities[0].subtitle.contains("AAPL"))
+                #expect(activities[0].title == "AAPL")
+                #expect(activities[0].subtitle == "Added to portfolio")
             })
         }
     }
@@ -266,7 +269,7 @@ struct UserActivityTests {
                 req.headers.bearerAuthorization = BearerAuthorization(token: token)
                 try req.content.encode(expenseReq)
             }, afterResponse: { res async in
-                #expect(res.status == .ok)
+                #expect(res.status == .created)
             })
             
             // Check that activity was recorded

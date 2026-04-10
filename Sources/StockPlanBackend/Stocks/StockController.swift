@@ -13,6 +13,8 @@ struct StockController: RouteCollection {
 
         // Symbol-based routes (use explicit "symbol" prefix to avoid conflicts)
         stocks.get("symbol", ":symbol", "insights", use: getStockInsights)
+        // Backward-compatible route retained for clients/contracts using /v1/stocks/{symbol}/insights.
+        stocks.get(":symbol", "insights", use: getStockInsights)
         stocks.group("symbol", ":symbol", "valuation") { valuation in
             valuation.get(use: getStockValuation)
             valuation.post(use: createStockValuation)
