@@ -3,11 +3,23 @@ import Foundation
 import Fluent
 
 struct PortfolioController: RouteCollection {
+    private struct PortfolioFilterQuery: Content {
+        let portfolioListId: String?
+    }
+
     func boot(routes: any RoutesBuilder) throws {
         let protected = routes.grouped(SessionToken.authenticator(), SessionToken.guardMiddleware())
         let portfolio = protected.grouped("portfolio")
         portfolio.get("summary", use: summary)
         portfolio.get("performance", use: performance)
+        portfolio.group("lists") { lists in
+            lists.get(use: listPortfolioLists)
+            lists.post(use: createPortfolioList)
+            lists.group(":portfolioListId") { list in
+                list.patch(use: updatePortfolioList)
+                list.delete(use: deletePortfolioList)
+            }
+        }
 
         protected.get("transactions", use: transactions)
         protected.get("lots", use: lots)
@@ -17,9 +29,20 @@ struct PortfolioController: RouteCollection {
     @Sendable
     func summary(req: Request) async throws -> PortfolioSummaryResponse {
         let session = try req.auth.require(SessionToken.self)
-        let stocks = try await Stock.query(on: req.db)
+        let query = try req.query.decode(PortfolioFilterQuery.self)
+        let resolvedListId = try await resolvePortfolioListId(
+            requestedId: query.portfolioListId,
+            userId: session.userId,
+            on: req.db,
+            defaultWhenMissing: false
+        )
+
+        let stocksQuery = Stock.query(on: req.db)
             .filter(\.$userId == session.userId)
-            .all()
+        if let resolvedListId {
+            stocksQuery.filter(\.$portfolioListId == resolvedListId)
+        }
+        let stocks = try await stocksQuery.all()
         let cashBalance = try await totalCashBalance(userId: session.userId, on: req.db)
 
         var allocation = stocks
@@ -57,9 +80,19 @@ struct PortfolioController: RouteCollection {
     @Sendable
     func performance(req: Request) async throws -> PortfolioPerformanceResponse {
         let session = try req.auth.require(SessionToken.self)
-        let stocks = try await Stock.query(on: req.db)
+        let query = try req.query.decode(PortfolioFilterQuery.self)
+        let resolvedListId = try await resolvePortfolioListId(
+            requestedId: query.portfolioListId,
+            userId: session.userId,
+            on: req.db,
+            defaultWhenMissing: false
+        )
+        let stocksQuery = Stock.query(on: req.db)
             .filter(\.$userId == session.userId)
-            .all()
+        if let resolvedListId {
+            stocksQuery.filter(\.$portfolioListId == resolvedListId)
+        }
+        let stocks = try await stocksQuery.all()
 
         let holdingsValue = stocks.reduce(0.0) { $0 + ($1.shares * $1.buyPrice) }
         let cashBalance = try await totalCashBalance(userId: session.userId, on: req.db)
@@ -109,6 +142,128 @@ struct PortfolioController: RouteCollection {
         return PnlResponse(baseCurrency: "USD", items: items)
     }
 
+    @Sendable
+    func listPortfolioLists(req: Request) async throws -> [PortfolioListResponse] {
+        let session = try req.auth.require(SessionToken.self)
+
+        if try await PortfolioList.query(on: req.db)
+            .filter(\.$userId == session.userId)
+            .count() == 0 {
+            _ = try await ensureDefaultPortfolioListId(userId: session.userId, on: req.db)
+        }
+
+        let lists = try await PortfolioList.query(on: req.db)
+            .filter(\.$userId == session.userId)
+            .sort(\.$isDefault, .descending)
+            .sort(\.$createdAt, .ascending)
+            .all()
+
+        return lists.map(makePortfolioListResponse)
+    }
+
+    @Sendable
+    func createPortfolioList(req: Request) async throws -> Response {
+        let session = try req.auth.require(SessionToken.self)
+        let payload = try req.content.decode(PortfolioListRequest.self)
+        let name = try normalizeListName(payload.name)
+
+        let list = PortfolioList(userId: session.userId, name: name, isDefault: false)
+        try await list.save(on: req.db)
+
+        let res = Response(status: .created)
+        try res.content.encode(makePortfolioListResponse(from: list))
+        return res
+    }
+
+    @Sendable
+    func updatePortfolioList(req: Request) async throws -> PortfolioListResponse {
+        let session = try req.auth.require(SessionToken.self)
+        let listId = try requireUUIDParameter(
+            req,
+            name: "portfolioListId",
+            reason: "Invalid portfolio list ID"
+        )
+        let payload = try req.content.decode(PortfolioListRequest.self)
+        let name = try normalizeListName(payload.name)
+
+        guard let list = try await PortfolioList.query(on: req.db)
+            .filter(\.$id == listId)
+            .filter(\.$userId == session.userId)
+            .first() else {
+            throw Abort(.notFound, reason: "Portfolio list not found.")
+        }
+
+        list.name = name
+        try await list.save(on: req.db)
+        return makePortfolioListResponse(from: list)
+    }
+
+    @Sendable
+    func deletePortfolioList(req: Request) async throws -> HTTPStatus {
+        let session = try req.auth.require(SessionToken.self)
+        let listId = try requireUUIDParameter(
+            req,
+            name: "portfolioListId",
+            reason: "Invalid portfolio list ID"
+        )
+
+        try await req.db.transaction { tx in
+            guard let list = try await PortfolioList.query(on: tx)
+                .filter(\.$id == listId)
+                .filter(\.$userId == session.userId)
+                .first() else {
+                throw Abort(.notFound, reason: "Portfolio list not found.")
+            }
+
+            if list.isDefault {
+                throw Abort(.badRequest, reason: "Default portfolio list cannot be deleted.")
+            }
+
+            guard let defaultListId = try await resolvePortfolioListId(
+                requestedId: nil,
+                userId: session.userId,
+                on: tx,
+                defaultWhenMissing: true
+            ) else {
+                throw Abort(.internalServerError, reason: "Failed to resolve default portfolio list.")
+            }
+
+            let stocks = try await Stock.query(on: tx)
+                .filter(\.$userId == session.userId)
+                .filter(\.$portfolioListId == listId)
+                .all()
+
+            for stock in stocks {
+                if let stockId = stock.id,
+                    let duplicate = try await Stock.query(on: tx)
+                        .filter(\.$userId == session.userId)
+                        .filter(\.$portfolioListId == defaultListId)
+                        .filter(\.$symbol == stock.symbol)
+                        .filter(\.$id != stockId)
+                        .first()
+                {
+                    let mergedShares = duplicate.shares + stock.shares
+                    let mergedCostBasis = (duplicate.shares * duplicate.buyPrice) + (stock.shares * stock.buyPrice)
+                    duplicate.shares = mergedShares
+                    duplicate.buyPrice = mergedShares != 0 ? mergedCostBasis / mergedShares : 0
+                    duplicate.buyDate = min(duplicate.buyDate, stock.buyDate)
+                    duplicate.notes = duplicate.notes ?? stock.notes
+                    duplicate.category = stock.category
+                    try await duplicate.save(on: tx)
+                    try await stock.delete(on: tx)
+                    continue
+                }
+
+                stock.portfolioListId = defaultListId
+                try await stock.save(on: tx)
+            }
+
+            try await list.delete(on: tx)
+        }
+
+        return .noContent
+    }
+
     private func totalCashBalance(userId: UUID, on db: any Database) async throws -> Double {
         let accounts = try await Account.query(on: db)
             .filter(\.$userId == userId)
@@ -133,6 +288,24 @@ struct PortfolioController: RouteCollection {
         }
 
         return latestByAccountCurrency.values.reduce(0) { $0 + max(0, $1.balance) }
+    }
+
+    private func requireUUIDParameter(_ req: Request, name: String, reason: String) throws -> UUID {
+        guard let raw = req.parameters.get(name), let value = UUID(uuidString: raw) else {
+            throw Abort(.badRequest, reason: reason)
+        }
+        return value
+    }
+
+    private func makePortfolioListResponse(from model: PortfolioList) -> PortfolioListResponse {
+        let id = model.id ?? UUID()
+        return PortfolioListResponse(
+            id: id.uuidString,
+            name: model.name,
+            isDefault: model.isDefault,
+            createdAt: formatISODateTime(model.createdAt),
+            updatedAt: formatISODateTime(model.updatedAt)
+        )
     }
 
     private func formatISODateOnly(_ date: Date) -> String {

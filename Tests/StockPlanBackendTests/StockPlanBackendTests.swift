@@ -1657,9 +1657,11 @@ struct StockPlanBackendTests {
     func newsFeedReturnsTrackedAndLimitedResults() async throws {
         try await withApp { app in
             let (token, userId) = try await registerTestUser(app: app)
+            let seededLists = try await seedDefaultLists(userId: userId, on: app.db)
 
             let stock = Stock(
                 userId: userId,
+                portfolioListId: seededLists.portfolioListId,
                 symbol: "AAPL",
                 shares: 3,
                 buyPrice: 100,
@@ -1667,7 +1669,11 @@ struct StockPlanBackendTests {
             )
             try await stock.save(on: app.db)
 
-            let watchlist = WatchlistItem(userId: userId, symbol: "MSFT")
+            let watchlist = WatchlistItem(
+                userId: userId,
+                watchlistListId: seededLists.watchlistListId,
+                symbol: "MSFT"
+            )
             try await watchlist.save(on: app.db)
 
             let trackedRecent = NewsItem(
@@ -1740,16 +1746,27 @@ struct StockPlanBackendTests {
         try await withApp { app in
             let (_, user1Id) = try await registerTestUser(app: app, identifier: "finnhubnews1")
             let (_, user2Id) = try await registerTestUser(app: app, identifier: "finnhubnews2")
+            let user1Lists = try await seedDefaultLists(userId: user1Id, on: app.db)
+            let user2Lists = try await seedDefaultLists(userId: user2Id, on: app.db)
 
             try await Stock(
                 userId: user1Id,
+                portfolioListId: user1Lists.portfolioListId,
                 symbol: "AAPL",
                 shares: 5,
                 buyPrice: 100,
                 buyDate: Date()
             ).save(on: app.db)
-            try await WatchlistItem(userId: user1Id, symbol: "MSFT").save(on: app.db)
-            try await WatchlistItem(userId: user2Id, symbol: "AAPL").save(on: app.db)
+            try await WatchlistItem(
+                userId: user1Id,
+                watchlistListId: user1Lists.watchlistListId,
+                symbol: "MSFT"
+            ).save(on: app.db)
+            try await WatchlistItem(
+                userId: user2Id,
+                watchlistListId: user2Lists.watchlistListId,
+                symbol: "AAPL"
+            ).save(on: app.db)
 
             let payload = FinnhubNewsWebhookRequest(news: [
                 FinnhubNewsWebhookItem(
@@ -1848,15 +1865,21 @@ struct StockPlanBackendTests {
     func newsSyncPersistsProviderItems() async throws {
         try await withApp { app in
             let (token, userId) = try await registerTestUser(app: app, identifier: "newssync")
+            let seededLists = try await seedDefaultLists(userId: userId, on: app.db)
 
             try await Stock(
                 userId: userId,
+                portfolioListId: seededLists.portfolioListId,
                 symbol: "AAPL",
                 shares: 5,
                 buyPrice: 100,
                 buyDate: Date()
             ).save(on: app.db)
-            try await WatchlistItem(userId: userId, symbol: "MSFT").save(on: app.db)
+            try await WatchlistItem(
+                userId: userId,
+                watchlistListId: seededLists.watchlistListId,
+                symbol: "MSFT"
+            ).save(on: app.db)
 
             let publishedAt = Date(timeIntervalSince1970: 1_774_884_000)
             let providerState = TestNewsProviderState(batches: [
@@ -1951,9 +1974,11 @@ struct StockPlanBackendTests {
     func dashboardReturnsAggregateMetrics() async throws {
         try await withApp { app in
             let (token, userId) = try await registerTestUser(app: app)
+            let seededLists = try await seedDefaultLists(userId: userId, on: app.db)
 
             let aapl = Stock(
                 userId: userId,
+                portfolioListId: seededLists.portfolioListId,
                 symbol: "AAPL",
                 shares: 10,
                 buyPrice: 100,
@@ -1961,6 +1986,7 @@ struct StockPlanBackendTests {
             )
             let msft = Stock(
                 userId: userId,
+                portfolioListId: seededLists.portfolioListId,
                 symbol: "MSFT",
                 shares: 5,
                 buyPrice: 200,
@@ -1986,7 +2012,11 @@ struct StockPlanBackendTests {
             try await aaplQuote.save(on: app.db)
             try await msftQuote.save(on: app.db)
 
-            let watchlist = WatchlistItem(userId: userId, symbol: "GOOGL")
+            let watchlist = WatchlistItem(
+                userId: userId,
+                watchlistListId: seededLists.watchlistListId,
+                symbol: "GOOGL"
+            )
             try await watchlist.save(on: app.db)
 
             let research = ResearchNote(
@@ -2403,6 +2433,266 @@ struct StockPlanBackendTests {
         }
     }
 
+    @Test("APNS device registration upserts the same token idempotently")
+    func apnsDeviceRegistrationUpsertsTokenIdempotently() async throws {
+        try await withApp { app in
+            let (token, userId) = try await registerTestUser(app: app)
+
+            var firstResponse: PushDeviceRegistrationResponse?
+            try await app.testing().test(.PUT, "v1/notifications/apns/device", beforeRequest: { req in
+                req.headers.bearerAuthorization = .init(token: token)
+                try req.content.encode(
+                    PushDeviceRegistrationRequest(
+                        deviceToken: " ABC123TOKEN ",
+                        platform: .ios,
+                        apnsEnvironment: .development,
+                        authorizationStatus: .authorized
+                    )
+                )
+            }, afterResponse: { res async throws in
+                #expect(res.status == .ok)
+                firstResponse = try res.content.decode(PushDeviceRegistrationResponse.self)
+            })
+
+            var secondResponse: PushDeviceRegistrationResponse?
+            try await app.testing().test(.PUT, "v1/notifications/apns/device", beforeRequest: { req in
+                req.headers.bearerAuthorization = .init(token: token)
+                try req.content.encode(
+                    PushDeviceRegistrationRequest(
+                        deviceToken: "abc123token",
+                        platform: .ios,
+                        apnsEnvironment: .production,
+                        authorizationStatus: .provisional
+                    )
+                )
+            }, afterResponse: { res async throws in
+                #expect(res.status == .ok)
+                secondResponse = try res.content.decode(PushDeviceRegistrationResponse.self)
+            })
+
+            #expect(firstResponse?.id == secondResponse?.id)
+            #expect(secondResponse?.apnsEnvironment == .production)
+            #expect(secondResponse?.authorizationStatus == .provisional)
+
+            let devices = try await PushDevice.query(on: app.db)
+                .filter(\.$deviceToken == "abc123token")
+                .all()
+            #expect(devices.count == 1)
+            #expect(devices.first?.userId == userId)
+            #expect(devices.first?.isActive == true)
+            #expect(devices.first?.apnsEnvironment == PushAPNSEnvironment.production.rawValue)
+        }
+    }
+
+    @Test("APNS device deactivate marks token inactive")
+    func apnsDeviceDeactivateMarksTokenInactive() async throws {
+        try await withApp { app in
+            let (token, userId) = try await registerTestUser(app: app)
+
+            let registered = PushDevice(
+                userId: userId,
+                deviceToken: "deactivate-token",
+                platform: PushPlatform.ios.rawValue,
+                apnsEnvironment: PushAPNSEnvironment.development.rawValue,
+                authorizationStatus: PushAuthorizationStatus.authorized.rawValue,
+                isActive: true,
+                lastSeenAt: Date()
+            )
+            try await registered.save(on: app.db)
+
+            try await app.testing().test(.POST, "v1/notifications/apns/device/deactivate", beforeRequest: { req in
+                req.headers.bearerAuthorization = .init(token: token)
+                try req.content.encode(PushDeviceDeactivateRequest(deviceToken: "deactivate-token"))
+            }, afterResponse: { res async throws in
+                #expect(res.status == .ok)
+            })
+
+            let updated = try await PushDevice.query(on: app.db)
+                .filter(\.$userId == userId)
+                .filter(\.$deviceToken == "deactivate-token")
+                .first()
+            #expect(updated != nil)
+            #expect(updated?.isActive == false)
+        }
+    }
+
+    @Test("APNS device endpoints require authentication")
+    func apnsDeviceEndpointsRequireAuthentication() async throws {
+        try await withApp { app in
+            try await app.testing().test(.PUT, "v1/notifications/apns/device", beforeRequest: { req in
+                try req.content.encode(
+                    PushDeviceRegistrationRequest(
+                        deviceToken: "token-1",
+                        platform: .ios,
+                        apnsEnvironment: .development,
+                        authorizationStatus: .authorized
+                    )
+                )
+            }, afterResponse: { res async throws in
+                #expect(res.status == .unauthorized)
+            })
+
+            try await app.testing().test(.POST, "v1/notifications/apns/device/deactivate", beforeRequest: { req in
+                try req.content.encode(PushDeviceDeactivateRequest(deviceToken: "token-1"))
+            }, afterResponse: { res async throws in
+                #expect(res.status == .unauthorized)
+            })
+        }
+    }
+
+    @Test("Target alert evaluator triggers bull/bear and does not duplicate after trigger")
+    func targetAlertEvaluatorTriggersAndDedupes() async throws {
+        try await withApp { app in
+            let (_, userId) = try await registerTestUser(app: app)
+
+            let marketState = TestMarketProviderState()
+            app.marketDataService = makeTestMarketService(state: marketState)
+
+            let senderState = TestPushSenderState(queuedSummaries: [
+                .init(delivered: 1, failed: 0),
+                .init(delivered: 1, failed: 0)
+            ])
+            app.pushNotificationSender = TestPushNotificationSender(state: senderState)
+
+            let device = PushDevice(
+                userId: userId,
+                deviceToken: "token-trigger",
+                platform: PushPlatform.ios.rawValue,
+                apnsEnvironment: PushAPNSEnvironment.development.rawValue,
+                authorizationStatus: PushAuthorizationStatus.authorized.rawValue,
+                isActive: true,
+                lastSeenAt: Date()
+            )
+            try await device.save(on: app.db)
+
+            let bull = Target(userId: userId, symbol: "AAPL", scenario: "bull", targetPrice: 100)
+            let bear = Target(userId: userId, symbol: "MSFT", scenario: "bear", targetPrice: 105)
+            let baseNotTriggered = Target(userId: userId, symbol: "TSLA", scenario: "base", targetPrice: 120)
+            try await bull.save(on: app.db)
+            try await bear.save(on: app.db)
+            try await baseNotTriggered.save(on: app.db)
+
+            let req = Request(application: app, on: app.eventLoopGroup.next())
+            await app.targetAlertEvaluator.evaluateUnresolvedTargets(req: req)
+            await app.targetAlertEvaluator.evaluateUnresolvedTargets(req: req)
+
+            let sendCount = await senderState.callCount()
+            #expect(sendCount == 2)
+
+            let sentSymbols = await senderState.sentSymbols()
+            #expect(sentSymbols.contains("AAPL"))
+            #expect(sentSymbols.contains("MSFT"))
+            #expect(!sentSymbols.contains("TSLA"))
+
+            let reloadedBull = try await Target.find(bull.id, on: app.db)
+            let reloadedBear = try await Target.find(bear.id, on: app.db)
+            let reloadedBase = try await Target.find(baseNotTriggered.id, on: app.db)
+
+            #expect(reloadedBull?.alertTriggeredAt != nil)
+            #expect(reloadedBull?.alertTriggeredPrice == 101.25)
+            #expect(reloadedBear?.alertTriggeredAt != nil)
+            #expect(reloadedBear?.alertTriggeredPrice == 101.25)
+            #expect(reloadedBase?.alertTriggeredAt == nil)
+        }
+    }
+
+    @Test("Target alert evaluator does not mark target triggered when all deliveries fail")
+    func targetAlertEvaluatorDoesNotMarkTriggeredWhenDeliveryFails() async throws {
+        try await withApp { app in
+            let (_, userId) = try await registerTestUser(app: app)
+
+            let marketState = TestMarketProviderState()
+            app.marketDataService = makeTestMarketService(state: marketState)
+
+            let senderState = TestPushSenderState(queuedSummaries: [
+                .init(delivered: 0, failed: 1)
+            ])
+            app.pushNotificationSender = TestPushNotificationSender(state: senderState)
+
+            let device = PushDevice(
+                userId: userId,
+                deviceToken: "token-fail",
+                platform: PushPlatform.ios.rawValue,
+                apnsEnvironment: PushAPNSEnvironment.development.rawValue,
+                authorizationStatus: PushAuthorizationStatus.authorized.rawValue,
+                isActive: true,
+                lastSeenAt: Date()
+            )
+            try await device.save(on: app.db)
+
+            let target = Target(userId: userId, symbol: "NVDA", scenario: "bull", targetPrice: 100)
+            try await target.save(on: app.db)
+
+            let req = Request(application: app, on: app.eventLoopGroup.next())
+            await app.targetAlertEvaluator.evaluateUnresolvedTargets(req: req)
+
+            let sendCount = await senderState.callCount()
+            #expect(sendCount == 1)
+
+            let reloaded = try await Target.find(target.id, on: app.db)
+            #expect(reloaded?.alertTriggeredAt == nil)
+            #expect(reloaded?.alertTriggeredPrice == nil)
+        }
+    }
+
+    @Test("Updating target resets alert-triggered state")
+    func updatingTargetResetsAlertTriggeredState() async throws {
+        try await withApp { app in
+            let (token, userId) = try await registerTestUser(app: app)
+
+            let target = Target(
+                userId: userId,
+                symbol: "AAPL",
+                scenario: "bull",
+                targetPrice: 100,
+                targetDate: nil,
+                rationale: "Before reset",
+                alertTriggeredAt: Date(),
+                alertTriggeredPrice: 100
+            )
+            try await target.save(on: app.db)
+
+            guard let targetId = target.id else {
+                Issue.record("Target id missing after save")
+                return
+            }
+
+            try await app.testing().test(.PUT, "v1/targets/\(targetId)", beforeRequest: { req in
+                req.headers.bearerAuthorization = .init(token: token)
+                try req.content.encode(
+                    TargetRequest(
+                        symbol: "AAPL",
+                        scenario: "bull",
+                        targetPrice: 120,
+                        targetDate: nil,
+                        rationale: "After reset"
+                    )
+                )
+            }, afterResponse: { res async throws in
+                #expect(res.status == .ok)
+            })
+
+            let updated = try await Target.find(targetId, on: app.db)
+            #expect(updated?.targetPrice == 120)
+            #expect(updated?.alertTriggeredAt == nil)
+            #expect(updated?.alertTriggeredPrice == nil)
+        }
+    }
+
+    @Test("Target alert poller runOnce invokes evaluator")
+    func targetAlertPollerRunOnceInvokesEvaluator() async throws {
+        try await withApp { app in
+            let evaluatorState = TestTargetAlertEvaluatorState()
+            app.targetAlertEvaluator = TestTargetAlertEvaluator(state: evaluatorState)
+
+            let poller = TargetAlertPoller(intervalSeconds: 300, initialDelaySeconds: 0)
+            await poller.runOnce(app)
+
+            let calls = await evaluatorState.callCount()
+            #expect(calls == 1)
+        }
+    }
+
     @Test("Balance sheet DTO decodes both lease-current key variants")
     func balanceSheetDTOAcceptsBothLeaseCurrentKeys() throws {
         let decoder = JSONDecoder()
@@ -2497,6 +2787,64 @@ struct StockPlanBackendTests {
         let payload = try encoder.encode(response)
         let text = String(decoding: payload, as: UTF8.self)
         #expect(text.contains("\"capitalLeaseObligationsCurrent\""))
+    }
+}
+
+actor TestPushSenderState {
+    private var summaries: [TargetPushSendSummary]
+    private var calls: [(symbol: String, scenario: String)] = []
+
+    init(queuedSummaries: [TargetPushSendSummary]) {
+        summaries = queuedSummaries
+    }
+
+    func recordSend(symbol: String, scenario: String) -> TargetPushSendSummary {
+        calls.append((symbol: symbol, scenario: scenario))
+        if !summaries.isEmpty {
+            return summaries.removeFirst()
+        }
+        return .init(delivered: 1, failed: 0)
+    }
+
+    func callCount() -> Int {
+        calls.count
+    }
+
+    func sentSymbols() -> [String] {
+        calls.map(\.symbol)
+    }
+}
+
+struct TestPushNotificationSender: PushNotificationSending {
+    let state: TestPushSenderState
+
+    func sendTargetHit(
+        target: Target,
+        currentPrice: Double,
+        devices: [PushDevice],
+        req: Request
+    ) async -> TargetPushSendSummary {
+        await state.recordSend(symbol: target.symbol, scenario: target.scenario)
+    }
+}
+
+actor TestTargetAlertEvaluatorState {
+    private var calls: Int = 0
+
+    func recordCall() {
+        calls += 1
+    }
+
+    func callCount() -> Int {
+        calls
+    }
+}
+
+struct TestTargetAlertEvaluator: TargetAlertEvaluating {
+    let state: TestTargetAlertEvaluatorState
+
+    func evaluateUnresolvedTargets(req: Request) async {
+        await state.recordCall()
     }
 }
 
@@ -3314,6 +3662,23 @@ private func formatISODateOnly(_ date: Date) -> String {
     formatter.timeZone = TimeZone(secondsFromGMT: 0)
     formatter.dateFormat = "yyyy-MM-dd"
     return formatter.string(from: date)
+}
+
+private struct SeededLists {
+    let portfolioListId: UUID
+    let watchlistListId: UUID
+}
+
+private func seedDefaultLists(userId: UUID, on db: any Database) async throws -> SeededLists {
+    let portfolioList = PortfolioList(userId: userId, name: "Main Portfolio", isDefault: true)
+    let watchlistList = WatchlistList(userId: userId, name: "Main Watchlist", isDefault: true)
+    try await portfolioList.save(on: db)
+    try await watchlistList.save(on: db)
+
+    guard let portfolioListId = portfolioList.id, let watchlistListId = watchlistList.id else {
+        throw Abort(.internalServerError, reason: "Failed to seed default lists for tests.")
+    }
+    return SeededLists(portfolioListId: portfolioListId, watchlistListId: watchlistListId)
 }
 
 struct TestPaymentRequiredFMPMarketDataProvider: FMPMarketDataProvider {

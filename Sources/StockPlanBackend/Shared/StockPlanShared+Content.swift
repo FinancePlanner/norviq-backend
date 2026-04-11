@@ -25,9 +25,13 @@ extension OAuthExchangeRequest: Content {}
 extension StockRequest: @retroactive Content {}
 extension SellStockRequest: @retroactive Content {}
 extension StockResponse: @retroactive Content {}
+extension PortfolioListRequest: @retroactive Content {}
+extension PortfolioListResponse: @retroactive Content {}
 extension WatchlistItemRequest: @retroactive Content {}
 extension WatchlistItemUpdateRequest: @retroactive Content {}
 extension WatchlistItemResponse: @retroactive Content {}
+extension WatchlistListRequest: @retroactive Content {}
+extension WatchlistListResponse: @retroactive Content {}
 extension WatchlistStatus: @retroactive Content {}
 extension ResearchNoteRequest: @retroactive Content {}
 extension ResearchNoteResponse: @retroactive Content {}

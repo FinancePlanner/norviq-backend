@@ -3,6 +3,10 @@ import Foundation
 import Vapor
 
 struct StockController: RouteCollection {
+    private struct StocksListQuery: Content {
+        let portfolioListId: String?
+    }
+
     func boot(routes: any RoutesBuilder) throws {
         let protected = routes.grouped(SessionToken.authenticator(), SessionToken.guardMiddleware())
 
@@ -32,6 +36,14 @@ struct StockController: RouteCollection {
         let watchlist = protected.grouped("watchlist")
         watchlist.get(use: listWatchlist)
         watchlist.post(use: createWatchlistItem)
+        watchlist.group("lists") { lists in
+            lists.get(use: listWatchlistLists)
+            lists.post(use: createWatchlistList)
+            lists.group(":watchlistListId") { list in
+                list.patch(use: updateWatchlistList)
+                list.delete(use: deleteWatchlistList)
+            }
+        }
         watchlist.group(":watchlistId") { item in
             item.patch(use: updateWatchlistItem)
             item.delete(use: deleteWatchlistItem)
@@ -58,7 +70,18 @@ struct StockController: RouteCollection {
     @Sendable
     func listStocks(req: Request) async throws -> [StockResponse] {
         let session = try req.auth.require(SessionToken.self)
-        return try await req.stocksService.list(userId: session.userId, on: req.db)
+        let query = try req.query.decode(StocksListQuery.self)
+        let portfolioListId = try await resolvePortfolioListId(
+            requestedId: query.portfolioListId,
+            userId: session.userId,
+            on: req.db,
+            defaultWhenMissing: true
+        )
+        return try await req.stocksService.list(
+            userId: session.userId,
+            portfolioListId: portfolioListId,
+            on: req.db
+        )
     }
 
     @Sendable
@@ -197,155 +220,6 @@ struct StockController: RouteCollection {
         )
         logValuationResponseBody(updated, req: req, operation: "update")
         return updated
-    }
-
-    @Sendable
-    func listWatchlist(req: Request) async throws -> [WatchlistItemResponse] {
-        let session = try req.auth.require(SessionToken.self)
-
-        let items = try await WatchlistItem.query(on: req.db)
-            .filter(\.$userId == session.userId)
-            .sort(\.$updatedAt, .descending)
-            .sort(\.$createdAt, .descending)
-            .all()
-
-        return try items.map(makeWatchlistItemResponse)
-    }
-
-    @Sendable
-    func createWatchlistItem(req: Request) async throws -> Response {
-        let session = try req.auth.require(SessionToken.self)
-        let payload = try req.content.decode(WatchlistItemRequest.self)
-        let symbol = try normalizeSymbol(payload.symbol)
-        let note = emptyToNil(payload.note)
-        let nextReviewAt = try parseISODateOnly(payload.nextReviewAt, field: "nextReviewAt")
-
-        if let existing = try await WatchlistItem.query(on: req.db)
-            .filter(\.$userId == session.userId)
-            .filter(\.$symbol == symbol)
-            .first() {
-            var didChange = false
-
-            if let rawNote = payload.note {
-                let normalizedNote = emptyToNil(rawNote)
-                if existing.note != normalizedNote {
-                    existing.note = normalizedNote
-                    didChange = true
-                }
-            }
-
-            if let status = payload.status {
-                let normalizedStatus = status.rawValue
-                if existing.status != normalizedStatus {
-                    existing.status = normalizedStatus
-                    didChange = true
-                }
-            } else if existing.status == WatchlistStatus.archived.rawValue {
-                existing.status = WatchlistStatus.active.rawValue
-                didChange = true
-            }
-
-            if payload.nextReviewAt != nil, existing.nextReviewAt != nextReviewAt {
-                existing.nextReviewAt = nextReviewAt
-                didChange = true
-            }
-
-            if didChange {
-                try await existing.save(on: req.db)
-            }
-
-            let res = Response(status: .ok)
-            try res.content.encode(try makeWatchlistItemResponse(from: existing))
-            return res
-        }
-
-        let item = WatchlistItem(
-            userId: session.userId,
-            symbol: symbol,
-            note: note,
-            status: payload.status ?? .active,
-            nextReviewAt: nextReviewAt
-        )
-        try await item.save(on: req.db)
-        let res = Response(status: .created)
-        try res.content.encode(try makeWatchlistItemResponse(from: item))
-        return res
-    }
-
-    @Sendable
-    func updateWatchlistItem(req: Request) async throws -> WatchlistItemResponse {
-        let session = try req.auth.require(SessionToken.self)
-        let watchlistId = try requireUUIDParameter(
-            req, name: "watchlistId", reason: "Invalid watchlist ID")
-        let payload = try req.content.decode(WatchlistItemUpdateRequest.self)
-
-        guard
-            let item = try await WatchlistItem.query(on: req.db)
-                .filter(\.$id == watchlistId)
-                .filter(\.$userId == session.userId)
-                .first()
-        else {
-            throw Abort(.notFound, reason: "Watchlist item not found.")
-        }
-
-        var didChange = false
-
-        if let rawNote = payload.note {
-            let normalizedNote = emptyToNil(rawNote)
-            if item.note != normalizedNote {
-                item.note = normalizedNote
-                didChange = true
-            }
-        }
-
-        if let status = payload.status {
-            let normalizedStatus = status.rawValue
-            if item.status != normalizedStatus {
-                item.status = normalizedStatus
-                didChange = true
-            }
-        }
-
-        if payload.lastReviewedAt != nil {
-            let lastReviewedAt = try parseISODateOnly(payload.lastReviewedAt, field: "lastReviewedAt")
-            if item.lastReviewedAt != lastReviewedAt {
-                item.lastReviewedAt = lastReviewedAt
-                didChange = true
-            }
-        }
-
-        if payload.nextReviewAt != nil {
-            let nextReviewAt = try parseISODateOnly(payload.nextReviewAt, field: "nextReviewAt")
-            if item.nextReviewAt != nextReviewAt {
-                item.nextReviewAt = nextReviewAt
-                didChange = true
-            }
-        }
-
-        if didChange {
-            try await item.save(on: req.db)
-        }
-
-        return try makeWatchlistItemResponse(from: item)
-    }
-
-    @Sendable
-    func deleteWatchlistItem(req: Request) async throws -> HTTPStatus {
-        let session = try req.auth.require(SessionToken.self)
-        let watchlistId = try requireUUIDParameter(
-            req, name: "watchlistId", reason: "Invalid watchlist ID")
-
-        guard
-            let item = try await WatchlistItem.query(on: req.db)
-                .filter(\.$id == watchlistId)
-                .filter(\.$userId == session.userId)
-                .first()
-        else {
-            throw Abort(.notFound, reason: "Watchlist item not found.")
-        }
-
-        try await item.delete(on: req.db)
-        return .noContent
     }
 
     @Sendable
@@ -543,7 +417,7 @@ struct StockController: RouteCollection {
         return .noContent
     }
 
-    private func requireUUIDParameter(_ req: Request, name: String, reason: String) throws -> UUID {
+    func requireUUIDParameter(_ req: Request, name: String, reason: String) throws -> UUID {
         guard let raw = req.parameters.get(name), let value = UUID(uuidString: raw) else {
             throw Abort(.badRequest, reason: reason)
         }
@@ -561,7 +435,7 @@ struct StockController: RouteCollection {
         return trimmed
     }
 
-    private func normalizeSymbol(_ raw: String) throws -> String {
+    func normalizeSymbol(_ raw: String) throws -> String {
         let normalized = raw.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
         guard !normalized.isEmpty else {
             throw Abort(.badRequest, reason: "Symbol is required.")
@@ -577,7 +451,7 @@ struct StockController: RouteCollection {
         return trimmed
     }
 
-    private func emptyToNil(_ raw: String?) -> String? {
+    func emptyToNil(_ raw: String?) -> String? {
         guard let raw else { return nil }
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? nil : trimmed
@@ -591,7 +465,7 @@ struct StockController: RouteCollection {
         return normalized
     }
 
-    private func parseISODateOnly(_ raw: String?, field: String) throws -> Date? {
+    func parseISODateOnly(_ raw: String?, field: String) throws -> Date? {
         guard let raw else { return nil }
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return nil }
@@ -609,7 +483,7 @@ struct StockController: RouteCollection {
         return value
     }
 
-    private func formatISODateOnly(_ date: Date?) -> String? {
+    func formatISODateOnly(_ date: Date?) -> String? {
         guard let date else { return nil }
 
         let formatter = DateFormatter()
@@ -620,7 +494,7 @@ struct StockController: RouteCollection {
         return formatter.string(from: date)
     }
 
-    private func formatISODateTime(_ date: Date?) -> String? {
+    func formatISODateTime(_ date: Date?) -> String? {
         guard let date else { return nil }
 
         let formatter = ISO8601DateFormatter()
@@ -646,26 +520,6 @@ struct StockController: RouteCollection {
         guard let raw else { return nil }
         guard let data = raw.data(using: .utf8) else { return nil }
         return try? JSONDecoder().decode([String].self, from: data)
-    }
-
-    private func makeWatchlistItemResponse(from model: WatchlistItem) throws
-        -> WatchlistItemResponse {
-        guard let id = model.id else {
-            throw Abort(.internalServerError, reason: "Watchlist item id missing.")
-        }
-        guard let status = WatchlistStatus(rawValue: model.status) else {
-            throw Abort(.internalServerError, reason: "Watchlist item status is invalid.")
-        }
-        return WatchlistItemResponse(
-            id: id.uuidString,
-            symbol: model.symbol,
-            note: model.note,
-            status: status,
-            createdAt: formatISODateTime(model.createdAt),
-            updatedAt: formatISODateTime(model.updatedAt),
-            lastReviewedAt: formatISODateOnly(model.lastReviewedAt),
-            nextReviewAt: formatISODateOnly(model.nextReviewAt)
-        )
     }
 
     private func makeResearchNoteResponse(from model: ResearchNote) throws -> ResearchNoteResponse {

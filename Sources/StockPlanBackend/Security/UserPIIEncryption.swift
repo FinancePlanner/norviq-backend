@@ -1,4 +1,4 @@
-import Crypto
+@preconcurrency import Crypto
 import Foundation
 import Vapor
 
@@ -15,7 +15,7 @@ enum UserPIIEncryptionError: Error {
     case decryptionFailed
 }
 
-struct AESGCMUserPIIEncryptionService: UserPIIEncrypting, Sendable {
+struct AESGCMUserPIIEncryptionService: UserPIIEncrypting, @unchecked Sendable {
     private struct EnvelopeV1: Codable {
         let version: Int
         let keyID: String

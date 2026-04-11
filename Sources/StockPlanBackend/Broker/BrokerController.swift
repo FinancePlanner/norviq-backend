@@ -33,7 +33,11 @@ struct BrokerController: RouteCollection {
     @Sendable
     func listHoldings(req: Request) async throws -> [BrokerHoldingResponse] {
         let session = try req.auth.require(SessionToken.self)
-        let stocks = try await req.application.stocksRepository.list(userId: session.userId, on: req.db)
+        let stocks = try await req.application.stocksRepository.list(
+            userId: session.userId,
+            portfolioListId: nil,
+            on: req.db
+        )
 
         return stocks.map {
             BrokerHoldingResponse(symbol: $0.symbol, quantity: $0.shares, currency: "USD")
@@ -67,7 +71,9 @@ struct BrokerController: RouteCollection {
             let hasPositionData = item.shares != nil || item.buyPrice != nil || item.buyDate != nil
             if !hasPositionData {
                 do {
-                    try await upsertWatchlistItem(symbol: item.symbol, userId: session.userId, on: req.db)
+                    try await req.db.transaction { tx in
+                        try await upsertWatchlistItem(symbol: item.symbol, userId: session.userId, on: tx)
+                    }
                 } catch {
                     let message: String
                     if let abortError = error as? any AbortError {
@@ -80,38 +86,62 @@ struct BrokerController: RouteCollection {
                 continue
             }
 
-            let existing = try await req.application.stocksRepository.find(symbol: item.symbol, userId: session.userId, on: req.db)
-
-            guard let shares = item.shares ?? existing?.shares else {
-                errors.append(.init(line: item.line, message: "Missing shares (quantity)."))
-                continue
-            }
-
-            guard let buyPrice = item.buyPrice ?? existing?.buyPrice else {
-                errors.append(.init(line: item.line, message: "Missing buyPrice (average_cost)."))
-                continue
-            }
-
-            let buyDate: String
-            if let rawBuyDate = item.buyDate, let normalized = CsvImportService.normalizeDateOnlyString(rawBuyDate) {
-                buyDate = normalized
-            } else if let existing, let existingResponse = try? StockResponse(from: existing) {
-                buyDate = existingResponse.buyDate
-            } else {
-                errors.append(.init(line: item.line, message: "Missing or invalid buyDate. Expected YYYY-MM-DD."))
-                continue
-            }
-
-            let notes = item.notes ?? existing?.notes
-            let payload = StockRequest(symbol: item.symbol, shares: shares, buyPrice: buyPrice, buyDate: buyDate, notes: notes)
-
             do {
-                if let existing, let id = existing.id {
-                    let stock = try await req.stocksService.update(id: id, payload: payload, userId: session.userId, on: req.db)
-                    updated.append(stock)
+                let rowResult = try await req.db.transaction { tx -> (stock: StockResponse, wasUpdate: Bool) in
+                    let existing = try await req.application.stocksRepository.find(
+                        symbol: item.symbol,
+                        userId: session.userId,
+                        on: tx
+                    )
+
+                    guard let shares = item.shares ?? existing?.shares else {
+                        throw Abort(.badRequest, reason: "Missing shares (quantity).")
+                    }
+
+                    guard let buyPrice = item.buyPrice ?? existing?.buyPrice else {
+                        throw Abort(.badRequest, reason: "Missing buyPrice (average_cost).")
+                    }
+
+                    let buyDate: String
+                    if let rawBuyDate = item.buyDate, let normalized = CsvImportService.normalizeDateOnlyString(rawBuyDate) {
+                        buyDate = normalized
+                    } else if let existing, let existingResponse = try? StockResponse(from: existing) {
+                        buyDate = existingResponse.buyDate
+                    } else {
+                        throw Abort(.badRequest, reason: "Missing or invalid buyDate. Expected YYYY-MM-DD.")
+                    }
+
+                    let notes = item.notes ?? existing?.notes
+                    let payload = StockRequest(
+                        symbol: item.symbol,
+                        shares: shares,
+                        buyPrice: buyPrice,
+                        buyDate: buyDate,
+                        notes: notes
+                    )
+
+                    if let existing, let id = existing.id {
+                        let stock = try await req.stocksService.update(
+                            id: id,
+                            payload: payload,
+                            userId: session.userId,
+                            on: tx
+                        )
+                        return (stock, true)
+                    }
+
+                    let stock = try await req.stocksService.create(
+                        payload: payload,
+                        userId: session.userId,
+                        on: tx
+                    )
+                    return (stock, false)
+                }
+
+                if rowResult.wasUpdate {
+                    updated.append(rowResult.stock)
                 } else {
-                    let stock = try await req.stocksService.create(payload: payload, userId: session.userId, on: req.db)
-                    inserted.append(stock)
+                    inserted.append(rowResult.stock)
                 }
             } catch {
                 let message: String
@@ -132,9 +162,18 @@ struct BrokerController: RouteCollection {
         guard !symbol.isEmpty else {
             throw Abort(.badRequest, reason: "Missing symbol.")
         }
+        guard let targetListId = try await resolveWatchlistListId(
+            requestedId: nil,
+            userId: userId,
+            on: db,
+            defaultWhenMissing: true
+        ) else {
+            throw Abort(.internalServerError, reason: "Failed to resolve default watchlist list.")
+        }
 
         if let existing = try await WatchlistItem.query(on: db)
             .filter(\.$userId == userId)
+            .filter(\.$watchlistListId == targetListId)
             .filter(\.$symbol == symbol)
             .first() {
             if existing.status == "archived" {
@@ -144,7 +183,7 @@ struct BrokerController: RouteCollection {
             return
         }
 
-        let item = WatchlistItem(userId: userId, symbol: symbol)
+        let item = WatchlistItem(userId: userId, watchlistListId: targetListId, symbol: symbol)
         try await item.save(on: db)
     }
 

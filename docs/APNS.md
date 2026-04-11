@@ -122,6 +122,33 @@ Indexes:
 - Known invalid token errors (`BadDeviceToken`, `Unregistered`, `DeviceTokenNotForTopic`) deactivate the device token.
 - If all sends fail for a target, the target is not marked triggered and will be retried on future polls.
 
+### APNS custom payload fields
+
+Target-hit notifications include these custom keys in addition to `aps`:
+
+- `schemaVersion` (`1`)
+- `type` (`target_hit`)
+- `symbol` (e.g. `AAPL`)
+- `scenario` (`bear` / `base` / `bull`)
+- `targetId` (UUID string when available)
+- `deepLink` (currently `financeplan://stocks/<symbol>`)
+- `targetPrice`
+- `currentPrice`
+
+The `aps` envelope also sets:
+
+- `category` = `TARGET_ALERT` (enables client action buttons)
+- `thread-id` = `target-<SYMBOL>` (groups related alerts)
+
+### Notification UX analytics events
+
+Client and backend emit structured logs for notification UX funnels:
+
+- `push.analytics delivered_summary` (backend send outcome counts per target)
+- `push.analytics delivered` (client receives notification in launch/foreground path)
+- `push.analytics tapped` (client user interaction action id)
+- `push.analytics routed_success` / `push.analytics routed_failure` (client routing outcome)
+
 ## Troubleshooting
 
 If pushes are not delivered:

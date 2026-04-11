@@ -3,6 +3,10 @@ import Vapor
 
 typealias StockRequest = StockPlanShared.StockRequest
 typealias StockResponse = StockPlanShared.StockResponse
+typealias PortfolioListRequest = StockPlanShared.PortfolioListRequest
+typealias PortfolioListResponse = StockPlanShared.PortfolioListResponse
+typealias WatchlistListRequest = StockPlanShared.WatchlistListRequest
+typealias WatchlistListResponse = StockPlanShared.WatchlistListResponse
 
 struct Cart: Content, Sendable {
     var stocks: [Stock]

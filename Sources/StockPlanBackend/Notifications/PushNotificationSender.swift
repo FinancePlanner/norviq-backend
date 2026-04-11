@@ -33,9 +33,15 @@ struct NoopPushNotificationSender: PushNotificationSending {
 }
 
 struct APNSPushNotificationSender: PushNotificationSending {
+    private static let targetAlertCategoryID = "TARGET_ALERT"
+
     struct Payload: Codable {
+        let schemaVersion: Int
+        let type: String
         let symbol: String
         let scenario: String
+        let targetId: String?
+        let deepLink: String?
         let targetPrice: Double
         let currentPrice: Double
     }
@@ -55,8 +61,12 @@ struct APNSPushNotificationSender: PushNotificationSending {
         let title = "Target hit: \(target.symbol)"
         let body = "Scenario \(target.scenario.uppercased()) reached \(formatPrice(currentPrice)) vs \(formatPrice(target.targetPrice))."
         let payload = Payload(
+            schemaVersion: 1,
+            type: "target_hit",
             symbol: target.symbol,
             scenario: target.scenario,
+            targetId: target.id?.uuidString,
+            deepLink: "financeplan://stocks/\(target.symbol)",
             targetPrice: target.targetPrice,
             currentPrice: currentPrice
         )
@@ -68,7 +78,9 @@ struct APNSPushNotificationSender: PushNotificationSending {
             expiration: .immediately,
             priority: .immediately,
             topic: topic,
-            payload: payload
+            payload: payload,
+            threadID: "target-\(target.symbol.uppercased())",
+            category: Self.targetAlertCategoryID
         )
 
         var delivered = 0
@@ -93,10 +105,14 @@ struct APNSPushNotificationSender: PushNotificationSending {
             }
         }
 
+        req.logger.info(
+            "push.analytics delivered_summary symbol=\(target.symbol) scenario=\(target.scenario) delivered=\(delivered) failed=\(failed)"
+        )
+
         return .init(delivered: delivered, failed: failed)
     }
 
-    private func client(for device: PushDevice, req: Request) -> APNSGenericClient {
+    private func client(for device: PushDevice, req: Request) -> any APNSClientProtocol {
         if device.apnsEnvironment == PushAPNSEnvironment.production.rawValue {
             return req.apns.client(.production)
         }

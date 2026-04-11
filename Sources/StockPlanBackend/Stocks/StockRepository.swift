@@ -3,7 +3,7 @@ import Foundation
 import Vapor
 
 protocol StocksRepository: Sendable {
-    func list(userId: UUID, on db: any Database) async throws -> [Stock]
+    func list(userId: UUID, portfolioListId: UUID?, on db: any Database) async throws -> [Stock]
     func find(id: UUID, userId: UUID, on db: any Database) async throws -> Stock?
     func find(symbol: String, userId: UUID, on db: any Database) async throws -> Stock?
     func findValuation(symbol: String, userId: UUID, on db: any Database) async throws
@@ -24,12 +24,21 @@ protocol StocksRepository: Sendable {
     func delete(id: UUID, userId: UUID, on db: any Database) async throws -> Bool
 }
 
-struct DatabaseStocksRepository: StocksRepository {
+extension StocksRepository {
     func list(userId: UUID, on db: any Database) async throws -> [Stock] {
-        try await Stock.query(on: db)
+        try await list(userId: userId, portfolioListId: nil, on: db)
+    }
+}
+
+struct DatabaseStocksRepository: StocksRepository {
+    func list(userId: UUID, portfolioListId: UUID? = nil, on db: any Database) async throws -> [Stock] {
+        let query = Stock.query(on: db)
             .filter(\.$userId == userId)
             .sort(\.$createdAt, .descending)
-            .all()
+        if let portfolioListId {
+            query.filter(\.$portfolioListId == portfolioListId)
+        }
+        return try await query.all()
     }
 
     func find(id: UUID, userId: UUID, on db: any Database) async throws -> Stock? {
@@ -59,9 +68,15 @@ struct DatabaseStocksRepository: StocksRepository {
     func create(payload: StockRequest, userId: UUID, on db: any Database) async throws -> Stock {
         let buyDate = try parseISODateOnly(payload.buyDate)
         let normalizedSymbol = normalizeSymbol(payload.symbol)
+        let targetListId = try await resolveRequestedPortfolioListId(
+            payload.portfolioListId,
+            userId: userId,
+            on: db
+        )
 
         let existingStocks = try await Stock.query(on: db)
             .filter(\.$userId == userId)
+            .filter(\.$portfolioListId == targetListId)
             .filter(\.$symbol == normalizedSymbol)
             .all()
 
@@ -105,6 +120,7 @@ struct DatabaseStocksRepository: StocksRepository {
 
         let stock = Stock(
             userId: userId,
+            portfolioListId: targetListId,
             symbol: normalizedSymbol,
             shares: payload.shares,
             buyPrice: payload.buyPrice,
@@ -154,12 +170,45 @@ struct DatabaseStocksRepository: StocksRepository {
         guard let stock = try await find(id: id, userId: userId, on: db) else {
             return nil
         }
-        stock.symbol = normalizeSymbol(payload.symbol)
+        let targetListId = try await resolveRequestedPortfolioListId(
+            payload.portfolioListId,
+            userId: userId,
+            on: db
+        )
+        let normalizedSymbol = normalizeSymbol(payload.symbol)
+        let buyDate = try parseISODateOnly(payload.buyDate)
+
+        if let stockId = stock.id,
+            let duplicate = try await Stock.query(on: db)
+                .filter(\.$userId == userId)
+                .filter(\.$portfolioListId == targetListId)
+                .filter(\.$symbol == normalizedSymbol)
+                .filter(\.$id != stockId)
+                .first()
+        {
+            let mergedShares = duplicate.shares + payload.shares
+            let mergedCostBasis = (duplicate.shares * duplicate.buyPrice) + (payload.shares * payload.buyPrice)
+
+            duplicate.shares = mergedShares
+            duplicate.buyPrice = mergedShares != 0 ? mergedCostBasis / mergedShares : 0
+            duplicate.buyDate = min(duplicate.buyDate, buyDate)
+            if payload.notes != nil {
+                duplicate.notes = payload.notes
+            }
+            duplicate.category = payload.category
+            duplicate.portfolioListId = targetListId
+            try await duplicate.save(on: db)
+            try await stock.delete(on: db)
+            return duplicate
+        }
+
+        stock.symbol = normalizedSymbol
         stock.shares = payload.shares
         stock.buyPrice = payload.buyPrice
-        stock.buyDate = try parseISODateOnly(payload.buyDate)
+        stock.buyDate = buyDate
         stock.notes = payload.notes
         stock.category = payload.category
+        stock.portfolioListId = targetListId
         try await stock.save(on: db)
         return stock
     }
@@ -247,5 +296,21 @@ struct DatabaseStocksRepository: StocksRepository {
         guard let raw else { return nil }
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? nil : trimmed
+    }
+
+    private func resolveRequestedPortfolioListId(
+        _ rawListId: String?,
+        userId: UUID,
+        on db: any Database
+    ) async throws -> UUID {
+        guard let listId = try await resolvePortfolioListId(
+            requestedId: rawListId,
+            userId: userId,
+            on: db,
+            defaultWhenMissing: true
+        ) else {
+            throw Abort(.internalServerError, reason: "Failed to resolve portfolio list.")
+        }
+        return listId
     }
 }

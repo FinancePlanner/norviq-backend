@@ -1,5 +1,5 @@
 {
-  "originHash" : "1396dd0f479d0b4de11983190f641b128b2b48e611647362ea11b11f38c402aa",
+  "originHash" : "296829f922962c9ef5a26e57e0697142cb5443e9c2ff906ec496cb9b876a38c7",
   "pins" : [
     {
       "identity" : "apns",
@@ -51,8 +51,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/vapor/console-kit.git",
       "state" : {
-        "revision" : "742f624a998cba2a9e653d9b1e91ad3f3a5dff6b",
-        "version" : "4.15.2"
+        "revision" : "32ad16dfc7677b927b225595ed18f3debb32f577",
+        "version" : "4.16.0"
       }
     },
     {
@@ -62,15 +62,6 @@
       "state" : {
         "revision" : "e45a26384239e028ec87fbcc788f513b67e10d8f",
         "version" : "1.9.0"
-      }
-    },
-    {
-      "identity" : "financeshared",
-      "kind" : "remoteSourceControl",
-      "location" : "https://github.com/FinancePlanner/FinanceShared.git",
-      "state" : {
-        "revision" : "a08c0f891353aaef9da94aa270eafb2c197b7189",
-        "version" : "0.8.1"
       }
     },
     {

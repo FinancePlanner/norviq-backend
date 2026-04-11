@@ -12,6 +12,9 @@ final class Stock: Model, Content, @unchecked Sendable {
     @Field(key: "user_id")
     var userId: UUID
 
+    @Field(key: "portfolio_list_id")
+    var portfolioListId: UUID
+
     @Field(key: "symbol")
     var symbol: String
 
@@ -41,6 +44,7 @@ final class Stock: Model, Content, @unchecked Sendable {
     init(
         id: UUID? = nil,
         userId: UUID,
+        portfolioListId: UUID,
         symbol: String,
         shares: Double,
         buyPrice: Double,
@@ -50,6 +54,7 @@ final class Stock: Model, Content, @unchecked Sendable {
     ) {
         self.id = id
         self.userId = userId
+        self.portfolioListId = portfolioListId
         self.symbol = symbol
         self.shares = shares
         self.buyPrice = buyPrice

@@ -1,42 +1,20 @@
 import Foundation
+import StockPlanShared
 import Vapor
 
-enum PushAuthorizationStatus: String, Codable, CaseIterable, Sendable {
-    case notDetermined
-    case denied
-    case authorized
-    case provisional
-}
+typealias PushAuthorizationStatus = StockPlanShared.PushAuthorizationStatus
+typealias PushAPNSEnvironment = StockPlanShared.PushAPNSEnvironment
+typealias PushPlatform = StockPlanShared.PushPlatform
+typealias PushDeviceRegistrationRequest = StockPlanShared.PushDeviceRegistrationRequest
+typealias PushDeviceRegistrationResponse = StockPlanShared.PushDeviceRegistrationResponse
+typealias PushDeviceDeactivateRequest = StockPlanShared.PushDeviceDeactivateRequest
 
-enum PushAPNSEnvironment: String, Codable, CaseIterable, Sendable {
-    case development
-    case production
-}
-
-enum PushPlatform: String, Codable, CaseIterable, Sendable {
-    case ios
-}
-
-struct PushDeviceRegistrationRequest: Content, Sendable {
-    let deviceToken: String
-    let platform: PushPlatform
-    let apnsEnvironment: PushAPNSEnvironment
-    let authorizationStatus: PushAuthorizationStatus
-}
-
-struct PushDeviceRegistrationResponse: Content, Sendable {
-    let id: String
-    let deviceToken: String
-    let platform: PushPlatform
-    let apnsEnvironment: PushAPNSEnvironment
-    let authorizationStatus: PushAuthorizationStatus
-    let isActive: Bool
-    let lastSeenAt: String
-}
-
-struct PushDeviceDeactivateRequest: Content, Sendable {
-    let deviceToken: String
-}
+extension PushAuthorizationStatus: @retroactive Content {}
+extension PushAPNSEnvironment: @retroactive Content {}
+extension PushPlatform: @retroactive Content {}
+extension PushDeviceRegistrationRequest: @retroactive Content {}
+extension PushDeviceRegistrationResponse: @retroactive Content {}
+extension PushDeviceDeactivateRequest: @retroactive Content {}
 
 extension PushDeviceRegistrationResponse {
     init(from model: PushDevice) throws {

@@ -6,39 +6,17 @@
 #      export APP_IMAGE=ghcr.io/<owner>/<repo>:<git-sha>
 #   3. Start DB: docker compose -f docker-compose.production.yml up -d db
 #   4. Migrate:  docker compose -f docker-compose.production.yml run --rm migrate
-#   5. Deploy:   docker compose -f docker-compose.production.yml up -d app caddy
+#   5. Deploy:   docker compose -f docker-compose.production.yml up -d app
 #
 
 volumes:
   db_data:
-  caddy_data:
-  caddy_config:
 
 networks:
   internal:
   external:
 
 services:
-  # Caddy reverse proxy - handles HTTPS automatically
-  caddy:
-    image: caddy:2.11-alpine
-    restart: unless-stopped
-    ports:
-      - "80:80"
-      - "443:443"
-      - "443:443/udp"  # HTTP/3
-    volumes:
-      - ./Caddyfile:/etc/caddy/Caddyfile:ro
-      - caddy_data:/data
-      - caddy_config:/config
-    environment:
-      DOMAIN: ${DOMAIN:-localhost}
-    networks:
-      - external
-      - internal
-    depends_on:
-      - app
-
   # Vapor application
   app:
     image: ${APP_IMAGE:?APP_IMAGE is required}
@@ -46,10 +24,11 @@ services:
     environment:
       DATABASE_HOST: db
     restart: unless-stopped
-    expose:
-      - "8080"
+    ports:
+      - "127.0.0.1:8080:8080"
     networks:
       - internal
+      - external
     depends_on:
       db:
         condition: service_healthy

@@ -12,6 +12,9 @@ final class WatchlistItem: Model, Content, @unchecked Sendable {
     @Field(key: "user_id")
     var userId: UUID
 
+    @Field(key: "watchlist_list_id")
+    var watchlistListId: UUID
+
     @Field(key: "symbol")
     var symbol: String
 
@@ -38,6 +41,7 @@ final class WatchlistItem: Model, Content, @unchecked Sendable {
     init(
         id: UUID? = nil,
         userId: UUID,
+        watchlistListId: UUID,
         symbol: String,
         note: String? = nil,
         status: WatchlistStatus = .active,
@@ -46,6 +50,7 @@ final class WatchlistItem: Model, Content, @unchecked Sendable {
     ) {
         self.id = id
         self.userId = userId
+        self.watchlistListId = watchlistListId
         self.symbol = symbol
         self.note = note
         self.status = status.rawValue

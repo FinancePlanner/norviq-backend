@@ -71,11 +71,14 @@ struct DefaultTargetAlertEvaluator: TargetAlertEvaluating {
             return
         }
 
-        target.alertTriggeredAt = Date()
-        target.alertTriggeredPrice = currentPrice
-
         do {
-            try await target.save(on: req.db)
+            let marked = try await markTriggeredIfNeeded(targetId: target.id, price: currentPrice, on: req.db)
+            guard marked else {
+                req.logger.debug(
+                    "target-alert already triggered by another worker symbol=\(target.symbol)"
+                )
+                return
+            }
             req.logger.info(
                 "target-alert marked triggered symbol=\(target.symbol) scenario=\(target.scenario) currentPrice=\(currentPrice)"
             )
@@ -94,6 +97,26 @@ struct DefaultTargetAlertEvaluator: TargetAlertEvaluating {
             return currentPrice >= target.targetPrice
         default:
             return false
+        }
+    }
+
+    private func markTriggeredIfNeeded(
+        targetId: UUID?,
+        price: Double,
+        on db: any Database
+    ) async throws -> Bool {
+        guard let targetId else { return false }
+        return try await db.transaction { tx in
+            guard let current = try await Target.find(targetId, on: tx) else {
+                return false
+            }
+            guard current.alertTriggeredAt == nil else {
+                return false
+            }
+            current.alertTriggeredAt = Date()
+            current.alertTriggeredPrice = price
+            try await current.save(on: tx)
+            return true
         }
     }
 }

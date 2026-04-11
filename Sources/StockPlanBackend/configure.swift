@@ -1,5 +1,6 @@
 import NIOSSL
 import Fluent
+import FluentSQL
 import FluentPostgresDriver
 import Vapor
 import APNS
@@ -39,14 +40,58 @@ public func configure(_ app: Application) async throws {
     ContentConfiguration.global.use(decoder: JSONDecoder.backendAPI, for: .json)
     ContentConfiguration.global.use(encoder: JSONEncoder.backendAPI, for: .json)
 
-    app.databases.use(DatabaseConfigurationFactory.postgres(configuration: .init(
-        hostname: Environment.get("DATABASE_HOST") ?? "localhost",
-        port: Environment.get("DATABASE_PORT").flatMap(Int.init(_:)) ?? SQLPostgresConfiguration.ianaPortNumber,
-        username: Environment.get("DATABASE_USERNAME") ?? "vapor_username",
-        password: Environment.get("DATABASE_PASSWORD") ?? "vapor_password",
-        database: Environment.get("DATABASE_NAME") ?? "vapor_database",
-        tls: .prefer(try .init(configuration: .clientDefault)))
-    ), as: .psql)
+    let isTesting = app.environment == .testing
+    let databaseHost = isTesting
+        ? (Environment.get("TEST_DATABASE_HOST") ?? "127.0.0.1")
+        : (Environment.get("DATABASE_HOST") ?? "localhost")
+    let databasePort = isTesting
+        ? (Environment.get("TEST_DATABASE_PORT").flatMap(Int.init(_:)) ?? 5432)
+        : (Environment.get("DATABASE_PORT").flatMap(Int.init(_:)) ?? SQLPostgresConfiguration.ianaPortNumber)
+    let databaseUsername = isTesting
+        ? (Environment.get("TEST_DATABASE_USERNAME") ?? "stockplan_user")
+        : (Environment.get("DATABASE_USERNAME") ?? "vapor_username")
+    let databasePassword = isTesting
+        ? (Environment.get("TEST_DATABASE_PASSWORD") ?? "stockplan_password")
+        : (Environment.get("DATABASE_PASSWORD") ?? "vapor_password")
+    let databaseName = isTesting
+        ? (Environment.get("TEST_DATABASE_NAME") ?? "stockplan_dev")
+        : (Environment.get("DATABASE_NAME") ?? "vapor_database")
+    let testDatabaseSchema: String? = {
+        guard isTesting else { return nil }
+        if let configured = Environment.get("TEST_DATABASE_SCHEMA")?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+           !configured.isEmpty {
+            return configured.replacingOccurrences(
+                of: #"[^a-zA-Z0-9_]"#,
+                with: "_",
+                options: .regularExpression
+            )
+        }
+
+        return "stockplan_test_\(UUID().uuidString.replacingOccurrences(of: "-", with: "_").lowercased())"
+    }()
+
+    var postgresConfiguration = SQLPostgresConfiguration(
+        hostname: databaseHost,
+        port: databasePort,
+        username: databaseUsername,
+        password: databasePassword,
+        database: databaseName,
+        tls: .prefer(try .init(configuration: .clientDefault))
+    )
+    if let testDatabaseSchema {
+        postgresConfiguration.searchPath = [testDatabaseSchema]
+    }
+
+    app.databases.use(
+        DatabaseConfigurationFactory.postgres(configuration: postgresConfiguration),
+        as: .psql
+    )
+
+    if let testDatabaseSchema,
+       let sqlDatabase = app.db(.psql) as? any SQLDatabase {
+        try await sqlDatabase.raw("CREATE SCHEMA IF NOT EXISTS \(unsafeRaw: testDatabaseSchema)").run()
+    }
 
     if let redisURL = Environment.get("REDIS_URL"), !redisURL.isEmpty {
         app.redis.configuration = try RedisConfiguration(url: redisURL)
@@ -212,6 +257,7 @@ public func configure(_ app: Application) async throws {
     app.migrations.add(AddAssetCategoryToStocks())
     app.migrations.add(CreateWatchlistItem())
     app.migrations.add(AddWatchlistMetadataFields())
+    app.migrations.add(AddPortfolioAndWatchlistLists())
     app.migrations.add(CreateNewsItem())
     app.migrations.add(CreateResearchNote())
     app.migrations.add(CreateTarget())

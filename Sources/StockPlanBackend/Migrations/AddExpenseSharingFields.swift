@@ -14,7 +14,11 @@ struct AddExpenseSharingFields: AsyncMigration {
         if let sql = database as? any SQLDatabase {
             let enumExists = try await sql.raw("""
                 SELECT EXISTS (
-                    SELECT 1 FROM pg_type WHERE typname = 'expense_split_mode'
+                    SELECT 1
+                    FROM pg_type t
+                    JOIN pg_namespace n ON n.oid = t.typnamespace
+                    WHERE t.typname = 'expense_split_mode'
+                      AND n.nspname = current_schema()
                 )
                 """)
                 .first(decoding: EnumExistsResult.self)

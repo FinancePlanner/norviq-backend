@@ -9,7 +9,7 @@ This document outlines the security standards and safeguards for the StockPlan p
 | **Authentication** | 🟡 | JWT + Opaque Refresh Tokens implemented. Rate limiting & account lockout missing. |
 | **API Security** | 🟡 | Auth middleware & DTOs used. CORS is permissive. Rate limiting missing. |
 | **Database** | ✅ | Fluent ORM used (No SQL injection). Backups handled by infrastructure. |
-| **Infrastructure** | ✅ | Secrets in Env, non-root Docker user, SSL via Caddy. |
+| **Infrastructure** | ✅ | Secrets in Env, non-root Docker user, SSL via Nginx. |
 | **Code** | ✅ | No hardcoded credentials. Swift log levels used. |
 
 ---
@@ -40,7 +40,7 @@ This document outlines the security standards and safeguards for the StockPlan p
 - [ ] **Public Rate Limiting**: **NOT IMPLEMENTED**.
 - [🟡] **CORS Restricted**: Currently `.all` in `configure.swift`.
   - *Action: Restrict to specific domains in production.*
-- [x] **HTTPS Enforcement**: Handled by Caddy/Infrastructure layer.
+- [x] **HTTPS Enforcement**: Handled by Nginx/Infrastructure layer.
 
 ## 3. Database
 
@@ -54,7 +54,7 @@ This document outlines the security standards and safeguards for the StockPlan p
 - [x] **Secrets in Environment**: Verified in `configure.swift`.
 - [x] **Clean Git History**: `.env` is ignored and not present in history.
 - [x] **Non-Root Execution**: Dockerfile uses `USER vapor:vapor`.
-- [x] **Minimal Ports**: Only 80/443 (via Caddy) and 8080 (internal) are used.
+- [x] **Minimal Ports**: Only 80/443 (via Nginx) and 8080 (internal) are used.
 
 ## 5. Mobile Client Safeguards
 
