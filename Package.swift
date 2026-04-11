@@ -25,7 +25,7 @@ let package = Package(
         .package(url: "https://github.com/apple/swift-log.git", from: "1.5.0"),
         .package(url: "https://github.com/vapor/redis.git", from: "4.8.0"),
         // Shared API contracts used by backend and iOS app.
-        .package(path: "../StockPlanShared"),
+        .package(url: "https://github.com/FinancePlanner/FinanceShared.git", from: "0.1.0"),
         // Container packaging without Dockerfile builds in CI.
         .package(url: "https://github.com/apple/swift-container-plugin.git", from: "1.3.0"),
         .package(url: "https://github.com/realm/SwiftLint.git", from: "0.50.3"),
@@ -48,7 +48,7 @@ let package = Package(
                 .product(name: "Logging", package: "swift-log"),
                 // Optional Redis cache integration.
                 .product(name: "Redis", package: "redis"),
-                .product(name: "StockPlanShared", package: "StockPlanShared"),
+                .product(name: "StockPlanShared", package: "FinanceShared"),
                 .product(name: "VaporAPNS", package: "apns")
             ],
             resources: [

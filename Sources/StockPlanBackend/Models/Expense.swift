@@ -18,7 +18,7 @@ final class Expense: Model, @unchecked Sendable {
     @Field(key: "amount")
     var amount: Double
 
-    @Enum(key: "pillar")
+    @Field(key: "pillar")
     var pillar: BudgetPillar
 
     @Field(key: "occurred_on")

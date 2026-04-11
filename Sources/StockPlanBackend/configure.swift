@@ -42,19 +42,29 @@ public func configure(_ app: Application) async throws {
 
     let isTesting = app.environment == .testing
     let databaseHost = isTesting
-        ? (Environment.get("TEST_DATABASE_HOST") ?? "127.0.0.1")
+        ? (Environment.get("TEST_DATABASE_HOST")
+            ?? Environment.get("DATABASE_HOST")
+            ?? "127.0.0.1")
         : (Environment.get("DATABASE_HOST") ?? "localhost")
     let databasePort = isTesting
-        ? (Environment.get("TEST_DATABASE_PORT").flatMap(Int.init(_:)) ?? 5432)
+        ? (Environment.get("TEST_DATABASE_PORT").flatMap(Int.init(_:))
+            ?? Environment.get("DATABASE_PORT").flatMap(Int.init(_:))
+            ?? 5432)
         : (Environment.get("DATABASE_PORT").flatMap(Int.init(_:)) ?? SQLPostgresConfiguration.ianaPortNumber)
     let databaseUsername = isTesting
-        ? (Environment.get("TEST_DATABASE_USERNAME") ?? "stockplan_user")
+        ? (Environment.get("TEST_DATABASE_USERNAME")
+            ?? Environment.get("DATABASE_USERNAME")
+            ?? "vapor_username")
         : (Environment.get("DATABASE_USERNAME") ?? "vapor_username")
     let databasePassword = isTesting
-        ? (Environment.get("TEST_DATABASE_PASSWORD") ?? "stockplan_password")
+        ? (Environment.get("TEST_DATABASE_PASSWORD")
+            ?? Environment.get("DATABASE_PASSWORD")
+            ?? "vapor_password")
         : (Environment.get("DATABASE_PASSWORD") ?? "vapor_password")
     let databaseName = isTesting
-        ? (Environment.get("TEST_DATABASE_NAME") ?? "stockplan_dev")
+        ? (Environment.get("TEST_DATABASE_NAME")
+            ?? Environment.get("DATABASE_NAME")
+            ?? "vapor_database")
         : (Environment.get("DATABASE_NAME") ?? "vapor_database")
     let testDatabaseSchema: String? = {
         guard isTesting else { return nil }
@@ -285,6 +295,7 @@ public func configure(_ app: Application) async throws {
     app.migrations.add(CreateCryptoPortfolioItem())
     app.migrations.add(CreateExpensesTables())
     app.migrations.add(AddExpenseSharingFields())
+    app.migrations.add(ConvertBudgetPillarEnumToString())
     app.migrations.add(CreateReportSuggestionDismissals())
     app.migrations.add(AddHouseholdPartnerDisplayNameToUsers())
     app.migrations.add(AddEncryptedUserProfileFields())

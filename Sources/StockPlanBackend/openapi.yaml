@@ -412,6 +412,14 @@ paths:
       summary: List stocks
       security:
         - bearerAuth: []
+      parameters:
+        - name: portfolioListId
+          in: query
+          required: false
+          description: Optional portfolio list identifier. If omitted, returns holdings in the default portfolio list.
+          schema:
+            type: string
+            format: uuid
       responses:
         '200':
           description: OK
@@ -672,6 +680,14 @@ paths:
       summary: List watchlist items
       security:
         - bearerAuth: []
+      parameters:
+        - name: watchlistListId
+          in: query
+          required: false
+          description: Optional watchlist list identifier. If omitted, returns items in the default watchlist list.
+          schema:
+            type: string
+            format: uuid
       responses:
         '200':
           description: OK
@@ -754,6 +770,93 @@ paths:
           description: Not Found
         '401':
           description: Unauthorized
+
+  /v1/watchlist/lists:
+    get:
+      operationId: listWatchlistLists
+      tags: [Watchlist]
+      summary: List watchlist lists
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/WatchlistListResponse'
+        '401':
+          description: Unauthorized
+    post:
+      operationId: createWatchlistList
+      tags: [Watchlist]
+      summary: Create a watchlist list
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/WatchlistListRequest'
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WatchlistListResponse'
+        '401':
+          description: Unauthorized
+  /v1/watchlist/lists/{watchlistListId}:
+    parameters:
+      - name: watchlistListId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    patch:
+      operationId: updateWatchlistList
+      tags: [Watchlist]
+      summary: Rename a watchlist list
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/WatchlistListRequest'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WatchlistListResponse'
+        '401':
+          description: Unauthorized
+        '404':
+          description: Not Found
+    delete:
+      operationId: deleteWatchlistList
+      tags: [Watchlist]
+      summary: Delete a watchlist list
+      description: Deletes a non-default watchlist list and moves its items to the default watchlist list.
+      security:
+        - bearerAuth: []
+      responses:
+        '204':
+          description: No Content
+        '400':
+          description: Default list cannot be deleted
+        '401':
+          description: Unauthorized
+        '404':
+          description: Not Found
 
   /v1/research:
     get:
@@ -3562,6 +3665,16 @@ paths:
       operationId: portfolioSummary
       tags: [Portfolio]
       summary: Portfolio summary
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: portfolioListId
+          in: query
+          required: false
+          description: Optional portfolio list identifier. If omitted, returns aggregate totals across all portfolio lists.
+          schema:
+            type: string
+            format: uuid
       responses:
         '200':
           description: OK
@@ -3569,11 +3682,23 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/PortfolioSummaryResponse'
+        '401':
+          description: Unauthorized
   /v1/portfolio/performance:
     get:
       operationId: portfolioPerformance
       tags: [Portfolio]
       summary: Portfolio performance points
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: portfolioListId
+          in: query
+          required: false
+          description: Optional portfolio list identifier. If omitted, returns aggregate performance across all portfolio lists.
+          schema:
+            type: string
+            format: uuid
       responses:
         '200':
           description: OK
@@ -3581,6 +3706,94 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/PortfolioPerformanceResponse'
+        '401':
+          description: Unauthorized
+  /v1/portfolio/lists:
+    get:
+      operationId: listPortfolioLists
+      tags: [Portfolio]
+      summary: List portfolio lists
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/PortfolioListResponse'
+        '401':
+          description: Unauthorized
+    post:
+      operationId: createPortfolioList
+      tags: [Portfolio]
+      summary: Create a portfolio list
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PortfolioListRequest'
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PortfolioListResponse'
+        '401':
+          description: Unauthorized
+  /v1/portfolio/lists/{portfolioListId}:
+    parameters:
+      - name: portfolioListId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    patch:
+      operationId: updatePortfolioList
+      tags: [Portfolio]
+      summary: Rename a portfolio list
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PortfolioListRequest'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PortfolioListResponse'
+        '401':
+          description: Unauthorized
+        '404':
+          description: Not Found
+    delete:
+      operationId: deletePortfolioList
+      tags: [Portfolio]
+      summary: Delete a portfolio list
+      description: Deletes a non-default portfolio list and moves its holdings to the default portfolio list.
+      security:
+        - bearerAuth: []
+      responses:
+        '204':
+          description: No Content
+        '400':
+          description: Default list cannot be deleted
+        '401':
+          description: Unauthorized
+        '404':
+          description: Not Found
   /v1/transactions:
     get:
       operationId: listTransactions
@@ -4569,7 +4782,8 @@ components:
           format: double
         pillar:
           type: string
-          enum: [fundamentals, futureYou, fun]
+          description: "Pillar key (built-in examples: fundamentals, futureYou, fun; custom values allowed)."
+          example: fundamentals
         splitMode:
           $ref: '#/components/schemas/ExpenseSplitMode'
         userSharePercent:
@@ -4595,7 +4809,8 @@ components:
           format: double
         pillar:
           type: string
-          enum: [fundamentals, futureYou, fun]
+          description: "Pillar key (built-in examples: fundamentals, futureYou, fun; custom values allowed)."
+          example: fundamentals
         splitMode:
           $ref: '#/components/schemas/ExpenseSplitMode'
         userSharePercent:
@@ -4623,7 +4838,8 @@ components:
           format: double
         pillar:
           type: string
-          enum: [fundamentals, futureYou, fun]
+          description: "Pillar key (built-in examples: fundamentals, futureYou, fun; custom values allowed)."
+          example: fundamentals
         occurredOn:
           type: string
           format: date
@@ -4653,7 +4869,8 @@ components:
           format: double
         pillar:
           type: string
-          enum: [fundamentals, futureYou, fun]
+          description: "Pillar key (built-in examples: fundamentals, futureYou, fun; custom values allowed)."
+          example: fundamentals
         occurredOn:
           type: string
           format: date
@@ -4683,7 +4900,8 @@ components:
       properties:
         pillar:
           type: string
-          enum: [fundamentals, futureYou, fun]
+          description: "Pillar key (built-in examples: fundamentals, futureYou, fun; custom values allowed)."
+          example: fundamentals
         targetAmount:
           type: number
           format: double
@@ -4885,6 +5103,57 @@ components:
       type: string
       enum: [stock, etf, crypto]
 
+    PortfolioListRequest:
+      type: object
+      properties:
+        name:
+          type: string
+      required: [name]
+    PortfolioListResponse:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        isDefault:
+          type: boolean
+        createdAt:
+          type: string
+          format: date-time
+          nullable: true
+        updatedAt:
+          type: string
+          format: date-time
+          nullable: true
+      required: [id, name, isDefault]
+    WatchlistListRequest:
+      type: object
+      properties:
+        name:
+          type: string
+      required: [name]
+    WatchlistListResponse:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        isDefault:
+          type: boolean
+        createdAt:
+          type: string
+          format: date-time
+          nullable: true
+        updatedAt:
+          type: string
+          format: date-time
+          nullable: true
+      required: [id, name, isDefault]
+
     StockRequest:
       type: object
       properties:
@@ -4903,6 +5172,9 @@ components:
           type: string
         category:
           $ref: '#/components/schemas/AssetCategory'
+        portfolioListId:
+          type: string
+          format: uuid
       required: [symbol, shares, buyPrice, buyDate, category]
     SellStockRequest:
       type: object
@@ -4938,6 +5210,9 @@ components:
           type: string
         category:
           $ref: '#/components/schemas/AssetCategory'
+        portfolioListId:
+          type: string
+          format: uuid
       required: [id, symbol, shares, buyPrice, buyDate, category]
     StockInsightsResponse:
       type: object
@@ -5147,6 +5422,9 @@ components:
           type: string
           format: date
           example: 2026-05-15
+        watchlistListId:
+          type: string
+          format: uuid
       required: [symbol]
     WatchlistItemUpdateRequest:
       type: object
@@ -5163,6 +5441,9 @@ components:
           type: string
           format: date
           example: 2026-05-15
+        watchlistListId:
+          type: string
+          format: uuid
     WatchlistItemResponse:
       type: object
       properties:
@@ -5187,6 +5468,9 @@ components:
         nextReviewAt:
           type: string
           format: date
+        watchlistListId:
+          type: string
+          format: uuid
       required: [id, symbol, status]
 
     ResearchNoteRequest:

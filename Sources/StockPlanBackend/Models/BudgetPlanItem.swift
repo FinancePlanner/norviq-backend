@@ -21,7 +21,7 @@ final class BudgetPlanItem: Model, @unchecked Sendable {
     @Field(key: "planned_amount")
     var plannedAmount: Double
 
-    @Enum(key: "pillar")
+    @Field(key: "pillar")
     var pillar: BudgetPillar
 
     @Enum(key: "split_mode")

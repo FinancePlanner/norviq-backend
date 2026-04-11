@@ -52,13 +52,12 @@ struct AddPortfolioAndWatchlistLists: AsyncMigration {
             )
             .update()
 
-        let users = try await User.query(on: database).all()
         guard let sql = database as? any SQLDatabase else {
             throw Abort(.internalServerError, reason: "SQL database is required for list backfill migration.")
         }
+        let userIDs = try await loadUserIDs(on: sql)
 
-        for user in users {
-            guard let userId = user.id else { continue }
+        for userId in userIDs {
             let portfolioListId = try await ensureDefaultPortfolioList(userId: userId, on: database)
             let watchlistListId = try await ensureDefaultWatchlistList(userId: userId, on: database)
 
@@ -198,5 +197,14 @@ struct AddPortfolioAndWatchlistLists: AsyncMigration {
             throw Abort(.internalServerError, reason: "Failed to create default watchlist list.")
         }
         return id
+    }
+
+    private func loadUserIDs(on db: any SQLDatabase) async throws -> [UUID] {
+        struct UserIDRow: Decodable {
+            let id: UUID
+        }
+
+        let rows = try await db.raw("SELECT id FROM users").all(decoding: UserIDRow.self)
+        return rows.map(\.id)
     }
 }

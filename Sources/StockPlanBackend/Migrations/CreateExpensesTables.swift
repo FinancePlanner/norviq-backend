@@ -4,13 +4,6 @@ import StockPlanShared
 
 struct CreateExpensesTables: AsyncMigration {
     func prepare(on database: any Database) async throws {
-        // Create the BudgetPillar enum
-        let pillarEnum = try await database.enum("budget_pillar")
-            .case(BudgetPillar.fundamentals.rawValue)
-            .case(BudgetPillar.futureYou.rawValue)
-            .case(BudgetPillar.fun.rawValue)
-            .create()
-
         // 1. Budget Snapshots
         try await database.schema(BudgetSnapshot.schema)
             .id()
@@ -30,7 +23,7 @@ struct CreateExpensesTables: AsyncMigration {
             .field("user_id", .uuid, .required, .references(User.schema, "id", onDelete: .cascade))
             .field("title", .string, .required)
             .field("planned_amount", .double, .required)
-            .field("pillar", pillarEnum, .required)
+            .field("pillar", .string, .required)
             .field("created_at", .datetime)
             .field("updated_at", .datetime)
             .create()
@@ -41,7 +34,7 @@ struct CreateExpensesTables: AsyncMigration {
             .field("user_id", .uuid, .required, .references(User.schema, "id", onDelete: .cascade))
             .field("title", .string, .required)
             .field("amount", .double, .required)
-            .field("pillar", pillarEnum, .required)
+            .field("pillar", .string, .required)
             .field("occurred_on", .date, .required)
             .field("linked_item_id", .uuid, .references(BudgetPlanItem.schema, "id", onDelete: .setNull))
             .field("created_at", .datetime)
@@ -53,6 +46,5 @@ struct CreateExpensesTables: AsyncMigration {
         try await database.schema(Expense.schema).delete()
         try await database.schema(BudgetPlanItem.schema).delete()
         try await database.schema(BudgetSnapshot.schema).delete()
-        try await database.enum("budget_pillar").delete()
     }
 }

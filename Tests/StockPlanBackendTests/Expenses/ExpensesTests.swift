@@ -161,6 +161,79 @@ struct ExpensesTests {
         }
     }
 
+    @Test("Custom pillars are accepted and included in reports")
+    func customPillarReporting() async throws {
+        try await withExpensesApp { app in
+            let token = try await registerTestUser(app: app)
+            let customPillar = try #require(BudgetPillar(rawValue: "Nuclear Theme"))
+
+            var snapshotId = ""
+            try await app.testing().test(.POST, "v1/budget/snapshots", beforeRequest: { req in
+                req.headers.bearerAuthorization = .init(token: token)
+                try req.content.encode(
+                    BudgetSnapshotRequest(
+                        monthStart: "2026-06-01",
+                        netSalary: 5000,
+                        targetShares: [customPillar.rawValue: 0.10]
+                    )
+                )
+            }, afterResponse: { res async throws in
+                #expect(res.status == .created)
+                snapshotId = try res.content.decode(BudgetSnapshotResponse.self).id
+            })
+
+            try await app.testing().test(.POST, "v1/budget/items", beforeRequest: { req in
+                req.headers.bearerAuthorization = .init(token: token)
+                try req.content.encode(
+                    BudgetPlanItemRequest(
+                        snapshotId: snapshotId,
+                        title: "Nuclear ETF DCA",
+                        plannedAmount: 500,
+                        pillar: customPillar
+                    )
+                )
+            }, afterResponse: { res async throws in
+                #expect(res.status == .created)
+                let item = try res.content.decode(BudgetPlanItemResponse.self)
+                #expect(item.pillar == customPillar)
+            })
+
+            try await app.testing().test(.POST, "v1/expenses", beforeRequest: { req in
+                req.headers.bearerAuthorization = .init(token: token)
+                try req.content.encode(
+                    ExpenseRequest(
+                        title: "Uranium miner buy",
+                        amount: 300,
+                        pillar: customPillar,
+                        occurredOn: "2026-06-10"
+                    )
+                )
+            }, afterResponse: { res async throws in
+                #expect(res.status == .created)
+                let expense = try res.content.decode(ExpenseResponse.self)
+                #expect(expense.pillar == customPillar)
+            })
+
+            try await app.testing().test(.GET, "v1/reports/expenses?granularity=month&from=2026-06-01&to=2026-06-30", beforeRequest: { req in
+                req.headers.bearerAuthorization = .init(token: token)
+            }, afterResponse: { res async throws in
+                #expect(res.status == .ok)
+                let reports = try res.content.decode([BudgetMonthSummaryResponse].self)
+                #expect(reports.count == 1)
+                #expect(reports[0].pillarPlans[customPillar.rawValue] == 500)
+                #expect(reports[0].pillarActuals[customPillar.rawValue] == 300)
+            })
+
+            try await app.testing().test(.GET, "v1/reports/overview", beforeRequest: { req in
+                req.headers.bearerAuthorization = .init(token: token)
+            }, afterResponse: { res async throws in
+                #expect(res.status == .ok)
+                let overview = try res.content.decode(ReportsOverviewResponse.self)
+                #expect(overview.latestPillarSummaries.contains(where: { $0.pillar == customPillar }))
+            })
+        }
+    }
+
     @Test("Monthly reports include split household totals")
     func monthlyReportSplitAggregation() async throws {
         try await withExpensesApp { app in

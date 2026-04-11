@@ -40,19 +40,17 @@ final class DefaultExpensesService: ExpensesService {
     }
 
     private func symbol(for pillar: BudgetPillar) -> String {
-        switch pillar {
-        case .fundamentals: return "house.fill"
-        case .futureYou: return "chart.line.uptrend.xyaxis"
-        case .fun: return "sparkles"
-        }
+        if pillar == .fundamentals { return "house.fill" }
+        if pillar == .futureYou { return "chart.line.uptrend.xyaxis" }
+        if pillar == .fun { return "sparkles" }
+        return "square.stack.3d.up.fill"
     }
 
     private func defaultTargetShare(for pillar: BudgetPillar) -> Double {
-        switch pillar {
-        case .fundamentals: return 0.50
-        case .futureYou: return 0.20
-        case .fun: return 0.30
-        }
+        if pillar == .fundamentals { return 0.50 }
+        if pillar == .futureYou { return 0.20 }
+        if pillar == .fun { return 0.30 }
+        return 0
     }
 
     // MARK: - Formatters
@@ -541,7 +539,13 @@ final class DefaultExpensesService: ExpensesService {
             var myPillarActuals: [String: Double] = [:]
             var partnerPillarActuals: [String: Double] = [:]
 
-            for pillar in BudgetPillar.allCases {
+            let pillars = resolvedPillars(
+                snapshot: snapshot,
+                items: snapshotItems,
+                expenses: monthExpenses
+            )
+
+            for pillar in pillars {
                 let itemsForPillar = snapshotItems.filter { $0.pillar == pillar }
                 var plannedAmount: Double = 0
                 var myPlannedAmount: Double = 0
@@ -676,7 +680,13 @@ final class DefaultExpensesService: ExpensesService {
 
         let monthExpenses = try await expensesQuery.all()
 
-        return BudgetPillar.allCases.map { pillar in
+        let pillars = resolvedPillars(
+            snapshot: snapshot,
+            items: snapshotItems,
+            expenses: monthExpenses
+        )
+
+        return pillars.map { pillar in
             let plannedItems = snapshotItems.filter { $0.pillar == pillar }
             let expensesForPillar = monthExpenses.filter { $0.pillar == pillar }
             let targetShare = snapshot.targetShares[pillar.rawValue] ?? defaultTargetShare(for: pillar)
@@ -749,6 +759,46 @@ final class DefaultExpensesService: ExpensesService {
 }
 
 private extension DefaultExpensesService {
+    func sortedPillars(_ pillars: Set<BudgetPillar>) -> [BudgetPillar] {
+        pillars.sorted { lhs, rhs in
+            let lhsRank = pillarRank(lhs)
+            let rhsRank = pillarRank(rhs)
+            if lhsRank == rhsRank {
+                return lhs.rawValue.localizedCaseInsensitiveCompare(rhs.rawValue) == .orderedAscending
+            }
+            return lhsRank < rhsRank
+        }
+    }
+
+    func pillarRank(_ pillar: BudgetPillar) -> Int {
+        if pillar == .fundamentals { return 0 }
+        if pillar == .futureYou { return 1 }
+        if pillar == .fun { return 2 }
+        return 3
+    }
+
+    func resolvedPillars(
+        snapshot: BudgetSnapshot,
+        items: [BudgetPlanItem],
+        expenses: [Expense]
+    ) -> [BudgetPillar] {
+        var pillars = Set(BudgetPillar.allCases)
+
+        for key in snapshot.targetShares.keys {
+            if let pillar = BudgetPillar(rawValue: key) {
+                pillars.insert(pillar)
+            }
+        }
+        for item in items {
+            pillars.insert(item.pillar)
+        }
+        for expense in expenses {
+            pillars.insert(expense.pillar)
+        }
+
+        return sortedPillars(pillars)
+    }
+
     func normalizedMonthStart(for date: Date) -> Date {
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = TimeZone(secondsFromGMT: 0)!
