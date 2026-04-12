@@ -44,6 +44,20 @@ protocol AuthRepository: Sendable {
         emailVerified: Bool,
         on db: any Database
     ) async throws -> OAuthIdentity
+
+    func createMFAChallenge(
+        userId: UUID,
+        purpose: String,
+        channel: String,
+        destination: String,
+        codeHash: String,
+        expiresAt: Date,
+        lastSentAt: Date,
+        on db: any Database
+    ) async throws -> MFAChallenge
+    func findMFAChallenge(id: UUID, on db: any Database) async throws -> MFAChallenge?
+    func invalidateActiveMFAChallenges(userId: UUID, purpose: String, consumedAt: Date, on db: any Database) async throws
+    func saveMFAChallenge(_ challenge: MFAChallenge, on db: any Database) async throws
 }
 
 struct DatabaseAuthRepository: AuthRepository {
@@ -208,6 +222,50 @@ struct DatabaseAuthRepository: AuthRepository {
         )
         try await identity.save(on: db)
         return identity
+    }
+
+    func createMFAChallenge(
+        userId: UUID,
+        purpose: String,
+        channel: String,
+        destination: String,
+        codeHash: String,
+        expiresAt: Date,
+        lastSentAt: Date,
+        on db: any Database
+    ) async throws -> MFAChallenge {
+        let challenge = MFAChallenge(
+            userId: userId,
+            purpose: purpose,
+            channel: channel,
+            destination: destination,
+            codeHash: codeHash,
+            expiresAt: expiresAt,
+            lastSentAt: lastSentAt
+        )
+        try await challenge.save(on: db)
+        return challenge
+    }
+
+    func findMFAChallenge(id: UUID, on db: any Database) async throws -> MFAChallenge? {
+        try await MFAChallenge.find(id, on: db)
+    }
+
+    func invalidateActiveMFAChallenges(userId: UUID, purpose: String, consumedAt: Date, on db: any Database) async throws {
+        let active = try await MFAChallenge.query(on: db)
+            .filter(\.$userId == userId)
+            .filter(\.$purpose == purpose)
+            .filter(\.$consumedAt == nil)
+            .all()
+
+        for challenge in active {
+            challenge.consumedAt = consumedAt
+            try await challenge.save(on: db)
+        }
+    }
+
+    func saveMFAChallenge(_ challenge: MFAChallenge, on db: any Database) async throws {
+        try await challenge.save(on: db)
     }
 }
 

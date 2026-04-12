@@ -3,6 +3,7 @@ import VaporTesting
 import Testing
 import Fluent
 import Foundation
+import Crypto
 
 @Suite("Auth Tests", .serialized)
 struct AuthTests {
@@ -36,6 +37,11 @@ struct AuthTests {
             email: email,
             dateOfBirth: dateOfBirth
         )
+    }
+
+    private func sha256(_ value: String) -> String {
+        let digest = SHA256.hash(data: Data(value.utf8))
+        return digest.map { String(format: "%02x", $0) }.joined()
     }
 
     @Test("Registration fails when password confirmation does not match")
@@ -227,6 +233,102 @@ struct AuthTests {
                 try req.content.encode(loginReq)
             }, afterResponse: { res async in
                 #expect(res.status == .unauthorized)
+            })
+        }
+    }
+
+    @Test("Login returns MFA challenge for MFA-capable clients")
+    func loginReturnsMFAChallengeForCapableClient() async throws {
+        setenv("AUTH_MFA_ENABLED", "true", 1)
+        defer { unsetenv("AUTH_MFA_ENABLED") }
+
+        try await withApp { app in
+            let registerReq = makeRegisterRequest(email: "mfa-login@example.com", password: "Password123!")
+            try await app.testing().test(.POST, "v1/auth/register", beforeRequest: { req in
+                try req.content.encode(registerReq)
+            }, afterResponse: { res async in
+                #expect(res.status == .ok)
+            })
+
+            let loginReq = AuthLoginRequest(email: "mfa-login@example.com", password: "Password123!")
+            try await app.testing().test(.POST, "v1/auth/login", beforeRequest: { req in
+                req.headers.replaceOrAdd(name: "X-StockPlan-Client-Capabilities", value: "mfa-auth-v1")
+                try req.content.encode(loginReq)
+            }, afterResponse: { res async throws in
+                #expect(res.status == .ok)
+                let outcome = try res.content.decode(AuthLoginOutcome.self)
+                #expect(outcome.status == .mfaRequired)
+                #expect(outcome.mfa != nil)
+                #expect(outcome.auth == nil)
+            })
+        }
+    }
+
+    @Test("MFA verify issues tokens for valid challenge")
+    func mfaVerifyIssuesTokens() async throws {
+        setenv("AUTH_MFA_ENABLED", "true", 1)
+        defer { unsetenv("AUTH_MFA_ENABLED") }
+
+        try await withApp { app in
+            let registerReq = makeRegisterRequest(email: "mfa-verify@example.com", password: "Password123!")
+            try await app.testing().test(.POST, "v1/auth/register", beforeRequest: { req in
+                try req.content.encode(registerReq)
+            }, afterResponse: { res async in
+                #expect(res.status == .ok)
+            })
+
+            var challengeID: UUID?
+            let loginReq = AuthLoginRequest(email: "mfa-verify@example.com", password: "Password123!")
+            try await app.testing().test(.POST, "v1/auth/login", beforeRequest: { req in
+                req.headers.replaceOrAdd(name: "X-StockPlan-Client-Capabilities", value: "mfa-auth-v1")
+                try req.content.encode(loginReq)
+            }, afterResponse: { res async throws in
+                let outcome = try res.content.decode(AuthLoginOutcome.self)
+                challengeID = outcome.mfa?.challengeId
+            })
+
+            guard let challengeID,
+                  let challenge = try await MFAChallenge.find(challengeID, on: app.db) else {
+                Issue.record("Expected MFA challenge to exist")
+                return
+            }
+
+            challenge.codeHash = sha256("123456")
+            try await challenge.save(on: app.db)
+
+            try await app.testing().test(.POST, "v1/auth/mfa/verify", beforeRequest: { req in
+                try req.content.encode(AuthMFAVerifyRequest(challengeId: challengeID, code: "123456"))
+            }, afterResponse: { res async throws in
+                #expect(res.status == .ok)
+                let auth = try res.content.decode(AuthResponse.self)
+                #expect(!auth.token.isEmpty)
+                #expect(!auth.refreshToken.isEmpty)
+            })
+        }
+    }
+
+    @Test("Non-capable client is rejected when legacy bypass is disabled")
+    func loginRejectsLegacyWhenBypassDisabled() async throws {
+        setenv("AUTH_MFA_ENABLED", "true", 1)
+        setenv("AUTH_MFA_ALLOW_LEGACY_BYPASS", "false", 1)
+        defer {
+            unsetenv("AUTH_MFA_ENABLED")
+            unsetenv("AUTH_MFA_ALLOW_LEGACY_BYPASS")
+        }
+
+        try await withApp { app in
+            let registerReq = makeRegisterRequest(email: "legacy-bypass@example.com", password: "Password123!")
+            try await app.testing().test(.POST, "v1/auth/register", beforeRequest: { req in
+                try req.content.encode(registerReq)
+            }, afterResponse: { res async in
+                #expect(res.status == .ok)
+            })
+
+            let loginReq = AuthLoginRequest(email: "legacy-bypass@example.com", password: "Password123!")
+            try await app.testing().test(.POST, "v1/auth/login", beforeRequest: { req in
+                try req.content.encode(loginReq)
+            }, afterResponse: { res async throws in
+                #expect(res.status == .upgradeRequired)
             })
         }
     }

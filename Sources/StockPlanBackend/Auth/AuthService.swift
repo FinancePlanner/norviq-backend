@@ -5,7 +5,32 @@ import JWT
 import StockPlanShared
 import Vapor
 
+enum AuthMFAPurpose: String, Sendable {
+    case login
+    case oauth
+}
+
+struct AuthMFAConfig: Sendable {
+    let enabled: Bool
+    let allowLegacyBypass: Bool
+    let codeTTLSeconds: Int
+    let maxVerifyAttempts: Int
+    let resendCooldownSeconds: Int
+    let maxResends: Int
+
+    static let `default` = AuthMFAConfig(
+        enabled: false,
+        allowLegacyBypass: true,
+        codeTTLSeconds: 300,
+        maxVerifyAttempts: 5,
+        resendCooldownSeconds: 30,
+        maxResends: 3
+    )
+}
+
 protocol AuthService: Sendable {
+    var mfaConfig: AuthMFAConfig { get }
+
     func register(
         username: String,
         email: String,
@@ -14,7 +39,7 @@ protocol AuthService: Sendable {
         dateOfBirth: Date,
         on req: Request
     ) async throws -> AuthResponse
-    func login(email: String, password: String, on req: Request) async throws -> AuthResponse
+    func login(email: String, password: String, requireMFA: Bool, on req: Request) async throws -> AuthLoginOutcome
     func currentUser(from req: Request) async throws -> AuthUserResponse
     func forgotPassword(email: String, on req: Request) async throws -> AuthForgotPasswordResponse
     func resendResetCode(email: String, on req: Request) async throws -> AuthForgotPasswordResponse
@@ -29,20 +54,27 @@ protocol AuthService: Sendable {
         code: String,
         state: String,
         redirectURI: String,
+        requireMFA: Bool,
         on req: Request
-    ) async throws -> AuthResponse
+    ) async throws -> AuthLoginOutcome
+    func verifyMFA(challengeId: UUID, code: String, on req: Request) async throws -> AuthResponse
+    func resendMFA(challengeId: UUID, on req: Request) async throws -> AuthMFAChallengeResponse
 }
 
+// swiftlint:disable type_body_length
 struct DefaultAuthService: AuthService {
     let repo: any AuthRepository
     let oauthProviders: [OAuthProvider: any OAuthProviderClient]
+    let mfaConfig: AuthMFAConfig
 
     init(
         repo: any AuthRepository,
-        oauthProviders: [OAuthProvider: any OAuthProviderClient] = [:]
+        oauthProviders: [OAuthProvider: any OAuthProviderClient] = [:],
+        mfaConfig: AuthMFAConfig = .default
     ) {
         self.repo = repo
         self.oauthProviders = oauthProviders
+        self.mfaConfig = mfaConfig
     }
 
     func register(
@@ -90,7 +122,7 @@ struct DefaultAuthService: AuthService {
         return try await makeAuthResponse(for: user, on: req)
     }
 
-    func login(email: String, password: String, on req: Request) async throws -> AuthResponse {
+    func login(email: String, password: String, requireMFA: Bool, on req: Request) async throws -> AuthLoginOutcome {
         let normalizedEmail = normalizeEmail(email)
         try validateEmail(normalizedEmail)
         try validatePassword(password)
@@ -102,14 +134,14 @@ struct DefaultAuthService: AuthService {
         // 1. Check if the account is currently locked
         if let lockoutUntil = user.lockoutUntil, lockoutUntil > Date() {
             let timeRemaining = Int(lockoutUntil.timeIntervalSince(Date()) / 60)
-            let message = timeRemaining > 0 
+            let message = timeRemaining > 0
                 ? "Account is temporarily locked due to multiple failed login attempts. Please try again in \(timeRemaining) minute(s)."
                 : "Account is temporarily locked due to multiple failed login attempts. Please try again shortly."
             throw Abort(.forbidden, reason: message)
         }
 
         let isValid = try req.password.verify(password, created: user.passwordHash)
-        
+
         if !isValid {
             // 2. Increment failed attempts and lock if necessary
             user.failedLoginAttempts += 1
@@ -136,7 +168,13 @@ struct DefaultAuthService: AuthService {
             // throw Abort(.forbidden, reason: "Please verify your email address before logging in.")
         }
 
-        return try await makeAuthResponse(for: user, on: req)
+        if requireMFA {
+            let challenge = try await issueMFAChallenge(user: user, purpose: .login, channel: .email, on: req)
+            req.logger.info("auth.mfa challenge_issued purpose=login user_id=\(user.id?.uuidString ?? "unknown")")
+            return .mfaRequired(challenge)
+        }
+
+        return .authenticated(try await makeAuthResponse(for: user, on: req))
     }
 
     func currentUser(from req: Request) async throws -> AuthUserResponse {
@@ -261,8 +299,9 @@ struct DefaultAuthService: AuthService {
         code: String,
         state: String,
         redirectURI: String,
+        requireMFA: Bool,
         on req: Request
-    ) async throws -> AuthResponse {
+    ) async throws -> AuthLoginOutcome {
         let oauthProvider = try oauthProviderClient(for: provider)
         let normalizedCode = code.trimmingCharacters(in: .whitespacesAndNewlines)
         let normalizedState = state.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -314,7 +353,12 @@ struct DefaultAuthService: AuthService {
             guard let user = try await repo.findUser(id: userId, on: req.db) else {
                 throw Abort(.unauthorized, reason: "OAuth identity user not found")
             }
-            return try await makeAuthResponse(for: user, on: req)
+            if requireMFA {
+                let challenge = try await issueMFAChallenge(user: user, purpose: .oauth, channel: .email, on: req)
+                req.logger.info("auth.mfa challenge_issued purpose=oauth user_id=\(user.id?.uuidString ?? "unknown")")
+                return .mfaRequired(challenge)
+            }
+            return .authenticated(try await makeAuthResponse(for: user, on: req))
         }
 
         let normalizedIdentityEmail = identityInfo.email?
@@ -357,7 +401,86 @@ struct DefaultAuthService: AuthService {
             on: req.db
         )
 
+        if requireMFA {
+            let challenge = try await issueMFAChallenge(user: user, purpose: .oauth, channel: .email, on: req)
+            req.logger.info("auth.mfa challenge_issued purpose=oauth user_id=\(user.id?.uuidString ?? "unknown")")
+            return .mfaRequired(challenge)
+        }
+        return .authenticated(try await makeAuthResponse(for: user, on: req))
+    }
+
+    func verifyMFA(challengeId: UUID, code: String, on req: Request) async throws -> AuthResponse {
+        let normalizedCode = code.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard normalizedCode.range(of: #"^[0-9]{6}$"#, options: .regularExpression) != nil else {
+            throw Abort(.badRequest, reason: "Invalid verification code format.")
+        }
+
+        let now = Date()
+        guard let challenge = try await repo.findMFAChallenge(id: challengeId, on: req.db) else {
+            throw Abort(.unauthorized, reason: "Invalid or expired verification challenge.")
+        }
+
+        try validateActiveMFAChallenge(challenge, now: now)
+
+        guard challenge.failedAttempts < mfaConfig.maxVerifyAttempts else {
+            throw Abort(.unauthorized, reason: "Too many invalid verification attempts.")
+        }
+
+        let codeHash = hashToken(normalizedCode)
+        guard challenge.codeHash == codeHash else {
+            challenge.failedAttempts += 1
+            if challenge.failedAttempts >= mfaConfig.maxVerifyAttempts {
+                challenge.consumedAt = now
+            }
+            try await repo.saveMFAChallenge(challenge, on: req.db)
+            req.logger.warning("auth.mfa verify_failed challenge_id=\(challengeId.uuidString) attempts=\(challenge.failedAttempts)")
+            throw Abort(.unauthorized, reason: "Invalid verification code.")
+        }
+
+        challenge.consumedAt = now
+        try await repo.saveMFAChallenge(challenge, on: req.db)
+        req.logger.info("auth.mfa verify_succeeded challenge_id=\(challengeId.uuidString)")
+
+        guard let user = try await repo.findUser(id: challenge.userId, on: req.db) else {
+            throw Abort(.unauthorized, reason: "User not found.")
+        }
+
         return try await makeAuthResponse(for: user, on: req)
+    }
+
+    func resendMFA(challengeId: UUID, on req: Request) async throws -> AuthMFAChallengeResponse {
+        let now = Date()
+        guard let challenge = try await repo.findMFAChallenge(id: challengeId, on: req.db) else {
+            throw Abort(.unauthorized, reason: "Invalid or expired verification challenge.")
+        }
+        try validateActiveMFAChallenge(challenge, now: now)
+
+        guard challenge.resendCount < mfaConfig.maxResends else {
+            throw Abort(.tooManyRequests, reason: "Maximum resend attempts reached.")
+        }
+
+        let nextAllowed = challenge.lastSentAt.addingTimeInterval(TimeInterval(mfaConfig.resendCooldownSeconds))
+        if now < nextAllowed {
+            throw Abort(.tooManyRequests, reason: "Please wait before requesting another verification code.")
+        }
+
+        let newCode = generateMFACode()
+        challenge.codeHash = hashToken(newCode)
+        challenge.expiresAt = now.addingTimeInterval(TimeInterval(mfaConfig.codeTTLSeconds))
+        challenge.resendCount += 1
+        challenge.lastSentAt = now
+        challenge.failedAttempts = 0
+        try await repo.saveMFAChallenge(challenge, on: req.db)
+        req.logger.info("auth.mfa resent challenge_id=\(challengeId.uuidString) resend_count=\(challenge.resendCount)")
+
+        try await sendMFACodeEmail(
+            to: challenge.destination,
+            code: newCode,
+            purpose: AuthMFAPurpose(rawValue: challenge.purpose) ?? .login,
+            on: req
+        )
+
+        return try makeMFAChallengeResponse(from: challenge, now: now)
     }
 
     // MARK: - Internals
@@ -384,6 +507,109 @@ struct DefaultAuthService: AuthService {
             email: user.email,
             dateOfBirth: responseDateOfBirth(for: user)
         )
+    }
+
+    private func issueMFAChallenge(
+        user: User,
+        purpose: AuthMFAPurpose,
+        channel: AuthMFAChannel,
+        on req: Request
+    ) async throws -> AuthMFAChallengeResponse {
+        guard let userID = user.id else {
+            throw Abort(.internalServerError, reason: "User id missing")
+        }
+
+        let destination: String
+        switch channel {
+        case .email:
+            destination = normalizeEmail(user.email)
+        case .sms:
+            throw Abort(.badRequest, reason: "SMS MFA is not enabled in this phase.")
+        }
+
+        let now = Date()
+        try await repo.invalidateActiveMFAChallenges(
+            userId: userID,
+            purpose: purpose.rawValue,
+            consumedAt: now,
+            on: req.db
+        )
+
+        let code = generateMFACode()
+        let challenge = try await repo.createMFAChallenge(
+            userId: userID,
+            purpose: purpose.rawValue,
+            channel: channel.rawValue,
+            destination: destination,
+            codeHash: hashToken(code),
+            expiresAt: now.addingTimeInterval(TimeInterval(mfaConfig.codeTTLSeconds)),
+            lastSentAt: now,
+            on: req.db
+        )
+
+        try await sendMFACodeEmail(to: destination, code: code, purpose: purpose, on: req)
+        return try makeMFAChallengeResponse(from: challenge, now: now)
+    }
+
+    private func validateActiveMFAChallenge(_ challenge: MFAChallenge, now: Date) throws {
+        guard challenge.consumedAt == nil else {
+            throw Abort(.unauthorized, reason: "Verification challenge is no longer valid.")
+        }
+        guard challenge.expiresAt > now else {
+            throw Abort(.unauthorized, reason: "Verification challenge expired.")
+        }
+    }
+
+    private func makeMFAChallengeResponse(from challenge: MFAChallenge, now: Date) throws -> AuthMFAChallengeResponse {
+        guard let challengeID = challenge.id else {
+            throw Abort(.internalServerError, reason: "MFA challenge id missing.")
+        }
+        let channel = AuthMFAChannel(rawValue: challenge.channel) ?? .email
+        let availableAt = challenge.lastSentAt.addingTimeInterval(TimeInterval(mfaConfig.resendCooldownSeconds))
+        let resendAvailableIn = max(0, Int(ceil(availableAt.timeIntervalSince(now))))
+
+        return AuthMFAChallengeResponse(
+            challengeId: challengeID,
+            channel: channel,
+            maskedDestination: maskDestination(challenge.destination, channel: channel),
+            expiresIn: max(0, Int(ceil(challenge.expiresAt.timeIntervalSince(now)))),
+            resendAvailableIn: resendAvailableIn
+        )
+    }
+
+    private func sendMFACodeEmail(
+        to destination: String,
+        code: String,
+        purpose: AuthMFAPurpose,
+        on req: Request
+    ) async throws {
+        let subject = "Your StockPlan verification code"
+        let context = purpose == .oauth ? "finish sign in with your provider" : "finish signing in"
+        let body = "Use this code to \(context): \(code). This code expires in \(mfaConfig.codeTTLSeconds / 60) minutes."
+        let message = MailMessage(to: destination, subject: subject, body: body)
+        try await req.application.mailer.send(message, on: req)
+    }
+
+    private func maskDestination(_ destination: String, channel: AuthMFAChannel) -> String {
+        switch channel {
+        case .email:
+            return maskEmail(destination)
+        case .sms:
+            if destination.count <= 4 { return "••••" }
+            return "••••\(destination.suffix(4))"
+        }
+    }
+
+    private func maskEmail(_ email: String) -> String {
+        let parts = email.split(separator: "@", maxSplits: 1).map(String.init)
+        guard parts.count == 2 else { return "••••" }
+
+        let name = parts[0]
+        let domain = parts[1]
+        let visiblePrefix = String(name.prefix(2))
+        let visibleDomainPrefix = String(domain.prefix(1))
+        let tld = domain.split(separator: ".").last.map(String.init) ?? ""
+        return "\(visiblePrefix)•••@\(visibleDomainPrefix)•••.\(tld)"
     }
 
     private func issueResetCode(email: String, on req: Request) async throws
@@ -666,6 +892,10 @@ struct DefaultAuthService: AuthService {
         String(format: "%06d", Int.random(in: 0...999_999))
     }
 
+    private func generateMFACode() -> String {
+        String(format: "%06d", Int.random(in: 0...999_999))
+    }
+
     private func generateOpaqueToken(length: Int = 32) -> String {
         let bytes = (0..<length).map { _ in UInt8.random(in: 0...255) }
         return Data(bytes).base64EncodedString()
@@ -679,6 +909,7 @@ struct DefaultAuthService: AuthService {
         return digest.map { String(format: "%02x", $0) }.joined()
     }
 }
+// swiftlint:enable type_body_length
 
 extension Application {
     private struct AuthServiceKey: StorageKey {

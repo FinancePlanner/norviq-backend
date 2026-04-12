@@ -66,6 +66,12 @@ struct AuthRegisterRequest: Codable, Sendable, Equatable {
 
 typealias AuthLoginRequest = StockPlanShared.AuthLoginRequest
 typealias AuthResponse = StockPlanShared.AuthResponse
+typealias AuthLoginOutcome = StockPlanShared.AuthLoginOutcome
+typealias AuthLoginOutcomeStatus = StockPlanShared.AuthLoginOutcomeStatus
+typealias AuthMFAChannel = StockPlanShared.AuthMFAChannel
+typealias AuthMFAChallengeResponse = StockPlanShared.AuthMFAChallengeResponse
+typealias AuthMFAVerifyRequest = StockPlanShared.AuthMFAVerifyRequest
+typealias AuthMFAResendRequest = StockPlanShared.AuthMFAResendRequest
 typealias AuthRegisterResponse = StockPlanShared.AuthRegisterResponse
 typealias AuthUserResponse = StockPlanShared.AuthUserResponse
 typealias AuthForgotPasswordRequest = StockPlanShared.AuthForgotPasswordRequest
@@ -73,6 +79,11 @@ typealias AuthForgotPasswordResponse = StockPlanShared.AuthForgotPasswordRespons
 typealias AuthResetPasswordRequest = StockPlanShared.AuthResetPasswordRequest
 typealias AuthRefreshRequest = StockPlanShared.AuthRefreshRequest
 typealias OAuthProvider = StockPlanShared.OAuthProvider
+
+extension AuthLoginOutcome: @retroactive Content {}
+extension AuthMFAChallengeResponse: @retroactive Content {}
+extension AuthMFAVerifyRequest: @retroactive Content {}
+extension AuthMFAResendRequest: @retroactive Content {}
 
 struct OAuthStartRequest: Codable, Sendable, Equatable {
     let redirectURI: String

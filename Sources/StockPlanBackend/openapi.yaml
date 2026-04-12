@@ -96,7 +96,7 @@ paths:
     post:
       operationId: authLogin
       tags: [Auth]
-      summary: Login and receive tokens
+      summary: Login and receive either MFA challenge or tokens
       requestBody:
         required: true
         content:
@@ -109,7 +109,9 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/AuthResponse'
+                oneOf:
+                  - $ref: '#/components/schemas/AuthResponse'
+                  - $ref: '#/components/schemas/AuthLoginOutcome'
   /v1/auth/forgot-password:
     post:
       operationId: authForgotPassword
@@ -178,6 +180,50 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/AuthResponse'
+  /v1/auth/mfa/verify:
+    post:
+      operationId: authMFAVerify
+      tags: [Auth]
+      summary: Verify MFA challenge and issue tokens
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AuthMFAVerifyRequest'
+      responses:
+        '200':
+          description: MFA verification successful
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+        '401':
+          description: Invalid or expired challenge/code
+        '429':
+          description: Too many attempts
+  /v1/auth/mfa/resend:
+    post:
+      operationId: authMFAResend
+      tags: [Auth]
+      summary: Resend MFA verification code
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AuthMFAResendRequest'
+      responses:
+        '200':
+          description: MFA challenge refreshed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthMFAChallengeResponse'
+        '401':
+          description: Invalid or expired challenge
+        '429':
+          description: Resend limit exceeded
   /v1/auth/oauth/{provider}/start:
     post:
       operationId: authOAuthStart
@@ -210,7 +256,7 @@ paths:
     post:
       operationId: authOAuthExchange
       tags: [Auth]
-      summary: Exchange OAuth authorization code for app tokens
+      summary: Exchange OAuth authorization code and receive either MFA challenge or tokens
       parameters:
         - name: provider
           in: path
@@ -229,7 +275,9 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/AuthResponse'
+                oneOf:
+                  - $ref: '#/components/schemas/AuthResponse'
+                  - $ref: '#/components/schemas/AuthLoginOutcome'
         '401':
           description: OAuth flow invalid/expired or provider verification failed
         '409':
@@ -4433,6 +4481,56 @@ components:
         refreshToken:
           type: string
       required: [refreshToken]
+    AuthMFAChannel:
+      type: string
+      enum: [email, sms]
+    AuthMFAChallengeResponse:
+      type: object
+      properties:
+        challengeId:
+          type: string
+          format: uuid
+        channel:
+          $ref: '#/components/schemas/AuthMFAChannel'
+        maskedDestination:
+          type: string
+        expiresIn:
+          type: integer
+          format: int32
+        resendAvailableIn:
+          type: integer
+          format: int32
+      required: [challengeId, channel, maskedDestination, expiresIn, resendAvailableIn]
+    AuthMFAVerifyRequest:
+      type: object
+      properties:
+        challengeId:
+          type: string
+          format: uuid
+        code:
+          type: string
+          pattern: '^[0-9]{6}$'
+      required: [challengeId, code]
+    AuthMFAResendRequest:
+      type: object
+      properties:
+        challengeId:
+          type: string
+          format: uuid
+      required: [challengeId]
+    AuthLoginOutcomeStatus:
+      type: string
+      enum: [authenticated, mfaRequired]
+    AuthLoginOutcome:
+      type: object
+      properties:
+        status:
+          $ref: '#/components/schemas/AuthLoginOutcomeStatus'
+        auth:
+          $ref: '#/components/schemas/AuthResponse'
+        mfa:
+          $ref: '#/components/schemas/AuthMFAChallengeResponse'
+      required: [status]
     OAuthProvider:
       type: string
       enum: [apple, google, x]

@@ -127,11 +127,43 @@ public func configure(_ app: Application) async throws {
     } else {
         app.logger.warning("X OAuth is disabled. Configure OAUTH_X_CLIENT_ID (and optionally OAUTH_X_CLIENT_SECRET).")
     }
+    let mfaEnabled = envBool("AUTH_MFA_ENABLED", default: app.environment == .production)
+    let mfaAllowLegacyBypass = envBool("AUTH_MFA_ALLOW_LEGACY_BYPASS", default: app.environment != .production)
+    let mfaConfig = AuthMFAConfig(
+        enabled: mfaEnabled,
+        allowLegacyBypass: mfaAllowLegacyBypass,
+        codeTTLSeconds: Environment.get("AUTH_MFA_CODE_TTL_SECONDS").flatMap(Int.init(_:)) ?? 300,
+        maxVerifyAttempts: Environment.get("AUTH_MFA_MAX_VERIFY_ATTEMPTS").flatMap(Int.init(_:)) ?? 5,
+        resendCooldownSeconds: Environment.get("AUTH_MFA_RESEND_COOLDOWN_SECONDS").flatMap(Int.init(_:)) ?? 30,
+        maxResends: Environment.get("AUTH_MFA_MAX_RESENDS").flatMap(Int.init(_:)) ?? 3
+    )
     app.authService = DefaultAuthService(
         repo: app.authRepository,
-        oauthProviders: oauthProviders
+        oauthProviders: oauthProviders,
+        mfaConfig: mfaConfig
     )
-    app.mailer = ConsoleMailerService()
+    let resendAPIKey = Environment.get("RESEND_API_KEY")?
+        .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    let resendFromEmail = Environment.get("RESEND_FROM_EMAIL")?
+        .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    let resendBaseURLRaw = Environment.get("RESEND_BASE_URL")?
+        .trimmingCharacters(in: .whitespacesAndNewlines)
+    if !resendAPIKey.isEmpty && !resendFromEmail.isEmpty {
+        let resendBaseURL = URL(string: resendBaseURLRaw ?? "") ?? URL(string: "https://api.resend.com")!
+        app.mailer = ResendMailerService(
+            apiKey: resendAPIKey,
+            fromEmail: resendFromEmail,
+            baseURL: resendBaseURL
+        )
+    } else {
+        if mfaEnabled && app.environment == .production {
+            throw Abort(
+                .internalServerError,
+                reason: "MFA is enabled but RESEND_API_KEY and RESEND_FROM_EMAIL are not configured."
+            )
+        }
+        app.mailer = ConsoleMailerService()
+    }
     app.stocksRepository = DatabaseStocksRepository()
     app.brokersRepository = DatabaseBrokersRepository()
     app.brokersService = DefaultBrokersService(repo: app.brokersRepository)
@@ -262,6 +294,7 @@ public func configure(_ app: Application) async throws {
     app.migrations.add(CreatePrice())
     app.migrations.add(CreatePasswordResetToken())
     app.migrations.add(CreateRefreshToken())
+    app.migrations.add(CreateMFAChallenge())
     app.migrations.add(CreateOAuthTables())
     app.migrations.add(CreateStock())
     app.migrations.add(AddAssetCategoryToStocks())
@@ -306,4 +339,22 @@ public func configure(_ app: Application) async throws {
 
     // register routes
     try routes(app)
+}
+
+private func envBool(_ key: String, default defaultValue: Bool) -> Bool {
+    guard let rawValue = Environment.get(key)?
+        .trimmingCharacters(in: .whitespacesAndNewlines)
+        .lowercased()
+    else {
+        return defaultValue
+    }
+
+    switch rawValue {
+    case "1", "true", "yes", "y", "on":
+        return true
+    case "0", "false", "no", "n", "off":
+        return false
+    default:
+        return defaultValue
+    }
 }
