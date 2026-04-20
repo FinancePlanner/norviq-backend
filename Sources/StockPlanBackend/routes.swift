@@ -1,4 +1,7 @@
 import Fluent
+import FluentSQL
+import Redis
+import RediStack
 import Vapor
 import Foundation
 
@@ -6,11 +9,35 @@ private struct HealthResponse: Content {
     let status: String
 }
 
+private struct HealthCheckResponse: Content {
+    let status: String
+    let checks: [String: HealthCheck]
+    let version: String
+    let environment: String
+}
+
+private struct HealthCheck: Content {
+    let status: String
+    let message: String?
+    let latencyMs: Double?
+}
+
 func routes(_ app: Application) throws {
     let api = app.grouped("v1")
 
     app.get("health") { _ async -> HealthResponse in
         HealthResponse(status: "ok")
+    }
+
+    app.get("health", "live") { _ async -> HealthResponse in
+        HealthResponse(status: "ok")
+    }
+
+    app.get("health", "ready") { req async -> Response in
+        let readiness = await makeReadinessResponse(req)
+        let response = Response(status: readiness.status == "not_ready" ? .serviceUnavailable : .ok)
+        try? response.content.encode(readiness)
+        return response
     }
 
     api.get { _ async in
@@ -23,6 +50,7 @@ func routes(_ app: Application) throws {
 
     try registerOpenAPIDocsRoutes(app)
     try app.register(collection: FinnhubWebhookController())
+    try app.register(collection: RevenueCatWebhookController())
 
     try api.register(collection: AuthController())
     try api.register(collection: StockController())
@@ -44,6 +72,110 @@ func routes(_ app: Application) throws {
     try api.register(collection: BadgeController())
     try api.register(collection: AssetsController())
     try api.register(collection: PushNotificationsController())
+}
+
+private func makeReadinessResponse(_ req: Request) async -> HealthCheckResponse {
+    var checks: [String: HealthCheck] = [:]
+    checks["database"] = await databaseHealthCheck(req)
+    checks["redis"] = await redisHealthCheck(req)
+    checks["mailer"] = mailerHealthCheck(req)
+    checks["apns"] = apnsHealthCheck(req)
+    checks["marketData"] = marketDataHealthCheck(req)
+
+    let hasFailure = checks.values.contains { $0.status == "unhealthy" }
+    let hasWarning = checks.values.contains { $0.status == "degraded" }
+    let status = hasFailure ? "not_ready" : (hasWarning ? "degraded" : "ready")
+
+    return HealthCheckResponse(
+        status: status,
+        checks: checks,
+        version: Environment.get("APP_VERSION") ?? Environment.get("GIT_SHA") ?? "unknown",
+        environment: req.application.environment.name
+    )
+}
+
+private func databaseHealthCheck(_ req: Request) async -> HealthCheck {
+    let start = DispatchTime.now()
+    guard let sql = req.db(.psql) as? any SQLDatabase else {
+        return HealthCheck(status: "unhealthy", message: "PostgreSQL database is not configured.", latencyMs: nil)
+    }
+    do {
+        try await sql.raw("SELECT 1").run()
+        return HealthCheck(status: "healthy", message: nil, latencyMs: elapsedMilliseconds(since: start))
+    } catch {
+        return HealthCheck(
+            status: "unhealthy",
+            message: "Database check failed: \(String(reflecting: error))",
+            latencyMs: elapsedMilliseconds(since: start)
+        )
+    }
+}
+
+private func redisHealthCheck(_ req: Request) async -> HealthCheck {
+    let start = DispatchTime.now()
+    guard req.application.redis.configuration != nil else {
+        return HealthCheck(status: "skipped", message: "REDIS_URL is not configured.", latencyMs: nil)
+    }
+    do {
+        _ = try await req.application.redis.send(command: "PING", with: [])
+        return HealthCheck(status: "healthy", message: nil, latencyMs: elapsedMilliseconds(since: start))
+    } catch {
+        return HealthCheck(
+            status: "unhealthy",
+            message: "Redis check failed: \(String(reflecting: error))",
+            latencyMs: elapsedMilliseconds(since: start)
+        )
+    }
+}
+
+private func mailerHealthCheck(_ req: Request) -> HealthCheck {
+    let mfaEnabled = envBoolForHealth("AUTH_MFA_ENABLED", default: req.application.environment == .production)
+    let hasResend = !(Environment.get("RESEND_API_KEY") ?? "").isEmpty
+        && !(Environment.get("RESEND_FROM_EMAIL") ?? "").isEmpty
+    if mfaEnabled && !hasResend {
+        return HealthCheck(status: "unhealthy", message: "MFA is enabled but Resend is not configured.", latencyMs: nil)
+    }
+    return HealthCheck(status: hasResend ? "healthy" : "skipped", message: hasResend ? nil : "Email delivery is disabled.", latencyMs: nil)
+}
+
+private func apnsHealthCheck(_ req: Request) -> HealthCheck {
+    if APNSBootstrapConfiguration.fromEnvironment(app: req.application) != nil {
+        return HealthCheck(status: "healthy", message: nil, latencyMs: nil)
+    }
+    return HealthCheck(status: "skipped", message: "APNS is not configured; push delivery is disabled.", latencyMs: nil)
+}
+
+private func marketDataHealthCheck(_ req: Request) -> HealthCheck {
+    let hasFinnhub = !(Environment.get("FINNHUB_API_KEY") ?? "").isEmpty
+    let hasIBKR = !(Environment.get("IBKR_API_BASE_URL") ?? "").isEmpty
+    let hasFMP = !(Environment.get("FMP_API_KEY") ?? "").isEmpty
+    if hasFinnhub || hasIBKR || hasFMP {
+        return HealthCheck(status: "healthy", message: nil, latencyMs: nil)
+    }
+    return HealthCheck(status: "degraded", message: "No live market-data provider is configured.", latencyMs: nil)
+}
+
+private func elapsedMilliseconds(since start: DispatchTime) -> Double {
+    let elapsed = DispatchTime.now().uptimeNanoseconds - start.uptimeNanoseconds
+    return (Double(elapsed) / 1_000_000).rounded() / 1_000
+}
+
+private func envBoolForHealth(_ key: String, default defaultValue: Bool) -> Bool {
+    guard let rawValue = Environment.get(key)?
+        .trimmingCharacters(in: .whitespacesAndNewlines)
+        .lowercased()
+    else {
+        return defaultValue
+    }
+
+    switch rawValue {
+    case "1", "true", "yes", "y", "on":
+        return true
+    case "0", "false", "no", "n", "off":
+        return false
+    default:
+        return defaultValue
+    }
 }
 
 private func registerOpenAPIDocsRoutes(_ app: Application) throws {

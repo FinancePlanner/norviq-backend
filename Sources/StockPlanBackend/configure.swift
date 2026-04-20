@@ -12,6 +12,8 @@ import Redis
 
 // configures your application
 public func configure(_ app: Application) async throws {
+    try ProductionConfiguration.validate(for: app)
+
     if app.environment == .testing {
         app.logger.logLevel = .warning
     }
@@ -21,7 +23,10 @@ public func configure(_ app: Application) async throws {
     app.traceAutoPropagation = true
     // Clear all default middleware (then, add back route logging)
     app.middleware = .init()
-    let allowedOrigins = Environment.get("ALLOWED_ORIGINS")?.split(separator: ",").map { String($0) } ?? ["http://localhost:3000", "http://localhost:8080"]
+    let allowedOrigins = try ProductionConfiguration.allowedOrigins(
+        from: Environment.get("ALLOWED_ORIGINS"),
+        isProduction: app.environment == .production
+    )
     let corsConfiguration = CORSMiddleware.Configuration(
         allowedOrigin: .any(allowedOrigins), // In production, this should be more restricted.
         allowedMethods: [.GET, .POST, .PUT, .OPTIONS, .DELETE, .PATCH],
@@ -32,13 +37,22 @@ public func configure(_ app: Application) async throws {
     app.middleware.use(cors, at: .beginning)
     app.middleware.use(ErrorMiddleware.default(environment: app.environment))
 
-    app.middleware.use(RouteLoggingMiddleware(logLevel: .info))
+    app.middleware.use(RequestLoggingMiddleware())
     // Add custom error handling middleware first.
     app.middleware.use(TracingMiddleware())
 
     // Configure global JSON decoder and encoder
     ContentConfiguration.global.use(decoder: JSONDecoder.backendAPI, for: .json)
     ContentConfiguration.global.use(encoder: JSONEncoder.backendAPI, for: .json)
+
+    if envBool("OBS_TRACES_ENABLED", default: false) {
+        let serviceName = Environment.get("OBS_SERVICE_NAME") ?? "StockPlanBackend"
+        let environmentName = Environment.get("OBS_ENVIRONMENT") ?? app.environment.name
+        let endpoint = Environment.get("OBS_OTLP_ENDPOINT") ?? "not-configured"
+        app.logger.info(
+            "observability.tracing enabled service=\(serviceName) environment=\(environmentName) otlp_endpoint=\(endpoint)"
+        )
+    }
 
     let isTesting = app.environment == .testing
     let databaseHost = isTesting
@@ -241,6 +255,9 @@ public func configure(_ app: Application) async throws {
     app.userProfileRepository = DatabaseUserProfileRepository(encryptionService: app.userPIIEncryptionService)
     app.userProfileService = DefaultUserProfileService(repo: app.userProfileRepository)
     app.pushDeviceService = DatabasePushDeviceService()
+    app.entitlementResolver = DefaultEntitlementResolver()
+    app.usageCounterService = DefaultUsageCounterService(entitlementResolver: app.entitlementResolver)
+    app.billingService = DefaultBillingService()
     app.targetAlertEvaluator = DefaultTargetAlertEvaluator()
 
     if let apnsConfig = APNSBootstrapConfiguration.fromEnvironment(app: app) {
@@ -346,6 +363,7 @@ private func registerMigrations(_ app: Application) {
     app.migrations.add(CreateUserActivity())
     app.migrations.add(AddNewsViewedActivityType())
     app.migrations.add(CreateUserBadge())
+    app.migrations.add(CreateBillingTables())
 }
 
 private func envBool(_ key: String, default defaultValue: Bool) -> Bool {

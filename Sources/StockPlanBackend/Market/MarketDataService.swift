@@ -680,15 +680,15 @@ struct DefaultMarketDataService: MarketDataService {
 
         let ttmNetIncome = ttmRevenue * (netMargin ?? 0.1)
 
-        let wacc = 0.09
-        let terminalGrowthRate = 0.025
-        let terminalMargin = 0.22
+        let wacc = req.query[Double.self, at: "wacc"] ?? 0.09
+        let terminalGrowthRate = req.query[Double.self, at: "terminalGrowthRate"] ?? 0.025
+        let terminalMargin = req.query[Double.self, at: "terminalMargin"] ?? 0.22
 
         let safeRevenueGrowth1 = currentYearExpectedRevenueGrowth ?? ttmRevenueGrowth ?? 0.1
         let safeRevenueGrowth2 = nextYearRevenueGrowth ?? safeRevenueGrowth1
         let safeEPSGrowth1 = currentYearExpectedEPSGrowth ?? ttmEPSGrowth ?? 0.1
         let safeEPSGrowth2 = nextYearEPSGrowth ?? safeEPSGrowth1
-        let fcfMarginAssumption = 1.1
+        let fcfMarginAssumption = req.query[Double.self, at: "fcfMarginAssumption"] ?? 1.0
 
         let currentYear = Calendar.current.component(.year, from: Date())
         let finalNetMargin = netMargin
@@ -716,7 +716,10 @@ struct DefaultMarketDataService: MarketDataService {
                 currentRev = currentRev * (1 + revGrowth)
                 currentNetInc = currentNetInc * (1 + niGrowth)
 
-                let targetMargin = min((finalNetMargin ?? 0.1) + Double(i) * 0.02, terminalMargin)
+                let baseMargin = finalNetMargin ?? 0.1
+                let marginStep = (terminalMargin - baseMargin) / 5.0
+                let targetMargin = baseMargin + marginStep * Double(i)
+                
                 let actualNetInc = currentRev * targetMargin
                 let fcf = actualNetInc * fcfMarginAssumption
 

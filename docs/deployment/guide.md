@@ -149,9 +149,18 @@ DATABASE_NAME=stockplan_prod
 DATABASE_USERNAME=stockplan_user
 DATABASE_PASSWORD=<STRONG_RANDOM_PASSWORD>   # Use: openssl rand -base64 32
 JWT_SECRET=<STRONG_RANDOM_SECRET>            # Use: openssl rand -base64 64
+ALLOWED_ORIGINS=https://www.norviqaapp.com,https://norviqaapp.com
+USER_PII_ENCRYPTION_ACTIVE_KEY_ID=prod-v1
+USER_PII_ENCRYPTION_ACTIVE_KEY=<BASE64_32_BYTE_KEY>
+REDIS_URL=redis://redis:6379
+RESEND_API_KEY=<RESEND_KEY>
+RESEND_FROM_EMAIL=no-reply@yourdomain.com
 APP_IMAGE=ghcr.io/yourusername/StockPlanBackend:latest
 LOG_LEVEL=info
+LOG_FORMAT=json
 ```
+
+Production startup fails if `JWT_SECRET` is missing, blank, shorter than 32 characters, or equal to the development default. Production startup also fails if `ALLOWED_ORIGINS` is missing or contains localhost/wildcard origins.
 
 ### Production Docker Compose
 
@@ -191,7 +200,7 @@ Deployments are automated via GitHub Actions (`.github/workflows/deploy.yml`).
 4. Pulls that exact immutable image (`APP_IMAGE`)
 5. Runs migrations from the same image
 6. Restarts app with zero-downtime
-7. Gates deploy on `/health` before success
+7. Gates deploy on `/health/ready` before success, with `/health` as rollback compatibility fallback
 8. Persists deployed `APP_IMAGE` in `.env` for future compose commands
 
 **Required GitHub Secrets** (Settings → Secrets → Actions):
@@ -270,10 +279,15 @@ sudo tail -f /var/log/nginx/access.log
 docker compose -f docker-compose.production.yml exec db \
   pg_dump -U stockplan_user stockplan_prod > backup_$(date +%Y%m%d).sql
 
+# Encrypt backup before moving it off-host
+gpg --symmetric --cipher-algo AES256 backup_$(date +%Y%m%d).sql
+
 # Restore backup
 cat backup_20260207.sql | docker compose -f docker-compose.production.yml exec -T db \
   psql -U stockplan_user stockplan_prod
 ```
+
+Run a restore drill before launch and at least quarterly after launch. Keep daily encrypted backups for 14 days, weekly backups for 8 weeks, and monthly backups for 12 months unless your privacy/retention policy requires a shorter window.
 
 ### Rollback Strategy
 

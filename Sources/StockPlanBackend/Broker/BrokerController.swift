@@ -62,6 +62,7 @@ struct BrokerController: RouteCollection {
         let upload = try await readCsvUpload(req)
 
         let preview = try CsvImportService().preview(csv: upload.csv, provider: upload.provider)
+        try await req.usageCounterService.incrementUsage(.csvImports, userId: session.userId, by: 1, on: req.db)
         let broker = try await req.application.brokersService.recordCsvImport(provider: upload.provider, userId: session.userId, on: req.db)
         var inserted: [StockResponse] = []
         var updated: [StockResponse] = []

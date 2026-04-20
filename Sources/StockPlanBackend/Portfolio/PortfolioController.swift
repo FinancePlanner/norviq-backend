@@ -166,6 +166,16 @@ struct PortfolioController: RouteCollection {
         let session = try req.auth.require(SessionToken.self)
         let payload = try req.content.decode(PortfolioListRequest.self)
         let name = try normalizeListName(payload.name)
+        let currentCount = try await PortfolioList.query(on: req.db)
+            .filter(\.$userId == session.userId)
+            .count()
+        try await req.usageCounterService.enforceResourceLimit(
+            .portfolioLists,
+            userId: session.userId,
+            currentCount: currentCount,
+            adding: 1,
+            on: req.db
+        )
 
         let list = PortfolioList(userId: session.userId, name: name, isDefault: false)
         try await list.save(on: req.db)

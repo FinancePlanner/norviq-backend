@@ -1,4 +1,6 @@
 import Fluent
+import Vapor
+import Foundation
 import StockPlanShared
 
 final class RecurringTemplate: Model, @unchecked Sendable {

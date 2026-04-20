@@ -353,6 +353,16 @@ struct StockController: RouteCollection {
     func createTarget(req: Request) async throws -> Response {
         let session = try req.auth.require(SessionToken.self)
         let payload = try req.content.decode(TargetRequest.self)
+        let currentCount = try await Target.query(on: req.db)
+            .filter(\.$userId == session.userId)
+            .count()
+        try await req.usageCounterService.enforceResourceLimit(
+            .targetAlerts,
+            userId: session.userId,
+            currentCount: currentCount,
+            adding: 1,
+            on: req.db
+        )
 
         let target = Target(
             userId: session.userId,
@@ -365,6 +375,12 @@ struct StockController: RouteCollection {
             alertTriggeredPrice: nil
         )
         try await target.save(on: req.db)
+        try? await req.usageCounterService.syncResourceCount(
+            .targetAlerts,
+            userId: session.userId,
+            count: currentCount + 1,
+            on: req.db
+        )
 
         let created = try makeTargetResponse(from: target)
         let res = Response(status: .created)
@@ -414,6 +430,15 @@ struct StockController: RouteCollection {
         }
 
         try await target.delete(on: req.db)
+        let updatedCount = try await Target.query(on: req.db)
+            .filter(\.$userId == session.userId)
+            .count()
+        try? await req.usageCounterService.syncResourceCount(
+            .targetAlerts,
+            userId: session.userId,
+            count: updatedCount,
+            on: req.db
+        )
         return .noContent
     }
 

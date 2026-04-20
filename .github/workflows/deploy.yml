@@ -165,7 +165,7 @@ jobs:
                       # Deploy with zero-downtime (recreate only changed services)
                       docker compose -f docker-compose.production.yml up -d --no-deps app
 
-                      # Gate deployment on health endpoint
+                      # Gate deployment on readiness endpoint, with /health fallback for rollback compatibility.
                       DOMAIN_VALUE="$(grep '^DOMAIN=' .env | tail -1 | cut -d '=' -f2-)"
                       if [ -z "${DOMAIN_VALUE}" ]; then
                         DOMAIN_VALUE="localhost"
@@ -173,6 +173,10 @@ jobs:
 
                       HEALTHY=0
                       for ATTEMPT in $(seq 1 30); do
+                        if curl -fsS -H "Host: ${DOMAIN_VALUE}" http://127.0.0.1/health/ready >/dev/null; then
+                          HEALTHY=1
+                          break
+                        fi
                         if curl -fsS -H "Host: ${DOMAIN_VALUE}" http://127.0.0.1/health >/dev/null; then
                           HEALTHY=1
                           break

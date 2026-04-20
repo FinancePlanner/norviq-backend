@@ -997,7 +997,7 @@ private extension DefaultExpensesService {
         let targetShares = template?.targetShares ?? defaultShares
         let netSalary = template?.netSalary ?? 0
 
-        _ = try await createBudgetSnapshot(
+        let createdSnapshot = try await createBudgetSnapshot(
             userId: userId,
             request: BudgetSnapshotRequest(
                 monthStart: formatDate(monthStart),
@@ -1006,5 +1006,32 @@ private extension DefaultExpensesService {
             ),
             on: db
         )
+
+        // Auto-carry forward subscription plan items from previous month
+        if let templateSnapshotId = template?.id {
+            let previousItems = try await BudgetPlanItem.query(on: db)
+                .filter(\.$snapshot.$id == templateSnapshotId)
+                .filter(\.$user.$id == userId)
+                .with(\.$category)
+                .all()
+
+            let subscriptionItems = previousItems.filter { item in
+                item.category?.name.lowercased() == "subscriptions"
+            }
+
+            for item in subscriptionItems {
+                let newItem = BudgetPlanItem(
+                    snapshotID: UUID(uuidString: createdSnapshot.id) ?? UUID(),
+                    userID: userId,
+                    title: item.title,
+                    plannedAmount: item.plannedAmount,
+                    pillar: item.pillar,
+                    splitMode: item.splitMode,
+                    userSharePercent: item.userSharePercent
+                )
+                newItem.$category.id = item.$category.id
+                try await newItem.create(on: db)
+            }
+        }
     }
 }

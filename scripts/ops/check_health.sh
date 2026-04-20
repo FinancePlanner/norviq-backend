@@ -12,6 +12,10 @@ ATTEMPTS="${2:-30}"
 SLEEP_SECONDS="${3:-2}"
 
 for _ in $(seq 1 "${ATTEMPTS}"); do
+  if curl -fsS -H "Host: ${DOMAIN}" http://127.0.0.1/health/ready >/dev/null; then
+    echo "Readiness check passed for ${DOMAIN}"
+    exit 0
+  fi
   if curl -fsS -H "Host: ${DOMAIN}" http://127.0.0.1/health >/dev/null; then
     echo "Health check passed for ${DOMAIN}"
     exit 0

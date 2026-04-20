@@ -1,0 +1,207 @@
+import Fluent
+import Foundation
+import Vapor
+
+struct EntitlementSnapshot: Sendable {
+    let userId: UUID
+    let level: String
+
+    var isPremium: Bool {
+        level == "premium" || level.hasPrefix("premium_")
+    }
+}
+
+protocol EntitlementResolver: Sendable {
+    func resolve(userId: UUID, on db: any Database) async throws -> EntitlementSnapshot
+}
+
+struct DefaultEntitlementResolver: EntitlementResolver {
+    func resolve(userId: UUID, on db: any Database) async throws -> EntitlementSnapshot {
+        let entitlement = try await Entitlement.query(on: db)
+            .filter(\.$userId == userId)
+            .first()
+
+        return EntitlementSnapshot(userId: userId, level: entitlement?.level ?? "free")
+    }
+}
+
+enum BillingFeature: String, Sendable {
+    case portfolioLists = "portfolio_lists"
+    case holdings
+    case watchlistItems = "watchlist_items"
+    case valuationCases = "valuation_cases"
+    case csvImports = "csv_imports"
+    case targetAlerts = "target_alerts"
+    case reportGenerations = "report_generations"
+}
+
+struct BillingPlanLimits: Sendable {
+    let portfolioListCount: Int?
+    let holdingCount: Int?
+    let watchlistItemCount: Int?
+    let valuationCaseCount: Int?
+    let csvImportCount: Int?
+    let targetAlertCount: Int?
+    let reportGenerationCount: Int?
+
+    static let free = BillingPlanLimits(
+        portfolioListCount: 1,
+        holdingCount: 5,
+        watchlistItemCount: 10,
+        valuationCaseCount: 1,
+        csvImportCount: 1,
+        targetAlertCount: 1,
+        reportGenerationCount: 10
+    )
+
+    static let premium = BillingPlanLimits(
+        portfolioListCount: nil,
+        holdingCount: nil,
+        watchlistItemCount: nil,
+        valuationCaseCount: nil,
+        csvImportCount: nil,
+        targetAlertCount: nil,
+        reportGenerationCount: nil
+    )
+
+    func limit(for feature: BillingFeature) -> Int? {
+        switch feature {
+        case .portfolioLists:
+            return portfolioListCount
+        case .holdings:
+            return holdingCount
+        case .watchlistItems:
+            return watchlistItemCount
+        case .valuationCases:
+            return valuationCaseCount
+        case .csvImports:
+            return csvImportCount
+        case .targetAlerts:
+            return targetAlertCount
+        case .reportGenerations:
+            return reportGenerationCount
+        }
+    }
+}
+
+protocol UsageCounterService: Sendable {
+    func limits(for entitlement: EntitlementSnapshot) -> BillingPlanLimits
+    func counter(userId: UUID, on db: any Database) async throws -> UsageCounter
+    func enforceResourceLimit(
+        _ feature: BillingFeature,
+        userId: UUID,
+        currentCount: Int,
+        adding: Int,
+        on db: any Database
+    ) async throws
+    func incrementUsage(_ feature: BillingFeature, userId: UUID, by amount: Int, on db: any Database) async throws
+    func syncResourceCount(_ feature: BillingFeature, userId: UUID, count: Int, on db: any Database) async throws
+}
+
+struct DefaultUsageCounterService: UsageCounterService {
+    let entitlementResolver: any EntitlementResolver
+
+    func limits(for entitlement: EntitlementSnapshot) -> BillingPlanLimits {
+        entitlement.isPremium ? .premium : .free
+    }
+
+    func counter(userId: UUID, on db: any Database) async throws -> UsageCounter {
+        let periodStart = Self.monthStart(for: Date())
+        if let existing = try await UsageCounter.query(on: db)
+            .filter(\.$userId == userId)
+            .first() {
+            if existing.periodStart < periodStart {
+                existing.periodStart = periodStart
+                existing.csvImportCount = 0
+                existing.reportGenerationCount = 0
+                try await existing.save(on: db)
+            }
+            return existing
+        }
+
+        let created = UsageCounter(userId: userId, periodStart: periodStart)
+        try await created.save(on: db)
+        return created
+    }
+
+    func enforceResourceLimit(
+        _ feature: BillingFeature,
+        userId: UUID,
+        currentCount: Int,
+        adding: Int = 1,
+        on db: any Database
+    ) async throws {
+        let entitlement = try await entitlementResolver.resolve(userId: userId, on: db)
+        guard let limit = limits(for: entitlement).limit(for: feature) else { return }
+        guard currentCount + adding <= limit else {
+            throw billingLimitError(feature: feature, limit: limit, current: currentCount)
+        }
+    }
+
+    func incrementUsage(_ feature: BillingFeature, userId: UUID, by amount: Int = 1, on db: any Database) async throws {
+        guard amount > 0 else { return }
+        let entitlement = try await entitlementResolver.resolve(userId: userId, on: db)
+        let usage = try await counter(userId: userId, on: db)
+
+        if let limit = limits(for: entitlement).limit(for: feature), usageValue(for: feature, in: usage) + amount > limit {
+            throw billingLimitError(feature: feature, limit: limit, current: usageValue(for: feature, in: usage))
+        }
+
+        setUsageValue(for: feature, in: usage, value: usageValue(for: feature, in: usage) + amount)
+        try await usage.save(on: db)
+    }
+
+    func syncResourceCount(_ feature: BillingFeature, userId: UUID, count: Int, on db: any Database) async throws {
+        let usage = try await counter(userId: userId, on: db)
+        setUsageValue(for: feature, in: usage, value: max(0, count))
+        try await usage.save(on: db)
+    }
+
+    private func usageValue(for feature: BillingFeature, in usage: UsageCounter) -> Int {
+        switch feature {
+        case .holdings:
+            usage.holdingCount
+        case .watchlistItems:
+            usage.watchlistItemCount
+        case .csvImports:
+            usage.csvImportCount
+        case .targetAlerts:
+            usage.targetAlertCount
+        case .reportGenerations:
+            usage.reportGenerationCount
+        case .portfolioLists, .valuationCases:
+            0
+        }
+    }
+
+    private func setUsageValue(for feature: BillingFeature, in usage: UsageCounter, value: Int) {
+        switch feature {
+        case .holdings:
+            usage.holdingCount = value
+        case .watchlistItems:
+            usage.watchlistItemCount = value
+        case .csvImports:
+            usage.csvImportCount = value
+        case .targetAlerts:
+            usage.targetAlertCount = value
+        case .reportGenerations:
+            usage.reportGenerationCount = value
+        case .portfolioLists, .valuationCases:
+            break
+        }
+    }
+
+    private func billingLimitError(feature: BillingFeature, limit: Int, current: Int) -> Abort {
+        Abort(
+            .paymentRequired,
+            reason: "Upgrade required. feature=\(feature.rawValue) plan=free limit=\(limit) current=\(current)"
+        )
+    }
+
+    private static func monthStart(for date: Date) -> Date {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(secondsFromGMT: 0) ?? .gmt
+        let components = calendar.dateComponents([.year, .month], from: date)
+        return calendar.date(from: components) ?? date
+    }
+}

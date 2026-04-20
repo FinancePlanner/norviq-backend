@@ -1,0 +1,246 @@
+import Fluent
+import Vapor
+import Foundation
+
+struct RevenueCatWebhookPayload: Content {
+    let event: RevenueCatWebhookEvent
+}
+
+struct RevenueCatWebhookEvent: Content {
+    let id: String
+    let type: String
+    let appUserId: String
+    let productId: String?
+    let periodType: String?
+    let purchasedAtMs: Int64?
+    let expirationAtMs: Int64?
+    let gracePeriodExpiresDateMs: Int64?
+    let cancelReason: String?
+    let store: String?
+    let originalTransactionId: String?
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case type
+        case appUserId = "app_user_id"
+        case appUserIdCamel = "appUserId"
+        case productId = "product_id"
+        case productIdCamel = "productId"
+        case periodType = "period_type"
+        case periodTypeCamel = "periodType"
+        case purchasedAtMs = "purchased_at_ms"
+        case purchasedAtMsCamel = "purchasedAtMs"
+        case expirationAtMs = "expiration_at_ms"
+        case expirationAtMsCamel = "expirationAtMs"
+        case gracePeriodExpiresDateMs = "grace_period_expires_date_ms"
+        case gracePeriodExpiresDateMsCamel = "gracePeriodExpiresDateMs"
+        case cancelReason = "cancel_reason"
+        case cancelReasonCamel = "cancelReason"
+        case store
+        case originalTransactionId = "original_transaction_id"
+        case originalTransactionIdCamel = "originalTransactionId"
+    }
+
+    init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(String.self, forKey: .id)
+        type = try container.decode(String.self, forKey: .type)
+        appUserId = try container.decodeIfPresent(String.self, forKey: .appUserId)
+            ?? container.decode(String.self, forKey: .appUserIdCamel)
+        productId = try container.decodeIfPresent(String.self, forKey: .productId)
+            ?? container.decodeIfPresent(String.self, forKey: .productIdCamel)
+        periodType = try container.decodeIfPresent(String.self, forKey: .periodType)
+            ?? container.decodeIfPresent(String.self, forKey: .periodTypeCamel)
+        purchasedAtMs = try container.decodeIfPresent(Int64.self, forKey: .purchasedAtMs)
+            ?? container.decodeIfPresent(Int64.self, forKey: .purchasedAtMsCamel)
+        expirationAtMs = try container.decodeIfPresent(Int64.self, forKey: .expirationAtMs)
+            ?? container.decodeIfPresent(Int64.self, forKey: .expirationAtMsCamel)
+        gracePeriodExpiresDateMs = try container.decodeIfPresent(Int64.self, forKey: .gracePeriodExpiresDateMs)
+            ?? container.decodeIfPresent(Int64.self, forKey: .gracePeriodExpiresDateMsCamel)
+        cancelReason = try container.decodeIfPresent(String.self, forKey: .cancelReason)
+            ?? container.decodeIfPresent(String.self, forKey: .cancelReasonCamel)
+        store = try container.decodeIfPresent(String.self, forKey: .store)
+        originalTransactionId = try container.decodeIfPresent(String.self, forKey: .originalTransactionId)
+            ?? container.decodeIfPresent(String.self, forKey: .originalTransactionIdCamel)
+    }
+
+    func encode(to encoder: any Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(id, forKey: .id)
+        try container.encode(type, forKey: .type)
+        try container.encode(appUserId, forKey: .appUserId)
+        try container.encodeIfPresent(productId, forKey: .productId)
+        try container.encodeIfPresent(periodType, forKey: .periodType)
+        try container.encodeIfPresent(purchasedAtMs, forKey: .purchasedAtMs)
+        try container.encodeIfPresent(expirationAtMs, forKey: .expirationAtMs)
+        try container.encodeIfPresent(gracePeriodExpiresDateMs, forKey: .gracePeriodExpiresDateMs)
+        try container.encodeIfPresent(cancelReason, forKey: .cancelReason)
+        try container.encodeIfPresent(store, forKey: .store)
+        try container.encodeIfPresent(originalTransactionId, forKey: .originalTransactionId)
+    }
+}
+
+protocol BillingService: Sendable {
+    func process(event: RevenueCatWebhookEvent, rawPayload: String, on db: any Database) async throws
+}
+
+struct DefaultBillingService: BillingService {
+    private let provider = "revenuecat"
+
+    func process(event: RevenueCatWebhookEvent, rawPayload: String, on db: any Database) async throws {
+        if try await BillingEvent.query(on: db)
+            .filter(\.$providerEventId == event.id)
+            .first() != nil {
+            return
+        }
+
+        let userId = UUID(uuidString: event.appUserId)
+        let billingEvent = BillingEvent(
+            providerEventId: event.id,
+            provider: provider,
+            eventType: event.type,
+            userId: userId,
+            rawPayload: rawPayload,
+            processedAt: Date()
+        )
+        try await billingEvent.save(on: db)
+
+        guard let userId else {
+            return
+        }
+
+        switch event.type {
+        case "INITIAL_PURCHASE", "RENEWAL", "UNCANCELLATION":
+            let subscription = try await upsertSubscription(
+                userId: userId,
+                event: event,
+                status: "active",
+                cancelledAt: nil,
+                on: db
+            )
+            try await upsertEntitlement(userId: userId, level: "premium", subscriptionId: subscription.id, on: db)
+
+        case "CANCELLATION":
+            let subscription = try await upsertSubscription(
+                userId: userId,
+                event: event,
+                status: "cancelled",
+                cancelledAt: Date(),
+                on: db
+            )
+            try await upsertEntitlement(userId: userId, level: "premium", subscriptionId: subscription.id, on: db)
+
+        case "EXPIRATION":
+            let subscription = try await upsertSubscription(
+                userId: userId,
+                event: event,
+                status: "expired",
+                cancelledAt: nil,
+                on: db
+            )
+            try await upsertEntitlement(userId: userId, level: "free", subscriptionId: subscription.id, on: db)
+
+        case "REFUND":
+            let subscription = try await upsertSubscription(
+                userId: userId,
+                event: event,
+                status: "refunded",
+                cancelledAt: nil,
+                on: db
+            )
+            try await upsertEntitlement(userId: userId, level: "free", subscriptionId: subscription.id, on: db)
+
+        case "BILLING_ISSUE":
+            let subscription = try await upsertSubscription(
+                userId: userId,
+                event: event,
+                status: "billing_issue",
+                cancelledAt: nil,
+                on: db
+            )
+            let graceEndsAt = event.gracePeriodExpiresDateMs.flatMap(dateFromMilliseconds)
+            let level = graceEndsAt.map { $0 > Date() } == true ? "premium" : "free"
+            try await upsertEntitlement(userId: userId, level: level, subscriptionId: subscription.id, on: db)
+
+        default:
+            return
+        }
+    }
+
+    private func upsertSubscription(
+        userId: UUID,
+        event: RevenueCatWebhookEvent,
+        status: String,
+        cancelledAt: Date?,
+        on db: any Database
+    ) async throws -> Subscription {
+        let transactionId = transactionIdentifier(for: event)
+        let subscription = try await Subscription.query(on: db)
+            .filter(\.$provider == provider)
+            .filter(\.$providerOriginalTransactionId == transactionId)
+            .first()
+        ?? Subscription(
+            userId: userId,
+            provider: provider,
+            providerCustomerId: event.appUserId,
+            providerOriginalTransactionId: transactionId,
+            productId: productId(for: event),
+            plan: plan(for: event),
+            status: status
+        )
+
+        subscription.userId = userId
+        subscription.providerCustomerId = event.appUserId
+        subscription.productId = productId(for: event)
+        subscription.plan = plan(for: event)
+        subscription.status = status
+        subscription.periodStartedAt = event.purchasedAtMs.flatMap(dateFromMilliseconds) ?? subscription.periodStartedAt
+        subscription.periodEndsAt = event.expirationAtMs.flatMap(dateFromMilliseconds) ?? subscription.periodEndsAt
+        subscription.trialEndsAt = event.periodType == "TRIAL"
+            ? event.expirationAtMs.flatMap(dateFromMilliseconds)
+            : subscription.trialEndsAt
+        subscription.gracePeriodEndsAt = event.gracePeriodExpiresDateMs.flatMap(dateFromMilliseconds)
+        subscription.cancelledAt = cancelledAt ?? (status == "active" ? nil : subscription.cancelledAt)
+        try await subscription.save(on: db)
+        return subscription
+    }
+
+    private func upsertEntitlement(
+        userId: UUID,
+        level: String,
+        subscriptionId: UUID?,
+        on db: any Database
+    ) async throws {
+        let entitlement = try await Entitlement.query(on: db)
+            .filter(\.$userId == userId)
+            .first()
+        ?? Entitlement(userId: userId, level: level, subscriptionId: subscriptionId)
+
+        entitlement.level = level
+        entitlement.subscriptionId = subscriptionId
+        try await entitlement.save(on: db)
+    }
+
+    private func transactionIdentifier(for event: RevenueCatWebhookEvent) -> String {
+        if let originalTransactionId = event.originalTransactionId, !originalTransactionId.isEmpty {
+            return originalTransactionId
+        }
+        return "\(event.appUserId):\(productId(for: event))"
+    }
+
+    private func productId(for event: RevenueCatWebhookEvent) -> String {
+        event.productId ?? "unknown"
+    }
+
+    private func plan(for event: RevenueCatWebhookEvent) -> String {
+        let product = productId(for: event).lowercased()
+        if product.contains("year") || product.contains("annual") {
+            return "premium_yearly"
+        }
+        return "premium_monthly"
+    }
+
+    private func dateFromMilliseconds(_ milliseconds: Int64) -> Date {
+        Date(timeIntervalSince1970: TimeInterval(milliseconds) / 1_000)
+    }
+}

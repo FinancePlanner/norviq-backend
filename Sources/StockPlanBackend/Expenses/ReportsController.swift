@@ -18,6 +18,12 @@ struct ReportsController: RouteCollection {
     @Sendable
     func getExpenseReports(req: Request) async throws -> Response {
         let session = try req.auth.require(SessionToken.self)
+        try await req.usageCounterService.incrementUsage(
+            .reportGenerations,
+            userId: session.userId,
+            by: 1,
+            on: req.db
+        )
         let (fromDate, toDate) = parseDateRange(from: req)
 
         let granularity = req.query[String.self, at: "granularity"] ?? "month"
@@ -48,6 +54,12 @@ struct ReportsController: RouteCollection {
     @Sendable
     func getReportsOverview(req: Request) async throws -> ReportsOverviewResponse {
         let session = try req.auth.require(SessionToken.self)
+        try await req.usageCounterService.incrementUsage(
+            .reportGenerations,
+            userId: session.userId,
+            by: 1,
+            on: req.db
+        )
         let (fromDate, toDate) = parseDateRange(from: req)
         let statisticsQuery = StatisticsQueryInput(period: nil, top: nil, benchmark: nil, asOf: nil)
 
@@ -114,6 +126,12 @@ struct ReportsController: RouteCollection {
     @Sendable
     func getSuggestions(req: Request) async throws -> ReportSuggestionsResponse {
         let session = try req.auth.require(SessionToken.self)
+        try await req.usageCounterService.incrementUsage(
+            .reportGenerations,
+            userId: session.userId,
+            by: 1,
+            on: req.db
+        )
         let (fromDate, toDate) = parseDateRange(from: req)
 
         async let monthlyReportsTask = req.expensesService.getMonthlyReports(

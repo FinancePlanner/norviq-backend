@@ -86,6 +86,17 @@ extension StockController {
             return res
         }
 
+        let currentCount = try await WatchlistItem.query(on: req.db)
+            .filter(\.$userId == session.userId)
+            .count()
+        try await req.usageCounterService.enforceResourceLimit(
+            .watchlistItems,
+            userId: session.userId,
+            currentCount: currentCount,
+            adding: 1,
+            on: req.db
+        )
+
         let item = WatchlistItem(
             userId: session.userId,
             watchlistListId: targetListId,
@@ -95,6 +106,12 @@ extension StockController {
             nextReviewAt: nextReviewAt
         )
         try await item.save(on: req.db)
+        try? await req.usageCounterService.syncResourceCount(
+            .watchlistItems,
+            userId: session.userId,
+            count: currentCount + 1,
+            on: req.db
+        )
         let res = Response(status: .created)
         try res.content.encode(makeWatchlistItemResponse(from: item))
         return res
@@ -216,6 +233,15 @@ extension StockController {
         }
 
         try await item.delete(on: req.db)
+        let updatedCount = try await WatchlistItem.query(on: req.db)
+            .filter(\.$userId == session.userId)
+            .count()
+        try? await req.usageCounterService.syncResourceCount(
+            .watchlistItems,
+            userId: session.userId,
+            count: updatedCount,
+            on: req.db
+        )
         return .noContent
     }
 

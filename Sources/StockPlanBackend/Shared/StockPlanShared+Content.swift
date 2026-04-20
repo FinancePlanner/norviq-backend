@@ -127,6 +127,8 @@ extension PillarPlanningSummaryResponse: @retroactive Content {}
 extension BudgetMonthSummaryResponse: @retroactive Content {}
 extension BudgetYearSummaryResponse: @retroactive Content {}
 extension ReportsCashFlowPointResponse: @retroactive Content {}
+extension ExpenseCategoryResponse: @retroactive Content {}
+extension RecurringTemplateResponse: @retroactive Content {}
 extension ReportsOverviewResponse: @retroactive Content {}
 extension ReportSuggestionSeverity: @retroactive Content {}
 extension ReportSuggestionCategory: @retroactive Content {}

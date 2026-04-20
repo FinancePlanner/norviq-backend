@@ -21,8 +21,10 @@ Implement observability in this order:
 
 - `TracingMiddleware` is enabled in `Sources/StockPlanBackend/configure.swift`.
 - `app.traceAutoPropagation = true` is enabled in `Sources/StockPlanBackend/configure.swift`.
-- No OpenTelemetry exporter/backend bootstrap is currently configured.
-- No Prometheus/Loki/Grafana stack is currently defined in Compose files.
+- `RequestLoggingMiddleware` emits request metadata including request ID, method, path, status, latency, user ID when authenticated, and inbound `traceparent` when present.
+- `LOG_FORMAT=json` enables JSON app logs and is the production default.
+- `docker-compose.observability.yml`, `monitoring/otel-collector.yaml`, and Grafana datasource provisioning define the first collector, Jaeger, and Grafana stack.
+- No Swift OpenTelemetry exporter package is wired yet; app-side tracing remains based on Vapor's `TracingMiddleware` until the exporter dependency is added.
 
 ## Architecture Phases
 
@@ -42,15 +44,15 @@ Get end-to-end request traces from Vapor into Jaeger, visualized in Grafana, wit
 
 - [ ] Add OpenTelemetry tracing backend dependency for Swift (for example `swift-otel`) in `Package.swift`.
 - [ ] Bootstrap tracing backend in app startup (before serving requests) in `Sources/StockPlanBackend/entrypoint.swift`.
-- [ ] Keep `TracingMiddleware` before other middlewares in `Sources/StockPlanBackend/configure.swift`.
+- [x] Keep `TracingMiddleware` enabled in `Sources/StockPlanBackend/configure.swift`.
 - [ ] Keep `app.traceAutoPropagation = true` unless throughput testing proves it is too expensive.
 - [ ] Add manual context restore on NIO `EventLoopFuture` boundaries where applicable.
-- [ ] Add OTel Collector config file (for example `monitoring/otel-collector.yaml`) with OTLP receiver, `batch` and `memory_limiter` processors, and Jaeger trace exporter.
-- [ ] Add Compose services in a separate file (recommended: `docker-compose.observability.yml`).
+- [x] Add OTel Collector config file (`monitoring/otel-collector.yaml`) with OTLP receiver, `batch` and `memory_limiter` processors, and Jaeger trace exporter.
+- [x] Add Compose services in a separate file (`docker-compose.observability.yml`).
 - [ ] Put observability services on internal Docker network.
 - [ ] Expose only Grafana to public network if needed.
 - [ ] Add persistent volume for Grafana.
-- [ ] Add initial dashboard data source provisioning in `monitoring/grafana/provisioning/`.
+- [x] Add initial dashboard data source provisioning in `monitoring/grafana/provisioning/`.
 - [ ] Add env vars to `.env` or `.env.production`: `OBS_SERVICE_NAME`, `OBS_ENVIRONMENT`, `OBS_OTLP_ENDPOINT`, `OBS_TRACES_ENABLED`.
 
 #### Exit Criteria

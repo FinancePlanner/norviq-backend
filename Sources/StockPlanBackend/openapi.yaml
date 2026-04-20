@@ -36,6 +36,8 @@ tags:
   - name: UserProfile
   - name: Assets
   - name: Notifications
+  - name: Billing
+  - name: Payments
 paths:
   /health:
     get:
@@ -3381,6 +3383,118 @@ paths:
           description: No Content
         '401':
           description: Unauthorized
+
+  /v1/billing/portal:
+    get:
+      operationId: getBillingPortal
+      tags: [Billing]
+      summary: Get billing portal link
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  url:
+                    type: string
+  /v1/billing/upgrade:
+    post:
+      operationId: upgradeSubscription
+      tags: [Billing]
+      summary: Upgrade subscription
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                planId:
+                  type: string
+      responses:
+        '200':
+          description: OK
+  /v1/billing/cancel:
+    post:
+      operationId: cancelSubscription
+      tags: [Billing]
+      summary: Cancel subscription
+      security:
+        - bearerAuth: []
+      responses:
+        '204':
+          description: No Content
+  /v1/billing/subscription:
+    get:
+      operationId: getSubscription
+      tags: [Billing]
+      summary: Get current subscription
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: OK
+  /v1/billing/webhook:
+    post:
+      operationId: billingWebhook
+      tags: [Billing]
+      summary: Billing webhook
+      responses:
+        '200':
+          description: OK
+
+  /v1/payments/checkout:
+    post:
+      operationId: createCheckoutSession
+      tags: [Payments]
+      summary: Create checkout session
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                priceId:
+                  type: string
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  url:
+                    type: string
+  /v1/payments/methods:
+    get:
+      operationId: listPaymentMethods
+      tags: [Payments]
+      summary: List payment methods
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: OK
+  /v1/payments/invoices:
+    get:
+      operationId: listInvoices
+      tags: [Payments]
+      summary: List invoices
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: OK
 
   /v1/reports/overview:
     get:

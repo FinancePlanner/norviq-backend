@@ -185,8 +185,43 @@ struct StockServiceImpl: StockService {
 
     func create(payload: StockRequest, userId: UUID, on db: any Database) async throws
         -> StockResponse {
-        _ = try validateSymbol(payload.symbol)
+        let normalizedSymbol = try validateSymbol(payload.symbol)
+        guard let targetListId = try await resolvePortfolioListId(
+            requestedId: payload.portfolioListId,
+            userId: userId,
+            on: db,
+            defaultWhenMissing: true
+        ) else {
+            throw Abort(.internalServerError, reason: "Failed to resolve portfolio list.")
+        }
+        let existing = try await Stock.query(on: db)
+            .filter(\.$userId == userId)
+            .filter(\.$portfolioListId == targetListId)
+            .filter(\.$symbol == normalizedSymbol)
+            .first()
+        if existing == nil {
+            let currentCount = try await Stock.query(on: db)
+                .filter(\.$userId == userId)
+                .count()
+            try await req.usageCounterService.enforceResourceLimit(
+                .holdings,
+                userId: userId,
+                currentCount: currentCount,
+                adding: 1,
+                on: db
+            )
+        }
+
         let stock = try await repo.create(payload: payload, userId: userId, on: db)
+        let updatedCount = try await Stock.query(on: db)
+            .filter(\.$userId == userId)
+            .count()
+        try? await req.usageCounterService.syncResourceCount(
+            .holdings,
+            userId: userId,
+            count: updatedCount,
+            on: db
+        )
 
         try? await req.userActivityService.recordActivity(
             userId: userId,
@@ -215,6 +250,16 @@ struct StockServiceImpl: StockService {
         if try await repo.findValuation(symbol: normalizedPayload.symbol, userId: userId, on: db) != nil {
             throw StockServiceError.valuationAlreadyExists
         }
+        let currentCount = try await StockValuation.query(on: db)
+            .filter(\.$userId == userId)
+            .count()
+        try await req.usageCounterService.enforceResourceLimit(
+            .valuationCases,
+            userId: userId,
+            currentCount: currentCount,
+            adding: 1,
+            on: db
+        )
 
         let valuation = try await repo.createValuation(
             payload: normalizedPayload,
@@ -296,6 +341,15 @@ struct StockServiceImpl: StockService {
         guard deleted else {
             throw StockServiceError.notFound
         }
+        let updatedCount = try await Stock.query(on: db)
+            .filter(\.$userId == userId)
+            .count()
+        try? await req.usageCounterService.syncResourceCount(
+            .holdings,
+            userId: userId,
+            count: updatedCount,
+            on: db
+        )
     }
 
     func sell(id: UUID, payload: SellStockRequest, userId: UUID, on db: any Database) async throws -> StockResponse {

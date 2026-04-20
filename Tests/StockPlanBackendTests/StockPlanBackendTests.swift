@@ -11,6 +11,17 @@ struct StockPlanBackendTests {
         let status: String
     }
 
+    private struct TestReadinessResponse: Decodable {
+        let status: String
+        let checks: [String: TestReadinessCheck]
+    }
+
+    private struct TestReadinessCheck: Decodable {
+        let status: String
+        let message: String?
+        let latencyMs: Double?
+    }
+
     private actor TestNewsProviderState {
         private var batches: [[ProviderNewsItem]]
         private var fetchCallCount: Int = 0
@@ -267,6 +278,61 @@ struct StockPlanBackendTests {
                 #expect(body.status == "ok")
             })
         }
+    }
+
+    @Test("Liveness endpoint returns ok")
+    func livenessEndpoint() async throws {
+        try await withApp { app in
+            try await app.testing().test(.GET, "health/live", afterResponse: { res async throws in
+                #expect(res.status == .ok)
+                let body = try res.content.decode(TestHealthResponse.self)
+                #expect(body.status == "ok")
+            })
+        }
+    }
+
+    @Test("Readiness endpoint reports dependency checks")
+    func readinessEndpoint() async throws {
+        try await withApp { app in
+            try await app.testing().test(.GET, "health/ready", afterResponse: { res async throws in
+                #expect(res.status == .ok)
+                let body = try res.content.decode(TestReadinessResponse.self)
+                #expect(["ready", "degraded"].contains(body.status))
+                #expect(body.checks["database"]?.status == "healthy")
+                #expect(body.checks["redis"]?.status == "skipped")
+                #expect(body.checks["mailer"] != nil)
+                #expect(body.checks["apns"] != nil)
+                #expect(body.checks["marketData"] != nil)
+            })
+        }
+    }
+
+    @Test("Production config rejects missing, default, and short JWT secrets")
+    func productionJWTSecretValidation() throws {
+        #expect(throws: Abort.self) {
+            try ProductionConfiguration.validateJWTSecret(nil)
+        }
+        #expect(throws: Abort.self) {
+            try ProductionConfiguration.validateJWTSecret("dev-secret")
+        }
+        #expect(throws: Abort.self) {
+            try ProductionConfiguration.validateJWTSecret("short")
+        }
+        try ProductionConfiguration.validateJWTSecret("01234567890123456789012345678901")
+    }
+
+    @Test("Production CORS requires explicit safe origins")
+    func productionCORSValidation() throws {
+        #expect(throws: Abort.self) {
+            _ = try ProductionConfiguration.allowedOrigins(from: nil, isProduction: true)
+        }
+        #expect(throws: Abort.self) {
+            _ = try ProductionConfiguration.allowedOrigins(from: "https://api.example.com,http://localhost:3000", isProduction: true)
+        }
+        let origins = try ProductionConfiguration.allowedOrigins(from: "https://app.example.com, https://www.example.com", isProduction: true)
+        #expect(origins == ["https://app.example.com", "https://www.example.com"])
+        let defaults = try ProductionConfiguration.allowedOrigins(from: nil, isProduction: false)
+        #expect(defaults.contains("http://localhost:3000"))
     }
 
     @Test("Stock valuation endpoints create, fetch, and update by symbol")
@@ -3653,6 +3719,25 @@ struct TestFMPMarketDataProvider: FMPMarketDataProvider {
     ) async throws -> [FMPMarketNewsItem] {
         []
     }
+
+    func stockIntraday(
+        interval: String,
+        symbol: String,
+        from: String?,
+        to: String?,
+        on req: Request
+    ) async throws -> [CryptoHistoricalPoint] {
+        []
+    }
+
+    func stockHistoricalEOD(
+        symbol: String,
+        from: String?,
+        to: String?,
+        on req: Request
+    ) async throws -> [CryptoHistoricalLightPoint] {
+        []
+    }
 }
 
 private func formatISODateOnly(_ date: Date) -> String {
@@ -3766,6 +3851,25 @@ struct TestPaymentRequiredFMPMarketDataProvider: FMPMarketDataProvider {
         to: Date?,
         on req: Request
     ) async throws -> [FMPMarketNewsItem] {
+        []
+    }
+
+    func stockIntraday(
+        interval: String,
+        symbol: String,
+        from: String?,
+        to: String?,
+        on req: Request
+    ) async throws -> [CryptoHistoricalPoint] {
+        []
+    }
+
+    func stockHistoricalEOD(
+        symbol: String,
+        from: String?,
+        to: String?,
+        on req: Request
+    ) async throws -> [CryptoHistoricalLightPoint] {
         []
     }
 }

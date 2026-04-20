@@ -7,7 +7,7 @@ import NIOPosix
 enum Entrypoint {
     static func main() async throws {
         var env = try Environment.detect()
-        try LoggingSystem.bootstrap(from: &env)
+        try bootstrapLogging(from: &env)
 
         let app = try await Application.make(env)
 
@@ -27,5 +27,18 @@ enum Entrypoint {
             throw error
         }
         try await app.asyncShutdown()
+    }
+
+    private static func bootstrapLogging(from env: inout Environment) throws {
+        let logFormat = ProcessInfo.processInfo.environment["LOG_FORMAT"]?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        if logFormat == "json" || (logFormat == nil && env == .production) {
+            try LoggingSystem.bootstrap(from: &env) { level in
+                { label in JSONLogHandler(label: label, level: level) }
+            }
+        } else {
+            try LoggingSystem.bootstrap(from: &env)
+        }
     }
 }
