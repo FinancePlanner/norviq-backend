@@ -62,6 +62,21 @@ protocol FMPMarketDataProvider: Sendable {
         to: Date?,
         on req: Request
     ) async throws -> [FMPMarketNewsItem]
+
+    // Stock price chart (intraday + EOD)
+    func stockIntraday(
+        interval: String,
+        symbol: String,
+        from: String?,
+        to: String?,
+        on req: Request
+    ) async throws -> [CryptoHistoricalPoint]
+    func stockHistoricalEOD(
+        symbol: String,
+        from: String?,
+        to: String?,
+        on req: Request
+    ) async throws -> [CryptoHistoricalLightPoint]
 }
 
 struct FMPMarketNewsItem: Codable, Sendable {
@@ -432,6 +447,43 @@ struct LiveFMPMarketDataProvider: FMPMarketDataProvider, CryptoDataProvider {
 
         return try await fetchJSON(
             path: "/stable/news/stock-latest",
+            query: query,
+            on: req
+        )
+    }
+
+    // MARK: - Stock Price Chart
+
+    func stockIntraday(
+        interval: String,
+        symbol rawSymbol: String,
+        from: String?,
+        to: String?,
+        on req: Request
+    ) async throws -> [CryptoHistoricalPoint] {
+        let symbol = try normalizeSymbol(rawSymbol)
+        var query: [(String, String?)] = [("symbol", symbol)]
+        if let from { query.append(("from", from)) }
+        if let to { query.append(("to", to)) }
+        return try await fetchJSON(
+            path: "/stable/historical-chart/\(interval)",
+            query: query,
+            on: req
+        )
+    }
+
+    func stockHistoricalEOD(
+        symbol rawSymbol: String,
+        from: String?,
+        to: String?,
+        on req: Request
+    ) async throws -> [CryptoHistoricalLightPoint] {
+        let symbol = try normalizeSymbol(rawSymbol)
+        var query: [(String, String?)] = [("symbol", symbol)]
+        if let from { query.append(("from", from)) }
+        if let to { query.append(("to", to)) }
+        return try await fetchJSON(
+            path: "/stable/historical-price-eod/light",
             query: query,
             on: req
         )

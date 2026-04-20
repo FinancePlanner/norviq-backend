@@ -13,10 +13,20 @@ struct FeedbackController: RouteCollection {
     func submitFeedback(req: Request) async throws -> FeedbackResponse {
         let session = try req.auth.require(SessionToken.self)
         let payload = try req.content.decode(FeedbackRequest.self)
+        let topic = payload.topic.trimmingCharacters(in: .whitespacesAndNewlines)
+        let message = payload.message.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        guard !topic.isEmpty, topic.count <= 80 else {
+            throw Abort(.badRequest, reason: "Feedback topic must be between 1 and 80 characters.")
+        }
+
+        guard !message.isEmpty, message.count <= 5_000 else {
+            throw Abort(.badRequest, reason: "Feedback message must be between 1 and 5000 characters.")
+        }
 
         let feedback = Feedback(
-            topic: payload.topic,
-            message: payload.message,
+            topic: topic,
+            message: message,
             userID: session.userId
         )
 

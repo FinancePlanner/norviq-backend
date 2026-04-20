@@ -35,6 +35,8 @@ struct MarketDataController: RouteCollection {
         market.get("history", ":symbol", use: history)
         market.get("search", use: search)
         market.get("fx", use: fx)
+        market.get("price-chart", "compare", use: priceChartComparison)
+        market.get("price-chart", ":symbol", use: priceChart)
     }
 
     @Sendable
@@ -394,6 +396,31 @@ struct MarketDataController: RouteCollection {
             throw Abort(.badRequest, reason: "Missing query parameter `symbol`.")
         }
         return symbol
+    }
+
+    // MARK: - Price Chart
+
+    @Sendable
+    func priceChart(req: Request) async throws -> PriceChartSeries {
+        guard let symbol = req.parameters.get("symbol") else {
+            throw Abort(.badRequest, reason: "Missing symbol.")
+        }
+        let range = req.query[String.self, at: "range"] ?? "1D"
+        return try await req.application.marketDataService.priceChart(
+            symbol: symbol, range: range, on: req
+        )
+    }
+
+    @Sendable
+    func priceChartComparison(req: Request) async throws -> PriceChartComparisonResponse {
+        guard let symbolsStr = req.query[String.self, at: "symbols"] else {
+            throw Abort(.badRequest, reason: "Missing query parameter `symbols`.")
+        }
+        let symbols = symbolsStr.split(separator: ",").map(String.init)
+        let range = req.query[String.self, at: "range"] ?? "1D"
+        return try await req.application.marketDataService.priceChartComparison(
+            symbols: symbols, range: range, on: req
+        )
     }
 
     private func resolveCompanyName(for symbol: String, on req: Request) async -> String {

@@ -60,6 +60,16 @@ protocol MarketDataService: Sendable {
         to: String?,
         on req: Request
     ) async throws -> [HistoricalSectorPerformanceResponse]
+    func priceChart(
+        symbol: String,
+        range: String,
+        on req: Request
+    ) async throws -> PriceChartSeries
+    func priceChartComparison(
+        symbols: [String],
+        range: String,
+        on req: Request
+    ) async throws -> PriceChartComparisonResponse
 }
 
 struct MarketDataCacheConfig: Sendable {
@@ -822,6 +832,178 @@ struct DefaultMarketDataService: MarketDataService {
             }
         }
         return results
+    }
+
+    // MARK: - Price Chart
+
+    func priceChart(
+        symbol rawSymbol: String,
+        range rawRange: String,
+        on req: Request
+    ) async throws -> PriceChartSeries {
+        let symbol = try normalizeSymbol(rawSymbol)
+        let range = rawRange.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
+
+        guard let chartRange = PriceChartRange(rawValue: range) else {
+            throw Abort(.badRequest, reason: "Invalid range '\(rawRange)'. Allowed: 1H, 1D, 1W, 1M, 3M, 1Y, 5Y.")
+        }
+
+        let fmp = try requireFMPProvider()
+        let now = Date()
+        let calendar = Calendar(identifier: .gregorian)
+
+        do {
+            switch chartRange {
+            case .oneHour, .oneDay, .oneWeek:
+                let (interval, fromDate) = intradayConfig(for: chartRange, now: now, calendar: calendar)
+                let fromStr = formatISODateTime(fromDate)
+                let toStr = formatISODateTime(now)
+                let points = try await fmp.stockIntraday(
+                    interval: interval, symbol: symbol, from: fromStr, to: toStr, on: req
+                )
+                return mapIntradayToPriceChart(symbol: symbol, range: range, points: points)
+
+            case .oneMonth, .threeMonths, .oneYear, .fiveYears:
+                return try await fetchEODChart(
+                    fmp: fmp, symbol: symbol, range: range, chartRange: chartRange,
+                    now: now, calendar: calendar, on: req
+                )
+            }
+        } catch let error as Abort where error.status == .paymentRequired {
+            // Fallback: intraday not available on this FMP plan, use daily data instead
+            req.logger.info("market.price-chart intraday fallback to EOD symbol=\(symbol) range=\(range)")
+            let fallbackRange: PriceChartRange = chartRange == .oneHour ? .oneDay : chartRange
+            return try await fetchEODChart(
+                fmp: fmp, symbol: symbol, range: range, chartRange: fallbackRange,
+                now: now, calendar: calendar, on: req
+            )
+        }
+    }
+
+    func priceChartComparison(
+        symbols rawSymbols: [String],
+        range: String,
+        on req: Request
+    ) async throws -> PriceChartComparisonResponse {
+        var seen: Set<String> = []
+        let normalized = try rawSymbols
+            .map(normalizeSymbol)
+            .filter { seen.insert($0).inserted }
+
+        guard !normalized.isEmpty else {
+            throw Abort(.badRequest, reason: "At least one symbol is required.")
+        }
+        guard normalized.count <= 5 else {
+            throw Abort(.badRequest, reason: "Maximum 5 symbols per comparison.")
+        }
+
+        var seriesList: [PriceChartSeries] = []
+        for symbol in normalized {
+            do {
+                let series = try await priceChart(symbol: symbol, range: range, on: req)
+                seriesList.append(series)
+            } catch {
+                req.logger.warning("market.price-chart-compare skipped symbol=\(symbol) error=\(error.localizedDescription)")
+            }
+        }
+
+        return PriceChartComparisonResponse(series: seriesList, range: range)
+    }
+
+    private func intradayConfig(
+        for range: PriceChartRange,
+        now: Date,
+        calendar: Calendar
+    ) -> (interval: String, from: Date) {
+        switch range {
+        case .oneHour:
+            return ("1min", calendar.date(byAdding: .hour, value: -1, to: now) ?? now)
+        case .oneDay:
+            return ("5min", calendar.date(byAdding: .day, value: -1, to: now) ?? now)
+        case .oneWeek:
+            return ("1hour", calendar.date(byAdding: .day, value: -7, to: now) ?? now)
+        default:
+            return ("1hour", now)
+        }
+    }
+
+    private func fetchEODChart(
+        fmp: any FMPMarketDataProvider,
+        symbol: String,
+        range: String,
+        chartRange: PriceChartRange,
+        now: Date,
+        calendar: Calendar,
+        on req: Request
+    ) async throws -> PriceChartSeries {
+        let fromDate: Date
+        switch chartRange {
+        case .oneHour, .oneDay:
+            fromDate = calendar.date(byAdding: .day, value: -1, to: now) ?? now
+        case .oneWeek:
+            fromDate = calendar.date(byAdding: .day, value: -7, to: now) ?? now
+        case .oneMonth:
+            fromDate = calendar.date(byAdding: .month, value: -1, to: now) ?? now
+        case .threeMonths:
+            fromDate = calendar.date(byAdding: .month, value: -3, to: now) ?? now
+        case .oneYear:
+            fromDate = calendar.date(byAdding: .year, value: -1, to: now) ?? now
+        case .fiveYears:
+            fromDate = calendar.date(byAdding: .year, value: -5, to: now) ?? now
+        }
+
+        let fromStr = formatISODateOnly(fromDate)
+        let toStr = formatISODateOnly(now)
+        let points = try await fmp.stockHistoricalEOD(
+            symbol: symbol, from: fromStr, to: toStr, on: req
+        )
+        return mapEODToPriceChart(symbol: symbol, range: range, points: points)
+    }
+
+    private func mapIntradayToPriceChart(
+        symbol: String,
+        range: String,
+        points: [CryptoHistoricalPoint]
+    ) -> PriceChartSeries {
+        let sorted = points.sorted { $0.date < $1.date }
+        return PriceChartSeries(
+            symbol: symbol,
+            currency: cacheConfig.defaultCurrency,
+            range: range,
+            points: sorted.map {
+                PriceChartPoint(
+                    date: $0.date,
+                    close: $0.close,
+                    open: $0.open,
+                    high: $0.high,
+                    low: $0.low,
+                    volume: $0.volume.map { Int($0) }
+                )
+            }
+        )
+    }
+
+    private func mapEODToPriceChart(
+        symbol: String,
+        range: String,
+        points: [CryptoHistoricalLightPoint]
+    ) -> PriceChartSeries {
+        let sorted = points.sorted { $0.date < $1.date }
+        return PriceChartSeries(
+            symbol: symbol,
+            currency: cacheConfig.defaultCurrency,
+            range: range,
+            points: sorted.map {
+                PriceChartPoint(
+                    date: $0.date,
+                    close: $0.price,
+                    open: nil,
+                    high: nil,
+                    low: nil,
+                    volume: $0.volume.map { Int($0) }
+                )
+            }
+        )
     }
 
     func balanceSheetStatement(
