@@ -42,7 +42,7 @@ line_length: 200
 
 type_body_length:
   - 300 # warning
-  - 600 # error
+  - 1000 # error
 # or they can set both explicitly
 
 file_length:

@@ -33,6 +33,18 @@ final class Expense: Model, @unchecked Sendable {
     @OptionalParent(key: "linked_item_id")
     var linkedPlanItem: BudgetPlanItem?
 
+    @OptionalParent(key: "category_id")
+    var category: ExpenseCategory?
+
+    @OptionalField(key: "foreign_amount")
+    var foreignAmount: Double?
+
+    @OptionalField(key: "foreign_currency")
+    var foreignCurrency: String?
+
+    @OptionalField(key: "exchange_rate")
+    var exchangeRate: Double?
+
     @Timestamp(key: "created_at", on: .create)
     var createdAt: Date?
 

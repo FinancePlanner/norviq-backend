@@ -26,6 +26,17 @@ protocol ExpensesService: Sendable {
     func updateExpense(userId: UUID, expenseId: UUID, request: ExpenseRequest, on db: any Database) async throws -> ExpenseResponse
     func deleteExpense(userId: UUID, expenseId: UUID, on db: any Database) async throws
 
+    // Categories
+    func getCategories(userId: UUID, on db: any Database) async throws -> [ExpenseCategoryResponse]
+    func createCategory(userId: UUID, request: ExpenseCategoryRequest, on db: any Database) async throws -> ExpenseCategoryResponse
+    func deleteCategory(userId: UUID, categoryId: UUID, on db: any Database) async throws
+
+    // Recurring Templates
+    func getRecurringTemplates(userId: UUID, on db: any Database) async throws -> [RecurringTemplateResponse]
+    func createRecurringTemplate(userId: UUID, request: RecurringTemplateRequest, on db: any Database) async throws -> RecurringTemplateResponse
+    func updateRecurringTemplate(userId: UUID, templateId: UUID, request: RecurringTemplateRequest, on db: any Database) async throws -> RecurringTemplateResponse
+    func deleteRecurringTemplate(userId: UUID, templateId: UUID, on db: any Database) async throws
+
     // Reports
     func getMonthlyReports(userId: UUID, from: Date?, to: Date?, on db: any Database) async throws -> [BudgetMonthSummaryResponse]
     func getYearlyReports(userId: UUID, from: Date?, to: Date?, on db: any Database) async throws -> [BudgetYearSummaryResponse]
@@ -289,6 +300,9 @@ final class DefaultExpensesService: ExpensesService {
             splitMode: split.0,
             userSharePercent: split.1
         )
+        if let catIdStr = request.categoryId, let catId = UUID(uuidString: catIdStr) {
+            item.$category.id = catId
+        }
         try await item.create(on: db)
         return mapPlanItem(item)
     }
@@ -307,6 +321,7 @@ final class DefaultExpensesService: ExpensesService {
         item.pillar = request.pillar
         item.splitMode = split.0
         item.userSharePercent = split.1
+        item.$category.id = request.categoryId.flatMap { UUID(uuidString: $0) }
         try await item.update(on: db)
         return mapPlanItem(item)
     }
@@ -372,6 +387,17 @@ final class DefaultExpensesService: ExpensesService {
             splitMode: split.0,
             userSharePercent: split.1
         )
+        if let catIdStr = request.categoryId, let catId = UUID(uuidString: catIdStr) {
+            expense.$category.id = catId
+        }
+        if let foreignAmount = request.foreignAmount {
+            guard let rate = request.exchangeRate, rate > 0 else {
+                throw Abort(.badRequest, reason: "exchangeRate must be > 0 when foreignAmount is provided.")
+            }
+            expense.foreignAmount = foreignAmount
+            expense.foreignCurrency = request.foreignCurrency
+            expense.exchangeRate = rate
+        }
         try await expense.create(on: db)
 
         // Record activity
@@ -420,6 +446,19 @@ final class DefaultExpensesService: ExpensesService {
         expense.splitMode = split.0
         expense.userSharePercent = split.1
         expense.$linkedPlanItem.id = linkedId
+        expense.$category.id = request.categoryId.flatMap { UUID(uuidString: $0) }
+        if let foreignAmount = request.foreignAmount {
+            guard let rate = request.exchangeRate, rate > 0 else {
+                throw Abort(.badRequest, reason: "exchangeRate must be > 0 when foreignAmount is provided.")
+            }
+            expense.foreignAmount = foreignAmount
+            expense.foreignCurrency = request.foreignCurrency
+            expense.exchangeRate = rate
+        } else {
+            expense.foreignAmount = nil
+            expense.foreignCurrency = nil
+            expense.exchangeRate = nil
+        }
         try await expense.update(on: db)
 
         // Record activity
@@ -445,6 +484,95 @@ final class DefaultExpensesService: ExpensesService {
             throw Abort(.forbidden)
         }
         try await expense.delete(on: db)
+    }
+
+    // MARK: - Categories
+
+    private static let defaultCategories: [(name: String, pillar: BudgetPillar)] = [
+        ("Groceries", .fundamentals), ("Rent", .fundamentals), ("Mortgage", .fundamentals),
+        ("Utilities", .fundamentals), ("Transport", .fundamentals), ("Insurance", .fundamentals),
+        ("Phone Bill", .fundamentals),
+        ("Savings", .futureYou), ("Investments", .futureYou), ("Emergency Fund", .futureYou),
+        ("Dining Out", .fun), ("Entertainment", .fun), ("Travel", .fun), ("Subscriptions", .fun),
+    ]
+
+    func getCategories(userId: UUID, on db: any Database) async throws -> [ExpenseCategoryResponse] {
+        let existing = try await ExpenseCategory.query(on: db).filter(\.$user.$id == userId).all()
+        if existing.isEmpty {
+            // Seed defaults on first access
+            let defaults = Self.defaultCategories.map {
+                ExpenseCategory(userID: userId, name: $0.name, pillar: $0.pillar, isDefault: true)
+            }
+            try await defaults.create(on: db)
+            return defaults.map { mapCategory($0) }
+        }
+        return existing.sorted { $0.name < $1.name }.map { mapCategory($0) }
+    }
+
+    func createCategory(userId: UUID, request: ExpenseCategoryRequest, on db: any Database) async throws -> ExpenseCategoryResponse {
+        let pillar = request.pillar
+        let category = ExpenseCategory(userID: userId, name: request.name, pillar: pillar, isDefault: false)
+        try await category.create(on: db)
+        return mapCategory(category)
+    }
+
+    func deleteCategory(userId: UUID, categoryId: UUID, on db: any Database) async throws {
+        guard let category = try await ExpenseCategory.find(categoryId, on: db) else {
+            throw Abort(.notFound)
+        }
+        guard category.$user.id == userId else { throw Abort(.forbidden) }
+        guard !category.isDefault else { throw Abort(.badRequest, reason: "Cannot delete default categories.") }
+        try await category.delete(on: db)
+    }
+
+    // MARK: - Recurring Templates
+
+    func getRecurringTemplates(userId: UUID, on db: any Database) async throws -> [RecurringTemplateResponse] {
+        let templates = try await RecurringTemplate.query(on: db).filter(\.$user.$id == userId).all()
+        return templates.map { mapRecurringTemplate($0) }
+    }
+
+    func createRecurringTemplate(userId: UUID, request: RecurringTemplateRequest, on db: any Database) async throws -> RecurringTemplateResponse {
+        let frequency = request.frequency
+        let categoryID = request.categoryId.flatMap { UUID(uuidString: $0) }
+        let split = try normalizeSplit(splitMode: request.splitMode, userSharePercent: request.userSharePercent)
+        let template = RecurringTemplate(
+            userID: userId,
+            title: request.title,
+            amount: request.amount,
+            pillar: request.pillar,
+            categoryID: categoryID,
+            frequency: frequency,
+            splitMode: split.0,
+            userSharePercent: split.1
+        )
+        try await template.create(on: db)
+        return mapRecurringTemplate(template)
+    }
+
+    func updateRecurringTemplate(userId: UUID, templateId: UUID, request: RecurringTemplateRequest, on db: any Database) async throws -> RecurringTemplateResponse {
+        guard let template = try await RecurringTemplate.find(templateId, on: db) else {
+            throw Abort(.notFound)
+        }
+        guard template.$user.id == userId else { throw Abort(.forbidden) }
+        let split = try normalizeSplit(splitMode: request.splitMode, userSharePercent: request.userSharePercent)
+        template.title = request.title
+        template.amount = request.amount
+        template.pillar = request.pillar
+        template.$category.id = request.categoryId.flatMap { UUID(uuidString: $0) }
+        template.frequency = request.frequency.rawValue
+        template.splitMode = split.0
+        template.userSharePercent = split.1
+        try await template.update(on: db)
+        return mapRecurringTemplate(template)
+    }
+
+    func deleteRecurringTemplate(userId: UUID, templateId: UUID, on db: any Database) async throws {
+        guard let template = try await RecurringTemplate.find(templateId, on: db) else {
+            throw Abort(.notFound)
+        }
+        guard template.$user.id == userId else { throw Abort(.forbidden) }
+        try await template.delete(on: db)
     }
 
     // MARK: - Reports
@@ -717,6 +845,29 @@ final class DefaultExpensesService: ExpensesService {
 
     // MARK: - Mappers
 
+    private func mapCategory(_ model: ExpenseCategory) -> ExpenseCategoryResponse {
+        ExpenseCategoryResponse(
+            id: model.id?.uuidString ?? "",
+            name: model.name,
+            pillar: model.pillar.flatMap { BudgetPillar(rawValue: $0) },
+            isDefault: model.isDefault
+        )
+    }
+
+    private func mapRecurringTemplate(_ model: RecurringTemplate) -> RecurringTemplateResponse {
+        RecurringTemplateResponse(
+            id: model.id?.uuidString ?? "",
+            title: model.title,
+            amount: model.amount,
+            pillar: model.pillar,
+            categoryId: model.$category.id?.uuidString,
+            frequency: RecurringFrequency(rawValue: model.frequency) ?? .monthly,
+            splitMode: model.splitMode,
+            userSharePercent: model.userSharePercent,
+            createdAt: model.createdAt.map { formatISODate($0) }
+        )
+    }
+
     private func mapSnapshot(_ model: BudgetSnapshot) -> BudgetSnapshotResponse {
         BudgetSnapshotResponse(
             id: model.id?.uuidString ?? "",
@@ -735,6 +886,7 @@ final class DefaultExpensesService: ExpensesService {
             title: model.title,
             plannedAmount: model.plannedAmount,
             pillar: model.pillar,
+            categoryId: model.$category.id?.uuidString,
             splitMode: model.splitMode,
             userSharePercent: model.userSharePercent,
             createdAt: model.createdAt.map { formatISODate($0) },
@@ -750,8 +902,12 @@ final class DefaultExpensesService: ExpensesService {
             pillar: model.pillar,
             occurredOn: formatDate(model.occurredOn),
             linkedPlanItemId: model.$linkedPlanItem.id?.uuidString,
+            categoryId: model.$category.id?.uuidString,
             splitMode: model.splitMode,
             userSharePercent: model.userSharePercent,
+            foreignAmount: model.foreignAmount,
+            foreignCurrency: model.foreignCurrency,
+            exchangeRate: model.exchangeRate,
             createdAt: model.createdAt.map { formatISODate($0) },
             updatedAt: model.updatedAt.map { formatISODate($0) }
         )

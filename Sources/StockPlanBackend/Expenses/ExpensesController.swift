@@ -9,8 +9,12 @@ struct ExpensesController: RouteCollection {
         let pillar: BudgetPillar
         let occurredOn: String
         let linkedPlanItemId: String?
+        let categoryId: String?
         let splitMode: ExpenseSplitMode?
         let userSharePercent: Double?
+        let foreignAmount: Double?
+        let foreignCurrency: String?
+        let exchangeRate: Double?
 
         private enum CodingKeys: String, CodingKey {
             case title
@@ -20,10 +24,18 @@ struct ExpensesController: RouteCollection {
             case occurredOnCamel = "occurredOn"
             case linkedPlanItemIdSnake = "linked_plan_item_id"
             case linkedPlanItemIdCamel = "linkedPlanItemId"
+            case categoryIdSnake = "category_id"
+            case categoryIdCamel = "categoryId"
             case splitModeSnake = "split_mode"
             case splitModeCamel = "splitMode"
             case userSharePercentSnake = "user_share_percent"
             case userSharePercentCamel = "userSharePercent"
+            case foreignAmountSnake = "foreign_amount"
+            case foreignAmountCamel = "foreignAmount"
+            case foreignCurrencySnake = "foreign_currency"
+            case foreignCurrencyCamel = "foreignCurrency"
+            case exchangeRateSnake = "exchange_rate"
+            case exchangeRateCamel = "exchangeRate"
         }
 
         init(from decoder: any Decoder) throws {
@@ -37,12 +49,24 @@ struct ExpensesController: RouteCollection {
             self.linkedPlanItemId =
                 try container.decodeIfPresent(String.self, forKey: .linkedPlanItemIdSnake)
                 ?? container.decodeIfPresent(String.self, forKey: .linkedPlanItemIdCamel)
+            self.categoryId =
+                try container.decodeIfPresent(String.self, forKey: .categoryIdSnake)
+                ?? container.decodeIfPresent(String.self, forKey: .categoryIdCamel)
             self.splitMode =
                 try container.decodeIfPresent(ExpenseSplitMode.self, forKey: .splitModeSnake)
                 ?? container.decodeIfPresent(ExpenseSplitMode.self, forKey: .splitModeCamel)
             self.userSharePercent =
                 try container.decodeIfPresent(Double.self, forKey: .userSharePercentSnake)
                 ?? container.decodeIfPresent(Double.self, forKey: .userSharePercentCamel)
+            self.foreignAmount =
+                try container.decodeIfPresent(Double.self, forKey: .foreignAmountSnake)
+                ?? container.decodeIfPresent(Double.self, forKey: .foreignAmountCamel)
+            self.foreignCurrency =
+                try container.decodeIfPresent(String.self, forKey: .foreignCurrencySnake)
+                ?? container.decodeIfPresent(String.self, forKey: .foreignCurrencyCamel)
+            self.exchangeRate =
+                try container.decodeIfPresent(Double.self, forKey: .exchangeRateSnake)
+                ?? container.decodeIfPresent(Double.self, forKey: .exchangeRateCamel)
         }
 
         func asRequest() -> ExpenseRequest {
@@ -52,8 +76,12 @@ struct ExpensesController: RouteCollection {
                 pillar: pillar,
                 occurredOn: occurredOn,
                 linkedPlanItemId: linkedPlanItemId,
+                categoryId: categoryId,
                 splitMode: splitMode ?? .personal,
-                userSharePercent: userSharePercent ?? 100
+                userSharePercent: userSharePercent ?? 100,
+                foreignAmount: foreignAmount,
+                foreignCurrency: foreignCurrency,
+                exchangeRate: exchangeRate
             )
         }
     }
@@ -65,6 +93,23 @@ struct ExpensesController: RouteCollection {
         expenses.group("partner") { partner in
             partner.get(use: getHouseholdPartner)
             partner.put(use: updateHouseholdPartner)
+        }
+
+        expenses.group("categories") { cat in
+            cat.get(use: getCategories)
+            cat.post(use: createCategory)
+            cat.group(":categoryId") { c in
+                c.delete(use: deleteCategory)
+            }
+        }
+
+        expenses.group("recurring") { rec in
+            rec.get(use: getRecurringTemplates)
+            rec.post(use: createRecurringTemplate)
+            rec.group(":templateId") { t in
+                t.patch(use: updateRecurringTemplate)
+                t.delete(use: deleteRecurringTemplate)
+            }
         }
 
         expenses.get(use: getExpenses)
@@ -174,5 +219,65 @@ struct ExpensesController: RouteCollection {
             throw Abort(.badRequest, reason: "Invalid \(name).")
         }
         return value
+    }
+
+    // MARK: - Categories
+
+    @Sendable
+    func getCategories(req: Request) async throws -> [ExpenseCategoryResponse] {
+        let session = try req.auth.require(SessionToken.self)
+        return try await req.expensesService.getCategories(userId: session.userId, on: req.db)
+    }
+
+    @Sendable
+    func createCategory(req: Request) async throws -> Response {
+        let session = try req.auth.require(SessionToken.self)
+        let payload = try req.content.decode(ExpenseCategoryRequest.self)
+        let created = try await req.expensesService.createCategory(userId: session.userId, request: payload, on: req.db)
+        let res = Response(status: .created)
+        try res.content.encode(created)
+        return res
+    }
+
+    @Sendable
+    func deleteCategory(req: Request) async throws -> HTTPStatus {
+        let session = try req.auth.require(SessionToken.self)
+        let categoryId = try requireUUIDParameter(req, name: "categoryId")
+        try await req.expensesService.deleteCategory(userId: session.userId, categoryId: categoryId, on: req.db)
+        return .noContent
+    }
+
+    // MARK: - Recurring Templates
+
+    @Sendable
+    func getRecurringTemplates(req: Request) async throws -> [RecurringTemplateResponse] {
+        let session = try req.auth.require(SessionToken.self)
+        return try await req.expensesService.getRecurringTemplates(userId: session.userId, on: req.db)
+    }
+
+    @Sendable
+    func createRecurringTemplate(req: Request) async throws -> Response {
+        let session = try req.auth.require(SessionToken.self)
+        let payload = try req.content.decode(RecurringTemplateRequest.self)
+        let created = try await req.expensesService.createRecurringTemplate(userId: session.userId, request: payload, on: req.db)
+        let res = Response(status: .created)
+        try res.content.encode(created)
+        return res
+    }
+
+    @Sendable
+    func updateRecurringTemplate(req: Request) async throws -> RecurringTemplateResponse {
+        let session = try req.auth.require(SessionToken.self)
+        let templateId = try requireUUIDParameter(req, name: "templateId")
+        let payload = try req.content.decode(RecurringTemplateRequest.self)
+        return try await req.expensesService.updateRecurringTemplate(userId: session.userId, templateId: templateId, request: payload, on: req.db)
+    }
+
+    @Sendable
+    func deleteRecurringTemplate(req: Request) async throws -> HTTPStatus {
+        let session = try req.auth.require(SessionToken.self)
+        let templateId = try requireUUIDParameter(req, name: "templateId")
+        try await req.expensesService.deleteRecurringTemplate(userId: session.userId, templateId: templateId, on: req.db)
+        return .noContent
     }
 }

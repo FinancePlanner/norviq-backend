@@ -46,6 +46,11 @@ extension BulkStockResponse: @retroactive Content {}
 extension TargetRequest: @retroactive Content {}
 extension TargetResponse: @retroactive Content {}
 
+// Price Chart
+extension PriceChartPoint: @retroactive Content {}
+extension PriceChartSeries: @retroactive Content {}
+extension PriceChartComparisonResponse: @retroactive Content {}
+
 // MARK: - Dashboard
 extension DashboardResponse: @retroactive Content {}
 extension DashboardPerformerDTO: @retroactive Content {}

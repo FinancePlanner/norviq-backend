@@ -276,6 +276,13 @@ public func configure(_ app: Application) async throws {
     let apnsAlertPollSeconds = Environment.get("APNS_ALERT_POLL_SECONDS").flatMap(Int64.init(_:)) ?? 300
     app.lifecycle.use(TargetAlertPoller(intervalSeconds: apnsAlertPollSeconds))
 
+    registerMigrations(app)
+
+    // register routes
+    try routes(app)
+}
+
+private func registerMigrations(_ app: Application) {
     app.migrations.add(CreateUser())
     app.migrations.add(AddAccountLockoutAndVerificationFields())
     app.migrations.add(AddUserProfileFields())
@@ -329,6 +336,9 @@ public func configure(_ app: Application) async throws {
     app.migrations.add(CreateExpensesTables())
     app.migrations.add(AddExpenseSharingFields())
     app.migrations.add(ConvertBudgetPillarEnumToString())
+    app.migrations.add(CreateExpenseCategoryTable())
+    app.migrations.add(CreateRecurringTemplatesTable())
+    app.migrations.add(AddExpenseCurrencyFields())
     app.migrations.add(CreateReportSuggestionDismissals())
     app.migrations.add(AddHouseholdPartnerDisplayNameToUsers())
     app.migrations.add(AddEncryptedUserProfileFields())
@@ -336,9 +346,6 @@ public func configure(_ app: Application) async throws {
     app.migrations.add(CreateUserActivity())
     app.migrations.add(AddNewsViewedActivityType())
     app.migrations.add(CreateUserBadge())
-
-    // register routes
-    try routes(app)
 }
 
 private func envBool(_ key: String, default defaultValue: Bool) -> Bool {
