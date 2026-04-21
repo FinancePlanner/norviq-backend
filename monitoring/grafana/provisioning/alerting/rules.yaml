@@ -1,0 +1,76 @@
+apiVersion: 1
+
+groups:
+  - orgId: 1
+    name: stockplan-production
+    folder: StockPlan Production
+    interval: 1m
+    rules:
+      - uid: stockplan-app-down
+        title: App or collector metrics missing
+        condition: A
+        for: 5m
+        data:
+          - refId: A
+            datasourceUid: otel-collector-metrics
+            relativeTimeRange:
+              from: 300
+              to: 0
+            model:
+              expr: 'absent(up{job=~".*"})'
+              refId: A
+        labels:
+          severity: critical
+        annotations:
+          summary: "No metrics are reaching Grafana for StockPlan."
+      - uid: stockplan-host-cpu-high
+        title: Sustained high host CPU
+        condition: A
+        for: 10m
+        data:
+          - refId: A
+            datasourceUid: otel-collector-metrics
+            relativeTimeRange:
+              from: 600
+              to: 0
+            model:
+              expr: 'avg(rate(system_cpu_time_seconds_total[5m])) > 0.85'
+              refId: A
+        labels:
+          severity: warning
+        annotations:
+          summary: "Host CPU has been above the launch threshold."
+      - uid: stockplan-host-memory-high
+        title: Sustained high host memory
+        condition: A
+        for: 10m
+        data:
+          - refId: A
+            datasourceUid: otel-collector-metrics
+            relativeTimeRange:
+              from: 600
+              to: 0
+            model:
+              expr: 'system_memory_usage_bytes / system_memory_limit_bytes > 0.85'
+              refId: A
+        labels:
+          severity: warning
+        annotations:
+          summary: "Host memory pressure is above the launch threshold."
+      - uid: stockplan-billing-webhook-errors
+        title: Billing webhook errors in logs
+        condition: A
+        for: 5m
+        data:
+          - refId: A
+            datasourceUid: otel-collector-metrics
+            relativeTimeRange:
+              from: 300
+              to: 0
+            model:
+              expr: 'sum(rate(http_server_duration_milliseconds_count{http_route="/webhooks/revenuecat",http_response_status_code=~"5.."}[5m])) > 0'
+              refId: A
+        labels:
+          severity: critical
+        annotations:
+          summary: "RevenueCat webhook is returning 5xx responses."

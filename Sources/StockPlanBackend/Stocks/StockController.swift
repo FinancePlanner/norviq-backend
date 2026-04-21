@@ -126,6 +126,11 @@ struct StockController: RouteCollection {
     @Sendable
     func getStockInsights(req: Request) async throws -> StockInsightsResponse {
         let session = try req.auth.require(SessionToken.self)
+        try await req.usageCounterService.requirePremium(
+            .advancedResearch,
+            userId: session.userId,
+            on: req.db
+        )
         let symbol = try requireStringParameter(req, name: "symbol", reason: "Invalid stock symbol")
         return try await req.stocksService.getInsights(
             symbol: symbol,

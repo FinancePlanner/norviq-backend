@@ -36,6 +36,7 @@ public func configure(_ app: Application) async throws {
     // cors middleware should come before default error middleware using `at: .beginning`
     app.middleware.use(cors, at: .beginning)
     app.middleware.use(ErrorMiddleware.default(environment: app.environment))
+    app.middleware.use(BillingErrorMiddleware())
 
     app.middleware.use(RequestLoggingMiddleware())
     // Add custom error handling middleware first.
@@ -257,6 +258,10 @@ public func configure(_ app: Application) async throws {
     app.pushDeviceService = DatabasePushDeviceService()
     app.entitlementResolver = DefaultEntitlementResolver()
     app.usageCounterService = DefaultUsageCounterService(entitlementResolver: app.entitlementResolver)
+    app.billingContextService = DefaultBillingContextService(
+        entitlementResolver: app.entitlementResolver,
+        usageCounterService: app.usageCounterService
+    )
     app.billingService = DefaultBillingService()
     app.targetAlertEvaluator = DefaultTargetAlertEvaluator()
 

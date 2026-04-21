@@ -199,6 +199,12 @@ struct MarketDataController: RouteCollection {
 
     @Sendable
     func compare(req: Request) async throws -> [StockAnalysisMetricsResponse] {
+        let session = try req.auth.require(SessionToken.self)
+        try await req.usageCounterService.requirePremium(
+            .peerComparison,
+            userId: session.userId,
+            on: req.db
+        )
         guard let symbolsStr = req.query[String.self, at: "symbols"] else {
             throw Abort(.badRequest, reason: "Missing symbols query parameter.")
         }
@@ -272,6 +278,12 @@ struct MarketDataController: RouteCollection {
 
     @Sendable
     func earnings(req: Request) async throws -> [EarningsResponse] {
+        let session = try req.auth.require(SessionToken.self)
+        try await req.usageCounterService.requirePremium(
+            .earningsText,
+            userId: session.userId,
+            on: req.db
+        )
         guard let symbol = req.parameters.get("symbol") else {
             throw Abort(.badRequest, reason: "Missing symbol.")
         }

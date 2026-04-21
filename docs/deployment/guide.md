@@ -101,6 +101,10 @@ server {
     ssl_stapling on;
     ssl_stapling_verify on;
     add_header Strict-Transport-Security max-age=15768000;
+    add_header X-Content-Type-Options nosniff always;
+    add_header X-Frame-Options DENY always;
+    add_header Referrer-Policy no-referrer always;
+    add_header Permissions-Policy "camera=(), microphone=(), geolocation=(), payment=()" always;
 
     location / {
         try_files $uri @proxy;
@@ -146,7 +150,7 @@ Edit `.env` with production values:
 # .env
 DATABASE_HOST=db
 DATABASE_NAME=stockplan_prod
-DATABASE_USERNAME=stockplan_user
+DATABASE_USERNAME=<NON_DEFAULT_DB_USER>
 DATABASE_PASSWORD=<STRONG_RANDOM_PASSWORD>   # Use: openssl rand -base64 32
 JWT_SECRET=<STRONG_RANDOM_SECRET>            # Use: openssl rand -base64 64
 ALLOWED_ORIGINS=https://www.norviqaapp.com,https://norviqaapp.com
@@ -158,9 +162,25 @@ RESEND_FROM_EMAIL=no-reply@yourdomain.com
 APP_IMAGE=ghcr.io/yourusername/StockPlanBackend:latest
 LOG_LEVEL=info
 LOG_FORMAT=json
+OBS_TRACES_ENABLED=true
+OBS_SERVICE_NAME=StockPlanBackend
+OBS_ENVIRONMENT=production
+OBS_OTLP_ENDPOINT=http://otel-collector:4317
+OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4317
+OTEL_EXPORTER_OTLP_PROTOCOL=grpc
+GRAFANA_ADMIN_PASSWORD=<STRONG_RANDOM_PASSWORD>
+GRAFANA_SMTP_ENABLED=true
+GRAFANA_ALERT_EMAIL_TO=alerts@example.com
+GRAFANA_ALERT_EMAIL_FROM=alerts@example.com
+GRAFANA_SMTP_HOST=smtp.example.com:587
+GRAFANA_SMTP_USER=<SMTP_USER>
+GRAFANA_SMTP_PASSWORD=<SMTP_PASSWORD>
+GRAFANA_SLACK_WEBHOOK_URL=<SLACK_WEBHOOK_URL>
 ```
 
 Production startup fails if `JWT_SECRET` is missing, blank, shorter than 32 characters, or equal to the development default. Production startup also fails if `ALLOWED_ORIGINS` is missing or contains localhost/wildcard origins.
+
+Use a non-default database username and password in production. Keep Postgres and Redis on the Docker internal network only; neither service should publish host ports.
 
 ### Production Docker Compose
 
@@ -183,6 +203,8 @@ docker pull "$APP_IMAGE"
 docker compose -f docker-compose.production.yml up -d db
 docker compose -f docker-compose.production.yml run --rm migrate
 docker compose -f docker-compose.production.yml up -d app
+docker compose -f docker-compose.production.yml -f docker-compose.observability.yml up -d
+./scripts/ops/production_preflight.sh api.norviqa.io https://www.norviqaapp.com
 ```
 
 ---
@@ -202,6 +224,8 @@ Deployments are automated via GitHub Actions (`.github/workflows/deploy.yml`).
 6. Restarts app with zero-downtime
 7. Gates deploy on `/health/ready` before success, with `/health` as rollback compatibility fallback
 8. Persists deployed `APP_IMAGE` in `.env` for future compose commands
+
+After a deploy, run `./scripts/ops/production_preflight.sh <domain> <allowed-origin>` from the server and paste the output into the release notes. This confirms health, request IDs, CORS, security headers, private DB/Redis exposure, and JSON log shape.
 
 **Required GitHub Secrets** (Settings → Secrets → Actions):
 
@@ -276,15 +300,11 @@ sudo tail -f /var/log/nginx/access.log
 
 ```bash
 # Create backup
-docker compose -f docker-compose.production.yml exec db \
-  pg_dump -U stockplan_user stockplan_prod > backup_$(date +%Y%m%d).sql
-
-# Encrypt backup before moving it off-host
-gpg --symmetric --cipher-algo AES256 backup_$(date +%Y%m%d).sql
+./scripts/ops/backup_postgres.sh
 
 # Restore backup
-cat backup_20260207.sql | docker compose -f docker-compose.production.yml exec -T db \
-  psql -U stockplan_user stockplan_prod
+RESTORE_DATABASE_URL=postgres://restore_user:restore_password@restore-host:5432/stockplan_restore \
+  ./scripts/ops/restore_drill_postgres.sh backups/stockplan_YYYYMMDD_HHMMSS.sql.gpg
 ```
 
 Run a restore drill before launch and at least quarterly after launch. Keep daily encrypted backups for 14 days, weekly backups for 8 weeks, and monthly backups for 12 months unless your privacy/retention policy requires a shorter window.

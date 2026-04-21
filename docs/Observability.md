@@ -13,8 +13,8 @@ Implement observability in this order:
 
 ## Scope
 
-- This is an implementation plan only.
-- No code or Compose changes are included in this document.
+- This is the implementation/runbook record for the current repo observability stack.
+- Code and Compose changes are now included in the repo.
 - Target environment: single VPS, Docker Compose deployment.
 
 ## Current Baseline (Repo Status)
@@ -24,7 +24,8 @@ Implement observability in this order:
 - `RequestLoggingMiddleware` emits request metadata including request ID, method, path, status, latency, user ID when authenticated, and inbound `traceparent` when present.
 - `LOG_FORMAT=json` enables JSON app logs and is the production default.
 - `docker-compose.observability.yml`, `monitoring/otel-collector.yaml`, and Grafana datasource provisioning define the first collector, Jaeger, and Grafana stack.
-- No Swift OpenTelemetry exporter package is wired yet; app-side tracing remains based on Vapor's `TracingMiddleware` until the exporter dependency is added.
+- `swift-otel` is wired as the app-side OTLP backend when `OBS_TRACES_ENABLED=true`.
+- The production compose observability stack includes OTel Collector, Jaeger, Grafana, baseline metrics scraping, dashboards, and email/Slack alert contact points.
 
 ## Architecture Phases
 
@@ -42,18 +43,18 @@ Get end-to-end request traces from Vapor into Jaeger, visualized in Grafana, wit
 
 #### Implementation Checklist
 
-- [ ] Add OpenTelemetry tracing backend dependency for Swift (for example `swift-otel`) in `Package.swift`.
-- [ ] Bootstrap tracing backend in app startup (before serving requests) in `Sources/StockPlanBackend/entrypoint.swift`.
+- [x] Add OpenTelemetry tracing backend dependency for Swift (`swift-otel`) in `Package.swift`.
+- [x] Bootstrap tracing backend in app startup (before serving requests) in `Sources/StockPlanBackend/entrypoint.swift`.
 - [x] Keep `TracingMiddleware` enabled in `Sources/StockPlanBackend/configure.swift`.
-- [ ] Keep `app.traceAutoPropagation = true` unless throughput testing proves it is too expensive.
+- [x] Keep `app.traceAutoPropagation = true` unless throughput testing proves it is too expensive.
 - [ ] Add manual context restore on NIO `EventLoopFuture` boundaries where applicable.
 - [x] Add OTel Collector config file (`monitoring/otel-collector.yaml`) with OTLP receiver, `batch` and `memory_limiter` processors, and Jaeger trace exporter.
 - [x] Add Compose services in a separate file (`docker-compose.observability.yml`).
-- [ ] Put observability services on internal Docker network.
-- [ ] Expose only Grafana to public network if needed.
-- [ ] Add persistent volume for Grafana.
+- [x] Put observability services on internal Docker network.
+- [x] Expose only Grafana to localhost unless a reverse proxy is explicitly configured.
+- [x] Add persistent volume for Grafana.
 - [x] Add initial dashboard data source provisioning in `monitoring/grafana/provisioning/`.
-- [ ] Add env vars to `.env` or `.env.production`: `OBS_SERVICE_NAME`, `OBS_ENVIRONMENT`, `OBS_OTLP_ENDPOINT`, `OBS_TRACES_ENABLED`.
+- [x] Add env vars to `.env` or `.env.production`: `OBS_SERVICE_NAME`, `OBS_ENVIRONMENT`, `OBS_OTLP_ENDPOINT`, `OBS_TRACES_ENABLED`.
 
 #### Exit Criteria
 
@@ -76,11 +77,11 @@ Capture service health metrics (latency, errors, throughput, DB/cache behavior) 
 
 - [ ] Define core service-level indicators: HTTP request count, HTTP error rate (4xx, 5xx), HTTP latency (p50/p95/p99), DB latency/error count, Redis latency/error count.
 - [ ] Add metrics instrumentation in app code where needed.
-- [ ] Extend OTel Collector pipeline to process/export metrics.
+- [x] Extend OTel Collector pipeline to process/export metrics.
 - [ ] Configure Prometheus scrape targets and rules in `monitoring/prometheus/prometheus.yml`.
 - [ ] Start with short retention (for example 3-7 days).
-- [ ] Add Grafana dashboards for API, DB, and cache health.
-- [ ] Add baseline alert rules (high 5xx rate, sustained high latency, container down).
+- [x] Add baseline Grafana dashboard provisioning.
+- [x] Add baseline alert rules and email/Slack contact point provisioning.
 
 #### Exit Criteria
 

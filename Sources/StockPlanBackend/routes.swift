@@ -53,6 +53,7 @@ func routes(_ app: Application) throws {
     try app.register(collection: RevenueCatWebhookController())
 
     try api.register(collection: AuthController())
+    try api.register(collection: BillingController())
     try api.register(collection: StockController())
     try api.register(collection: MarketDataController())
     try api.register(collection: PortfolioController())

@@ -13,6 +13,10 @@ extension Application {
         typealias Value = any UsageCounterService
     }
 
+    struct BillingContextServiceKey: StorageKey {
+        typealias Value = any BillingContextService
+    }
+
     var billingService: any BillingService {
         get { storage[BillingServiceKey.self]! }
         set { storage[BillingServiceKey.self] = newValue }
@@ -27,6 +31,11 @@ extension Application {
         get { storage[UsageCounterServiceKey.self]! }
         set { storage[UsageCounterServiceKey.self] = newValue }
     }
+
+    var billingContextService: any BillingContextService {
+        get { storage[BillingContextServiceKey.self]! }
+        set { storage[BillingContextServiceKey.self] = newValue }
+    }
 }
 
 extension Request {
@@ -40,5 +49,9 @@ extension Request {
 
     var usageCounterService: any UsageCounterService {
         application.usageCounterService
+    }
+
+    var billingContextService: any BillingContextService {
+        application.billingContextService
     }
 }

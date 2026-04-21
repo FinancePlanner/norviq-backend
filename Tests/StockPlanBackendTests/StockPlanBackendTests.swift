@@ -113,6 +113,11 @@ struct StockPlanBackendTests {
         return (response.token, response.userId)
     }
 
+    private func grantPremium(userId: UUID, on app: Application) async throws {
+        let entitlement = Entitlement(userId: userId, level: "premium")
+        try await entitlement.save(on: app.db)
+    }
+
     private func makeTestMarketService(
         state: TestMarketProviderState,
         fmpState: TestFMPProviderState? = nil,
@@ -333,6 +338,26 @@ struct StockPlanBackendTests {
         #expect(origins == ["https://app.example.com", "https://www.example.com"])
         let defaults = try ProductionConfiguration.allowedOrigins(from: nil, isProduction: false)
         #expect(defaults.contains("http://localhost:3000"))
+    }
+
+    @Test("Production database credentials reject defaults")
+    func productionDatabaseCredentialValidation() throws {
+        #expect(throws: Abort.self) {
+            try ProductionConfiguration.validateDatabaseCredentials(username: nil, password: "valid-password-valid-password")
+        }
+        #expect(throws: Abort.self) {
+            try ProductionConfiguration.validateDatabaseCredentials(username: "stockplan_user", password: "valid-password-valid-password")
+        }
+        #expect(throws: Abort.self) {
+            try ProductionConfiguration.validateDatabaseCredentials(username: "stockplan_prod_app", password: "stockplan_password")
+        }
+        #expect(throws: Abort.self) {
+            try ProductionConfiguration.validateDatabaseCredentials(username: "stockplan_prod_app", password: "short")
+        }
+        try ProductionConfiguration.validateDatabaseCredentials(
+            username: "stockplan_prod_app",
+            password: "012345678901234567890123"
+        )
     }
 
     @Test("Stock valuation endpoints create, fetch, and update by symbol")
@@ -570,7 +595,8 @@ struct StockPlanBackendTests {
             let state = TestMarketProviderState()
             let fmpState = TestFMPProviderState()
             app.marketDataService = makeTestMarketService(state: state, fmpState: fmpState)
-            let (token, _) = try await registerTestUser(app: app, identifier: "stockinsights")
+            let (token, userId) = try await registerTestUser(app: app, identifier: "stockinsights")
+            try await grantPremium(userId: userId, on: app)
 
             for symbol in ["AAPL", "TSLA"] {
                 try await app.testing().test(.POST, "v1/stocks", beforeRequest: { req in
@@ -1091,7 +1117,8 @@ struct StockPlanBackendTests {
             let state = TestMarketProviderState()
             let fmpState = TestFMPProviderState()
             app.marketDataService = makeTestMarketService(state: state, fmpState: fmpState)
-            let (token, _) = try await registerTestUser(app: app, identifier: "comparemetrics")
+            let (token, userId) = try await registerTestUser(app: app, identifier: "comparemetrics")
+            try await grantPremium(userId: userId, on: app)
 
             try await app.testing().test(.GET, "v1/market/compare?symbols=AAPL,MSFT", beforeRequest: { req in
                 req.headers.bearerAuthorization = .init(token: token)
@@ -1120,7 +1147,8 @@ struct StockPlanBackendTests {
             let state = TestMarketProviderState()
             let fmpState = TestFMPProviderState()
             app.marketDataService = makeTestMarketService(state: state, fmpState: fmpState)
-            let (token, _) = try await registerTestUser(app: app, identifier: "earningsuser")
+            let (token, userId) = try await registerTestUser(app: app, identifier: "earningsuser")
+            try await grantPremium(userId: userId, on: app)
 
             try await app.testing().test(.GET, "v1/market/earnings/AAPL?limit=10", beforeRequest: { req in
                 req.headers.bearerAuthorization = .init(token: token)

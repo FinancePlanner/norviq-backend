@@ -11,6 +11,35 @@ struct EntitlementSnapshot: Sendable {
     }
 }
 
+struct BillingUpgradeRequiredError: Error, AbortError, Sendable {
+    let status: HTTPResponseStatus = .paymentRequired
+    let reason: String
+    let feature: BillingFeature
+    let plan: String
+    let requiredPlan: String
+    let limit: Int?
+    let current: Int?
+
+    init(
+        feature: BillingFeature,
+        plan: String,
+        requiredPlan: String = "premium",
+        limit: Int? = nil,
+        current: Int? = nil
+    ) {
+        self.feature = feature
+        self.plan = plan
+        self.requiredPlan = requiredPlan
+        self.limit = limit
+        self.current = current
+        if let limit, let current {
+            self.reason = "Upgrade required. feature=\(feature.rawValue) plan=\(plan) limit=\(limit) current=\(current)"
+        } else {
+            self.reason = "Upgrade required. feature=\(feature.rawValue) plan=\(plan) required=\(requiredPlan)"
+        }
+    }
+}
+
 protocol EntitlementResolver: Sendable {
     func resolve(userId: UUID, on db: any Database) async throws -> EntitlementSnapshot
 }
@@ -33,6 +62,9 @@ enum BillingFeature: String, Sendable {
     case csvImports = "csv_imports"
     case targetAlerts = "target_alerts"
     case reportGenerations = "report_generations"
+    case advancedResearch = "advanced_research"
+    case peerComparison = "peer_comparison"
+    case earningsText = "earnings_text"
 }
 
 struct BillingPlanLimits: Sendable {
@@ -80,6 +112,8 @@ struct BillingPlanLimits: Sendable {
             return targetAlertCount
         case .reportGenerations:
             return reportGenerationCount
+        case .advancedResearch, .peerComparison, .earningsText:
+            return nil
         }
     }
 }
@@ -87,6 +121,7 @@ struct BillingPlanLimits: Sendable {
 protocol UsageCounterService: Sendable {
     func limits(for entitlement: EntitlementSnapshot) -> BillingPlanLimits
     func counter(userId: UUID, on db: any Database) async throws -> UsageCounter
+    func requirePremium(_ feature: BillingFeature, userId: UUID, on db: any Database) async throws
     func enforceResourceLimit(
         _ feature: BillingFeature,
         userId: UUID,
@@ -103,6 +138,13 @@ struct DefaultUsageCounterService: UsageCounterService {
 
     func limits(for entitlement: EntitlementSnapshot) -> BillingPlanLimits {
         entitlement.isPremium ? .premium : .free
+    }
+
+    func requirePremium(_ feature: BillingFeature, userId: UUID, on db: any Database) async throws {
+        let entitlement = try await entitlementResolver.resolve(userId: userId, on: db)
+        guard entitlement.isPremium else {
+            throw billingUpgradeError(feature: feature, plan: entitlement.level)
+        }
     }
 
     func counter(userId: UUID, on db: any Database) async throws -> UsageCounter {
@@ -169,7 +211,7 @@ struct DefaultUsageCounterService: UsageCounterService {
             usage.targetAlertCount
         case .reportGenerations:
             usage.reportGenerationCount
-        case .portfolioLists, .valuationCases:
+        case .portfolioLists, .valuationCases, .advancedResearch, .peerComparison, .earningsText:
             0
         }
     }
@@ -186,16 +228,22 @@ struct DefaultUsageCounterService: UsageCounterService {
             usage.targetAlertCount = value
         case .reportGenerations:
             usage.reportGenerationCount = value
-        case .portfolioLists, .valuationCases:
+        case .portfolioLists, .valuationCases, .advancedResearch, .peerComparison, .earningsText:
             break
         }
     }
 
-    private func billingLimitError(feature: BillingFeature, limit: Int, current: Int) -> Abort {
-        Abort(
-            .paymentRequired,
-            reason: "Upgrade required. feature=\(feature.rawValue) plan=free limit=\(limit) current=\(current)"
+    private func billingLimitError(feature: BillingFeature, limit: Int, current: Int) -> BillingUpgradeRequiredError {
+        BillingUpgradeRequiredError(
+            feature: feature,
+            plan: "free",
+            limit: limit,
+            current: current
         )
+    }
+
+    private func billingUpgradeError(feature: BillingFeature, plan: String) -> BillingUpgradeRequiredError {
+        BillingUpgradeRequiredError(feature: feature, plan: plan)
     }
 
     private static func monthStart(for date: Date) -> Date {

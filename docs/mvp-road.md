@@ -327,15 +327,22 @@ Do not add this complexity until retention and conversion data justify it.
 - Add `EntitlementMiddleware` or per-route guards. Implemented with per-route guards at create/import/report entry points.
 - Add `UsageCounterService`. Implemented with monthly counter reset for action counters and resource count sync.
 - Enforce free limits. Implemented for portfolio lists, holdings, watchlist items, saved valuation cases, CSV imports, target alerts, and report generation.
+- Gate premium-only launch surfaces. Implemented for advanced stock insights, peer comparison, and earnings detail.
 - Return clear `402 Payment Required` or `403 Forbidden` responses with upgrade metadata. Implemented with `402 Payment Required` and feature/plan/limit/current metadata in the error reason.
-- Add tests for free and premium access paths. Covered in `BillingTests` for free holding limits, premium holding bypass, and CSV monthly limits.
+- Add tests for free and premium access paths. Covered in `BillingTests` for free holding limits, premium holding bypass, CSV monthly limits, and premium-only advanced route blocking.
 
 ### Phase 3: Billing API For Client
 
-- Add `GET /v1/billing/me`.
-- Return plan, status, feature flags, counters, limits, and renewal state.
-- Add app-facing error payloads for blocked premium actions.
-- Keep plan rules server-owned.
+- Add `GET /v1/billing/me`. Implemented as an authenticated billing context endpoint.
+- Return plan, status, feature flags, counters, limits, and renewal state. Implemented with plan, entitlement, subscription state, feature availability, usage, limits, and renewal/expiration dates.
+- Add app-facing error payloads for blocked premium actions. Implemented for billing upgrade-required failures with stable JSON payloads.
+- Keep plan rules server-owned. Implemented through `BillingPlanLimits`, `BillingContextService`, and server-generated feature availability.
+
+Remaining MVP work:
+
+- Mirror the backend billing DTOs into the shared API package when the iOS client is wired to this endpoint.
+- Add iOS client consumption in paywall, settings, usage meters, and upgrade prompts.
+- Confirm product IDs and display copy against the final RevenueCat product setup.
 
 ### Phase 4: Production Hardening
 
@@ -343,9 +350,20 @@ Do not add this complexity until retention and conversion data justify it.
 - Require explicit production CORS origins. Implemented as a production boot check.
 - Add readiness checks. Implemented with `/health/live` and `/health/ready`.
 - Add structured logging. Implemented with `LOG_FORMAT=json` and request metadata logging.
-- Add server-side OpenTelemetry path. Initial collector, Jaeger, and Grafana compose/config files are present; Swift exporter wiring remains a follow-up.
+- Add server-side OpenTelemetry path. Implemented with `swift-otel`, OTel Collector, Jaeger, Grafana, baseline dashboard provisioning, and alert contact/rule provisioning.
 - Add deployment environment documentation. Production env requirements are documented in the deployment guide and `.env.production`.
-- Add backup/restore runbook. Expanded in the operations runbook.
+- Add backup/restore runbook. Expanded in the operations runbook with backup, restore-drill, retention, and production preflight scripts.
+
+Remaining MVP work:
+
+- Confirm the checklist items against the deployed production environment, not just local boot checks.
+- Confirm production database credentials are rotated away from Docker/development defaults.
+- Confirm Redis is private and not exposed publicly in the deployed network.
+- Confirm reverse-proxy security headers beyond HSTS are present in the deployed Nginx config.
+- Wire Swift server telemetry into the OpenTelemetry path rather than only providing collector infrastructure. Implemented with `swift-otel` behind `OBS_TRACES_ENABLED`.
+- Add alerting for 5xx spikes, database failures, Redis failures, billing webhook failures, and repeated entitlement update failures. Baseline Grafana email/Slack alert provisioning is in place; production alert firing still needs to be validated.
+- Verify production migration execution is run as the documented manual `migrate` service step during deployment.
+- Run and record a restore drill from a real PostgreSQL backup. Scripts are present; the first real production drill must still be executed and recorded.
 
 ### Phase 5: Compliance And Support
 
@@ -354,23 +372,33 @@ Do not add this complexity until retention and conversion data justify it.
 - Add privacy, terms, and investment disclaimer requirements. Covered in `docs/compliance-support.md`.
 - Add internal support procedures for entitlement repair and refund investigation. Covered at workflow level in `docs/compliance-support.md`.
 
+Remaining MVP work:
+
+- Turn the documented privacy, terms, and investment disclaimer requirements into published customer-facing documents. Draft Markdown source documents are now in `docs/legal`.
+- Decide whether data export is a manual support workflow for launch or a self-service API. Launch default is manual support workflow.
+- If export stays manual for launch, define the exact operator command/query pack and secure delivery channel. Implemented with `scripts/ops/export_user_data.sh` and compliance runbook notes.
+- Add an internal audit trail procedure for manual entitlement changes and data export requests. Implemented in `docs/support/audit-log.md`.
+- Define refund investigation handoff between RevenueCat/App Store records and backend `billing_events`. Implemented in `docs/support/refund-investigation.md`.
+- Decide whether account deletion should hard-delete all records or retain billing/audit records required for tax, fraud, or support. Launch default is hard-delete user-owned data with narrow billing/audit retention.
+
 ## Minimum Viable Production Checklist
 
-- [ ] Production env fails boot without `JWT_SECRET`.
-- [ ] Production env fails boot without PII encryption keys.
-- [ ] Production CORS origins are explicit.
-- [ ] Database migrations run as a controlled deployment step.
+- [x] Production env fails boot without `JWT_SECRET`.
+- [x] Production env fails boot without PII encryption keys.
+- [x] Production CORS origins are explicit.
+- [x] Database migrations have a controlled deployment step documented through the production `migrate` service.
 - [x] RevenueCat webhook is implemented and verified.
 - [x] Billing events are idempotent.
 - [x] Entitlements are persisted server-side.
 - [x] Initial premium and usage-limit gates are enforced server-side.
 - [x] Free usage limits are enforced server-side.
-- [ ] `GET /v1/billing/me` exists.
-- [ ] Health readiness checks DB and Redis.
-- [ ] Server errors are visible in Sentry or equivalent.
-- [ ] PostgreSQL backups are automated and restore-tested.
-- [ ] Privacy policy, terms, and investment disclaimer are ready.
-- [ ] Account deletion and data export paths are defined.
+- [x] Advanced research, peer comparison, and earnings detail require premium server-side.
+- [x] `GET /v1/billing/me` exists.
+- [x] Health readiness checks DB and Redis.
+- [x] Server telemetry is wired to OpenTelemetry when enabled.
+- [ ] PostgreSQL backups are automated and restore-tested in production.
+- [x] Privacy policy, terms, and investment disclaimer source docs are ready.
+- [x] Account deletion and data export paths are defined at workflow/API level.
 
 ## Recommended First Premium Gates
 

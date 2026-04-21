@@ -24,6 +24,14 @@ Expected endpoints:
 - `/health/live`: liveness endpoint with no dependency checks.
 - `/health/ready`: readiness endpoint with database, Redis, mailer, APNS, and market-data configuration checks.
 
+Before launch and after material production changes, run the full preflight:
+
+```bash
+./scripts/ops/production_preflight.sh api.stockplan.app https://www.norviqaapp.com
+```
+
+Record the output in the release notes. A passing preflight confirms health, request IDs, production CORS, reverse-proxy security headers, private DB/Redis port exposure, and JSON log shape.
+
 ## Fast rollback to previous image
 
 Roll back app service to a previous immutable image tag:
@@ -75,11 +83,7 @@ Run weekly cleanup (example Sunday at 03:15):
 Create an encrypted backup from the server:
 
 ```bash
-BACKUP="stockplan_$(date +%Y%m%d_%H%M%S).sql"
-docker compose -f docker-compose.production.yml exec -T db \
-  pg_dump -U "${DATABASE_USERNAME:-stockplan_user}" "${DATABASE_NAME:-stockplan_prod}" > "${BACKUP}"
-gpg --symmetric --cipher-algo AES256 "${BACKUP}"
-rm -f "${BACKUP}"
+./scripts/ops/backup_postgres.sh
 ```
 
 Retention baseline:
@@ -91,10 +95,27 @@ Retention baseline:
 Run a restore drill before launch and quarterly:
 
 ```bash
-gpg --decrypt stockplan_YYYYMMDD_HHMMSS.sql.gpg > restore.sql
-cat restore.sql | docker compose -f docker-compose.production.yml exec -T db \
-  psql -U "${DATABASE_USERNAME:-stockplan_user}" "${DATABASE_NAME:-stockplan_prod}"
-rm -f restore.sql
+RESTORE_DATABASE_URL=postgres://restore_user:restore_password@restore-host:5432/stockplan_restore \
+  ./scripts/ops/restore_drill_postgres.sh backups/stockplan_YYYYMMDD_HHMMSS.sql.gpg
 ```
 
 Do not test restores against production unless performing an incident recovery.
+
+Restore drill records are appended to `backups/restore-drills.log` with the backup name, target database, operator, result, and basic row-count sanity checks.
+
+Apply retention cleanup with:
+
+```bash
+./scripts/ops/backup_retention.sh
+```
+
+## Manual user data export
+
+For launch, data export is a support workflow, not a public API:
+
+```bash
+DATABASE_URL=postgres://stockplan_user:...@127.0.0.1:5432/stockplan_prod \
+  ./scripts/ops/export_user_data.sh user@example.com
+```
+
+The export script creates JSONL files for user-owned records, excludes operational secrets, redacts raw billing webhook payloads, and writes a `SHA256SUMS` file for delivery verification.

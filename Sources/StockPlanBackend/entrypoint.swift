@@ -2,6 +2,7 @@ import Vapor
 import Logging
 import NIOCore
 import NIOPosix
+import OTel
 
 @main
 enum Entrypoint {
@@ -20,7 +21,7 @@ enum Entrypoint {
 
         do {
             try await configure(app)
-            try await app.execute()
+            try await execute(app: app)
         } catch {
             app.logger.report(error: error)
             try? await app.asyncShutdown()
@@ -40,5 +41,35 @@ enum Entrypoint {
         } else {
             try LoggingSystem.bootstrap(from: &env)
         }
+    }
+
+    private static func execute(app: Application) async throws {
+        guard observabilityEnabled else {
+            try await app.execute()
+            return
+        }
+
+        var configuration = OTel.Configuration.default
+        configuration.logs.enabled = false
+        let observability = try OTel.bootstrap(configuration: configuration)
+        app.logger.info("observability.otel service_started")
+        try await withThrowingTaskGroup(of: Void.self) { group in
+            group.addTask {
+                try await observability.run()
+            }
+            group.addTask {
+                try await app.execute()
+            }
+
+            try await group.next()
+            group.cancelAll()
+        }
+    }
+
+    private static var observabilityEnabled: Bool {
+        let rawValue = ProcessInfo.processInfo.environment["OBS_TRACES_ENABLED"]?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        return ["1", "true", "yes", "on"].contains(rawValue ?? "")
     }
 }

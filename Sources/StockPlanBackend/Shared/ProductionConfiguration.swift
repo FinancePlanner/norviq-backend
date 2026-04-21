@@ -6,6 +6,10 @@ enum ProductionConfiguration {
 
         try validateJWTSecret(Environment.get("JWT_SECRET"))
         _ = try allowedOrigins(from: Environment.get("ALLOWED_ORIGINS"), isProduction: true)
+        try validateDatabaseCredentials(
+            username: Environment.get("DATABASE_USERNAME"),
+            password: Environment.get("DATABASE_PASSWORD")
+        )
     }
 
     static func allowedOrigins(from rawValue: String?, isProduction: Bool) throws -> [String] {
@@ -50,6 +54,28 @@ enum ProductionConfiguration {
         }
         guard secret.count >= 32 else {
             throw Abort(.internalServerError, reason: "JWT_SECRET must be at least 32 characters in production.")
+        }
+    }
+
+    static func validateDatabaseCredentials(username rawUsername: String?, password rawPassword: String?) throws {
+        let username = rawUsername?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let password = rawPassword?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard !username.isEmpty else {
+            throw Abort(.internalServerError, reason: "DATABASE_USERNAME is required in production.")
+        }
+        guard !password.isEmpty else {
+            throw Abort(.internalServerError, reason: "DATABASE_PASSWORD is required in production.")
+        }
+        let unsafeUsernames = ["postgres", "stockplan_user", "vapor_username", "replace_with_non_default_db_user"]
+        guard !unsafeUsernames.contains(username.lowercased()) else {
+            throw Abort(.internalServerError, reason: "DATABASE_USERNAME must not use a development/default value in production.")
+        }
+        let unsafePasswords = ["postgres", "stockplan_password", "vapor_password", "change-me-prod", "replace-with-strong-random-db-password"]
+        guard !unsafePasswords.contains(password) else {
+            throw Abort(.internalServerError, reason: "DATABASE_PASSWORD must not use a development/default value in production.")
+        }
+        guard password.count >= 24 else {
+            throw Abort(.internalServerError, reason: "DATABASE_PASSWORD must be at least 24 characters in production.")
         }
     }
 }

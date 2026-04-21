@@ -3384,11 +3384,12 @@ paths:
         '401':
           description: Unauthorized
 
-  /v1/billing/portal:
+  /v1/billing/me:
     get:
-      operationId: getBillingPortal
+      operationId: getBillingContext
       tags: [Billing]
-      summary: Get billing portal link
+      summary: Get current billing context
+      description: Returns the authenticated user's server-owned entitlement, subscription state, feature availability, and usage counters for paywalls and settings screens.
       security:
         - bearerAuth: []
       responses:
@@ -3397,57 +3398,29 @@ paths:
           content:
             application/json:
               schema:
-                type: object
-                properties:
-                  url:
-                    type: string
-  /v1/billing/upgrade:
+                $ref: '#/components/schemas/BillingContextResponse'
+        '401':
+          description: Unauthorized
+
+  /webhooks/revenuecat:
     post:
-      operationId: upgradeSubscription
+      operationId: revenueCatWebhook
       tags: [Billing]
-      summary: Upgrade subscription
+      summary: RevenueCat billing webhook
+      description: Ingests RevenueCat webhook events, verifies the shared Authorization secret, persists raw events, and idempotently updates subscription and entitlement state.
       security:
-        - bearerAuth: []
+        - revenueCatWebhookSecret: []
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              type: object
-              properties:
-                planId:
-                  type: string
+              $ref: '#/components/schemas/RevenueCatWebhookPayload'
       responses:
         '200':
           description: OK
-  /v1/billing/cancel:
-    post:
-      operationId: cancelSubscription
-      tags: [Billing]
-      summary: Cancel subscription
-      security:
-        - bearerAuth: []
-      responses:
-        '204':
-          description: No Content
-  /v1/billing/subscription:
-    get:
-      operationId: getSubscription
-      tags: [Billing]
-      summary: Get current subscription
-      security:
-        - bearerAuth: []
-      responses:
-        '200':
-          description: OK
-  /v1/billing/webhook:
-    post:
-      operationId: billingWebhook
-      tags: [Billing]
-      summary: Billing webhook
-      responses:
-        '200':
-          description: OK
+        '401':
+          description: Missing or invalid webhook secret
 
   /v1/payments/checkout:
     post:
@@ -4487,6 +4460,11 @@ components:
       in: query
       name: secret
       description: Shared secret for inbound Finnhub webhook delivery when the provider can only append query parameters. Configure the backend with `FINNHUB_WEBHOOK_SECRET`.
+    revenueCatWebhookSecret:
+      type: apiKey
+      in: header
+      name: Authorization
+      description: Shared secret for inbound RevenueCat webhook delivery. Configure the backend with `REVENUECAT_WEBHOOK_SECRET`.
   schemas:
     HealthResponse:
       type: object
@@ -4495,6 +4473,198 @@ components:
           type: string
           example: ok
       required: [status]
+    BillingContextResponse:
+      type: object
+      properties:
+        plan:
+          type: string
+          example: premium_yearly
+        entitlementLevel:
+          type: string
+          example: premium
+        isPremium:
+          type: boolean
+        subscription:
+          nullable: true
+          $ref: '#/components/schemas/BillingSubscriptionDTO'
+        features:
+          type: array
+          items:
+            $ref: '#/components/schemas/BillingFeatureDTO'
+        usage:
+          type: array
+          items:
+            $ref: '#/components/schemas/BillingUsageDTO'
+        generatedAt:
+          type: string
+          format: date-time
+      required: [plan, entitlementLevel, isPremium, features, usage, generatedAt]
+    BillingSubscriptionDTO:
+      type: object
+      properties:
+        provider:
+          type: string
+          example: revenuecat
+        productId:
+          type: string
+          example: com.app.premium_yearly
+        plan:
+          type: string
+          example: premium_yearly
+        status:
+          type: string
+          enum: [active, trialing, grace_period, billing_issue, cancelled, expired, refunded]
+        periodStartedAt:
+          type: string
+          format: date-time
+          nullable: true
+        periodEndsAt:
+          type: string
+          format: date-time
+          nullable: true
+        trialEndsAt:
+          type: string
+          format: date-time
+          nullable: true
+        gracePeriodEndsAt:
+          type: string
+          format: date-time
+          nullable: true
+        cancelledAt:
+          type: string
+          format: date-time
+          nullable: true
+        isTrial:
+          type: boolean
+        isInGracePeriod:
+          type: boolean
+        hasBillingIssue:
+          type: boolean
+        isCancelledButActive:
+          type: boolean
+        renewsOrExpiresAt:
+          type: string
+          format: date-time
+          nullable: true
+      required: [provider, productId, plan, status, isTrial, isInGracePeriod, hasBillingIssue, isCancelledButActive]
+    BillingFeatureDTO:
+      type: object
+      properties:
+        key:
+          type: string
+          example: advanced_research
+        title:
+          type: string
+          example: Advanced stock research
+        available:
+          type: boolean
+        requiredPlan:
+          type: string
+          nullable: true
+          example: premium
+        reason:
+          type: string
+          nullable: true
+        limit:
+          type: integer
+          nullable: true
+        used:
+          type: integer
+          nullable: true
+        remaining:
+          type: integer
+          nullable: true
+      required: [key, title, available]
+    BillingUsageDTO:
+      type: object
+      properties:
+        key:
+          type: string
+          example: holdings
+        used:
+          type: integer
+        limit:
+          type: integer
+          nullable: true
+        remaining:
+          type: integer
+          nullable: true
+        periodStart:
+          type: string
+          format: date-time
+          nullable: true
+      required: [key, used]
+    BillingUpgradeRequiredResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: false
+        code:
+          type: string
+          example: upgrade_required
+        error:
+          type: string
+        feature:
+          type: string
+          example: holdings
+        plan:
+          type: string
+          example: free
+        requiredPlan:
+          type: string
+          example: premium
+        limit:
+          type: integer
+          nullable: true
+        current:
+          type: integer
+          nullable: true
+      required: [success, code, error, feature, plan, requiredPlan]
+    RevenueCatWebhookPayload:
+      type: object
+      properties:
+        event:
+          $ref: '#/components/schemas/RevenueCatWebhookEvent'
+      required: [event]
+    RevenueCatWebhookEvent:
+      type: object
+      properties:
+        id:
+          type: string
+        type:
+          type: string
+          example: INITIAL_PURCHASE
+        app_user_id:
+          type: string
+        product_id:
+          type: string
+          nullable: true
+        period_type:
+          type: string
+          nullable: true
+        purchased_at_ms:
+          type: integer
+          format: int64
+          nullable: true
+        expiration_at_ms:
+          type: integer
+          format: int64
+          nullable: true
+        grace_period_expires_date_ms:
+          type: integer
+          format: int64
+          nullable: true
+        cancel_reason:
+          type: string
+          nullable: true
+        store:
+          type: string
+          nullable: true
+        original_transaction_id:
+          type: string
+          nullable: true
+      required: [id, type, app_user_id]
     AuthRegisterRequest:
       type: object
       properties:

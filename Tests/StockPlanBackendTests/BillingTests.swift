@@ -1,6 +1,8 @@
 @testable import StockPlanBackend
 import Fluent
 import Foundation
+import struct StockPlanShared.BillingContextResponse
+import struct StockPlanShared.BillingUpgradeRequiredResponse
 import Testing
 import VaporTesting
 
@@ -128,6 +130,41 @@ struct BillingTests {
             body = res.body.string
         })
         return (status, body)
+    }
+
+    private func get(
+        _ path: String,
+        token: String,
+        on app: Application
+    ) async throws -> (HTTPStatus, String) {
+        var status: HTTPStatus = .internalServerError
+        var body = ""
+        try await app.testing().test(.GET, path, beforeRequest: { req in
+            req.headers.bearerAuthorization = .init(token: token)
+        }, afterResponse: { res async in
+            status = res.status
+            body = res.body.string
+        })
+        return (status, body)
+    }
+
+    private func getBillingContext(
+        token: String,
+        on app: Application
+    ) async throws -> (HTTPStatus, BillingContextResponse?, String) {
+        var status: HTTPStatus = .internalServerError
+        var context: BillingContextResponse?
+        var body = ""
+        try await app.testing().test(.GET, "v1/billing/me", beforeRequest: { req in
+            req.headers.bearerAuthorization = .init(token: token)
+        }, afterResponse: { res async throws in
+            status = res.status
+            body = res.body.string
+            if res.status == .ok {
+                context = try res.content.decode(BillingContextResponse.self)
+            }
+        })
+        return (status, context, body)
     }
 
     // MARK: - Auth tests
@@ -386,6 +423,154 @@ struct BillingTests {
                 .filter(\.$userId == auth.userId)
                 .first()
             #expect(counter?.csvImportCount == 1)
+        }
+    }
+
+    @Test("Free users are blocked from advanced stock insights")
+    func freeAdvancedResearchRequiresPremium() async throws {
+        try await withApp { app in
+            let auth = try await registerUser(on: app, identifier: "free-research")
+
+            let (status, body) = try await get("v1/stocks/AAPL/insights", token: auth.token, on: app)
+            #expect(status == .paymentRequired)
+            #expect(body.contains("feature=advanced_research"))
+            #expect(body.contains("required=premium"))
+        }
+    }
+
+    @Test("Free users are blocked from peer comparison")
+    func freePeerComparisonRequiresPremium() async throws {
+        try await withApp { app in
+            let auth = try await registerUser(on: app, identifier: "free-compare")
+
+            let (status, body) = try await get("v1/market/compare?symbols=AAPL,MSFT", token: auth.token, on: app)
+            #expect(status == .paymentRequired)
+            #expect(body.contains("feature=peer_comparison"))
+            #expect(body.contains("required=premium"))
+        }
+    }
+
+    @Test("Free users are blocked from earnings text")
+    func freeEarningsTextRequiresPremium() async throws {
+        try await withApp { app in
+            let auth = try await registerUser(on: app, identifier: "free-earnings")
+
+            let (status, body) = try await get("v1/market/earnings/AAPL", token: auth.token, on: app)
+            #expect(status == .paymentRequired)
+            #expect(body.contains("feature=earnings_text"))
+            #expect(body.contains("required=premium"))
+        }
+    }
+
+    // MARK: - Billing context tests
+
+    @Test("Billing context returns free plan rules and usage")
+    func billingContextForFreeUser() async throws {
+        try await withApp { app in
+            let auth = try await registerUser(on: app, identifier: "context-free")
+            _ = try await createStock(symbol: "AAPL", token: auth.token, on: app)
+
+            let (status, context, _) = try await getBillingContext(token: auth.token, on: app)
+            #expect(status == .ok)
+            let body = try #require(context)
+            #expect(body.plan == "free")
+            #expect(body.entitlementLevel == "free")
+            #expect(body.isPremium == false)
+            #expect(body.subscription == nil)
+
+            let holdings = try #require(body.usage.first { $0.key == "holdings" })
+            #expect(holdings.used == 1)
+            #expect(holdings.limit == 5)
+            #expect(holdings.remaining == 4)
+
+            let research = try #require(body.features.first { $0.key == "advanced_research" })
+            #expect(research.available == false)
+            #expect(research.requiredPlan == "premium")
+        }
+    }
+
+    @Test("Billing context returns premium yearly subscription state")
+    func billingContextForPremiumYearlyUser() async throws {
+        try await withApp { app in
+            let auth = try await registerUser(on: app, identifier: "context-yearly")
+            let futureMs = Int64(Date().addingTimeInterval(31_536_000).timeIntervalSince1970 * 1000)
+            let payload = makePayload(
+                type: "INITIAL_PURCHASE",
+                eventId: UUID().uuidString,
+                appUserId: auth.userId.uuidString,
+                productId: "com.app.premium_yearly",
+                expirationAtMs: futureMs
+            )
+            #expect(try await post(payload, authorization: secret, on: app) == .ok)
+
+            let (status, context, _) = try await getBillingContext(token: auth.token, on: app)
+            #expect(status == .ok)
+            let body = try #require(context)
+            #expect(body.plan == "premium_yearly")
+            #expect(body.entitlementLevel == "premium")
+            #expect(body.isPremium == true)
+            #expect(body.subscription?.status == "active")
+            #expect(body.subscription?.plan == "premium_yearly")
+            #expect(body.subscription?.renewsOrExpiresAt != nil)
+            #expect(body.features.allSatisfy { $0.available })
+            #expect(body.usage.first { $0.key == "holdings" }?.limit == nil)
+        }
+    }
+
+    @Test("Billing context reports cancelled but still active state")
+    func billingContextForCancelledButActiveUser() async throws {
+        try await withApp { app in
+            let auth = try await registerUser(on: app, identifier: "context-cancel")
+            let futureMs = Int64(Date().addingTimeInterval(2_592_000).timeIntervalSince1970 * 1000)
+            #expect(try await post(
+                makePayload(
+                    type: "INITIAL_PURCHASE",
+                    eventId: UUID().uuidString,
+                    appUserId: auth.userId.uuidString,
+                    expirationAtMs: futureMs
+                ),
+                authorization: secret,
+                on: app
+            ) == .ok)
+            #expect(try await post(
+                makePayload(
+                    type: "CANCELLATION",
+                    eventId: UUID().uuidString,
+                    appUserId: auth.userId.uuidString,
+                    expirationAtMs: futureMs
+                ),
+                authorization: secret,
+                on: app
+            ) == .ok)
+
+            let (status, context, _) = try await getBillingContext(token: auth.token, on: app)
+            #expect(status == .ok)
+            let body = try #require(context)
+            #expect(body.isPremium == true)
+            #expect(body.subscription?.status == "cancelled")
+            #expect(body.subscription?.isCancelledButActive == true)
+            #expect(body.subscription?.periodEndsAt != nil)
+        }
+    }
+
+    @Test("Premium gate failures return stable JSON error envelope")
+    func premiumGateReturnsBillingErrorEnvelope() async throws {
+        try await withApp { app in
+            let auth = try await registerUser(on: app, identifier: "context-error")
+            var error: BillingUpgradeRequiredResponse?
+            try await app.testing().test(.GET, "v1/stocks/AAPL/insights", beforeRequest: { req in
+                req.headers.bearerAuthorization = .init(token: auth.token)
+            }, afterResponse: { res async throws in
+                #expect(res.status == .paymentRequired)
+                error = try res.content.decode(BillingUpgradeRequiredResponse.self)
+            })
+
+            let body = try #require(error)
+            #expect(body.success == false)
+            #expect(body.code == "upgrade_required")
+            #expect(body.feature == "advanced_research")
+            #expect(body.plan == "free")
+            #expect(body.requiredPlan == "premium")
         }
     }
 }
