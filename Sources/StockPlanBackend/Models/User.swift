@@ -50,6 +50,21 @@ final class User: Model, Authenticatable, @unchecked Sendable {
     @Field(key: "is_verified")
     var isVerified: Bool
 
+    @OptionalField(key: "trial_started_at")
+    var trialStartedAt: Date?
+
+    @OptionalField(key: "trial_days")
+    var trialDays: Int?
+
+    @OptionalField(key: "trial_tier")
+    var trialTier: String?
+
+    @Field(key: "had_trial")
+    var hadTrial: Bool
+
+    @OptionalField(key: "trial_warning_sent_at")
+    var trialWarningSentAt: Date?
+
     @Timestamp(key: "created_at", on: .create)
     var createdAt: Date?
 
@@ -98,7 +113,11 @@ final class User: Model, Authenticatable, @unchecked Sendable {
         dateOfBirth: Date? = nil,
         failedLoginAttempts: Int = 0,
         lockoutUntil: Date? = nil,
-        isVerified: Bool = false
+        isVerified: Bool = false,
+        hadTrial: Bool = false,
+        trialStartedAt: Date? = nil,
+        trialDays: Int? = nil,
+        trialTier: String? = nil
     ) {
         self.id = id
         self.email = email
@@ -115,6 +134,10 @@ final class User: Model, Authenticatable, @unchecked Sendable {
         self.failedLoginAttempts = failedLoginAttempts
         self.lockoutUntil = lockoutUntil
         self.isVerified = isVerified
+        self.hadTrial = hadTrial
+        self.trialStartedAt = trialStartedAt
+        self.trialDays = trialDays
+        self.trialTier = trialTier
     }
 }
 

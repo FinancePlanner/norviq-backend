@@ -44,6 +44,8 @@ struct AuthController: RouteCollection {
             password: payload.password,
             confirmPassword: payload.confirmPassword,
             dateOfBirth: payload.dateOfBirth,
+            trialDays: payload.trialDays,
+            couponCode: payload.couponCode,
             on: req
         )
     }

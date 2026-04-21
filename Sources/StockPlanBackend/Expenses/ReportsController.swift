@@ -122,15 +122,78 @@ struct ReportsController: RouteCollection {
             )
         }
 
+        let portfolioStatistics = try await resolvePortfolioStatistics(
+            preferred: statistics.importedStocks,
+            userId: session.userId,
+            on: req.db
+        )
+
         return ReportsOverviewResponse(
             generatedAt: statistics.generatedAt,
-            portfolioStatistics: statistics.importedStocks,
+            portfolioStatistics: portfolioStatistics,
             monthlySummaries: monthlyReports,
             yearlySummaries: yearlyReports,
             latestMonthSummary: latestMonthSummary,
             latestPillarSummaries: latestPillarSummaries,
             cashFlow: cashFlow
         )
+    }
+
+    private func resolvePortfolioStatistics(
+        preferred: ImportedStocksStatisticsDTO,
+        userId: UUID,
+        on db: any Database
+    ) async throws -> ImportedStocksStatisticsDTO {
+        if preferred.totalPositions > 0 || preferred.totalMarketValue > 0 {
+            return preferred
+        }
+
+        let stocks = try await Stock.query(on: db)
+            .filter(\.$userId == userId)
+            .all()
+        guard !stocks.isEmpty else {
+            return preferred
+        }
+
+        let totalMarketValue = stocks.reduce(0) { $0 + ($1.shares * $1.buyPrice) }
+        let summaries = stocks.map { stock in
+            let value = stock.shares * stock.buyPrice
+            let weight = totalMarketValue > 0 ? (value / totalMarketValue) * 100 : 0
+            return StockStatisticsSummaryDTO(
+                symbol: stock.symbol,
+                marketValue: roundCurrency(value),
+                weightPercent: roundCurrency(weight),
+                dailyChangePercent: nil,
+                weeklyChangePercent: nil,
+                monthlyChangePercent: nil,
+                unrealizedPnl: 0
+            )
+        }
+        let allocations = stocks.map { stock in
+            let value = stock.shares * stock.buyPrice
+            let weight = totalMarketValue > 0 ? (value / totalMarketValue) * 100 : 0
+            return StockAllocationDTO(
+                symbol: stock.symbol,
+                value: roundCurrency(value),
+                weightPercent: roundCurrency(weight)
+            )
+        }
+
+        return ImportedStocksStatisticsDTO(
+            totalPositions: stocks.count,
+            totalMarketValue: roundCurrency(totalMarketValue),
+            totalCostBasis: roundCurrency(totalMarketValue),
+            totalUnrealizedPnl: 0,
+            totalRealizedPnl: preferred.totalRealizedPnl,
+            stockSummaries: summaries.sorted { $0.marketValue > $1.marketValue },
+            stockAllocations: allocations.sorted { $0.value > $1.value },
+            sectorAllocations: preferred.sectorAllocations,
+            calendarPerformance: preferred.calendarPerformance
+        )
+    }
+
+    private func roundCurrency(_ value: Double) -> Double {
+        (value * 100).rounded() / 100
     }
 
     @Sendable

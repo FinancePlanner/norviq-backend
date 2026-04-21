@@ -2,7 +2,7 @@ COMPOSE ?= docker compose
 APP_IMAGE ?=
 APP_IMAGE_TAG ?= local-dev
 
-.PHONY: help build services migrate start logs stop lint dev \
+.PHONY: help build services migrate start logs stop lint dev build-dev \
 	container-local health production-preflight rollback-app prune-images \
 	backup-db restore-drill export-user-data
 
@@ -23,7 +23,7 @@ help:
 	@printf "  make restore-drill BACKUP_FILE=<backup.sql.gpg> RESTORE_DATABASE_URL=<postgres-url>\n"
 	@printf "  make export-user-data EXPORT_USER=<email-or-uuid> DATABASE_URL=<postgres-url>\n"
 
-dev: build-dev services
+dev: build-dev
 	docker compose -f docker-compose.dev.yml up app
 
 build-dev:

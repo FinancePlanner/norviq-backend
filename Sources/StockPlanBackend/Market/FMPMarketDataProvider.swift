@@ -531,8 +531,8 @@ extension LiveFMPMarketDataProvider {
             let body = extractResponseBody(response)
             let reason =
                 body.isEmpty
-                ? "FMP plan upgrade required for \(path). This endpoint is not available for the requested symbol on the current subscription."
-                : "FMP plan upgrade required for \(path). This endpoint is not available for the requested symbol on the current subscription. Upstream response: \(body)"
+                ? "This market data endpoint is not available for the requested symbol on the current market data coverage."
+                : "This market data endpoint is not available for the requested symbol on the current market data coverage. Upstream response: \(body)"
             throw Abort(.paymentRequired, reason: reason)
 
         default:

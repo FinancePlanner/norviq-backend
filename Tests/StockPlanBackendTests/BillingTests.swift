@@ -13,6 +13,7 @@ struct BillingTests {
     private func withApp(_ test: (Application) async throws -> Void) async throws {
         try await DatabaseTestLock.withLock {
             setenv("REVENUECAT_WEBHOOK_SECRET", secret, 1)
+            setenv("BYPASS_BILLING", "false", 1)
             let app = try await Application.make(.testing)
             do {
                 try await configure(app)
@@ -28,7 +29,11 @@ struct BillingTests {
         }
     }
 
-    private func registerUser(on app: Application, identifier: String) async throws -> AuthResponse {
+    private func registerUser(
+        on app: Application,
+        identifier: String,
+        keepDefaultTrial: Bool = false
+    ) async throws -> AuthResponse {
         let usernameSuffix = String(identifier.filter { $0.isLetter || $0.isNumber || $0 == "_" }.prefix(18))
         let request = AuthRegisterRequest(
             username: "billing_\(usernameSuffix)",
@@ -44,7 +49,15 @@ struct BillingTests {
             #expect(res.status == .ok)
             response = try res.content.decode(AuthResponse.self)
         })
-        return try #require(response)
+        let auth = try #require(response)
+        if !keepDefaultTrial {
+            let user = try #require(try await User.find(auth.userId, on: app.db))
+            user.trialStartedAt = nil
+            user.trialDays = nil
+            user.trialTier = nil
+            try await user.save(on: app.db)
+        }
+        return auth
     }
 
     private func makePayload(
@@ -165,6 +178,48 @@ struct BillingTests {
             }
         })
         return (status, context, body)
+    }
+
+    private func validateCoupon(
+        code: String,
+        token: String,
+        on app: Application
+    ) async throws -> (HTTPStatus, CouponResponse?, String) {
+        var status: HTTPStatus = .internalServerError
+        var coupon: CouponResponse?
+        var body = ""
+        try await app.testing().test(.POST, "v1/billing/coupons/validate", beforeRequest: { req in
+            req.headers.bearerAuthorization = .init(token: token)
+            try req.content.encode(CouponCodeRequest(code: code))
+        }, afterResponse: { res async throws in
+            status = res.status
+            body = res.body.string
+            if res.status == .ok {
+                coupon = try res.content.decode(CouponResponse.self)
+            }
+        })
+        return (status, coupon, body)
+    }
+
+    private func redeemCoupon(
+        code: String,
+        token: String,
+        on app: Application
+    ) async throws -> (HTTPStatus, CouponRedemptionResponse?, String) {
+        var status: HTTPStatus = .internalServerError
+        var redemption: CouponRedemptionResponse?
+        var body = ""
+        try await app.testing().test(.POST, "v1/billing/coupons/redeem", beforeRequest: { req in
+            req.headers.bearerAuthorization = .init(token: token)
+            try req.content.encode(CouponCodeRequest(code: code))
+        }, afterResponse: { res async throws in
+            status = res.status
+            body = res.body.string
+            if res.status == .ok {
+                redemption = try res.content.decode(CouponRedemptionResponse.self)
+            }
+        })
+        return (status, redemption, body)
     }
 
     // MARK: - Auth tests
@@ -459,6 +514,81 @@ struct BillingTests {
             #expect(status == .paymentRequired)
             #expect(body.contains("feature=earnings_text"))
             #expect(body.contains("required=premium"))
+        }
+    }
+
+    // MARK: - Coupon tests
+
+    @Test("Registration starts a default temporary trial")
+    func registrationStartsDefaultTrial() async throws {
+        try await withApp { app in
+            let auth = try await registerUser(on: app, identifier: "trial-default", keepDefaultTrial: true)
+
+            let user = try #require(try await User.find(auth.userId, on: app.db))
+            #expect(user.trialTier == "temporary")
+            #expect(user.trialDays == 7)
+            #expect(user.trialStartedAt != nil)
+
+            let entitlement = try await app.entitlementResolver.resolve(userId: auth.userId, on: app.db)
+            #expect(entitlement.level == "temporary")
+            #expect(entitlement.isPremium == true)
+        }
+    }
+
+    @Test("Coupon validation returns metadata without consuming usage")
+    func couponValidationDoesNotConsumeUsage() async throws {
+        try await withApp { app in
+            let auth = try await registerUser(on: app, identifier: "coupon-validate")
+            let coupon = Coupon(
+                code: "SAVE20",
+                trialDays: 14,
+                discountPercentage: 20,
+                maxUses: 3
+            )
+            try await coupon.save(on: app.db)
+
+            let (status, response, _) = try await validateCoupon(code: "save20", token: auth.token, on: app)
+            #expect(status == .ok)
+            let body = try #require(response)
+            #expect(body.code == "SAVE20")
+            #expect(body.trialDays == 14)
+            #expect(body.discount.percentage == 20)
+
+            let stored = try await Coupon.query(on: app.db)
+                .filter(\.$code == "SAVE20")
+                .first()
+            #expect(stored?.currentUses == 0)
+        }
+    }
+
+    @Test("Coupon redemption grants trial metadata once")
+    func couponRedemptionGrantsTrialOnce() async throws {
+        try await withApp { app in
+            let auth = try await registerUser(on: app, identifier: "coupon-redeem")
+            let coupon = Coupon(
+                code: "TRIAL14",
+                trialDays: 14,
+                discountPercentage: 25,
+                maxUses: 1
+            )
+            try await coupon.save(on: app.db)
+
+            let (status, response, _) = try await redeemCoupon(code: "trial14", token: auth.token, on: app)
+            #expect(status == .ok)
+            let body = try #require(response)
+            #expect(body.coupon.code == "TRIAL14")
+            #expect(body.isTrialActive == true)
+            #expect(body.trialDaysRemaining != nil)
+
+            let redemptionCount = try await CouponRedemption.query(on: app.db).count()
+            #expect(redemptionCount == 1)
+            let stored = try await Coupon.query(on: app.db)
+                .filter(\.$code == "TRIAL14")
+                .first()
+            #expect(stored?.currentUses == 1)
+
+            let duplicate = try await redeemCoupon(code: "TRIAL14", token: auth.token, on: app)
+            #expect(duplicate.0 == .badRequest || duplicate.0 == .conflict)
         }
     }
 

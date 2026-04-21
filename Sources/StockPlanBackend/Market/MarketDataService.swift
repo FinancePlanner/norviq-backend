@@ -1263,7 +1263,7 @@ struct DefaultMarketDataService: MarketDataService {
             throw Abort(
                 .paymentRequired,
                 reason:
-                    "FMP \(fmpAccessTier.rawValue)-tier for analyst-estimates is limited to annual reports."
+                    "Analyst estimates on the current market data coverage are limited to annual reports."
             )
         }
 
@@ -1423,7 +1423,7 @@ struct DefaultMarketDataService: MarketDataService {
                 throw Abort(
                     .paymentRequired,
                     reason:
-                        "FMP \(fmpAccessTier.rawValue)-tier earnings calendar coverage is limited to \(fmpAccessTier == .free ? "1 month" : fmpAccessTier == .starter ? "1 year" : "5 years") of historical data."
+                        "This historical earnings range is not available on the current market data coverage. Try a shorter range."
                 )
             }
         }
@@ -2167,7 +2167,7 @@ extension DefaultMarketDataService {
             throw Abort(
                 .paymentRequired,
                 reason: """
-                    FMP free-tier coverage for \(operation) does not include \(symbol). Upgrade the backend FMP access tier or use a supported free-tier symbol.
+                    \(operation) is not available for \(symbol) on the current market data coverage. Use a supported symbol or change the backend market data tier.
                     """
             )
         }

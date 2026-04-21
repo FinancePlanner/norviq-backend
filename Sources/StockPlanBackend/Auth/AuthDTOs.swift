@@ -8,19 +8,25 @@ struct AuthRegisterRequest: Codable, Sendable, Equatable {
     let confirmPassword: String
     let email: String
     let dateOfBirth: Date
+    let trialDays: Int?
+    let couponCode: String?
 
     init(
         username: String,
         password: String,
         confirmPassword: String,
         email: String,
-        dateOfBirth: Date
+        dateOfBirth: Date,
+        trialDays: Int? = nil,
+        couponCode: String? = nil
     ) {
         self.username = username
         self.password = password
         self.confirmPassword = confirmPassword
         self.email = email
         self.dateOfBirth = dateOfBirth
+        self.trialDays = trialDays
+        self.couponCode = couponCode
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -31,6 +37,10 @@ struct AuthRegisterRequest: Codable, Sendable, Equatable {
         case email
         case dateOfBirth
         case date_of_birth
+        case trialDays
+        case trial_days
+        case couponCode
+        case coupon_code
     }
 
     init(from decoder: any Decoder) throws {
@@ -52,6 +62,10 @@ struct AuthRegisterRequest: Codable, Sendable, Equatable {
         } else {
             dateOfBirth = try SharedDateDecoder.decodeDate(from: container, forKey: .date_of_birth)
         }
+        trialDays = try container.decodeIfPresent(Int.self, forKey: .trialDays)
+            ?? container.decodeIfPresent(Int.self, forKey: .trial_days)
+        couponCode = try container.decodeIfPresent(String.self, forKey: .couponCode)
+            ?? container.decodeIfPresent(String.self, forKey: .coupon_code)
     }
 
     func encode(to encoder: any Encoder) throws {
@@ -61,6 +75,8 @@ struct AuthRegisterRequest: Codable, Sendable, Equatable {
         try container.encode(confirmPassword, forKey: .confirmPassword)
         try container.encode(email, forKey: .email)
         try container.encode(dateOfBirth, forKey: .dateOfBirth)
+        try container.encodeIfPresent(trialDays, forKey: .trialDays)
+        try container.encodeIfPresent(couponCode, forKey: .couponCode)
     }
 }
 

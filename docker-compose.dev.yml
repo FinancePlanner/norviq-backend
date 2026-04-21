@@ -21,6 +21,7 @@ x-shared_environment: &shared_environment
   MARKET_PROVIDER: ${MARKET_PROVIDER:-}
   FINNHUB_API_KEY: ${FINNHUB_API_KEY:-}
   FMP_API_KEY: ${FMP_API_KEY:-}
+  BYPASS_BILLING: ${BYPASS_BILLING:-true}
   # Enable faster debug configuration
   SWIFT_BUILD_CONFIGURATION: debug
 
@@ -36,7 +37,8 @@ services:
       - db
       - redis
     ports:
-      - "8080:8080"
+      - "127.0.0.1:8080:8080"
+      - "[::1]:8080:8080"
     volumes:
       # Mount current directory to /workspace for hot-reloading
       - .:/workspace

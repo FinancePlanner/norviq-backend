@@ -7,7 +7,7 @@ struct EntitlementSnapshot: Sendable {
     let level: String
 
     var isPremium: Bool {
-        level == "premium" || level.hasPrefix("premium_")
+        level == "premium" || level.hasPrefix("premium_") || level == "temporary"
     }
 }
 
@@ -45,10 +45,35 @@ protocol EntitlementResolver: Sendable {
 }
 
 struct DefaultEntitlementResolver: EntitlementResolver {
+    let environment: Vapor.Environment
+    let premiumEmails: Set<String>
+
     func resolve(userId: UUID, on db: any Database) async throws -> EntitlementSnapshot {
+        // 1. Explicit local/test bypass
+        let bypassBilling = Environment.get("BYPASS_BILLING") == "true"
+        if bypassBilling {
+            return EntitlementSnapshot(userId: userId, level: "premium")
+        }
+
+        // 2. Admin/Premium Email Bypass
+        if !premiumEmails.isEmpty,
+           let user = try await User.find(userId, on: db),
+           premiumEmails.contains(user.email.lowercased()) {
+            return EntitlementSnapshot(userId: userId, level: "premium")
+        }
+
+        // 3. Fetch explicit entitlement (e.g. from a subscription)
         let entitlement = try await Entitlement.query(on: db)
             .filter(\.$userId == userId)
             .first()
+        
+        // 4. Trial Logic: Trial Tier ("temporary") should override "free" or missing entitlements
+        if let user = try await User.find(userId, on: db), let trialTier = user.trialTier {
+            // If user has a trial, and no entitlement or the entitlement is "free", trial wins.
+            if entitlement == nil || entitlement?.level == "free" {
+                return EntitlementSnapshot(userId: userId, level: trialTier)
+            }
+        }
 
         return EntitlementSnapshot(userId: userId, level: entitlement?.level ?? "free")
     }

@@ -10,8 +10,13 @@ protocol BillingContextService: Sendable {
 struct DefaultBillingContextService: BillingContextService {
     let entitlementResolver: any EntitlementResolver
     let usageCounterService: any UsageCounterService
+    let trialService: any TrialServicing
 
     func context(userId: UUID, on db: any Database) async throws -> BillingContextResponse {
+        guard let user = try await User.find(userId, on: db) else {
+            throw Abort(.notFound, reason: "User not found")
+        }
+
         async let entitlementValue = entitlementResolver.resolve(userId: userId, on: db)
         async let subscriptionValue = currentSubscription(userId: userId, on: db)
         async let usageValue = usageCounterService.counter(userId: userId, on: db)
@@ -41,6 +46,16 @@ struct DefaultBillingContextService: BillingContextService {
         let targetAlertCount = try await targetAlertCountValue
         let limits = usageCounterService.limits(for: entitlement)
 
+        let trialStatus = trialService.checkTrialStatus(user: user)
+        let (trialDaysRemaining, isTrialActive): (Int?, Bool) = {
+            switch trialStatus {
+            case .active(let days), .expiringSoon(let days):
+                return (days, true)
+            case .expired, .notOnTrial:
+                return (nil, false)
+            }
+        }()
+
         let usageRows = makeUsageRows(
             usage: usage,
             limits: limits,
@@ -65,6 +80,8 @@ struct DefaultBillingContextService: BillingContextService {
             subscription: subscription.map(makeSubscriptionDTO),
             features: features,
             usage: usageRows,
+            trialDaysRemaining: trialDaysRemaining,
+            isTrialActive: isTrialActive,
             generatedAt: Date()
         )
     }

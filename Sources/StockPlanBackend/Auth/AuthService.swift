@@ -37,6 +37,8 @@ protocol AuthService: Sendable {
         password: String,
         confirmPassword: String,
         dateOfBirth: Date,
+        trialDays: Int?,
+        couponCode: String?,
         on req: Request
     ) async throws -> AuthResponse
     func login(email: String, password: String, requireMFA: Bool, on req: Request) async throws -> AuthLoginOutcome
@@ -71,15 +73,18 @@ struct DefaultAuthService: AuthService {
     let repo: any AuthRepository
     let oauthProviders: [OAuthProvider: any OAuthProviderClient]
     let mfaConfig: AuthMFAConfig
+    let trialService: any TrialServicing
 
     init(
         repo: any AuthRepository,
         oauthProviders: [OAuthProvider: any OAuthProviderClient] = [:],
-        mfaConfig: AuthMFAConfig = .default
+        mfaConfig: AuthMFAConfig = .default,
+        trialService: any TrialServicing = TrialService()
     ) {
         self.repo = repo
         self.oauthProviders = oauthProviders
         self.mfaConfig = mfaConfig
+        self.trialService = trialService
     }
 
     func register(
@@ -88,6 +93,8 @@ struct DefaultAuthService: AuthService {
         password: String,
         confirmPassword: String,
         dateOfBirth: Date,
+        trialDays: Int?,
+        couponCode: String?,
         on req: Request
     ) async throws -> AuthResponse {
         let normalizedUsername = normalizeUsername(username)
@@ -101,6 +108,10 @@ struct DefaultAuthService: AuthService {
         try validateEmail(normalizedEmail)
         try validatePassword(password)
         try validateDateOfBirth(dateOfBirth)
+
+        if let code = couponCode {
+            _ = try await req.application.couponService.validateCoupon(code: code, db: req.db)
+        }
 
         if try await repo.findUser(username: normalizedUsername, on: req.db) != nil {
             throw Abort(.conflict, reason: "Username already registered")
@@ -124,7 +135,28 @@ struct DefaultAuthService: AuthService {
             req.logger.error("auth.register create_user_failed error_type=\(String(reflecting: type(of: error)))")
             throw error
         }
+
+        if let code = couponCode {
+            _ = try await req.application.couponService.redeemCoupon(code: code, user: user, db: req.db)
+        } else if !user.hadTrial {
+            try await trialService.initializeTrial(
+                user: user,
+                trialDays: defaultTrialDays(on: req),
+                tierName: "temporary",
+                db: req.db
+            )
+        }
+
         return try await makeAuthResponse(for: user, on: req)
+    }
+
+    private func defaultTrialDays(on req: Request) -> Int {
+        let configured = Environment.get("AUTH_DEFAULT_TRIAL_DAYS").flatMap(Int.init(_:)) ?? 7
+        if configured <= 0 {
+            req.logger.warning("auth.register invalid_default_trial_days=\(configured); using 7")
+            return 7
+        }
+        return min(max(configured, 7), 14)
     }
 
     func login(email: String, password: String, requireMFA: Bool, on req: Request) async throws -> AuthLoginOutcome {

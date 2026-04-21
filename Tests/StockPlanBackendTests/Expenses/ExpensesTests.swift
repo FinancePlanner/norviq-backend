@@ -675,4 +675,36 @@ struct ExpensesTests {
             })
         }
     }
+
+    @Test("Reports overview falls back to stock positions when statistics are empty")
+    func reportsOverviewIncludesStockPositions() async throws {
+        try await withExpensesApp { app in
+            let token = try await registerTestUser(app: app)
+            let positions = [
+                StockRequest(symbol: "AAPL", shares: 2, buyPrice: 150, buyDate: "2026-01-01", notes: nil),
+                StockRequest(symbol: "MSFT", shares: 1, buyPrice: 300, buyDate: "2026-01-02", notes: nil),
+                StockRequest(symbol: "NVDA", shares: 3, buyPrice: 100, buyDate: "2026-01-03", notes: nil)
+            ]
+
+            for position in positions {
+                try await app.testing().test(.POST, "v1/stocks", beforeRequest: { req in
+                    req.headers.bearerAuthorization = .init(token: token)
+                    try req.content.encode(position)
+                }, afterResponse: { res async throws in
+                    #expect(res.status == .created)
+                })
+            }
+
+            try await app.testing().test(.GET, "v1/reports/overview", beforeRequest: { req in
+                req.headers.bearerAuthorization = .init(token: token)
+            }, afterResponse: { res async throws in
+                #expect(res.status == .ok)
+                let overview = try res.content.decode(ReportsOverviewResponse.self)
+                #expect(overview.portfolioStatistics.totalPositions == 3)
+                #expect(overview.portfolioStatistics.totalMarketValue == 900)
+                #expect(overview.portfolioStatistics.stockAllocations.count == 3)
+                #expect(overview.portfolioStatistics.stockSummaries.contains { $0.symbol == "AAPL" })
+            })
+        }
+    }
 }

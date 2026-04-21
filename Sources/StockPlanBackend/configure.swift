@@ -155,7 +155,8 @@ public func configure(_ app: Application) async throws {
     app.authService = DefaultAuthService(
         repo: app.authRepository,
         oauthProviders: oauthProviders,
-        mfaConfig: mfaConfig
+        mfaConfig: mfaConfig,
+        trialService: app.trialService
     )
     let resendAPIKey = Environment.get("RESEND_API_KEY")?
         .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
@@ -256,11 +257,18 @@ public func configure(_ app: Application) async throws {
     app.userProfileRepository = DatabaseUserProfileRepository(encryptionService: app.userPIIEncryptionService)
     app.userProfileService = DefaultUserProfileService(repo: app.userProfileRepository)
     app.pushDeviceService = DatabasePushDeviceService()
-    app.entitlementResolver = DefaultEntitlementResolver()
+    let premiumEmails = Set(
+        (Environment.get("BILLING_PREMIUM_EMAILS") ?? "")
+            .split(separator: ",")
+            .map { $0.trimmingCharacters(in: .whitespaces).lowercased() }
+            .filter { !$0.isEmpty }
+    )
+    app.entitlementResolver = DefaultEntitlementResolver(environment: app.environment, premiumEmails: premiumEmails)
     app.usageCounterService = DefaultUsageCounterService(entitlementResolver: app.entitlementResolver)
     app.billingContextService = DefaultBillingContextService(
         entitlementResolver: app.entitlementResolver,
-        usageCounterService: app.usageCounterService
+        usageCounterService: app.usageCounterService,
+        trialService: app.trialService
     )
     app.billingService = DefaultBillingService()
     app.targetAlertEvaluator = DefaultTargetAlertEvaluator()
@@ -297,6 +305,7 @@ public func configure(_ app: Application) async throws {
     app.lifecycle.use(AuthTokenCleanup(interval: TimeInterval(cleanupIntervalMinutes * 60)))
     let apnsAlertPollSeconds = Environment.get("APNS_ALERT_POLL_SECONDS").flatMap(Int64.init(_:)) ?? 300
     app.lifecycle.use(TargetAlertPoller(intervalSeconds: apnsAlertPollSeconds))
+    app.lifecycle.use(TrialExpirationJob())
 
     registerMigrations(app)
 
@@ -365,11 +374,15 @@ private func registerMigrations(_ app: Application) {
     app.migrations.add(CreateReportSuggestionDismissals())
     app.migrations.add(AddHouseholdPartnerDisplayNameToUsers())
     app.migrations.add(AddEncryptedUserProfileFields())
+    app.migrations.add(AddTrialFields())
     app.migrations.add(BackfillEncryptedUserProfileFields())
     app.migrations.add(CreateUserActivity())
     app.migrations.add(AddNewsViewedActivityType())
     app.migrations.add(CreateUserBadge())
     app.migrations.add(CreateBillingTables())
+    app.migrations.add(CreateTrialWarning())
+    app.migrations.add(CreateCoupons())
+    app.migrations.add(CreateCouponRedemptions())
 }
 
 private func envBool(_ key: String, default defaultValue: Bool) -> Bool {
