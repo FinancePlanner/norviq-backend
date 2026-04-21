@@ -1,186 +1,424 @@
-# Observability Implementation Plan (Hetzner + Docker Compose)
+# Observability
 
-This document defines a phased plan to add observability to `StockPlanBackend` on a single Hetzner VPS using Docker Compose.
+This document records what is currently implemented for `StockPlanBackend`, how to test it locally and in production, and which self-hosted observability backends are viable if the current stack needs to grow.
 
-## Goal
+## What Is Implemented
 
-Implement observability in this order:
+The backend now has a first-pass OpenTelemetry-based observability stack for a Docker Compose deployment:
 
-1. Vapor + `TracingMiddleware` + OpenTelemetry Collector + Jaeger + Grafana.
-2. Add Prometheus next (short retention first).
-3. Add Loki only if centralized log search/retention is needed.
-4. For sustained production traffic, move observability to a second node or managed backend.
+- App-side telemetry is wired with `swift-otel` in `Package.swift`.
+- `Sources/StockPlanBackend/entrypoint.swift` bootstraps OpenTelemetry when `OBS_TRACES_ENABLED=true`.
+- OpenTelemetry log export is intentionally disabled in `entrypoint.swift` so the app keeps the existing Vapor/SwiftLog JSON logging bootstrap. This avoids double-bootstrapping `LoggingSystem`.
+- `TracingMiddleware` and `app.traceAutoPropagation = true` are enabled in `Sources/StockPlanBackend/configure.swift`.
+- `RequestLoggingMiddleware` emits structured request metadata: request ID, method, path, status, latency, user ID when authenticated, and inbound trace context when present.
+- Production defaults use JSON logs through `LOG_FORMAT=json`.
+- `monitoring/otel-collector.yaml` defines an OpenTelemetry Collector with:
+  - OTLP gRPC receiver on `4317`.
+  - OTLP HTTP receiver on `4318`.
+  - `hostmetrics` receiver for CPU, memory, disk, filesystem, load, and network metrics.
+  - `memory_limiter` and `batch` processors.
+  - Trace export to Jaeger.
+  - Metrics export through the Collector Prometheus exporter on `9464`.
+- `docker-compose.observability.yml` adds:
+  - `otel-collector`
+  - `jaeger`
+  - `grafana`
+- Grafana is bound to `127.0.0.1:3000:3000`, so it is not publicly exposed by Compose.
+- Grafana provisioning exists for:
+  - Jaeger datasource.
+  - Collector metrics datasource.
+  - Baseline dashboard.
+  - Baseline alert rules.
+  - Email and Slack contact points.
+- `.env.production` documents the required observability env vars:
+  - `OBS_TRACES_ENABLED`
+  - `OTEL_SERVICE_NAME`
+  - `OTEL_RESOURCE_ATTRIBUTES`
+  - `OTEL_EXPORTER_OTLP_ENDPOINT`
+  - `OTEL_EXPORTER_OTLP_PROTOCOL`
+  - Grafana admin, SMTP, email alert, and Slack webhook settings.
 
-## Scope
+## Important Limitations
 
-- This is the implementation/runbook record for the current repo observability stack.
-- Code and Compose changes are now included in the repo.
-- Target environment: single VPS, Docker Compose deployment.
+The current stack is enough for launch smoke testing and incident triage, but it is not a full long-retention observability platform yet.
 
-## Current Baseline (Repo Status)
+- Traces are stored in Jaeger all-in-one. That is simple, but not the best long-term production trace store.
+- Metrics are exposed by the Collector Prometheus exporter and queried by Grafana. There is no durable Prometheus, Mimir, VictoriaMetrics, or ClickHouse metrics store yet.
+- App logs are structured JSON in container logs, but they are not centralized in Loki, OpenObserve, SigNoz, Uptrace, or ClickStack yet.
+- Alert expressions are baseline expressions and must be validated against real metric names emitted by the deployed app and collector.
+- The stack runs on the same node as the app in the default Compose setup. That is acceptable for MVP, but move it to another node if CPU, memory, or disk pressure affects API latency.
 
-- `TracingMiddleware` is enabled in `Sources/StockPlanBackend/configure.swift`.
-- `app.traceAutoPropagation = true` is enabled in `Sources/StockPlanBackend/configure.swift`.
-- `RequestLoggingMiddleware` emits request metadata including request ID, method, path, status, latency, user ID when authenticated, and inbound `traceparent` when present.
-- `LOG_FORMAT=json` enables JSON app logs and is the production default.
-- `docker-compose.observability.yml`, `monitoring/otel-collector.yaml`, and Grafana datasource provisioning define the first collector, Jaeger, and Grafana stack.
-- `swift-otel` is wired as the app-side OTLP backend when `OBS_TRACES_ENABLED=true`.
-- The production compose observability stack includes OTel Collector, Jaeger, Grafana, baseline metrics scraping, dashboards, and email/Slack alert contact points.
+## Local Test Procedure
 
-## Architecture Phases
+Use this path when you want the app container and observability services to communicate on the same Docker network, matching production most closely.
 
-### Phase 1: Tracing Foundation (Implement First)
+1. Create or update local env:
 
-#### Objective
+```bash
+cp .env.production .env
+```
 
-Get end-to-end request traces from Vapor into Jaeger, visualized in Grafana, with minimal production overhead.
+Set local-safe values in `.env`:
 
-#### Services to Add
+```text
+APP_IMAGE=stockplanbackend:observability-local
+DATABASE_USERNAME=stockplan_local_observability
+DATABASE_PASSWORD=replace-this-with-at-least-24-characters
+DATABASE_NAME=stockplan_observability
+JWT_SECRET=replace-this-with-at-least-32-characters
+USER_PII_ENCRYPTION_ACTIVE_KEY_ID=local-v1
+USER_PII_ENCRYPTION_ACTIVE_KEY=<base64-encoded-32-byte-key>
+OBS_TRACES_ENABLED=true
+LOG_FORMAT=json
+OTEL_SERVICE_NAME=StockPlanBackendLocal
+OTEL_RESOURCE_ATTRIBUTES=deployment.environment=local
+OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4317
+OTEL_EXPORTER_OTLP_PROTOCOL=grpc
+GRAFANA_ADMIN_USER=admin
+GRAFANA_ADMIN_PASSWORD=replace-this-with-a-local-password
+GRAFANA_ALERT_EMAIL_TO=local@example.com
+GRAFANA_ALERT_EMAIL_FROM=local@example.com
+GRAFANA_SMTP_HOST=host.docker.internal:1025
+GRAFANA_SMTP_USER=local
+GRAFANA_SMTP_PASSWORD=local
+GRAFANA_SLACK_WEBHOOK_URL=http://localhost:9/unused
+```
 
-- `otel-collector`
-- `jaeger` (start with all-in-one for simplicity)
-- `grafana`
+The SMTP and Slack values above satisfy Grafana provisioning locally. To test email delivery on macOS, run a local SMTP sink such as Mailpit on port `1025` and keep `GRAFANA_SMTP_HOST=host.docker.internal:1025`. To test Slack delivery, replace the unused URL with a real webhook in a staging/private Slack channel.
 
-#### Implementation Checklist
+2. Build a local API image:
 
-- [x] Add OpenTelemetry tracing backend dependency for Swift (`swift-otel`) in `Package.swift`.
-- [x] Bootstrap tracing backend in app startup (before serving requests) in `Sources/StockPlanBackend/entrypoint.swift`.
-- [x] Keep `TracingMiddleware` enabled in `Sources/StockPlanBackend/configure.swift`.
-- [x] Keep `app.traceAutoPropagation = true` unless throughput testing proves it is too expensive.
-- [ ] Add manual context restore on NIO `EventLoopFuture` boundaries where applicable.
-- [x] Add OTel Collector config file (`monitoring/otel-collector.yaml`) with OTLP receiver, `batch` and `memory_limiter` processors, and Jaeger trace exporter.
-- [x] Add Compose services in a separate file (`docker-compose.observability.yml`).
-- [x] Put observability services on internal Docker network.
-- [x] Expose only Grafana to localhost unless a reverse proxy is explicitly configured.
-- [x] Add persistent volume for Grafana.
-- [x] Add initial dashboard data source provisioning in `monitoring/grafana/provisioning/`.
-- [x] Add env vars to `.env` or `.env.production`: `OBS_SERVICE_NAME`, `OBS_ENVIRONMENT`, `OBS_OTLP_ENDPOINT`, `OBS_TRACES_ENABLED`.
+```bash
+docker build -t stockplanbackend:observability-local .
+```
 
-#### Exit Criteria
+3. Start the production-shaped stack plus observability:
 
-- [ ] Requests to the API generate traces visible in Jaeger.
-- [ ] Trace spans show parent-child hierarchy (middleware span -> route span).
-- [ ] Grafana can query and display trace data.
-- [ ] No user-facing latency regression observed in smoke tests.
+```bash
+docker compose -f docker-compose.production.yml -f docker-compose.observability.yml up -d db redis otel-collector jaeger grafana
+docker compose -f docker-compose.production.yml -f docker-compose.observability.yml --profile tools run --rm migrate
+docker compose -f docker-compose.production.yml -f docker-compose.observability.yml up -d app
+```
 
-### Phase 2: Metrics with Prometheus
+4. Generate traffic:
 
-#### Objective
+```bash
+curl -i http://127.0.0.1:8080/health/live
+curl -i http://127.0.0.1:8080/health/ready
+curl -i http://127.0.0.1:8080/
+```
 
-Capture service health metrics (latency, errors, throughput, DB/cache behavior) with short retention.
+5. Check container health and logs:
 
-#### Services to Add
+```bash
+docker compose -f docker-compose.production.yml -f docker-compose.observability.yml ps
+docker compose -f docker-compose.production.yml -f docker-compose.observability.yml logs --tail=100 app
+docker compose -f docker-compose.production.yml -f docker-compose.observability.yml logs --tail=100 otel-collector
+docker compose -f docker-compose.production.yml -f docker-compose.observability.yml logs --tail=100 grafana
+```
 
-- `prometheus`
+6. Open Grafana:
 
-#### Implementation Checklist
+```text
+http://127.0.0.1:3000
+```
 
-- [ ] Define core service-level indicators: HTTP request count, HTTP error rate (4xx, 5xx), HTTP latency (p50/p95/p99), DB latency/error count, Redis latency/error count.
-- [ ] Add metrics instrumentation in app code where needed.
-- [x] Extend OTel Collector pipeline to process/export metrics.
-- [ ] Configure Prometheus scrape targets and rules in `monitoring/prometheus/prometheus.yml`.
-- [ ] Start with short retention (for example 3-7 days).
-- [x] Add baseline Grafana dashboard provisioning.
-- [x] Add baseline alert rules and email/Slack contact point provisioning.
+Expected local results:
 
-#### Exit Criteria
+- Grafana accepts the configured admin credentials.
+- The Jaeger datasource is provisioned.
+- The OTel Collector Metrics datasource is provisioned.
+- The StockPlan dashboard is visible.
+- App logs show JSON request lines.
+- Collector logs show received/exported trace or metric activity after traffic.
+- Grafana Explore can query Jaeger for recent traces from `StockPlanBackendLocal`.
 
-- [ ] Prometheus is collecting metrics continuously.
-- [ ] Grafana dashboards show 24h and 7d trends.
-- [ ] Basic alerts can trigger during controlled failure tests.
+## Local Host-Run Swift Alternative
 
-### Phase 3: Logs with Loki (Only If Needed)
+If you run `swift run` on the host instead of running the app in Docker, the host cannot reach `otel-collector:4317` unless the Collector port is exposed. Use a small local override file for that workflow:
 
-#### Objective
+```yaml
+# docker-compose.observability.local.yml
+services:
+  otel-collector:
+    ports:
+      - "127.0.0.1:4317:4317"
+      - "127.0.0.1:4318:4318"
+```
 
-Add centralized log search and retention if Docker logs/journal logs are no longer enough.
+Start the observability services with the override:
 
-#### Decision Gate
+```bash
+docker compose -f docker-compose.production.yml -f docker-compose.observability.yml -f docker-compose.observability.local.yml up -d otel-collector jaeger grafana
+```
 
-Implement this phase only if at least one condition is true:
+Then run the app with host-reachable OTLP settings:
 
-- [ ] Need cross-container log correlation in one UI.
-- [ ] Need searchable retention longer than host log rotation.
-- [ ] Need log-based operational workflows for incident response.
+```bash
+OBS_TRACES_ENABLED=true \
+OTEL_SERVICE_NAME=StockPlanBackendLocal \
+OTEL_RESOURCE_ATTRIBUTES=deployment.environment=local \
+OTEL_EXPORTER_OTLP_ENDPOINT=http://127.0.0.1:4317 \
+OTEL_EXPORTER_OTLP_PROTOCOL=grpc \
+LOG_FORMAT=json \
+swift run StockPlanBackend serve --hostname 127.0.0.1 --port 8080
+```
 
-#### Services to Add
+## Production Test Procedure
 
-- `loki`
-- `promtail` (or OTel Collector log pipeline if preferred)
+1. Set real production env values:
 
-#### Implementation Checklist
+```text
+OBS_TRACES_ENABLED=true
+LOG_FORMAT=json
+OTEL_SERVICE_NAME=StockPlanBackend
+OTEL_RESOURCE_ATTRIBUTES=deployment.environment=production
+OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4317
+OTEL_EXPORTER_OTLP_PROTOCOL=grpc
+GRAFANA_ADMIN_PASSWORD=<strong password>
+GRAFANA_ALERT_EMAIL_TO=<ops inbox>
+GRAFANA_ALERT_EMAIL_FROM=<verified sender>
+GRAFANA_SMTP_HOST=<smtp host:port>
+GRAFANA_SMTP_USER=<smtp user>
+GRAFANA_SMTP_PASSWORD=<smtp password>
+GRAFANA_SLACK_WEBHOOK_URL=<slack webhook>
+```
 
-- [ ] Standardize app logs as structured JSON.
-- [ ] Ensure trace IDs are included in log context where possible.
-- [ ] Add Loki config (for example `monitoring/loki/loki-config.yml`).
-- [ ] Add promtail config (for example `monitoring/promtail/promtail-config.yml`).
-- [ ] Define label strategy carefully (avoid high-cardinality labels).
-- [ ] Set retention limits aligned with disk budget.
-- [ ] Add Grafana log exploration dashboard/panels.
+2. Deploy the stack:
 
-#### Exit Criteria
+```bash
+docker compose -f docker-compose.production.yml -f docker-compose.observability.yml up -d db redis otel-collector jaeger grafana
+docker compose -f docker-compose.production.yml -f docker-compose.observability.yml --profile tools run --rm migrate
+docker compose -f docker-compose.production.yml -f docker-compose.observability.yml up -d app
+```
 
-- [ ] Can pivot from trace ID to logs during debugging.
-- [ ] Log storage remains within planned disk budget.
-- [ ] Query performance remains acceptable during incident workflows.
+3. Run the production preflight:
 
-### Phase 4: Move Observability Off the App Node
+```bash
+BASE_URL=https://api.norviqa.io ./scripts/ops/production_preflight.sh
+```
 
-#### Objective
+4. Generate real request traffic:
 
-Prevent observability workloads from contending with API and database resources.
+```bash
+curl -i https://api.norviqa.io/health/live
+curl -i https://api.norviqa.io/health/ready
+```
 
-#### Migration Triggers
+5. Confirm traces and metrics:
 
-Plan migration when one or more conditions persist:
+```bash
+docker compose -f docker-compose.production.yml -f docker-compose.observability.yml logs --tail=100 otel-collector
+docker compose -f docker-compose.production.yml -f docker-compose.observability.yml logs --tail=100 app
+```
 
-- [ ] CPU contention affects API latency.
-- [ ] Memory pressure causes OOM or frequent container restarts.
-- [ ] Disk growth from metrics/logs risks service stability.
-- [ ] Sustained production traffic requires better isolation.
+6. Access Grafana through an SSH tunnel because Compose binds it to localhost on the server:
 
-#### Migration Options
+```bash
+ssh -L 3000:127.0.0.1:3000 <user>@<server>
+```
 
-1. Second Hetzner VPS dedicated to observability stack.
-2. Managed backends for one or more signals (traces/metrics/logs).
+Then open:
 
-#### Migration Checklist
+```text
+http://127.0.0.1:3000
+```
 
-- [ ] Move Collector + storage backends first.
-- [ ] Keep app OTLP export endpoint configurable via env var.
-- [ ] Restrict backend ingress to private network/VPN/firewall rules.
-- [ ] Validate dashboards and alerts after endpoint cutover.
-- [ ] Keep rollback path to local stack for one release window.
+7. In Grafana:
 
-## Suggested File Touchpoints (When Implementing)
+- Open the provisioned StockPlan dashboard.
+- Open Explore -> Jaeger and search for the `StockPlanBackend` service.
+- Open Explore -> OTel Collector Metrics and confirm host metrics are present.
+- Confirm alert contact points exist for email and Slack.
+- Trigger a controlled failure in staging first, not production, and confirm alert delivery.
 
-- `Package.swift`
-- `Sources/StockPlanBackend/entrypoint.swift`
-- `Sources/StockPlanBackend/configure.swift`
-- `.env`
-- `.env.production`
-- `docker-compose.observability.yml` (new)
-- `monitoring/otel-collector.yaml` (new)
-- `monitoring/prometheus/prometheus.yml` (new)
-- `monitoring/loki/loki-config.yml` (new, Phase 3 only)
-- `monitoring/promtail/promtail-config.yml` (new, Phase 3 only)
-- `monitoring/grafana/provisioning/` (new)
+## Production Acceptance Checklist
 
-## Production Guardrails for a Single VPS
+- [ ] `/health/live` returns 200.
+- [ ] `/health/ready` returns 200.
+- [ ] App logs are JSON in production.
+- [ ] App logs include request IDs and latency.
+- [ ] OpenTelemetry bootstrap log appears when `OBS_TRACES_ENABLED=true`.
+- [ ] Collector receives app telemetry without connection errors.
+- [ ] Jaeger contains recent API traces.
+- [ ] Grafana can query Jaeger.
+- [ ] Grafana can query Collector metrics.
+- [ ] Email alert contact point can send a test alert.
+- [ ] Slack alert contact point can send a test alert.
+- [ ] CPU and memory overhead are acceptable during smoke/load testing.
+- [ ] Grafana is not exposed publicly unless protected by HTTPS, auth, and firewall rules.
 
-- Start with tracing first, then metrics, then logs.
-- Set explicit memory limits per observability service in Compose.
-- Keep retention short until capacity is measured.
-- Expose only required ports publicly (prefer internal networking).
-- Protect Grafana with auth and avoid public unauthenticated access.
+## Self-Hosted Observability Options
 
-## Rollout Sequence
+The backend already emits OpenTelemetry, so future backends should accept OTLP directly or through an OpenTelemetry Collector. These are viable self-hosted options.
 
-1. Implement Phase 1 in staging.
-2. Load test and check API latency impact.
-3. Promote Phase 1 to production.
-4. Implement and validate Phase 2.
-5. Add Phase 3 only if decision gate criteria are met.
-6. Reassess infra topology and execute Phase 4 when triggers appear.
+### Current Stack: OTel Collector + Jaeger + Grafana
 
-https://medium.com/@kicsipixel/bridging-swift-on-server-code-and-devops-monitoring-6e29f2ef7b7c
+Best for MVP launch and low-traffic production validation.
+
+Pros:
+
+- Already implemented.
+- Simple Compose footprint.
+- Works with OpenTelemetry.
+- Grafana gives a familiar UI.
+- Jaeger is easy to inspect for request traces.
+
+Cons:
+
+- No durable metrics store yet.
+- No centralized log search.
+- Jaeger all-in-one is not the long-term trace backend I would choose for higher traffic.
+
+Recommendation: keep this for launch smoke testing and first production rollout.
+
+### Grafana LGTM
+
+Grafana's open stack is Loki for logs, Grafana for UI/alerts, Tempo for traces, and Mimir or Prometheus-compatible storage for metrics. Grafana also positions its stack around open standards like OpenTelemetry and Prometheus.
+
+Pros:
+
+- Natural upgrade from the current Grafana setup.
+- Tempo is a better long-term trace backend than Jaeger all-in-one.
+- Loki adds centralized log search.
+- Prometheus/Mimir gives real metrics retention.
+- Components can be adopted incrementally.
+
+Cons:
+
+- More moving parts than all-in-one products.
+- Mimir and production Loki need careful storage and retention configuration.
+
+Recommendation: best next step if you want to grow the current architecture without replacing it. For this API, the practical path is: add Prometheus first, replace Jaeger with Tempo later, add Loki only when log search becomes necessary.
+
+Sources checked:
+
+- https://grafana.com/about/grafana-stack/
+- https://grafana.com/oss/tempo/
+
+### SigNoz
+
+SigNoz is an OpenTelemetry-native observability platform for traces, metrics, logs, dashboards, alerts, and APM. It can be self-hosted and uses ClickHouse as its storage layer.
+
+Pros:
+
+- One integrated product instead of assembling Grafana, Tempo, Loki, and Prometheus yourself.
+- Strong OpenTelemetry fit.
+- Good APM workflows for request latency, errors, traces, and logs.
+- ClickHouse backend is suitable for high-volume telemetry.
+
+Cons:
+
+- Heavier than the current MVP stack.
+- You operate ClickHouse and the SigNoz services.
+- Migration means changing the Collector export target and dashboard workflow.
+
+Recommendation: strong option if you want a self-hosted Datadog/New Relic-style product and prefer one UI over a composable Grafana stack.
+
+Sources checked:
+
+- https://signoz.io/
+- https://github.com/SigNoz/signoz
+
+### Uptrace
+
+Uptrace is an open-source OpenTelemetry APM for traces, metrics, and logs. It uses ClickHouse for telemetry data and PostgreSQL for metadata.
+
+Pros:
+
+- Compact all-in-one APM experience.
+- Good OpenTelemetry compatibility.
+- Includes dashboards, alerting, service graphs, trace search, and metrics.
+- Can be run self-hosted.
+
+Cons:
+
+- Adds ClickHouse and PostgreSQL operational responsibility.
+- Smaller ecosystem than Grafana.
+
+Recommendation: good if you want a smaller all-in-one APM and are comfortable operating ClickHouse.
+
+Sources checked:
+
+- https://uptrace.dev/
+- https://github.com/uptrace/uptrace
+
+### ClickStack / HyperDX
+
+ClickStack combines ClickHouse, OpenTelemetry, and HyperDX for logs, metrics, traces, dashboards, and production debugging workflows.
+
+Pros:
+
+- Built around ClickHouse and OpenTelemetry.
+- Strong log and trace search.
+- Good fit if telemetry volume grows and query speed matters.
+
+Cons:
+
+- More operational weight than the current stack.
+- Best when you are ready to operate ClickHouse intentionally.
+
+Recommendation: consider later if log/search volume becomes a major need or if you want ClickHouse-centered observability.
+
+Sources checked:
+
+- https://clickhouse.com/use-cases/observability
+- https://github.com/hyperdxio/hyperdx
+
+### VictoriaMetrics Stack
+
+VictoriaMetrics now offers separate open-source components for metrics, logs, and traces: VictoriaMetrics, VictoriaLogs, and VictoriaTraces. VictoriaTraces accepts OTLP and exposes Jaeger-compatible query APIs.
+
+Pros:
+
+- Efficient, self-hosted, infrastructure-oriented stack.
+- Strong metrics story.
+- Lower-resource design is useful on small VPS deployments.
+
+Cons:
+
+- Less of a polished single APM workflow than SigNoz or Uptrace.
+- You compose the experience yourself with Grafana or the VictoriaMetrics tooling.
+
+Recommendation: good for cost-efficient infrastructure metrics and logs; evaluate carefully before replacing the trace/APM workflow.
+
+Sources checked:
+
+- https://victoriametrics.com/
+- https://docs.victoriametrics.com/victoriatraces/
+
+### OpenObserve
+
+OpenObserve is an open-source observability platform for logs, metrics, and traces with OpenTelemetry support.
+
+Pros:
+
+- Unified platform.
+- Strong positioning for high-volume log and telemetry storage.
+- Self-hostable.
+
+Cons:
+
+- Another full platform to operate.
+- Needs evaluation against your expected traffic, retention, and alerting needs.
+
+Recommendation: consider if centralized logs become the main requirement and the Grafana/Loki path feels too operationally complex.
+
+Source checked:
+
+- https://openobserve.ai/
+
+## Recommendation For StockPlanBackend
+
+For the MVP:
+
+1. Keep the current OTel Collector + Jaeger + Grafana stack.
+2. Validate trace visibility and alert delivery in staging.
+3. Add a durable Prometheus-compatible metrics store before relying on metrics for production incidents.
+4. Add centralized logs only after Docker logs are not enough.
+
+For production after MVP:
+
+1. If you want incremental control, evolve to Grafana LGTM.
+2. If you want an all-in-one self-hosted APM, evaluate SigNoz and Uptrace first.
+3. If telemetry volume grows heavily, evaluate ClickStack/HyperDX or VictoriaMetrics components.
