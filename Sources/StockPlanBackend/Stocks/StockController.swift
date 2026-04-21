@@ -5,6 +5,7 @@ import Vapor
 struct StockController: RouteCollection {
     private struct StocksListQuery: Content {
         let portfolioListId: String?
+        let limit: Int?
     }
 
     func boot(routes: any RoutesBuilder) throws {
@@ -80,6 +81,7 @@ struct StockController: RouteCollection {
         return try await req.stocksService.list(
             userId: session.userId,
             portfolioListId: portfolioListId,
+            limit: clampedLimit(query.limit),
             on: req.db
         )
     }
@@ -168,7 +170,6 @@ struct StockController: RouteCollection {
                 on: req.db
             )
             let res = Response(status: .ok)
-            logValuationResponseBody(valuation, req: req, operation: "get")
             try res.content.encode(valuation)
             return res
         } catch let error as StockServiceError {
@@ -200,7 +201,6 @@ struct StockController: RouteCollection {
             on: req.db
         )
         let res = Response(status: .created)
-        logValuationResponseBody(created, req: req, operation: "create")
         try res.content.encode(created)
         return res
     }
@@ -223,7 +223,6 @@ struct StockController: RouteCollection {
             userId: session.userId,
             on: req.db
         )
-        logValuationResponseBody(updated, req: req, operation: "update")
         return updated
     }
 
@@ -243,6 +242,7 @@ struct StockController: RouteCollection {
             query.filter(\.$symbol == symbolFilter)
         }
 
+        query.limit(clampedLimit(req.query[Int.self, at: "limit"]))
         let notes = try await query.all()
 
         return try notes.map(makeResearchNoteResponse)
@@ -350,6 +350,7 @@ struct StockController: RouteCollection {
             query.filter(\.$symbol == symbolFilter)
         }
 
+        query.limit(clampedLimit(req.query[Int.self, at: "limit"]))
         let targets = try await query.all()
         return try targets.map(makeTargetResponse)
     }
@@ -580,22 +581,8 @@ struct StockController: RouteCollection {
             rationale: model.rationale
         )
     }
-}
 
-private func logValuationResponseBody(
-    _ valuation: StockValuationRequest,
-    req: Request,
-    operation: String
-) {
-    do {
-        let data = try JSONEncoder().encode(valuation)
-        let body = String(data: data, encoding: .utf8) ?? "<non-utf8>"
-        req.logger.debug(
-            "stock.valuation.\(operation).response statusBody=\(body)"
-        )
-    } catch {
-        req.logger.error(
-            "stock.valuation.\(operation).response.encode_failed error=\(error.localizedDescription)"
-        )
+    private func clampedLimit(_ rawLimit: Int?, default defaultValue: Int = 100, max maxValue: Int = 100) -> Int {
+        max(1, min(rawLimit ?? defaultValue, maxValue))
     }
 }

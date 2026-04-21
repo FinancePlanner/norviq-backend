@@ -37,7 +37,7 @@ extension NewsServiceError: AbortError {
 }
 
 protocol NewsService: Sendable {
-    func list(userId: UUID, symbol: String?, on db: any Database) async throws -> [NewsItemResponse]
+    func list(userId: UUID, symbol: String?, limit: Int, on db: any Database) async throws -> [NewsItemResponse]
     func feed(userId: UUID, limit: Int?, on db: any Database) async throws -> [NewsItemResponse]
     func get(id: UUID, userId: UUID, on db: any Database) async throws -> NewsItemResponse
     func create(payload: NewsItemRequest, userId: UUID, on db: any Database) async throws -> NewsItemResponse
@@ -56,14 +56,18 @@ struct DefaultNewsService: NewsService {
         self.provider = provider
     }
 
-    func list(userId: UUID, symbol: String?, on db: any Database) async throws -> [NewsItemResponse] {
+    func list(userId: UUID, symbol: String?, limit: Int, on db: any Database) async throws -> [NewsItemResponse] {
         let normalized = normalizedSymbolValue(symbol)
-        let items = try await repo.list(userId: userId, symbol: normalized, limit: nil, on: db)
+        let items = try await repo.list(userId: userId, symbol: normalized, limit: limit, on: db)
         return try items.map(makeResponse)
     }
 
+    func list(userId: UUID, symbol: String?, on db: any Database) async throws -> [NewsItemResponse] {
+        try await list(userId: userId, symbol: symbol, limit: 100, on: db)
+    }
+
     func feed(userId: UUID, limit: Int?, on db: any Database) async throws -> [NewsItemResponse] {
-        let clampedLimit = max(1, min(limit ?? 50, 200))
+        let clampedLimit = max(1, min(limit ?? 50, 100))
         let tracked = try await repo.trackedSymbols(userId: userId, on: db)
             .compactMap { normalizedSymbolValue($0) }
         let items = try await repo.listFeed(userId: userId, trackedSymbols: tracked, limit: clampedLimit, on: db)

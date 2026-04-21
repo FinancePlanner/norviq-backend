@@ -13,7 +13,7 @@ protocol MailerService: Sendable {
 
 struct ConsoleMailerService: MailerService {
     func send(_ message: MailMessage, on req: Request) async throws {
-        req.logger.info("[mailer] to=\(message.to) subject=\(message.subject) body=\(message.body)")
+        req.logger.info("[mailer] recipient=\(redactedEmail(message.to)) subject=\(message.subject)")
     }
 }
 
@@ -48,13 +48,19 @@ struct ResendMailerService: MailerService {
         }
 
         guard (200..<300).contains(response.status.code) else {
-            let body = response.body.map { String(buffer: $0) } ?? "<empty>"
             req.logger.error(
-                "resend.mail failed status=\(response.status.code) body=\(body)"
+                "resend.mail failed status=\(response.status.code) recipient=\(redactedEmail(message.to))"
             )
             throw Abort(.serviceUnavailable, reason: "Unable to send email right now.")
         }
     }
+}
+
+private func redactedEmail(_ email: String) -> String {
+    let parts = email.split(separator: "@", maxSplits: 1).map(String.init)
+    guard parts.count == 2 else { return "<redacted>" }
+    let domain = parts[1].split(separator: ".").last.map(String.init) ?? "domain"
+    return "<redacted>@<redacted>.\(domain)"
 }
 
 private struct ResendEmailPayload: Content {

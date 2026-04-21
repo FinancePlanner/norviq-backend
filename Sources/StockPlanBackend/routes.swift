@@ -104,9 +104,10 @@ private func databaseHealthCheck(_ req: Request) async -> HealthCheck {
         try await sql.raw("SELECT 1").run()
         return HealthCheck(status: "healthy", message: nil, latencyMs: elapsedMilliseconds(since: start))
     } catch {
+        req.logger.error("health.ready database failed error_type=\(String(reflecting: type(of: error)))")
         return HealthCheck(
             status: "unhealthy",
-            message: "Database check failed: \(String(reflecting: error))",
+            message: "Database check failed.",
             latencyMs: elapsedMilliseconds(since: start)
         )
     }
@@ -121,9 +122,10 @@ private func redisHealthCheck(_ req: Request) async -> HealthCheck {
         _ = try await req.application.redis.send(command: "PING", with: [])
         return HealthCheck(status: "healthy", message: nil, latencyMs: elapsedMilliseconds(since: start))
     } catch {
+        req.logger.error("health.ready redis failed error_type=\(String(reflecting: type(of: error)))")
         return HealthCheck(
             status: "unhealthy",
-            message: "Redis check failed: \(String(reflecting: error))",
+            message: "Redis check failed.",
             latencyMs: elapsedMilliseconds(since: start)
         )
     }
@@ -180,6 +182,10 @@ private func envBoolForHealth(_ key: String, default defaultValue: Bool) -> Bool
 }
 
 private func registerOpenAPIDocsRoutes(_ app: Application) throws {
+    guard shouldExposeOpenAPIDocs(app) else {
+        return
+    }
+
     app.get("openapi.yaml") { _ async throws -> Response in
         guard let url = Bundle.module.url(forResource: "openapi", withExtension: "yaml") else {
             throw Abort(.notFound, reason: "openapi.yaml is not bundled (check Package.swift resources)")
@@ -224,4 +230,8 @@ private func registerOpenAPIDocsRoutes(_ app: Application) throws {
         res.body = .init(string: html)
         return res
     }
+}
+
+private func shouldExposeOpenAPIDocs(_ app: Application) -> Bool {
+    envBoolForHealth("API_DOCS_ENABLED", default: app.environment != .production)
 }

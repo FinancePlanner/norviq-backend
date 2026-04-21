@@ -44,6 +44,10 @@ struct AuthTests {
         return digest.map { String(format: "%02x", $0) }.joined()
     }
 
+    private func makeRequest(_ app: Application) -> Request {
+        Request(application: app, on: app.eventLoopGroup.next())
+    }
+
     @Test("Registration fails when password confirmation does not match")
     func registerPasswordConfirmationMismatch() async throws {
         try await withApp { app in
@@ -548,6 +552,48 @@ struct AuthTests {
             }, afterResponse: { res async in
                 #expect(res.status == .unauthorized)
             })
+        }
+    }
+
+    @Test("Reset token is consumed after repeated invalid attempts")
+    func resetPasswordInvalidAttemptsConsumeToken() async throws {
+        try await withApp { app in
+            let req = makeRequest(app)
+            let repo = DatabaseAuthRepository()
+            let user = try await repo.createUser(
+                email: "resetattempts@example.com",
+                passwordHash: try req.password.hash("OldPassword123!"),
+                on: app.db
+            )
+            let userId = try #require(user.id)
+            try await repo.createPasswordResetToken(
+                userId: userId,
+                codeHash: sha256("123456"),
+                expiresAt: Date().addingTimeInterval(15 * 60),
+                on: app.db
+            )
+
+            for _ in 0..<5 {
+                do {
+                    _ = try await app.authService.resetPassword(
+                        email: "resetattempts@example.com",
+                        code: "000000",
+                        newPassword: "NewPassword123!",
+                        on: req
+                    )
+                    Issue.record("Expected invalid reset code to fail.")
+                } catch let abort as Abort {
+                    #expect(abort.status == .unauthorized)
+                }
+            }
+
+            let token = try await repo.findValidPasswordResetToken(
+                userId: userId,
+                codeHash: sha256("123456"),
+                now: Date(),
+                on: app.db
+            )
+            #expect(token == nil)
         }
     }
 }

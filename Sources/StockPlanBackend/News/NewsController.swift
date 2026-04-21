@@ -20,13 +20,14 @@ struct NewsController: RouteCollection {
     func listNews(req: Request) async throws -> [NewsItemResponse] {
         let session = try req.auth.require(SessionToken.self)
         let symbol = req.query[String.self, at: "symbol"]
-        return try await req.application.newsService.list(userId: session.userId, symbol: symbol, on: req.db)
+        let limit = clampedLimit(req.query[Int.self, at: "limit"])
+        return try await req.application.newsService.list(userId: session.userId, symbol: symbol, limit: limit, on: req.db)
     }
 
     @Sendable
     func feedNews(req: Request) async throws -> [NewsItemResponse] {
         let session = try req.auth.require(SessionToken.self)
-        let limit = req.query[Int.self, at: "limit"]
+        let limit = clampedLimit(req.query[Int.self, at: "limit"], default: 50)
         return try await req.application.newsService.feed(userId: session.userId, limit: limit, on: req.db)
     }
 
@@ -74,5 +75,9 @@ struct NewsController: RouteCollection {
             throw Abort(.badRequest, reason: reason)
         }
         return value
+    }
+
+    private func clampedLimit(_ rawLimit: Int?, default defaultValue: Int = 100, max maxValue: Int = 100) -> Int {
+        max(1, min(rawLimit ?? defaultValue, maxValue))
     }
 }

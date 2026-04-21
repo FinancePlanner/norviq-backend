@@ -227,13 +227,33 @@ struct DefaultMarketDataService: MarketDataService {
             throw Abort(.badRequest, reason: "Maximum 100 symbols per batch request.")
         }
 
-        var quotes: [QuoteResponse] = []
-        quotes.reserveCapacity(normalized.count)
-        for symbol in normalized {
-            let quote = try await quote(symbol: symbol, on: req)
-            quotes.append(quote)
+        var indexedQuotes: [(Int, QuoteResponse)] = []
+        indexedQuotes.reserveCapacity(normalized.count)
+
+        for chunkStart in stride(from: 0, to: normalized.count, by: 10) {
+            let chunkEnd = min(chunkStart + 10, normalized.count)
+            let chunk = Array(normalized[chunkStart..<chunkEnd])
+            let chunkResults = try await withThrowingTaskGroup(of: (Int, QuoteResponse).self) { group in
+                for (offset, symbol) in chunk.enumerated() {
+                    let index = chunkStart + offset
+                    group.addTask {
+                        (index, try await quote(symbol: symbol, on: req))
+                    }
+                }
+
+                var results: [(Int, QuoteResponse)] = []
+                results.reserveCapacity(chunk.count)
+                for try await result in group {
+                    results.append(result)
+                }
+                return results
+            }
+            indexedQuotes.append(contentsOf: chunkResults)
         }
 
+        let quotes = indexedQuotes
+            .sorted { $0.0 < $1.0 }
+            .map(\.1)
         return QuoteBatchResponse(quotes: quotes)
     }
 

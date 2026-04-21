@@ -201,6 +201,10 @@ struct BrokerController: RouteCollection {
             guard var buffer = (upload.file ?? upload.csv)?.data else {
                 throw Abort(.badRequest, reason: "Missing file field in multipart body.")
             }
+            let maxBytes = 5 * 1024 * 1024
+            guard buffer.readableBytes <= maxBytes else {
+                throw Abort(.payloadTooLarge, reason: "CSV file must be 5 MB or smaller.")
+            }
             guard let csv = buffer.readString(length: buffer.readableBytes) else {
                 throw Abort(.badRequest, reason: "CSV file must be UTF-8 text.")
             }

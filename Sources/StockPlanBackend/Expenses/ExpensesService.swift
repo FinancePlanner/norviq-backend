@@ -21,7 +21,7 @@ protocol ExpensesService: Sendable {
     func deletePlanItem(userId: UUID, itemId: UUID, on db: any Database) async throws
 
     // Expenses
-    func getExpenses(userId: UUID, from: Date?, to: Date?, on db: any Database) async throws -> [ExpenseResponse]
+    func getExpenses(userId: UUID, from: Date?, to: Date?, limit: Int, on db: any Database) async throws -> [ExpenseResponse]
     func createExpense(userId: UUID, request: ExpenseRequest, on db: any Database) async throws -> ExpenseResponse
     func updateExpense(userId: UUID, expenseId: UUID, request: ExpenseRequest, on db: any Database) async throws -> ExpenseResponse
     func deleteExpense(userId: UUID, expenseId: UUID, on db: any Database) async throws
@@ -338,7 +338,7 @@ final class DefaultExpensesService: ExpensesService {
 
     // MARK: - Expenses
 
-    func getExpenses(userId: UUID, from: Date?, to: Date?, on db: any Database) async throws -> [ExpenseResponse] {
+    func getExpenses(userId: UUID, from: Date?, to: Date?, limit: Int, on db: any Database) async throws -> [ExpenseResponse] {
         var query = Expense.query(on: db).filter(\.$user.$id == userId)
 
         if let from = from {
@@ -348,7 +348,7 @@ final class DefaultExpensesService: ExpensesService {
             query = query.filter(\.$occurredOn <= to)
         }
 
-        let expenses = try await query.sort(\.$occurredOn, .descending).all()
+        let expenses = try await query.sort(\.$occurredOn, .descending).limit(limit).all()
         return expenses.map { mapExpense($0) }
     }
 

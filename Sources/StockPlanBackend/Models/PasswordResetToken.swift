@@ -19,6 +19,12 @@ final class PasswordResetToken: Model, @unchecked Sendable {
     @Field(key: "used_at")
     var usedAt: Date?
 
+    @Field(key: "failed_attempts")
+    var failedAttempts: Int
+
+    @Field(key: "locked_until")
+    var lockedUntil: Date?
+
     @Timestamp(key: "created_at", on: .create)
     var createdAt: Date?
 
@@ -29,12 +35,16 @@ final class PasswordResetToken: Model, @unchecked Sendable {
         userId: UUID,
         codeHash: String,
         expiresAt: Date,
-        usedAt: Date? = nil
+        usedAt: Date? = nil,
+        failedAttempts: Int = 0,
+        lockedUntil: Date? = nil
     ) {
         self.id = id
         self.userId = userId
         self.codeHash = codeHash
         self.expiresAt = expiresAt
         self.usedAt = usedAt
+        self.failedAttempts = failedAttempts
+        self.lockedUntil = lockedUntil
     }
 }

@@ -87,7 +87,17 @@ struct ReportsController: RouteCollection {
             yearlyReportsTask
         )
 
-        let latestMonthSummary = monthlyReports.last
+        // Find the "best" month to show as latest:
+        // 1. Exact match for current month
+        // 2. Otherwise, most recent past month that has actual spending
+        // 3. Fallback to just .last if nothing else
+        let todayStr = makeDateFormatter().string(from: Date())
+        let currentMonthStart = String(todayStr.prefix(7)) + "-01"
+        
+        let latestMonthSummary = monthlyReports.first { $0.monthStart == currentMonthStart }
+            ?? monthlyReports.reversed().first { $0.actual > 0 }
+            ?? monthlyReports.last
+
         let latestPillarSummaries: [PillarPlanningSummaryResponse]
         if let latestMonthSummary,
            let monthStart = makeDateFormatter().date(from: latestMonthSummary.monthStart) {

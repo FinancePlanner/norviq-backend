@@ -38,7 +38,7 @@ extension StockServiceError: AbortError {
 }
 
 protocol StockService: Sendable {
-    func list(userId: UUID, portfolioListId: UUID?, on db: any Database) async throws -> [StockResponse]
+    func list(userId: UUID, portfolioListId: UUID?, limit: Int, on db: any Database) async throws -> [StockResponse]
     func get(id: UUID, userId: UUID, on db: any Database) async throws -> StockResponse
     func get(symbol: String, userId: UUID, on db: any Database) async throws -> StockResponse
     func getInsights(symbol: String, userId: UUID, on db: any Database) async throws -> StockInsightsResponse
@@ -70,8 +70,8 @@ struct StockServiceImpl: StockService {
     let repo: any StocksRepository
     let req: Request
 
-    func list(userId: UUID, portfolioListId: UUID?, on db: any Database) async throws -> [StockResponse] {
-        let stocks = try await repo.list(userId: userId, portfolioListId: portfolioListId, on: db)
+    func list(userId: UUID, portfolioListId: UUID?, limit: Int, on db: any Database) async throws -> [StockResponse] {
+        let stocks = try await repo.list(userId: userId, portfolioListId: portfolioListId, limit: limit, on: db)
         return try stocks.map { try StockResponse(from: $0) }
     }
 

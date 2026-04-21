@@ -14,7 +14,7 @@ struct DefaultTargetAlertEvaluator: TargetAlertEvaluating {
                 .filter(\.$alertTriggeredAt == nil)
                 .all()
         } catch {
-            req.logger.warning("target-alert query failed error=\(String(reflecting: error))")
+            req.logger.warning("target-alert query failed error_type=\(String(reflecting: type(of: error)))")
             return
         }
 
@@ -33,7 +33,7 @@ struct DefaultTargetAlertEvaluator: TargetAlertEvaluating {
             quote = try await req.application.marketDataService.quote(symbol: target.symbol, on: req)
         } catch {
             req.logger.warning(
-                "target-alert quote lookup failed symbol=\(target.symbol) error=\(String(reflecting: error))"
+                "target-alert quote lookup failed symbol=\(target.symbol) error_type=\(String(reflecting: type(of: error)))"
             )
             return
         }
@@ -48,7 +48,7 @@ struct DefaultTargetAlertEvaluator: TargetAlertEvaluating {
             devices = try await req.pushDeviceService.activeDevices(userId: target.userId, on: req.db)
         } catch {
             req.logger.warning(
-                "target-alert device query failed userId=\(target.userId.uuidString) error=\(String(reflecting: error))"
+                "target-alert device query failed userId=\(target.userId.uuidString) error_type=\(String(reflecting: type(of: error)))"
             )
             return
         }
@@ -84,7 +84,7 @@ struct DefaultTargetAlertEvaluator: TargetAlertEvaluating {
             )
         } catch {
             req.logger.warning(
-                "target-alert save failed symbol=\(target.symbol) error=\(String(reflecting: error))"
+                "target-alert save failed symbol=\(target.symbol) error_type=\(String(reflecting: type(of: error)))"
             )
         }
     }

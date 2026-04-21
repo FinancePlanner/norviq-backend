@@ -165,6 +165,7 @@ struct ExpensesController: RouteCollection {
             userId: session.userId,
             from: fromDate,
             to: toDate,
+            limit: clampedLimit(req.query[Int.self, at: "limit"]),
             on: req.db
         )
     }
@@ -219,6 +220,10 @@ struct ExpensesController: RouteCollection {
             throw Abort(.badRequest, reason: "Invalid \(name).")
         }
         return value
+    }
+
+    private func clampedLimit(_ rawLimit: Int?, default defaultValue: Int = 100, max maxValue: Int = 100) -> Int {
+        max(1, min(rawLimit ?? defaultValue, maxValue))
     }
 
     // MARK: - Categories

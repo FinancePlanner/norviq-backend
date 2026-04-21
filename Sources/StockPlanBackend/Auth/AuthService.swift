@@ -63,6 +63,11 @@ protocol AuthService: Sendable {
 
 // swiftlint:disable type_body_length
 struct DefaultAuthService: AuthService {
+    private static let passwordResetMaxAttempts = 5
+    private static let passwordResetLockSeconds: TimeInterval = 15 * 60
+    private static let passwordResetIssueWindowSeconds: TimeInterval = 5 * 60
+    private static let passwordResetMaxIssuesPerWindow = 3
+
     let repo: any AuthRepository
     let oauthProviders: [OAuthProvider: any OAuthProviderClient]
     let mfaConfig: AuthMFAConfig
@@ -116,7 +121,7 @@ struct DefaultAuthService: AuthService {
                 on: req.db
             )
         } catch {
-            req.logger.error("Error creating user: \(String(reflecting: error))")
+            req.logger.error("auth.register create_user_failed error_type=\(String(reflecting: type(of: error)))")
             throw error
         }
         return try await makeAuthResponse(for: user, on: req)
@@ -128,6 +133,7 @@ struct DefaultAuthService: AuthService {
         try validatePassword(password)
 
         guard let user = try await repo.findUser(email: normalizedEmail, on: req.db) else {
+            _ = try? req.password.hash(password)
             throw Abort(.unauthorized, reason: "Invalid email or password")
         }
 
@@ -146,8 +152,11 @@ struct DefaultAuthService: AuthService {
             // 2. Increment failed attempts and lock if necessary
             user.failedLoginAttempts += 1
             if user.failedLoginAttempts >= 5 {
-                user.lockoutUntil = Date().addingTimeInterval(15 * 60) // 15 minutes
-                req.logger.warning("Account locked for user \(user.email) until \(user.lockoutUntil!)")
+                let lockoutUntil = Date().addingTimeInterval(15 * 60)
+                user.lockoutUntil = lockoutUntil
+                req.logger.warning(
+                    "auth.login account_locked user_id=\(user.id?.uuidString ?? "unknown") until=\(lockoutUntil)"
+                )
             }
             try await persistUser(user, on: req)
             throw Abort(.unauthorized, reason: "Invalid email or password")
@@ -211,16 +220,22 @@ struct DefaultAuthService: AuthService {
         }
 
         let now = Date()
-        let codeHash = hashToken(code)
-
-        guard
-            let resetToken = try await repo.findValidPasswordResetToken(
-                userId: userId,
-                codeHash: codeHash,
-                now: now,
-                on: req.db
-            )
+        guard let resetToken = try await repo.findLatestActivePasswordResetToken(userId: userId, now: now, on: req.db)
         else {
+            throw Abort(.unauthorized, reason: "Invalid reset code")
+        }
+
+        if let lockedUntil = resetToken.lockedUntil, lockedUntil > now {
+            throw Abort(.tooManyRequests, reason: "Too many reset attempts. Please request a new code later.")
+        }
+
+        guard resetToken.codeHash == hashToken(code) else {
+            resetToken.failedAttempts += 1
+            if resetToken.failedAttempts >= Self.passwordResetMaxAttempts {
+                resetToken.lockedUntil = now.addingTimeInterval(Self.passwordResetLockSeconds)
+                resetToken.usedAt = now
+            }
+            try await repo.savePasswordResetToken(resetToken, on: req.db)
             throw Abort(.unauthorized, reason: "Invalid reset code")
         }
 
@@ -253,7 +268,7 @@ struct DefaultAuthService: AuthService {
     func oauthStart(provider: OAuthProvider, redirectURI: String, on req: Request) async throws
         -> OAuthStartResponse {
         let normalizedRedirectURI = try normalizeRedirectURI(redirectURI)
-        try validateRedirectURI(normalizedRedirectURI)
+        try validateRedirectURI(normalizedRedirectURI, app: req.application)
 
         let oauthProvider = try oauthProviderClient(for: provider)
         let state = randomURLSafeString(length: 32)
@@ -624,6 +639,20 @@ struct DefaultAuthService: AuthService {
                 message: "If the account exists, a reset code has been sent.", resetCode: nil)
         }
 
+        let recentWindowStart = Date().addingTimeInterval(-Self.passwordResetIssueWindowSeconds)
+        let recentCodes = try await repo.countRecentPasswordResetTokens(
+            userId: userId,
+            since: recentWindowStart,
+            on: req.db
+        )
+        guard recentCodes < Self.passwordResetMaxIssuesPerWindow else {
+            req.logger.warning("auth.password_reset throttled user_id=\(userId.uuidString)")
+            return AuthForgotPasswordResponse(
+                message: "If the account exists, a reset code has been sent.",
+                resetCode: nil
+            )
+        }
+
         let code = generateResetCode()
         let codeHash = hashToken(code)
         let expiresAt = Date().addingTimeInterval(15 * 60)
@@ -632,7 +661,8 @@ struct DefaultAuthService: AuthService {
             userId: userId, codeHash: codeHash, expiresAt: expiresAt, on: req.db)
 
         let shouldReturnCode =
-            (Environment.get("AUTH_RESET_RETURN_CODE") ?? "false").lowercased() == "true"
+            req.application.environment == .testing
+            && (Environment.get("AUTH_RESET_RETURN_CODE") ?? "false").lowercased() == "true"
         let responseCode = shouldReturnCode ? code : nil
 
         let message = MailMessage(
@@ -680,9 +710,12 @@ struct DefaultAuthService: AuthService {
         return normalized
     }
 
-    private func validateRedirectURI(_ redirectURI: String) throws {
+    private func validateRedirectURI(_ redirectURI: String, app: Application) throws {
         let allowlist = allowedRedirectURIs()
         guard !allowlist.isEmpty else {
+            if app.environment == .production {
+                throw Abort(.serviceUnavailable, reason: "OAuth redirect allowlist is not configured")
+            }
             return
         }
 

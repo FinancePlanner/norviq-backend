@@ -17,6 +17,9 @@ protocol AuthRepository: Sendable {
 
     func createPasswordResetToken(userId: UUID, codeHash: String, expiresAt: Date, on db: any Database) async throws
     func findValidPasswordResetToken(userId: UUID, codeHash: String, now: Date, on db: any Database) async throws -> PasswordResetToken?
+    func findLatestActivePasswordResetToken(userId: UUID, now: Date, on db: any Database) async throws -> PasswordResetToken?
+    func countRecentPasswordResetTokens(userId: UUID, since: Date, on db: any Database) async throws -> Int
+    func savePasswordResetToken(_ token: PasswordResetToken, on db: any Database) async throws
     func markPasswordResetTokenUsed(_ token: PasswordResetToken, usedAt: Date, on db: any Database) async throws
 
     func createRefreshToken(userId: UUID, tokenHash: String, expiresAt: Date, on db: any Database) async throws
@@ -138,6 +141,26 @@ struct DatabaseAuthRepository: AuthRepository {
             .filter(\.$expiresAt > now)
             .sort(\.$createdAt, .descending)
             .first()
+    }
+
+    func findLatestActivePasswordResetToken(userId: UUID, now: Date, on db: any Database) async throws -> PasswordResetToken? {
+        try await PasswordResetToken.query(on: db)
+            .filter(\.$userId == userId)
+            .filter(\.$usedAt == nil)
+            .filter(\.$expiresAt > now)
+            .sort(\.$createdAt, .descending)
+            .first()
+    }
+
+    func countRecentPasswordResetTokens(userId: UUID, since: Date, on db: any Database) async throws -> Int {
+        try await PasswordResetToken.query(on: db)
+            .filter(\.$userId == userId)
+            .filter(\.$createdAt >= since)
+            .count()
+    }
+
+    func savePasswordResetToken(_ token: PasswordResetToken, on db: any Database) async throws {
+        try await token.save(on: db)
     }
 
     func markPasswordResetTokenUsed(_ token: PasswordResetToken, usedAt: Date, on db: any Database) async throws {

@@ -208,7 +208,16 @@ struct MarketDataController: RouteCollection {
         guard let symbolsStr = req.query[String.self, at: "symbols"] else {
             throw Abort(.badRequest, reason: "Missing symbols query parameter.")
         }
-        let symbols = symbolsStr.split(separator: ",").map(String.init)
+        let symbols = symbolsStr
+            .split(separator: ",")
+            .map { String($0).trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        guard !symbols.isEmpty else {
+            throw Abort(.badRequest, reason: "At least one symbol is required.")
+        }
+        guard symbols.count <= 10 else {
+            throw Abort(.badRequest, reason: "Compare supports at most 10 symbols.")
+        }
         return try await req.application.marketDataService.compare(symbols: symbols, on: req)
     }
 
@@ -371,6 +380,13 @@ struct MarketDataController: RouteCollection {
             .split(separator: ",")
             .map { String($0).trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { !$0.isEmpty }
+
+        guard !parsed.isEmpty else {
+            throw Abort(.badRequest, reason: "At least one symbol is required.")
+        }
+        guard parsed.count <= 50 else {
+            throw Abort(.badRequest, reason: "Quote batch supports at most 50 symbols.")
+        }
 
         return try await req.application.marketDataService.quoteBatch(symbols: parsed, on: req)
     }

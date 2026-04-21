@@ -322,6 +322,7 @@ private func registerMigrations(_ app: Application) {
     app.migrations.add(CreateFxRate())
     app.migrations.add(CreatePrice())
     app.migrations.add(CreatePasswordResetToken())
+    app.migrations.add(AddPasswordResetTokenAttemptFields())
     app.migrations.add(CreateRefreshToken())
     app.migrations.add(CreateMFAChallenge())
     app.migrations.add(CreateOAuthTables())

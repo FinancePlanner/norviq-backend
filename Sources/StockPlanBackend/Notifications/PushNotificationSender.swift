@@ -97,7 +97,7 @@ struct APNSPushNotificationSender: PushNotificationSending {
             } catch {
                 failed += 1
                 req.logger.warning(
-                    "push.notifications send failed symbol=\(target.symbol) token=\(device.deviceToken) error=\(String(reflecting: error))"
+                    "push.notifications send failed symbol=\(target.symbol) error_type=\(String(reflecting: type(of: error)))"
                 )
                 if isInvalidTokenError(error) {
                     try? await req.pushDeviceService.deactivate(deviceToken: device.deviceToken, on: req.db)

@@ -42,7 +42,11 @@ struct RequestLoggingMiddleware: AsyncMiddleware {
 
         let message = "http_request"
         if let error {
-            logger.error("\(message) error=\(String(reflecting: error))")
+            logger[metadataKey: "error_type"] = .string(String(reflecting: type(of: error)))
+            if let abort = error as? any AbortError {
+                logger[metadataKey: "error_status"] = .stringConvertible(abort.status.code)
+            }
+            logger.error("\(message)")
         } else if status.code >= 500 {
             logger.error("\(message)")
         } else if status.code >= 400 {

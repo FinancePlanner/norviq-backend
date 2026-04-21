@@ -15,42 +15,32 @@ struct RateLimitMiddleware: AsyncMiddleware {
     }
 
     func respond(to request: Request, chainingTo next: any AsyncResponder) async throws -> Response {
-        // Only proceed if Redis is configured
         guard request.application.redis.configuration != nil else {
+            if request.application.environment == .production {
+                throw Abort(.serviceUnavailable, reason: "Rate limiting is unavailable.")
+            }
             return try await next.respond(to: request)
         }
 
         let identifier = request.remoteAddress?.ipAddress ?? "unknown"
         let key = RedisKey("\(keyPrefix):\(identifier)")
-
-        // Use more direct Redis commands to avoid RediStack/Vapor version mismatches in types
-        let countData = try await request.redis.get(key).get()
         let count: Int
-        
-        switch countData {
-        case .bulkString(let buffer):
-            count = buffer.flatMap { buffer in
-                var b = buffer
-                return b.readString(length: b.readableBytes).flatMap(Int.init)
-            } ?? 0
-        case .integer(let int):
-            count = int
-        default:
-            count = 0
+        do {
+            count = try await request.redis.increment(key).get()
+            if count == 1 {
+                _ = try await request.redis.expire(key, after: .seconds(Int64(interval))).get()
+            }
+        } catch {
+            if request.application.environment == .production {
+                request.logger.error("rate_limit unavailable prefix=\(keyPrefix)")
+                throw Abort(.serviceUnavailable, reason: "Rate limiting is unavailable.")
+            }
+            return try await next.respond(to: request)
         }
 
-        if count >= limit {
+        guard count <= limit else {
             throw Abort(.tooManyRequests, reason: "Rate limit exceeded. Please try again later.")
         }
-
-        // Increment count
-        _ = try await request.redis.increment(key).get()
-
-        // Set expiration if it's the first request in the window
-        if count == 0 {
-            _ = try await request.redis.expire(key, after: .seconds(Int64(interval))).get()
-        }
-
         return try await next.respond(to: request)
     }
 }

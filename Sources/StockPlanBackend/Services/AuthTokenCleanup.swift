@@ -49,7 +49,7 @@ final class AuthTokenCleanup: LifecycleHandler, @unchecked Sendable {
         } catch {
             // Silently ignore if table doesn't exist yet (migrations not run)
             if !isTableNotFoundError(error) {
-                app.logger.warning("Refresh token cleanup failed: \(error)")
+                app.logger.warning("refresh_token cleanup failed error_type=\(String(reflecting: type(of: error)))")
             }
         }
     }

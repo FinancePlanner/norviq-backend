@@ -21,3 +21,21 @@ struct CreatePasswordResetToken: AsyncMigration {
         try await database.schema("password_reset_tokens").delete()
     }
 }
+
+struct AddPasswordResetTokenAttemptFields: AsyncMigration {
+    func prepare(on database: any Database) async throws {
+        try await database.schema("password_reset_tokens")
+            .field("failed_attempts", .int, .required, .sql(.default(SQLRaw("0"))))
+            .field("locked_until", .datetime)
+            .update()
+
+        try await database.createIndex(on: "password_reset_tokens", columns: ["locked_until"])
+    }
+
+    func revert(on database: any Database) async throws {
+        try await database.schema("password_reset_tokens")
+            .deleteField("locked_until")
+            .deleteField("failed_attempts")
+            .update()
+    }
+}
