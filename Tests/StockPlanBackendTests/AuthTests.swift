@@ -48,6 +48,107 @@ struct AuthTests {
         Request(application: app, on: app.eventLoopGroup.next())
     }
 
+    private func configureFakeOAuthProvider(
+        _ app: Application,
+        provider: OAuthProvider,
+        identity: OAuthIdentityInfo
+    ) {
+        app.authService = DefaultAuthService(
+            repo: app.authRepository,
+            oauthProviders: [provider: FakeOAuthProviderClient(provider: provider, identity: identity)],
+            mfaConfig: .default,
+            trialService: app.trialService
+        )
+    }
+
+    private func makeOAuthExchangeRequest(app: Application, provider: OAuthProvider) async throws -> OAuthExchangeRequest {
+        let redirectURI = "norviqa://oauth/callback"
+        let startReq = OAuthStartRequest(redirectURI: redirectURI)
+        var startResponse: OAuthStartResponse?
+
+        try await app.testing().test(.POST, "v1/auth/oauth/\(provider.rawValue)/start", beforeRequest: { req in
+            try req.content.encode(startReq)
+        }, afterResponse: { res async throws in
+            #expect(res.status == .ok)
+            startResponse = try res.content.decode(OAuthStartResponse.self)
+        })
+
+        guard let startResponse,
+              let url = URL(string: startResponse.authorizationURL),
+              let state = URLComponents(url: url, resolvingAgainstBaseURL: false)?
+                .queryItems?
+                .first(where: { $0.name == "state" })?
+                .value
+        else {
+            throw Abort(.internalServerError, reason: "Fake OAuth start did not return a state")
+        }
+
+        return OAuthExchangeRequest(
+            flowId: startResponse.flowId,
+            code: "fake-code",
+            state: state,
+            redirectURI: redirectURI
+        )
+    }
+
+    private func assertOAuthLinksVerifiedExistingEmail(provider: OAuthProvider) async throws {
+        try await withApp { app in
+            let email = "oauth-\(provider.rawValue)-link@example.com"
+            let registerReq = makeRegisterRequest(
+                email: email,
+                username: "oauth_\(provider.rawValue)_link_user"
+            )
+            var existingUserID: UUID?
+
+            try await app.testing().test(.POST, "v1/auth/register", beforeRequest: { req in
+                try req.content.encode(registerReq)
+            }, afterResponse: { res async throws in
+                #expect(res.status == .ok)
+                existingUserID = try res.content.decode(AuthResponse.self).userId
+            })
+
+            guard let existingUserID else {
+                Issue.record("Expected existing user id")
+                return
+            }
+
+            let providerUserID = "\(provider.rawValue)-linked-user"
+            configureFakeOAuthProvider(
+                app,
+                provider: provider,
+                identity: OAuthIdentityInfo(
+                    providerUserID: providerUserID,
+                    email: email,
+                    emailVerified: true,
+                    suggestedUsername: "oauth_\(provider.rawValue)_link_user"
+                )
+            )
+
+            let exchangeReq = try await makeOAuthExchangeRequest(app: app, provider: provider)
+            try await app.testing().test(.POST, "v1/auth/oauth/\(provider.rawValue)/exchange", beforeRequest: { req in
+                try req.content.encode(exchangeReq)
+            }, afterResponse: { res async throws in
+                #expect(res.status == .ok)
+                let response = try res.content.decode(AuthResponse.self)
+                #expect(response.userId == existingUserID)
+                #expect(response.email == email)
+            })
+
+            let identity = try await OAuthIdentity.query(on: app.db)
+                .filter(\.$provider == provider.rawValue)
+                .filter(\.$providerUserID == providerUserID)
+                .first()
+            #expect(identity?.$user.id == existingUserID)
+            #expect(identity?.email == email)
+            #expect(identity?.emailVerified == true)
+
+            let usersWithEmail = try await User.query(on: app.db)
+                .filter(\.$email == email)
+                .count()
+            #expect(usersWithEmail == 1)
+        }
+    }
+
     @Test("Registration fails when password confirmation does not match")
     func registerPasswordConfirmationMismatch() async throws {
         try await withApp { app in
@@ -489,6 +590,88 @@ struct AuthTests {
         }
     }
 
+    @Test("OAuth exchange links verified Google email to existing account")
+    func oauthExchangeLinksVerifiedGoogleEmailToExistingAccount() async throws {
+        try await assertOAuthLinksVerifiedExistingEmail(provider: .google)
+    }
+
+    @Test("OAuth exchange links verified Apple email to existing account")
+    func oauthExchangeLinksVerifiedAppleEmailToExistingAccount() async throws {
+        try await assertOAuthLinksVerifiedExistingEmail(provider: .apple)
+    }
+
+    @Test("OAuth exchange links verified X email to existing account")
+    func oauthExchangeLinksVerifiedXEmailToExistingAccount() async throws {
+        try await assertOAuthLinksVerifiedExistingEmail(provider: .x)
+    }
+
+    @Test("OAuth exchange does not link unverified email to existing account")
+    func oauthExchangeRejectsUnverifiedExistingEmail() async throws {
+        try await withApp { app in
+            let email = "oauth-unverified@example.com"
+            let registerReq = makeRegisterRequest(
+                email: email,
+                username: "oauth_unverified_user"
+            )
+            try await app.testing().test(.POST, "v1/auth/register", beforeRequest: { req in
+                try req.content.encode(registerReq)
+            }, afterResponse: { res async in
+                #expect(res.status == .ok)
+            })
+
+            configureFakeOAuthProvider(
+                app,
+                provider: .google,
+                identity: OAuthIdentityInfo(
+                    providerUserID: "google-unverified-user",
+                    email: email,
+                    emailVerified: false,
+                    suggestedUsername: "oauth_unverified_user"
+                )
+            )
+
+            let exchangeReq = try await makeOAuthExchangeRequest(app: app, provider: .google)
+            try await app.testing().test(.POST, "v1/auth/oauth/google/exchange", beforeRequest: { req in
+                try req.content.encode(exchangeReq)
+            }, afterResponse: { res async in
+                #expect(res.status == .conflict)
+                #expect(res.body.string.contains("ACCOUNT_EXISTS_LINK_REQUIRED"))
+            })
+        }
+    }
+
+    @Test("OAuth exchange still creates new OAuth user when email is new")
+    func oauthExchangeCreatesNewUserForNewEmail() async throws {
+        try await withApp { app in
+            let email = "oauth-new-user@example.com"
+            configureFakeOAuthProvider(
+                app,
+                provider: .google,
+                identity: OAuthIdentityInfo(
+                    providerUserID: "google-new-user",
+                    email: email,
+                    emailVerified: true,
+                    suggestedUsername: "oauth_new_user"
+                )
+            )
+
+            let exchangeReq = try await makeOAuthExchangeRequest(app: app, provider: .google)
+            try await app.testing().test(.POST, "v1/auth/oauth/google/exchange", beforeRequest: { req in
+                try req.content.encode(exchangeReq)
+            }, afterResponse: { res async throws in
+                #expect(res.status == .ok)
+                let response = try res.content.decode(AuthResponse.self)
+                #expect(response.email == email)
+            })
+
+            let identity = try await OAuthIdentity.query(on: app.db)
+                .filter(\.$provider == OAuthProvider.google.rawValue)
+                .filter(\.$providerUserID == "google-new-user")
+                .first()
+            #expect(identity != nil)
+        }
+    }
+
     // MARK: - Password Reset Tests
 
     @Test("Forgot password returns success message")
@@ -595,6 +778,30 @@ struct AuthTests {
             )
             #expect(token == nil)
         }
+    }
+}
+
+private struct FakeOAuthProviderClient: OAuthProviderClient {
+    let provider: OAuthProvider
+    let identity: OAuthIdentityInfo
+
+    func makeAuthorizationURL(context: OAuthAuthorizationContext) throws -> URL {
+        var components = URLComponents(string: "https://oauth.example.test/authorize")!
+        components.queryItems = [
+            URLQueryItem(name: "state", value: context.state),
+            URLQueryItem(name: "nonce", value: context.nonce)
+        ]
+        return components.url!
+    }
+
+    func resolveIdentity(
+        code: String,
+        redirectURI: String,
+        codeVerifier: String,
+        nonce: String,
+        on req: Request
+    ) async throws -> OAuthIdentityInfo {
+        identity
     }
 }
 

@@ -412,7 +412,29 @@ struct DefaultAuthService: AuthService {
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .lowercased()
         if let normalizedIdentityEmail,
-            try await repo.findUser(email: normalizedIdentityEmail, on: req.db) != nil {
+            let existingUser = try await repo.findUser(email: normalizedIdentityEmail, on: req.db) {
+            guard identityInfo.emailVerified else {
+                throw Abort(.conflict, reason: "ACCOUNT_EXISTS_LINK_REQUIRED")
+            }
+
+            _ = try await createOAuthIdentity(
+                for: existingUser,
+                provider: provider,
+                identityInfo: identityInfo,
+                email: normalizedIdentityEmail,
+                on: req
+            )
+            req.logger.info(
+                "auth.oauth linked_existing_user provider=\(provider.rawValue) user_id=\(existingUser.id?.uuidString ?? "unknown")"
+            )
+
+            if requireMFA {
+                let challenge = try await issueMFAChallenge(user: existingUser, purpose: .oauth, channel: .email, on: req)
+                req.logger.info("auth.mfa challenge_issued purpose=oauth user_id=\(existingUser.id?.uuidString ?? "unknown")")
+                return .mfaRequired(challenge)
+            }
+            return .authenticated(try await makeAuthResponse(for: existingUser, on: req))
+        } else if normalizedIdentityEmail != nil, !identityInfo.emailVerified {
             throw Abort(.conflict, reason: "ACCOUNT_EXISTS_LINK_REQUIRED")
         }
         let resolvedUserEmail =
@@ -435,17 +457,12 @@ struct DefaultAuthService: AuthService {
             on: req.db
         )
 
-        guard let userID = user.id else {
-            throw Abort(.internalServerError, reason: "User id missing after OAuth user creation")
-        }
-
-        _ = try await repo.createOAuthIdentity(
-            userId: userID,
-            provider: provider.rawValue,
-            providerUserID: identityInfo.providerUserID,
+        _ = try await createOAuthIdentity(
+            for: user,
+            provider: provider,
+            identityInfo: identityInfo,
             email: normalizedIdentityEmail,
-            emailVerified: identityInfo.emailVerified,
-            on: req.db
+            on: req
         )
 
         if requireMFA {
@@ -531,6 +548,27 @@ struct DefaultAuthService: AuthService {
     }
 
     // MARK: - Internals
+
+    private func createOAuthIdentity(
+        for user: User,
+        provider: OAuthProvider,
+        identityInfo: OAuthIdentityInfo,
+        email: String?,
+        on req: Request
+    ) async throws -> OAuthIdentity {
+        guard let userID = user.id else {
+            throw Abort(.internalServerError, reason: "User id missing for OAuth identity")
+        }
+
+        return try await repo.createOAuthIdentity(
+            userId: userID,
+            provider: provider.rawValue,
+            providerUserID: identityInfo.providerUserID,
+            email: email,
+            emailVerified: identityInfo.emailVerified,
+            on: req.db
+        )
+    }
 
     private func makeAuthResponse(for user: User, on req: Request) async throws -> AuthResponse {
         guard let userId = user.id else {
