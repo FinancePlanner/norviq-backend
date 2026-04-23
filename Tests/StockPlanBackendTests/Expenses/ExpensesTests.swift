@@ -59,6 +59,75 @@ struct ExpensesTests {
         return token
     }
 
+    @Test("Expenses, budget, and reports are isolated per authenticated user")
+    func expensesBudgetAndReportsAreUserIsolated() async throws {
+        try await withExpensesApp { app in
+            let ownerToken = try await registerTestUser(app: app)
+            let otherToken = try await registerTestUser(app: app)
+
+            var expenseId = ""
+            try await app.testing().test(.POST, "v1/expenses", beforeRequest: { req in
+                req.headers.bearerAuthorization = .init(token: ownerToken)
+                try req.content.encode(
+                    ExpenseRequest(
+                        title: "Owner rent",
+                        amount: 1200,
+                        pillar: .fundamentals,
+                        occurredOn: "2026-07-02"
+                    )
+                )
+            }, afterResponse: { res async throws in
+                #expect(res.status == .created)
+                expenseId = try res.content.decode(ExpenseResponse.self).id
+            })
+
+            try await app.testing().test(.GET, "v1/expenses", beforeRequest: { req in
+                req.headers.bearerAuthorization = .init(token: otherToken)
+            }, afterResponse: { res async throws in
+                #expect(res.status == .ok)
+                let expenses = try res.content.decode([ExpenseResponse].self)
+                #expect(expenses.isEmpty)
+            })
+
+            try await app.testing().test(.GET, "v1/reports/expenses?granularity=month&from=2026-07-01&to=2026-07-31", beforeRequest: { req in
+                req.headers.bearerAuthorization = .init(token: otherToken)
+            }, afterResponse: { res async throws in
+                #expect(res.status == .ok)
+                let reports = try res.content.decode([BudgetMonthSummaryResponse].self)
+                #expect(reports.isEmpty)
+            })
+
+            try await app.testing().test(.PATCH, "v1/expenses/\(expenseId)", beforeRequest: { req in
+                req.headers.bearerAuthorization = .init(token: otherToken)
+                try req.content.encode(
+                    ExpenseRequest(
+                        title: "Cross-user edit",
+                        amount: 1,
+                        pillar: .fun,
+                        occurredOn: "2026-07-03"
+                    )
+                )
+            }, afterResponse: { res async throws in
+                #expect(res.status == .forbidden || res.status == .notFound)
+            })
+
+            try await app.testing().test(.DELETE, "v1/expenses/\(expenseId)", beforeRequest: { req in
+                req.headers.bearerAuthorization = .init(token: otherToken)
+            }, afterResponse: { res async throws in
+                #expect(res.status == .forbidden || res.status == .notFound)
+            })
+
+            try await app.testing().test(.GET, "v1/expenses", beforeRequest: { req in
+                req.headers.bearerAuthorization = .init(token: ownerToken)
+            }, afterResponse: { res async throws in
+                #expect(res.status == .ok)
+                let expenses = try res.content.decode([ExpenseResponse].self)
+                #expect(expenses.count == 1)
+                #expect(expenses[0].title == "Owner rent")
+            })
+        }
+    }
+
     @Test("Monthly report aggregation")
     func monthlyReportAggregation() async throws {
         try await withExpensesApp { app in

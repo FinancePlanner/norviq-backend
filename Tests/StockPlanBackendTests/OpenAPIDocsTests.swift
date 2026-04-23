@@ -18,6 +18,8 @@ struct OpenAPIDocsTests {
                 #expect(body.contains("/health:"))
                 #expect(body.contains("operationId: health"))
                 #expect(body.contains("HealthResponse:"))
+                #expect(body.contains("APIErrorEnvelope:"))
+                #expect(body.contains("requestId:"))
                 #expect(body.contains("/v1/market/details:"))
                 #expect(body.contains("/v1/market/history:"))
                 #expect(body.contains("/v1/market/history/archive:"))
@@ -193,6 +195,31 @@ struct OpenAPIDocsTests {
                 #expect(body.contains("ReportsOverviewResponse:"))
                 #expect(body.contains("ReportSuggestionResponse:"))
                 #expect(body.contains("ReportSuggestionsResponse:"))
+
+                let requiredPublicPaths = [
+                    "/v1/auth/register:",
+                    "/v1/auth/login:",
+                    "/v1/auth/refresh:",
+                    "/v1/billing/me:",
+                    "/v1/stocks:",
+                    "/v1/stocks/{symbol}/insights:",
+                    "/v1/portfolio/summary:",
+                    "/v1/portfolio/lists:",
+                    "/v1/watchlist:",
+                    "/v1/watchlist/lists:",
+                    "/v1/expenses:",
+                    "/v1/budget/snapshots:",
+                    "/v1/budget/items:",
+                    "/v1/reports/expenses:",
+                    "/v1/reports/overview:",
+                    "/v1/reports/suggestions:",
+                    "/v1/dashboard:",
+                    "/v1/dashboard/insights:",
+                    "/v1/crypto/portfolio:"
+                ]
+                for path in requiredPublicPaths {
+                    #expect(body.contains(path), "Missing OpenAPI path \(path)")
+                }
             })
         } catch {
             try await app.asyncShutdown()

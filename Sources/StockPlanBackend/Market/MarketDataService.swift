@@ -229,6 +229,7 @@ struct DefaultMarketDataService: MarketDataService {
 
         var indexedQuotes: [(Int, QuoteResponse)] = []
         indexedQuotes.reserveCapacity(normalized.count)
+        let application = req.application
 
         for chunkStart in stride(from: 0, to: normalized.count, by: 10) {
             let chunkEnd = min(chunkStart + 10, normalized.count)
@@ -237,7 +238,11 @@ struct DefaultMarketDataService: MarketDataService {
                 for (offset, symbol) in chunk.enumerated() {
                     let index = chunkStart + offset
                     group.addTask {
-                        (index, try await quote(symbol: symbol, on: req))
+                        let childRequest = Request(
+                            application: application,
+                            on: application.eventLoopGroup.next()
+                        )
+                        return (index, try await quote(symbol: symbol, on: childRequest))
                     }
                 }
 

@@ -1,5 +1,7 @@
 # StockPlanBackend API Study Guide
 
+Pair this guide with the iOS client's `financeplan/Documentation/source-of-truth.md`. The client document explains which features treat the API as authoritative, which data is cached in SwiftData, and which mock paths must stay preview/test-only.
+
 This guide is for studying the backend API project: Vapor, Fluent, PostgreSQL, auth, billing, market data, expenses, portfolio, notifications, observability, and tests.
 
 The goal is not just to memorize files. The goal is to understand how an authenticated Swift API is built end to end:

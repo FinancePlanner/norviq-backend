@@ -1,0 +1,13 @@
+{
+  "$schema": "https://raw.githubusercontent.com/swiftlang/sourcekit-lsp/main/config.schema.json",
+  "defaultWorkspaceType": "swiftPM",
+  "swiftPM": {
+    "configuration": "debug",
+    "forceResolvedVersions": true
+  },
+  "backgroundIndexing": true,
+  "backgroundPreparationMode": "enabled",
+  "cancelTextDocumentRequestsOnEditAndClose": true,
+  "swiftPublishDiagnosticsDebounceDuration": 0.5,
+  "sourcekitdRequestTimeout": 120
+}

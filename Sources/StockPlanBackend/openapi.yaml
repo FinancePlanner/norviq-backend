@@ -4473,6 +4473,28 @@ components:
           type: string
           example: ok
       required: [status]
+    APIErrorEnvelope:
+      type: object
+      properties:
+        error:
+          type: boolean
+          example: true
+        code:
+          type: string
+          example: bad_request
+        reason:
+          type: string
+          example: Symbol is required.
+        details:
+          type: object
+          nullable: true
+          additionalProperties:
+            type: string
+        requestId:
+          type: string
+          nullable: true
+          example: 4C665C21-4E7A-4320-A8BE-A95677DB3ED4
+      required: [error, code, reason]
     BillingContextResponse:
       type: object
       properties:

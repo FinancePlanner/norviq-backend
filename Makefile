@@ -1,10 +1,11 @@
 COMPOSE ?= docker compose
 APP_IMAGE ?=
 APP_IMAGE_TAG ?= local-dev
+BACKEND_TEST_ENV ?= testing
 
 .PHONY: help build services migrate start logs stop lint dev build-dev \
 	container-local health production-preflight rollback-app prune-images \
-	backup-db restore-drill export-user-data
+	backup-db restore-drill export-user-data backend-test backend-openapi-check
 
 help:
 	@printf "Targets:\n"
@@ -14,6 +15,8 @@ help:
 	@printf "  make logs     Follow app logs\n"
 	@printf "  make stop     Stop the compose stack\n"
 	@printf "  make lint     Run SwiftLint with auto-fix\n"
+	@printf "  make backend-test          Run the backend Swift test suite\n"
+	@printf "  make backend-openapi-check Run OpenAPI documentation drift checks\n"
 	@printf "  make container-local APP_IMAGE=ghcr.io/<owner>/<repo> [APP_IMAGE_TAG=local-dev]\n"
 	@printf "  make health DOMAIN=<domain> [ATTEMPTS=30] [SLEEP_SECONDS=2]\n"
 	@printf "  make production-preflight DOMAIN=<domain> ORIGIN=<allowed-origin>\n"
@@ -55,6 +58,12 @@ update-shared:
 
 lint:
 	swiftlint --fix
+
+backend-test:
+	LOG_LEVEL=$(or $(LOG_LEVEL),warning) swift test
+
+backend-openapi-check:
+	LOG_LEVEL=$(or $(LOG_LEVEL),warning) swift test --filter OpenAPIDocsTests
 
 container-local:
 	@test -n "$(APP_IMAGE)" || (echo "APP_IMAGE is required. Example: make container-local APP_IMAGE=ghcr.io/owner/StockPlanBackend" && exit 1)

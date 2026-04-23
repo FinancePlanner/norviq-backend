@@ -1,0 +1,12 @@
+{
+  "languages": {
+    "Swift": {
+      "language_servers": ["sourcekit-lsp", "package-swift-lsp"]
+    }
+  },
+  "lsp": {
+    "sourcekit-lsp": {
+      "settings": {}
+    }
+  }
+}

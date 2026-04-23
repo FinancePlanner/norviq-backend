@@ -5,7 +5,7 @@ import Vapor
 final class TargetAlertPoller: LifecycleHandler, @unchecked Sendable {
     private let intervalSeconds: Int64
     private let initialDelaySeconds: Int64
-    private var scheduled: RepeatedTask?
+    private let state = TargetAlertPollerState()
 
     init(intervalSeconds: Int64, initialDelaySeconds: Int64 = 30) {
         self.intervalSeconds = max(intervalSeconds, 30)
@@ -14,18 +14,25 @@ final class TargetAlertPoller: LifecycleHandler, @unchecked Sendable {
 
     func didBoot(_ app: Application) throws {
         let eventLoop = app.eventLoopGroup.next()
-        scheduled = eventLoop.scheduleRepeatedTask(
+        let scheduled = eventLoop.scheduleRepeatedTask(
             initialDelay: .seconds(initialDelaySeconds),
             delay: .seconds(intervalSeconds)
         ) { _ in
-            Task {
+            guard self.state.beginRun() else {
+                app.logger.debug("target_alert_poller skipped overlapping tick")
+                return
+            }
+            let task = Task {
+                defer { self.state.finishRun() }
                 await self.tick(app)
             }
+            self.state.setCurrentTask(task)
         }
+        state.setScheduled(scheduled)
     }
 
     func shutdown(_ app: Application) {
-        scheduled?.cancel()
+        state.cancelAll()
     }
 
     func runOnce(_ app: Application) async {
@@ -35,5 +42,53 @@ final class TargetAlertPoller: LifecycleHandler, @unchecked Sendable {
     private func tick(_ app: Application) async {
         let req = Request(application: app, on: app.eventLoopGroup.next())
         await app.targetAlertEvaluator.evaluateUnresolvedTargets(req: req)
+    }
+}
+
+private final class TargetAlertPollerState: @unchecked Sendable {
+    private let lock = NSLock()
+    private var scheduled: RepeatedTask?
+    private var currentTask: Task<Void, Never>?
+    private var isRunning = false
+
+    func setScheduled(_ scheduled: RepeatedTask) {
+        lock.lock()
+        self.scheduled?.cancel()
+        self.scheduled = scheduled
+        lock.unlock()
+    }
+
+    func beginRun() -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+
+        guard !isRunning else {
+            return false
+        }
+        isRunning = true
+        return true
+    }
+
+    func setCurrentTask(_ task: Task<Void, Never>) {
+        lock.lock()
+        currentTask = task
+        lock.unlock()
+    }
+
+    func finishRun() {
+        lock.lock()
+        currentTask = nil
+        isRunning = false
+        lock.unlock()
+    }
+
+    func cancelAll() {
+        lock.lock()
+        scheduled?.cancel()
+        scheduled = nil
+        currentTask?.cancel()
+        currentTask = nil
+        isRunning = false
+        lock.unlock()
     }
 }
