@@ -337,6 +337,7 @@ private func registerMigrations(_ app: Application) {
     app.migrations.add(CreateOAuthTables())
     app.migrations.add(CreateStock())
     app.migrations.add(AddAssetCategoryToStocks())
+    app.migrations.add(AddImportSourceFieldsToStocks())
     app.migrations.add(CreateWatchlistItem())
     app.migrations.add(AddWatchlistMetadataFields())
     app.migrations.add(AddPortfolioAndWatchlistLists())

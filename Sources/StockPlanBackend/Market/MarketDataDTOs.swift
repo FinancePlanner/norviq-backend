@@ -1319,6 +1319,8 @@ public struct EarningsResponse: Content, Sendable, Equatable {
     public let revenueActual: Double?
     public let revenueEstimated: Double?
     public let lastUpdated: String?
+    public let surprisePercent: Double?
+    public let hasTranscript: Bool
 
     public init(
         symbol: String,
@@ -1327,7 +1329,9 @@ public struct EarningsResponse: Content, Sendable, Equatable {
         epsEstimated: Double?,
         revenueActual: Double?,
         revenueEstimated: Double?,
-        lastUpdated: String?
+        lastUpdated: String?,
+        surprisePercent: Double?,
+        hasTranscript: Bool
     ) {
         self.symbol = symbol
         self.date = date
@@ -1336,6 +1340,8 @@ public struct EarningsResponse: Content, Sendable, Equatable {
         self.revenueActual = revenueActual
         self.revenueEstimated = revenueEstimated
         self.lastUpdated = lastUpdated
+        self.surprisePercent = surprisePercent
+        self.hasTranscript = hasTranscript
     }
 }
 

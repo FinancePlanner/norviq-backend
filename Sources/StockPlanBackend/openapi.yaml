@@ -6537,7 +6537,9 @@ components:
         revenueActual: { type: number, format: double, nullable: true }
         revenueEstimated: { type: number, format: double, nullable: true }
         lastUpdated: { type: string, format: date, nullable: true }
-      required: [symbol, date]
+        surprisePercent: { type: number, format: double, nullable: true }
+        hasTranscript: { type: boolean }
+      required: [symbol, date, hasTranscript]
     FinancialGrowthResponse:
       type: object
       properties:

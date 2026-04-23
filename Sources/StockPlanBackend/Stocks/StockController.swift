@@ -162,6 +162,11 @@ struct StockController: RouteCollection {
     @Sendable
     func getStockValuation(req: Request) async throws -> Response {
         let session = try req.auth.require(SessionToken.self)
+        try await req.usageCounterService.requirePremium(
+            .valuationCases,
+            userId: session.userId,
+            on: req.db
+        )
         let symbol = try requireStringParameter(req, name: "symbol", reason: "Invalid stock symbol")
         do {
             let valuation = try await req.stocksService.getValuation(
@@ -185,6 +190,11 @@ struct StockController: RouteCollection {
     @Sendable
     func createStockValuation(req: Request) async throws -> Response {
         let session = try req.auth.require(SessionToken.self)
+        try await req.usageCounterService.requirePremium(
+            .valuationCases,
+            userId: session.userId,
+            on: req.db
+        )
         let symbol = try requireStringParameter(req, name: "symbol", reason: "Invalid stock symbol")
         let payload = try req.content.decode(StockValuationRequest.self)
         req.logger.debug(
@@ -208,6 +218,11 @@ struct StockController: RouteCollection {
     @Sendable
     func updateStockValuation(req: Request) async throws -> StockValuationRequest {
         let session = try req.auth.require(SessionToken.self)
+        try await req.usageCounterService.requirePremium(
+            .valuationCases,
+            userId: session.userId,
+            on: req.db
+        )
         let symbol = try requireStringParameter(req, name: "symbol", reason: "Invalid stock symbol")
         let payload = try req.content.decode(StockValuationRequest.self)
         req.logger.debug(
@@ -337,6 +352,11 @@ struct StockController: RouteCollection {
     @Sendable
     func listTargets(req: Request) async throws -> [TargetResponse] {
         let session = try req.auth.require(SessionToken.self)
+        try await req.usageCounterService.requirePremium(
+            .targetAlerts,
+            userId: session.userId,
+            on: req.db
+        )
         let symbolFilter = req.query[String.self, at: "symbol"]?.trimmingCharacters(
             in: .whitespacesAndNewlines
         ).uppercased()
@@ -358,6 +378,11 @@ struct StockController: RouteCollection {
     @Sendable
     func createTarget(req: Request) async throws -> Response {
         let session = try req.auth.require(SessionToken.self)
+        try await req.usageCounterService.requirePremium(
+            .targetAlerts,
+            userId: session.userId,
+            on: req.db
+        )
         let payload = try req.content.decode(TargetRequest.self)
         let currentCount = try await Target.query(on: req.db)
             .filter(\.$userId == session.userId)
@@ -397,6 +422,11 @@ struct StockController: RouteCollection {
     @Sendable
     func updateTarget(req: Request) async throws -> TargetResponse {
         let session = try req.auth.require(SessionToken.self)
+        try await req.usageCounterService.requirePremium(
+            .targetAlerts,
+            userId: session.userId,
+            on: req.db
+        )
         let targetId = try requireUUIDParameter(req, name: "targetId", reason: "Invalid target ID")
         let payload = try req.content.decode(TargetRequest.self)
 
@@ -424,6 +454,11 @@ struct StockController: RouteCollection {
     @Sendable
     func deleteTarget(req: Request) async throws -> HTTPStatus {
         let session = try req.auth.require(SessionToken.self)
+        try await req.usageCounterService.requirePremium(
+            .targetAlerts,
+            userId: session.userId,
+            on: req.db
+        )
         let targetId = try requireUUIDParameter(req, name: "targetId", reason: "Invalid target ID")
 
         guard

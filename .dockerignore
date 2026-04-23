@@ -16,6 +16,8 @@ Packages/
 
 # IDE
 .vscode/
+.zed/
+.idea/
 *.xcuserdata
 
 # Local tooling and runtime files

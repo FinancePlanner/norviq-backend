@@ -34,6 +34,7 @@ struct StatisticsController: RouteCollection {
     @Sendable
     func getStockLevelScorecard(req: Request) async throws -> StatisticsDTO {
         let session = try req.auth.require(SessionToken.self)
+        try await requireStatisticsAccess(session: session, req: req)
         let query = try parseQuery(req)
         return try await req.application.statisticsService.stockLevelScorecard(userId: session.userId, query: query, on: req.db)
     }
@@ -41,6 +42,7 @@ struct StatisticsController: RouteCollection {
     @Sendable
     func getStockAllocation(req: Request) async throws -> StatisticsDTO {
         let session = try req.auth.require(SessionToken.self)
+        try await requireStatisticsAccess(session: session, req: req)
         let query = try parseQuery(req)
         return try await req.application.statisticsService.stockAllocation(userId: session.userId, query: query, on: req.db)
     }
@@ -48,6 +50,7 @@ struct StatisticsController: RouteCollection {
     @Sendable
     func getSectorAllocation(req: Request) async throws -> StatisticsDTO {
         let session = try req.auth.require(SessionToken.self)
+        try await requireStatisticsAccess(session: session, req: req)
         let query = try parseQuery(req)
         return try await req.application.statisticsService.sectorAllocation(userId: session.userId, query: query, on: req.db)
     }
@@ -55,6 +58,7 @@ struct StatisticsController: RouteCollection {
     @Sendable
     func getCalendarPerformance(req: Request) async throws -> StatisticsDTO {
         let session = try req.auth.require(SessionToken.self)
+        try await requireStatisticsAccess(session: session, req: req)
         let query = try parseQuery(req)
         return try await req.application.statisticsService.calendarPerformance(userId: session.userId, query: query, on: req.db)
     }
@@ -62,6 +66,7 @@ struct StatisticsController: RouteCollection {
     @Sendable
     func getContributionAnalysis(req: Request) async throws -> StatisticsDTO {
         let session = try req.auth.require(SessionToken.self)
+        try await requireStatisticsAccess(session: session, req: req)
         let query = try parseQuery(req)
         return try await req.application.statisticsService.contributionAnalysis(userId: session.userId, query: query, on: req.db)
     }
@@ -69,6 +74,7 @@ struct StatisticsController: RouteCollection {
     @Sendable
     func getWinnersVsLosers(req: Request) async throws -> StatisticsDTO {
         let session = try req.auth.require(SessionToken.self)
+        try await requireStatisticsAccess(session: session, req: req)
         let query = try parseQuery(req)
         return try await req.application.statisticsService.winnersVsLosers(userId: session.userId, query: query, on: req.db)
     }
@@ -76,6 +82,7 @@ struct StatisticsController: RouteCollection {
     @Sendable
     func getVolatilitySnapshot(req: Request) async throws -> StatisticsDTO {
         let session = try req.auth.require(SessionToken.self)
+        try await requireStatisticsAccess(session: session, req: req)
         let query = try parseQuery(req)
         return try await req.application.statisticsService.volatilitySnapshot(userId: session.userId, query: query, on: req.db)
     }
@@ -83,6 +90,7 @@ struct StatisticsController: RouteCollection {
     @Sendable
     func getCurrencySplit(req: Request) async throws -> StatisticsDTO {
         let session = try req.auth.require(SessionToken.self)
+        try await requireStatisticsAccess(session: session, req: req)
         let query = try parseQuery(req)
         return try await req.application.statisticsService.currencySplit(userId: session.userId, query: query, on: req.db)
     }
@@ -90,6 +98,7 @@ struct StatisticsController: RouteCollection {
     @Sendable
     func getScenarioTracking(req: Request) async throws -> StatisticsDTO {
         let session = try req.auth.require(SessionToken.self)
+        try await requireStatisticsAccess(session: session, req: req)
         let query = try parseQuery(req)
         return try await req.application.statisticsService.scenarioTracking(userId: session.userId, query: query, on: req.db)
     }
@@ -97,6 +106,7 @@ struct StatisticsController: RouteCollection {
     @Sendable
     func getNotesQualityMetrics(req: Request) async throws -> StatisticsDTO {
         let session = try req.auth.require(SessionToken.self)
+        try await requireStatisticsAccess(session: session, req: req)
         let query = try parseQuery(req)
         return try await req.application.statisticsService.notesQualityMetrics(userId: session.userId, query: query, on: req.db)
     }
@@ -104,6 +114,7 @@ struct StatisticsController: RouteCollection {
     @Sendable
     func getImportedStocksStatistics(req: Request) async throws -> StatisticsDTO {
         let session = try req.auth.require(SessionToken.self)
+        try await requireStatisticsAccess(session: session, req: req)
         let query = try parseQuery(req)
         return try await req.application.statisticsService.importedStocksStatistics(userId: session.userId, query: query, on: req.db)
     }
@@ -111,6 +122,7 @@ struct StatisticsController: RouteCollection {
     @Sendable
     func getWatchlistStatistics(req: Request) async throws -> StatisticsDTO {
         let session = try req.auth.require(SessionToken.self)
+        try await requireStatisticsAccess(session: session, req: req)
         let query = try parseQuery(req)
         return try await req.application.statisticsService.watchlistStatistics(userId: session.userId, query: query, on: req.db)
     }
@@ -118,6 +130,7 @@ struct StatisticsController: RouteCollection {
     @Sendable
     func getLooklistStatistics(req: Request) async throws -> StatisticsDTO {
         let session = try req.auth.require(SessionToken.self)
+        try await requireStatisticsAccess(session: session, req: req)
         let query = try parseQuery(req)
         return try await req.application.statisticsService.looklistStatistics(userId: session.userId, query: query, on: req.db)
     }
@@ -125,6 +138,7 @@ struct StatisticsController: RouteCollection {
     @Sendable
     func getMarketStatistics(req: Request) async throws -> StatisticsDTO {
         let session = try req.auth.require(SessionToken.self)
+        try await requireStatisticsAccess(session: session, req: req)
         let query = try parseQuery(req)
         return try await req.application.statisticsService.marketStatistics(userId: session.userId, query: query, on: req.db)
     }
@@ -132,6 +146,7 @@ struct StatisticsController: RouteCollection {
     @Sendable
     func getOverviewStatistics(req: Request) async throws -> StatisticsDTO {
         let session = try req.auth.require(SessionToken.self)
+        try await requireStatisticsAccess(session: session, req: req)
         let query = try parseQuery(req)
         return try await req.application.statisticsService.overviewStatistics(userId: session.userId, query: query, on: req.db)
     }
@@ -143,6 +158,14 @@ struct StatisticsController: RouteCollection {
             top: q.top,
             benchmark: q.benchmark,
             asOf: q.asOf
+        )
+    }
+
+    private func requireStatisticsAccess(session: SessionToken, req: Request) async throws {
+        try await req.usageCounterService.requirePremium(
+            .statistics,
+            userId: session.userId,
+            on: req.db
         )
     }
 }

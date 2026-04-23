@@ -120,6 +120,7 @@ struct BudgetController: RouteCollection {
     @Sendable
     func getSnapshots(req: Request) async throws -> [BudgetSnapshotResponse] {
         let session = try req.auth.require(SessionToken.self)
+        try await requireExpensePlannerAccess(session: session, req: req)
         let year = req.query[Int.self, at: "year"]
         let month = req.query[Int.self, at: "month"]
 
@@ -134,6 +135,7 @@ struct BudgetController: RouteCollection {
     @Sendable
     func createSnapshot(req: Request) async throws -> Response {
         let session = try req.auth.require(SessionToken.self)
+        try await requireExpensePlannerAccess(session: session, req: req)
         let payload = try req.content.decode(BudgetSnapshotPayload.self).asRequest()
 
         let created = try await req.expensesService.createBudgetSnapshot(
@@ -149,6 +151,7 @@ struct BudgetController: RouteCollection {
     @Sendable
     func updateSnapshot(req: Request) async throws -> BudgetSnapshotResponse {
         let session = try req.auth.require(SessionToken.self)
+        try await requireExpensePlannerAccess(session: session, req: req)
         let snapshotId = try requireUUIDParameter(req, name: "snapshotId")
         let payload = try req.content.decode(BudgetSnapshotPayload.self).asRequest()
 
@@ -163,6 +166,7 @@ struct BudgetController: RouteCollection {
     @Sendable
     func deleteSnapshot(req: Request) async throws -> HTTPStatus {
         let session = try req.auth.require(SessionToken.self)
+        try await requireExpensePlannerAccess(session: session, req: req)
         let snapshotId = try requireUUIDParameter(req, name: "snapshotId")
 
         try await req.expensesService.deleteSnapshot(
@@ -178,6 +182,7 @@ struct BudgetController: RouteCollection {
     @Sendable
     func getAllPlanItems(req: Request) async throws -> [BudgetPlanItemResponse] {
         let session = try req.auth.require(SessionToken.self)
+        try await requireExpensePlannerAccess(session: session, req: req)
         return try await req.expensesService.getAllPlanItems(
             userId: session.userId,
             on: req.db
@@ -187,6 +192,7 @@ struct BudgetController: RouteCollection {
     @Sendable
     func getSnapshotItems(req: Request) async throws -> [BudgetPlanItemResponse] {
         let session = try req.auth.require(SessionToken.self)
+        try await requireExpensePlannerAccess(session: session, req: req)
         let snapshotId = try requireUUIDParameter(req, name: "snapshotId")
 
         return try await req.expensesService.getPlanItems(
@@ -199,6 +205,7 @@ struct BudgetController: RouteCollection {
     @Sendable
     func createPlanItem(req: Request) async throws -> Response {
         let session = try req.auth.require(SessionToken.self)
+        try await requireExpensePlannerAccess(session: session, req: req)
         let payload = try req.content.decode(BudgetPlanItemPayload.self).asRequest()
 
         let created = try await req.expensesService.createPlanItem(
@@ -214,6 +221,7 @@ struct BudgetController: RouteCollection {
     @Sendable
     func updatePlanItem(req: Request) async throws -> BudgetPlanItemResponse {
         let session = try req.auth.require(SessionToken.self)
+        try await requireExpensePlannerAccess(session: session, req: req)
         let itemId = try requireUUIDParameter(req, name: "itemId")
         let payload = try req.content.decode(BudgetPlanItemPayload.self).asRequest()
 
@@ -228,6 +236,7 @@ struct BudgetController: RouteCollection {
     @Sendable
     func deletePlanItem(req: Request) async throws -> HTTPStatus {
         let session = try req.auth.require(SessionToken.self)
+        try await requireExpensePlannerAccess(session: session, req: req)
         let itemId = try requireUUIDParameter(req, name: "itemId")
 
         try await req.expensesService.deletePlanItem(
@@ -245,5 +254,13 @@ struct BudgetController: RouteCollection {
             throw Abort(.badRequest, reason: "Invalid \(name).")
         }
         return value
+    }
+
+    private func requireExpensePlannerAccess(session: SessionToken, req: Request) async throws {
+        try await req.usageCounterService.requirePremium(
+            .expensePlanner,
+            userId: session.userId,
+            on: req.db
+        )
     }
 }

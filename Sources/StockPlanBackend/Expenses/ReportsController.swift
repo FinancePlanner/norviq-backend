@@ -18,6 +18,7 @@ struct ReportsController: RouteCollection {
     @Sendable
     func getExpenseReports(req: Request) async throws -> Response {
         let session = try req.auth.require(SessionToken.self)
+        try await requireReportsAccess(session: session, req: req)
         try await req.usageCounterService.incrementUsage(
             .reportGenerations,
             userId: session.userId,
@@ -54,6 +55,7 @@ struct ReportsController: RouteCollection {
     @Sendable
     func getReportsOverview(req: Request) async throws -> ReportsOverviewResponse {
         let session = try req.auth.require(SessionToken.self)
+        try await requireReportsAccess(session: session, req: req)
         try await req.usageCounterService.incrementUsage(
             .reportGenerations,
             userId: session.userId,
@@ -199,6 +201,7 @@ struct ReportsController: RouteCollection {
     @Sendable
     func getSuggestions(req: Request) async throws -> ReportSuggestionsResponse {
         let session = try req.auth.require(SessionToken.self)
+        try await requireReportsAccess(session: session, req: req)
         try await req.usageCounterService.incrementUsage(
             .reportGenerations,
             userId: session.userId,
@@ -248,6 +251,7 @@ struct ReportsController: RouteCollection {
     @Sendable
     func dismissSuggestion(req: Request) async throws -> APISuccess {
         let session = try req.auth.require(SessionToken.self)
+        try await requireReportsAccess(session: session, req: req)
         guard let suggestionId = req.parameters.get("id")?.trimmingCharacters(in: .whitespacesAndNewlines),
               !suggestionId.isEmpty else {
             throw Abort(.badRequest, reason: "Invalid suggestion id.")
@@ -274,6 +278,14 @@ struct ReportsController: RouteCollection {
         let fromDate = req.query[String.self, at: "from"].flatMap { dateFormatter.date(from: $0) }
         let toDate = req.query[String.self, at: "to"].flatMap { dateFormatter.date(from: $0) }
         return (fromDate, toDate)
+    }
+
+    private func requireReportsAccess(session: SessionToken, req: Request) async throws {
+        try await req.usageCounterService.requirePremium(
+            .reports,
+            userId: session.userId,
+            on: req.db
+        )
     }
 
     private func buildSuggestions(

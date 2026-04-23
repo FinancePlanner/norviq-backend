@@ -783,23 +783,27 @@ struct DefaultMarketDataService: MarketDataService {
 
             baseProjections = base
 
-            let calculateDCFPrice: ([YearlyProjectionResponse]) -> Double? = { projections in
-                guard let shares = sharesOutstanding, shares > 0, !projections.isEmpty else {
-                    return nil
-                }
-                var pvExplicit = 0.0
-                for (i, p) in projections.enumerated() {
-                    pvExplicit += (p.fcf ?? 0) / pow(1 + wacc, Double(i + 1))
-                }
-                let finalFCF = projections.last?.fcf ?? 0
-                let tv = finalFCF * (1 + terminalGrowthRate) / (wacc - terminalGrowthRate)
-                let pvTerminal = tv / pow(1 + wacc, Double(projections.count))
-                return (pvExplicit + pvTerminal - netDebt) / shares
-            }
-
-            dcfBasePrice = calculateDCFPrice(base)
-            dcfBearPrice = calculateDCFPrice(bear)
-            dcfBullPrice = calculateDCFPrice(bull)
+            dcfBasePrice = Self.calculateDCFPrice(
+                projections: base,
+                sharesOutstanding: sharesOutstanding,
+                wacc: wacc,
+                terminalGrowthRate: terminalGrowthRate,
+                netDebt: netDebt
+            )
+            dcfBearPrice = Self.calculateDCFPrice(
+                projections: bear,
+                sharesOutstanding: sharesOutstanding,
+                wacc: wacc,
+                terminalGrowthRate: terminalGrowthRate,
+                netDebt: netDebt
+            )
+            dcfBullPrice = Self.calculateDCFPrice(
+                projections: bull,
+                sharesOutstanding: sharesOutstanding,
+                wacc: wacc,
+                terminalGrowthRate: terminalGrowthRate,
+                netDebt: netDebt
+            )
         }
 
         return StockAnalysisMetricsResponse(
@@ -2260,5 +2264,25 @@ extension DefaultMarketDataService {
         case .premium:
             return resolved
         }
+    }
+
+    internal static func calculateDCFPrice(
+        projections: [YearlyProjectionResponse],
+        sharesOutstanding: Double?,
+        wacc: Double,
+        terminalGrowthRate: Double,
+        netDebt: Double
+    ) -> Double? {
+        guard let shares = sharesOutstanding, shares > 0, !projections.isEmpty else {
+            return nil
+        }
+        var pvExplicit = 0.0
+        for (i, p) in projections.enumerated() {
+            pvExplicit += (p.fcf ?? 0) / pow(1 + wacc, Double(i + 1))
+        }
+        let finalFCF = projections.last?.fcf ?? 0
+        let tv = finalFCF * (1 + terminalGrowthRate) / (wacc - terminalGrowthRate)
+        let pvTerminal = tv / pow(1 + wacc, Double(projections.count))
+        return (pvExplicit + pvTerminal - netDebt) / shares
     }
 }

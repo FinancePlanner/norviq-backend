@@ -183,6 +183,8 @@ struct MarketDataController: RouteCollection {
 
     @Sendable
     func basicFinancials(req: Request) async throws -> BasicFinancialsResponse {
+        let session = try req.auth.require(SessionToken.self)
+        try await requireMarketFundamentalsAccess(session: session, req: req)
         guard let symbol = req.parameters.get("symbol") else {
             throw Abort(.badRequest, reason: "Missing symbol.")
         }
@@ -191,6 +193,8 @@ struct MarketDataController: RouteCollection {
 
     @Sendable
     func analysis(req: Request) async throws -> StockAnalysisMetricsResponse {
+        let session = try req.auth.require(SessionToken.self)
+        try await requireMarketFundamentalsAccess(session: session, req: req)
         guard let symbol = req.parameters.get("symbol") else {
             throw Abort(.badRequest, reason: "Missing symbol.")
         }
@@ -223,6 +227,8 @@ struct MarketDataController: RouteCollection {
 
     @Sendable
     func cashFlowStatement(req: Request) async throws -> [CashFlowStatementResponse] {
+        let session = try req.auth.require(SessionToken.self)
+        try await requireMarketFundamentalsAccess(session: session, req: req)
         guard let symbol = req.parameters.get("symbol") else {
             throw Abort(.badRequest, reason: "Missing symbol.")
         }
@@ -239,6 +245,8 @@ struct MarketDataController: RouteCollection {
 
     @Sendable
     func balanceSheetStatement(req: Request) async throws -> [BalanceSheetStatementResponse] {
+        let session = try req.auth.require(SessionToken.self)
+        try await requireMarketFundamentalsAccess(session: session, req: req)
         guard let symbol = req.parameters.get("symbol") else {
             throw Abort(.badRequest, reason: "Missing symbol.")
         }
@@ -255,6 +263,8 @@ struct MarketDataController: RouteCollection {
 
     @Sendable
     func ratiosTTM(req: Request) async throws -> [RatiosTTMResponse] {
+        let session = try req.auth.require(SessionToken.self)
+        try await requireMarketFundamentalsAccess(session: session, req: req)
         guard let symbol = req.parameters.get("symbol") else {
             throw Abort(.badRequest, reason: "Missing symbol.")
         }
@@ -263,6 +273,8 @@ struct MarketDataController: RouteCollection {
 
     @Sendable
     func gradesConsensus(req: Request) async throws -> [GradesConsensusResponse] {
+        let session = try req.auth.require(SessionToken.self)
+        try await requireMarketFundamentalsAccess(session: session, req: req)
         guard let symbol = req.parameters.get("symbol") else {
             throw Abort(.badRequest, reason: "Missing symbol.")
         }
@@ -271,6 +283,8 @@ struct MarketDataController: RouteCollection {
 
     @Sendable
     func financialGrowth(req: Request) async throws -> [FinancialGrowthResponse] {
+        let session = try req.auth.require(SessionToken.self)
+        try await requireMarketFundamentalsAccess(session: session, req: req)
         guard let symbol = req.parameters.get("symbol") else {
             throw Abort(.badRequest, reason: "Missing symbol.")
         }
@@ -307,6 +321,12 @@ struct MarketDataController: RouteCollection {
 
     @Sendable
     func earningsCalendar(req: Request) async throws -> [EarningsResponse] {
+        let session = try req.auth.require(SessionToken.self)
+        try await req.usageCounterService.requirePremium(
+            .earningsText,
+            userId: session.userId,
+            on: req.db
+        )
         let from = req.query[String.self, at: "from"]
         let to = req.query[String.self, at: "to"]
         return try await req.application.marketDataService.earningsCalendar(
@@ -318,6 +338,8 @@ struct MarketDataController: RouteCollection {
 
     @Sendable
     func analystEstimates(req: Request) async throws -> [AnalystEstimatesResponse] {
+        let session = try req.auth.require(SessionToken.self)
+        try await requireMarketFundamentalsAccess(session: session, req: req)
         guard let symbol = req.parameters.get("symbol") else {
             throw Abort(.badRequest, reason: "Missing symbol.")
         }
@@ -337,6 +359,8 @@ struct MarketDataController: RouteCollection {
 
     @Sendable
     func ratios(req: Request) async throws -> [RatiosResponse] {
+        let session = try req.auth.require(SessionToken.self)
+        try await requireMarketFundamentalsAccess(session: session, req: req)
         guard let symbol = req.parameters.get("symbol") else {
             throw Abort(.badRequest, reason: "Missing symbol.")
         }
@@ -354,6 +378,8 @@ struct MarketDataController: RouteCollection {
 
     @Sendable
     func historicalSectorPerformance(req: Request) async throws -> [HistoricalSectorPerformanceResponse] {
+        let session = try req.auth.require(SessionToken.self)
+        try await requireMarketFundamentalsAccess(session: session, req: req)
         guard let sector = req.query[String.self, at: "sector"] else {
             throw Abort(.badRequest, reason: "Missing query parameter `sector`.")
         }
@@ -389,6 +415,14 @@ struct MarketDataController: RouteCollection {
         }
 
         return try await req.application.marketDataService.quoteBatch(symbols: parsed, on: req)
+    }
+
+    private func requireMarketFundamentalsAccess(session: SessionToken, req: Request) async throws {
+        try await req.usageCounterService.requirePremium(
+            .marketFundamentals,
+            userId: session.userId,
+            on: req.db
+        )
     }
 
     @Sendable

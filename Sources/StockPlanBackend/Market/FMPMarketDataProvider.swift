@@ -90,6 +90,54 @@ struct FMPMarketNewsItem: Codable, Sendable {
     let url: String?
 }
 
+private struct FMPEarningsItem: Codable, Sendable {
+    let symbol: String
+    let date: String
+    let epsActual: Double?
+    let epsEstimated: Double?
+    let revenueActual: Double?
+    let revenueEstimated: Double?
+    let lastUpdated: String?
+}
+
+private struct FMPTranscriptDateItem: Decodable, Sendable {
+    let date: String?
+    let quarter: Int?
+    let year: Int?
+
+    enum CodingKeys: String, CodingKey {
+        case date
+        case quarter
+        case year
+    }
+
+    init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        date = try container.decodeIfPresent(String.self, forKey: .date)
+        quarter = try Self.decodeIntIfPresent(from: container, key: .quarter)
+        year = try Self.decodeIntIfPresent(from: container, key: .year)
+    }
+
+    private static func decodeIntIfPresent(
+        from container: KeyedDecodingContainer<CodingKeys>,
+        key: CodingKeys
+    ) throws -> Int? {
+        if let value = try container.decodeIfPresent(Int.self, forKey: key) {
+            return value
+        }
+        if let stringValue = try container.decodeIfPresent(String.self, forKey: key) {
+            return Int(stringValue)
+        }
+        return nil
+    }
+}
+
+private struct TranscriptAvailabilityKey: Hashable, Sendable {
+    let date: String?
+    let year: Int?
+    let quarter: Int?
+}
+
 struct LiveFMPMarketDataProvider: FMPMarketDataProvider, CryptoDataProvider {
     let baseURL: String
     let apiKey: String
@@ -383,11 +431,33 @@ struct LiveFMPMarketDataProvider: FMPMarketDataProvider, CryptoDataProvider {
             query.append(("limit", String(limit)))
         }
 
-        return try await fetchJSON(
+        let items: [FMPEarningsItem] = try await fetchJSON(
             path: "/stable/earnings",
             query: query,
             on: req
         )
+
+        let transcriptAvailability = (try? await fetchTranscriptAvailability(symbol: symbol, on: req)) ?? []
+
+        return items.map { item in
+            return EarningsResponse(
+                symbol: item.symbol,
+                date: item.date,
+                epsActual: item.epsActual,
+                epsEstimated: item.epsEstimated,
+                revenueActual: item.revenueActual,
+                revenueEstimated: item.revenueEstimated,
+                lastUpdated: item.lastUpdated,
+                surprisePercent: makeEarningsSurprisePercent(
+                    actual: item.epsActual,
+                    estimate: item.epsEstimated
+                ),
+                hasTranscript: hasTranscriptAvailability(
+                    for: transcriptAvailabilityKey(for: item.date),
+                    in: transcriptAvailability
+                )
+            )
+        }
     }
 
     func earningsCalendar(
@@ -403,11 +473,28 @@ struct LiveFMPMarketDataProvider: FMPMarketDataProvider, CryptoDataProvider {
             query.append(("to", formatISODateOnly(to)))
         }
 
-        return try await fetchJSON(
+        let items: [FMPEarningsItem] = try await fetchJSON(
             path: "/stable/earnings-calendar",
             query: query,
             on: req
         )
+
+        return items.map { item in
+            EarningsResponse(
+                symbol: item.symbol,
+                date: item.date,
+                epsActual: item.epsActual,
+                epsEstimated: item.epsEstimated,
+                revenueActual: item.revenueActual,
+                revenueEstimated: item.revenueEstimated,
+                lastUpdated: item.lastUpdated,
+                surprisePercent: makeEarningsSurprisePercent(
+                    actual: item.epsActual,
+                    estimate: item.epsEstimated
+                ),
+                hasTranscript: false
+            )
+        }
     }
 
     func historicalSectorPerformance(
@@ -601,5 +688,77 @@ extension LiveFMPMarketDataProvider {
         formatter.timeZone = TimeZone(secondsFromGMT: 0)
         formatter.dateFormat = "yyyy-MM-dd"
         return formatter.string(from: date)
+    }
+
+    fileprivate func fetchTranscriptAvailability(symbol: String, on req: Request) async throws
+        -> Set<TranscriptAvailabilityKey>
+    {
+        let items: [FMPTranscriptDateItem] = try await fetchJSON(
+            path: "/stable/earning-call-transcript-dates",
+            query: [("symbol", symbol)],
+            on: req
+        )
+
+        return Set(items.map { item in
+            TranscriptAvailabilityKey(
+                date: normalizedDateOnly(item.date),
+                year: item.year,
+                quarter: item.quarter
+            )
+        })
+    }
+
+    fileprivate func transcriptAvailabilityKey(for rawDate: String) -> TranscriptAvailabilityKey {
+        let normalizedDate = normalizedDateOnly(rawDate)
+        return TranscriptAvailabilityKey(
+            date: normalizedDate,
+            year: normalizedDate.flatMap(yearComponent),
+            quarter: normalizedDate.flatMap(quarterComponent)
+        )
+    }
+
+    fileprivate func normalizedDateOnly(_ rawDate: String?) -> String? {
+        guard let rawDate else { return nil }
+        let trimmed = rawDate.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        return String(trimmed.prefix(10))
+    }
+
+    fileprivate func yearComponent(from isoDate: String) -> Int? {
+        let parts = isoDate.split(separator: "-")
+        guard let yearPart = parts.first else { return nil }
+        return Int(yearPart)
+    }
+
+    fileprivate func quarterComponent(from isoDate: String) -> Int? {
+        let parts = isoDate.split(separator: "-")
+        guard parts.count >= 2, let month = Int(parts[1]) else { return nil }
+        return ((month - 1) / 3) + 1
+    }
+
+    fileprivate func makeEarningsSurprisePercent(actual: Double?, estimate: Double?) -> Double? {
+        guard let actual, let estimate, estimate != 0 else { return nil }
+        return ((actual - estimate) / abs(estimate)) * 100
+    }
+
+    fileprivate func hasTranscriptAvailability(
+        for eventKey: TranscriptAvailabilityKey,
+        in availability: Set<TranscriptAvailabilityKey>
+    ) -> Bool {
+        if availability.contains(eventKey) {
+            return true
+        }
+
+        if let date = eventKey.date,
+           availability.contains(.init(date: date, year: nil, quarter: nil)) {
+            return true
+        }
+
+        if let year = eventKey.year, let quarter = eventKey.quarter,
+           availability.contains(.init(date: nil, year: year, quarter: quarter)) {
+            return true
+        }
+
+        return false
     }
 }

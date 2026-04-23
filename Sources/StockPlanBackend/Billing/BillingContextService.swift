@@ -183,13 +183,18 @@ private struct BillingFeatureDescriptor {
     let premiumOnly: Bool
 
     static let all: [BillingFeatureDescriptor] = [
+        .init(feature: .brokerSync, title: "Broker sync", premiumOnly: true),
         .init(feature: .portfolioLists, title: "Portfolio lists", premiumOnly: false),
         .init(feature: .holdings, title: "Holdings", premiumOnly: false),
         .init(feature: .watchlistItems, title: "Watchlist items", premiumOnly: false),
-        .init(feature: .valuationCases, title: "Saved valuation cases", premiumOnly: false),
+        .init(feature: .valuationCases, title: "Saved valuation cases", premiumOnly: true),
         .init(feature: .csvImports, title: "CSV imports", premiumOnly: false),
-        .init(feature: .targetAlerts, title: "Target alerts", premiumOnly: false),
+        .init(feature: .targetAlerts, title: "Target alerts", premiumOnly: true),
         .init(feature: .reportGenerations, title: "Report generations", premiumOnly: false),
+        .init(feature: .expensePlanner, title: "Expense planner sync", premiumOnly: true),
+        .init(feature: .reports, title: "Reports", premiumOnly: true),
+        .init(feature: .statistics, title: "Advanced statistics", premiumOnly: true),
+        .init(feature: .marketFundamentals, title: "Market fundamentals", premiumOnly: true),
         .init(feature: .advancedResearch, title: "Advanced stock research", premiumOnly: true),
         .init(feature: .peerComparison, title: "Peer comparison", premiumOnly: true),
         .init(feature: .earningsText, title: "Earnings detail", premiumOnly: true)

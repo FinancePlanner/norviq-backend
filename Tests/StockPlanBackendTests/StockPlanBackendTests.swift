@@ -118,6 +118,24 @@ struct StockPlanBackendTests {
         try await entitlement.save(on: app.db)
     }
 
+    private func seedInstrument(
+        symbol: String,
+        name: String? = nil,
+        exchange: String = "NASDAQ",
+        currency: String = "USD",
+        conid: String? = nil,
+        on app: Application
+    ) async throws {
+        let instrument = Instrument(
+            conid: conid ?? "test-\(symbol.lowercased())",
+            symbol: symbol,
+            exchange: exchange,
+            currency: currency,
+            name: name ?? symbol
+        )
+        try await instrument.save(on: app.db)
+    }
+
     private func makeTestMarketService(
         state: TestMarketProviderState,
         fmpState: TestFMPProviderState? = nil,
@@ -363,7 +381,8 @@ struct StockPlanBackendTests {
     @Test("Stock valuation endpoints create, fetch, and update by symbol")
     func stockValuationLifecycle() async throws {
         try await withApp { app in
-            let (token, _) = try await registerTestUser(app: app)
+            let (token, userId) = try await registerTestUser(app: app)
+            try await grantPremium(userId: userId, on: app)
 
             try await app.testing().test(.POST, "v1/stocks", beforeRequest: { req in
                 req.headers.bearerAuthorization = .init(token: token)
@@ -418,8 +437,10 @@ struct StockPlanBackendTests {
     @Test("Stock valuation endpoints are scoped to the authenticated user")
     func stockValuationIsUserScoped() async throws {
         try await withApp { app in
-            let (ownerToken, _) = try await registerTestUser(app: app, identifier: "owner")
-            let (otherToken, _) = try await registerTestUser(app: app, identifier: "other")
+            let (ownerToken, ownerUserId) = try await registerTestUser(app: app, identifier: "owner")
+            let (otherToken, otherUserId) = try await registerTestUser(app: app, identifier: "other")
+            try await grantPremium(userId: ownerUserId, on: app)
+            try await grantPremium(userId: otherUserId, on: app)
 
             try await app.testing().test(.POST, "v1/stocks", beforeRequest: { req in
                 req.headers.bearerAuthorization = .init(token: ownerToken)
@@ -960,7 +981,8 @@ struct StockPlanBackendTests {
         try await withApp { app in
             let state = TestMarketProviderState()
             app.marketDataService = makeTestMarketService(state: state)
-            let (token, _) = try await registerTestUser(app: app, identifier: "basicfinancials")
+            let (token, userId) = try await registerTestUser(app: app, identifier: "basicfinancials")
+            try await grantPremium(userId: userId, on: app)
 
             var first: BasicFinancialsResponse?
             var second: BasicFinancialsResponse?
@@ -996,7 +1018,8 @@ struct StockPlanBackendTests {
             let state = TestMarketProviderState()
             let fmpState = TestFMPProviderState()
             app.marketDataService = makeTestMarketService(state: state, fmpState: fmpState)
-            let (token, _) = try await registerTestUser(app: app, identifier: "ratiosttm")
+            let (token, userId) = try await registerTestUser(app: app, identifier: "ratiosttm")
+            try await grantPremium(userId: userId, on: app)
 
             try await app.testing().test(.GET, "v1/market/ratios-ttm/AAPL", beforeRequest: { req in
                 req.headers.bearerAuthorization = .init(token: token)
@@ -1019,7 +1042,8 @@ struct StockPlanBackendTests {
             let state = TestMarketProviderState()
             let fmpState = TestFMPProviderState()
             app.marketDataService = makeTestMarketService(state: state, fmpState: fmpState)
-            let (token, _) = try await registerTestUser(app: app, identifier: "balancesheet")
+            let (token, userId) = try await registerTestUser(app: app, identifier: "balancesheet")
+            try await grantPremium(userId: userId, on: app)
 
             try await app.testing().test(.GET, "v1/market/balance-sheet-statement/AAPL?limit=5&period=FY", beforeRequest: { req in
                 req.headers.bearerAuthorization = .init(token: token)
@@ -1047,7 +1071,8 @@ struct StockPlanBackendTests {
             let state = TestMarketProviderState()
             let fmpState = TestFMPProviderState()
             app.marketDataService = makeTestMarketService(state: state, fmpState: fmpState, fmpAccessTier: .free)
-            let (token, _) = try await registerTestUser(app: app, identifier: "balancesheetclamp")
+            let (token, userId) = try await registerTestUser(app: app, identifier: "balancesheetclamp")
+            try await grantPremium(userId: userId, on: app)
 
             try await app.testing().test(.GET, "v1/market/balance-sheet-statement/META?limit=10&period=FY", beforeRequest: { req in
                 req.headers.bearerAuthorization = .init(token: token)
@@ -1068,7 +1093,8 @@ struct StockPlanBackendTests {
             let state = TestMarketProviderState()
             let fmpState = TestFMPProviderState()
             app.marketDataService = makeTestMarketService(state: state, fmpState: fmpState)
-            let (token, _) = try await registerTestUser(app: app, identifier: "cashflow")
+            let (token, userId) = try await registerTestUser(app: app, identifier: "cashflow")
+            try await grantPremium(userId: userId, on: app)
 
             try await app.testing().test(.GET, "v1/market/cash-flow-statement/AAPL?limit=5&period=FY", beforeRequest: { req in
                 req.headers.bearerAuthorization = .init(token: token)
@@ -1096,7 +1122,8 @@ struct StockPlanBackendTests {
             let state = TestMarketProviderState()
             let fmpState = TestFMPProviderState()
             app.marketDataService = makeTestMarketService(state: state, fmpState: fmpState, fmpAccessTier: .free)
-            let (token, _) = try await registerTestUser(app: app, identifier: "cashflowclamp")
+            let (token, userId) = try await registerTestUser(app: app, identifier: "cashflowclamp")
+            try await grantPremium(userId: userId, on: app)
 
             try await app.testing().test(.GET, "v1/market/cash-flow-statement/META?limit=10&period=FY", beforeRequest: { req in
                 req.headers.bearerAuthorization = .init(token: token)
@@ -1158,6 +1185,8 @@ struct StockPlanBackendTests {
                 #expect(body.count == 1)
                 #expect(body.first?.symbol == "AAPL")
                 #expect(body.first?.epsActual == 1.64)
+                #expect(body.first?.surprisePercent == 2.5)
+                #expect(body.first?.hasTranscript == true)
             })
 
             #expect(await fmpState.earningsCalls() == 1)
@@ -1171,7 +1200,8 @@ struct StockPlanBackendTests {
             let fmpState = TestFMPProviderState()
             // Default is free tier
             app.marketDataService = makeTestMarketService(state: state, fmpState: fmpState)
-            let (token, _) = try await registerTestUser(app: app, identifier: "calendaruser")
+            let (token, userId) = try await registerTestUser(app: app, identifier: "calendaruser")
+            try await grantPremium(userId: userId, on: app)
 
             // Test free tier limit (1 month) - 2 months ago should fail
             let twoMonthsAgo = Calendar.current.date(byAdding: .month, value: -2, to: Date())!
@@ -1194,6 +1224,8 @@ struct StockPlanBackendTests {
                 #expect(res.status == .ok)
                 let body = try res.content.decode([EarningsResponse].self)
                 #expect(body.count == 1)
+                #expect(body.first?.surprisePercent == 2.5)
+                #expect(body.first?.hasTranscript == false)
             })
 
             #expect(await fmpState.earningsCalendarCalls() == 1)
@@ -1206,7 +1238,8 @@ struct StockPlanBackendTests {
             let state = TestMarketProviderState()
             let fmpState = TestFMPProviderState()
             app.marketDataService = makeTestMarketService(state: state, fmpState: fmpState)
-            let (token, _) = try await registerTestUser(app: app, identifier: "analysismetrics")
+            let (token, userId) = try await registerTestUser(app: app, identifier: "analysismetrics")
+            try await grantPremium(userId: userId, on: app)
 
             try await app.testing().test(.GET, "v1/market/analysis/AAPL", beforeRequest: { req in
                 req.headers.bearerAuthorization = .init(token: token)
@@ -1239,7 +1272,8 @@ struct StockPlanBackendTests {
             let state = TestMarketProviderState()
             let fmpState = TestFMPProviderState()
             app.marketDataService = makeTestMarketService(state: state, fmpState: fmpState, fmpAccessTier: .free)
-            let (token, _) = try await registerTestUser(app: app, identifier: "ratiosplanlimit")
+            let (token, userId) = try await registerTestUser(app: app, identifier: "ratiosplanlimit")
+            try await grantPremium(userId: userId, on: app)
 
             try await app.testing().test(.GET, "v1/market/ratios-ttm/ZETA", beforeRequest: { req in
                 req.headers.bearerAuthorization = .init(token: token)
@@ -1258,7 +1292,8 @@ struct StockPlanBackendTests {
             let state = TestMarketProviderState()
             let fmpState = TestFMPProviderState()
             app.marketDataService = makeTestMarketService(state: state, fmpState: fmpState, fmpAccessTier: .free)
-            let (token, _) = try await registerTestUser(app: app, identifier: "balanceplanlimit")
+            let (token, userId) = try await registerTestUser(app: app, identifier: "balanceplanlimit")
+            try await grantPremium(userId: userId, on: app)
 
             try await app.testing().test(.GET, "v1/market/balance-sheet-statement/ZETA?limit=5&period=FY", beforeRequest: { req in
                 req.headers.bearerAuthorization = .init(token: token)
@@ -1277,7 +1312,8 @@ struct StockPlanBackendTests {
             let state = TestMarketProviderState()
             let fmpState = TestFMPProviderState()
             app.marketDataService = makeTestMarketService(state: state, fmpState: fmpState, fmpAccessTier: .free)
-            let (token, _) = try await registerTestUser(app: app, identifier: "cashflowplanlimit")
+            let (token, userId) = try await registerTestUser(app: app, identifier: "cashflowplanlimit")
+            try await grantPremium(userId: userId, on: app)
 
             try await app.testing().test(.GET, "v1/market/cash-flow-statement/ZETA?limit=5&period=FY", beforeRequest: { req in
                 req.headers.bearerAuthorization = .init(token: token)
@@ -1296,7 +1332,8 @@ struct StockPlanBackendTests {
             let state = TestMarketProviderState()
             let fmpState = TestFMPProviderState()
             app.marketDataService = makeTestMarketService(state: state, fmpState: fmpState)
-            let (token, _) = try await registerTestUser(app: app, identifier: "gradesconsensus")
+            let (token, userId) = try await registerTestUser(app: app, identifier: "gradesconsensus")
+            try await grantPremium(userId: userId, on: app)
 
             try await app.testing().test(.GET, "v1/market/grades-consensus/UBER", beforeRequest: { req in
                 req.headers.bearerAuthorization = .init(token: token)
@@ -1325,7 +1362,8 @@ struct StockPlanBackendTests {
                 state: state,
                 fmpProvider: TestPaymentRequiredFMPMarketDataProvider()
             )
-            let (token, _) = try await registerTestUser(app: app, identifier: "gradespremium")
+            let (token, userId) = try await registerTestUser(app: app, identifier: "gradespremium")
+            try await grantPremium(userId: userId, on: app)
 
             try await app.testing().test(.GET, "v1/market/grades-consensus/AAPL", beforeRequest: { req in
                 req.headers.bearerAuthorization = .init(token: token)
@@ -1344,7 +1382,8 @@ struct StockPlanBackendTests {
             let state = TestMarketProviderState()
             let fmpState = TestFMPProviderState()
             app.marketDataService = makeTestMarketService(state: state, fmpState: fmpState)
-            let (token, _) = try await registerTestUser(app: app, identifier: "financialgrowth")
+            let (token, userId) = try await registerTestUser(app: app, identifier: "financialgrowth")
+            try await grantPremium(userId: userId, on: app)
 
             try await app.testing().test(.GET, "v1/market/financial-growth/AAPL?limit=5&period=FY", beforeRequest: { req in
                 req.headers.bearerAuthorization = .init(token: token)
@@ -1370,7 +1409,8 @@ struct StockPlanBackendTests {
             let state = TestMarketProviderState()
             let fmpState = TestFMPProviderState()
             app.marketDataService = makeTestMarketService(state: state, fmpState: fmpState, fmpAccessTier: .free)
-            let (token, _) = try await registerTestUser(app: app, identifier: "financialgrowthclamp")
+            let (token, userId) = try await registerTestUser(app: app, identifier: "financialgrowthclamp")
+            try await grantPremium(userId: userId, on: app)
 
             try await app.testing().test(.GET, "v1/market/financial-growth/META?limit=10&period=FY", beforeRequest: { req in
                 req.headers.bearerAuthorization = .init(token: token)
@@ -1391,7 +1431,8 @@ struct StockPlanBackendTests {
             let state = TestMarketProviderState()
             let fmpState = TestFMPProviderState()
             app.marketDataService = makeTestMarketService(state: state, fmpState: fmpState, fmpAccessTier: .free)
-            let (token, _) = try await registerTestUser(app: app, identifier: "growthplanlimit")
+            let (token, userId) = try await registerTestUser(app: app, identifier: "growthplanlimit")
+            try await grantPremium(userId: userId, on: app)
 
             try await app.testing().test(.GET, "v1/market/financial-growth/ZETA?limit=5&period=FY", beforeRequest: { req in
                 req.headers.bearerAuthorization = .init(token: token)
@@ -1410,7 +1451,8 @@ struct StockPlanBackendTests {
             let state = TestMarketProviderState()
             let fmpState = TestFMPProviderState()
             app.marketDataService = makeTestMarketService(state: state, fmpState: fmpState)
-            let (token, _) = try await registerTestUser(app: app, identifier: "analystestimates")
+            let (token, userId) = try await registerTestUser(app: app, identifier: "analystestimates")
+            try await grantPremium(userId: userId, on: app)
 
             try await app.testing().test(.GET, "v1/market/analyst-estimates/AAPL?period=annual&limit=5&page=0", beforeRequest: { req in
                 req.headers.bearerAuthorization = .init(token: token)
@@ -1436,7 +1478,8 @@ struct StockPlanBackendTests {
             let state = TestMarketProviderState()
             let fmpState = TestFMPProviderState()
             app.marketDataService = makeTestMarketService(state: state, fmpState: fmpState, fmpAccessTier: .free)
-            let (token, _) = try await registerTestUser(app: app, identifier: "analystestimatesclamp")
+            let (token, userId) = try await registerTestUser(app: app, identifier: "analystestimatesclamp")
+            try await grantPremium(userId: userId, on: app)
 
             try await app.testing().test(.GET, "v1/market/analyst-estimates/META?period=annual&limit=10&page=0", beforeRequest: { req in
                 req.headers.bearerAuthorization = .init(token: token)
@@ -1458,7 +1501,8 @@ struct StockPlanBackendTests {
             let state = TestMarketProviderState()
             let fmpState = TestFMPProviderState()
             app.marketDataService = makeTestMarketService(state: state, fmpState: fmpState, fmpAccessTier: .free)
-            let (token, _) = try await registerTestUser(app: app, identifier: "estimatesperiodlimit")
+            let (token, userId) = try await registerTestUser(app: app, identifier: "estimatesperiodlimit")
+            try await grantPremium(userId: userId, on: app)
 
             try await app.testing().test(.GET, "v1/market/analyst-estimates/AAPL?period=quarter", beforeRequest: { req in
                 req.headers.bearerAuthorization = .init(token: token)
@@ -1477,7 +1521,8 @@ struct StockPlanBackendTests {
             let state = TestMarketProviderState()
             let fmpState = TestFMPProviderState()
             app.marketDataService = makeTestMarketService(state: state, fmpState: fmpState, fmpAccessTier: .free)
-            let (token, _) = try await registerTestUser(app: app, identifier: "estimatesplanlimit")
+            let (token, userId) = try await registerTestUser(app: app, identifier: "estimatesplanlimit")
+            try await grantPremium(userId: userId, on: app)
 
             try await app.testing().test(.GET, "v1/market/analyst-estimates/ZETA", beforeRequest: { req in
                 req.headers.bearerAuthorization = .init(token: token)
@@ -1496,7 +1541,8 @@ struct StockPlanBackendTests {
             let state = TestMarketProviderState()
             let fmpState = TestFMPProviderState()
             app.marketDataService = makeTestMarketService(state: state, fmpState: fmpState)
-            let (token, _) = try await registerTestUser(app: app, identifier: "ratios")
+            let (token, userId) = try await registerTestUser(app: app, identifier: "ratios")
+            try await grantPremium(userId: userId, on: app)
 
             try await app.testing().test(.GET, "v1/market/ratios/AAPL?limit=5&period=FY", beforeRequest: { req in
                 req.headers.bearerAuthorization = .init(token: token)
@@ -1521,7 +1567,8 @@ struct StockPlanBackendTests {
             let state = TestMarketProviderState()
             let fmpState = TestFMPProviderState()
             app.marketDataService = makeTestMarketService(state: state, fmpState: fmpState, fmpAccessTier: .free)
-            let (token, _) = try await registerTestUser(app: app, identifier: "ratiosclamp")
+            let (token, userId) = try await registerTestUser(app: app, identifier: "ratiosclamp")
+            try await grantPremium(userId: userId, on: app)
 
             try await app.testing().test(.GET, "v1/market/ratios/META?limit=10&period=FY", beforeRequest: { req in
                 req.headers.bearerAuthorization = .init(token: token)
@@ -1542,7 +1589,8 @@ struct StockPlanBackendTests {
             let state = TestMarketProviderState()
             let fmpState = TestFMPProviderState()
             app.marketDataService = makeTestMarketService(state: state, fmpState: fmpState, fmpAccessTier: .free)
-            let (token, _) = try await registerTestUser(app: app, identifier: "ratiosplanlimit")
+            let (token, userId) = try await registerTestUser(app: app, identifier: "ratiosplanlimit")
+            try await grantPremium(userId: userId, on: app)
 
             try await app.testing().test(.GET, "v1/market/ratios/ZETA", beforeRequest: { req in
                 req.headers.bearerAuthorization = .init(token: token)
@@ -1561,7 +1609,8 @@ struct StockPlanBackendTests {
             let state = TestMarketProviderState()
             let fmpState = TestFMPProviderState()
             app.marketDataService = makeTestMarketService(state: state, fmpState: fmpState, fmpAccessTier: .free)
-            let (token, _) = try await registerTestUser(app: app, identifier: "analysisplanlimit")
+            let (token, userId) = try await registerTestUser(app: app, identifier: "analysisplanlimit")
+            try await grantPremium(userId: userId, on: app)
 
             try await app.testing().test(.GET, "v1/market/analysis/ZETA", beforeRequest: { req in
                 req.headers.bearerAuthorization = .init(token: token)
@@ -1582,7 +1631,8 @@ struct StockPlanBackendTests {
             let state = TestMarketProviderState()
             let fmpState = TestFMPProviderState()
             app.marketDataService = makeTestMarketService(state: state, fmpState: fmpState)
-            let (token, _) = try await registerTestUser(app: app, identifier: "sectorperf")
+            let (token, userId) = try await registerTestUser(app: app, identifier: "sectorperf")
+            try await grantPremium(userId: userId, on: app)
 
             try await app.testing().test(
                 .GET,
@@ -1751,6 +1801,7 @@ struct StockPlanBackendTests {
     func newsFeedReturnsTrackedAndLimitedResults() async throws {
         try await withApp { app in
             let (token, userId) = try await registerTestUser(app: app)
+            try await grantPremium(userId: userId, on: app)
             let seededLists = try await seedDefaultLists(userId: userId, on: app.db)
 
             let stock = Stock(
@@ -2370,6 +2421,7 @@ struct StockPlanBackendTests {
     func importStocksFromCsvCommit() async throws {
         try await withApp { app in
             let (token, _) = try await registerTestUser(app: app)
+            try await seedInstrument(symbol: "AAPL", on: app)
 
             let csv = """
             symbol,shares,buy_price,buy_date,notes
@@ -2411,6 +2463,16 @@ struct StockPlanBackendTests {
                 }
                 #expect(hasAAPL)
             })
+
+            try await app.testing().test(.GET, "v1/lots", beforeRequest: { req in
+                req.headers.bearerAuthorization = .init(token: token)
+            }, afterResponse: { res async throws in
+                #expect(res.status == .ok)
+                let lots = try res.content.decode([LotResponse].self)
+                #expect(lots.count == 1)
+                #expect(lots.first?.instrumentId == "AAPL")
+                #expect(lots.first?.openQuantity == 12)
+            })
         }
     }
 
@@ -2418,6 +2480,7 @@ struct StockPlanBackendTests {
     func previewCsvSupportsHeaderAliasesAndReportsRowErrors() async throws {
         try await withApp { app in
             let (token, _) = try await registerTestUser(app: app)
+            try await seedInstrument(symbol: "AAPL", on: app)
 
             let csv = """
             ticker,quantity,average_cost,purchase_date,memo
@@ -2441,6 +2504,101 @@ struct StockPlanBackendTests {
             #expect(previewResponse?.items.first?.shares == 10)
             #expect(previewResponse?.errors.count == 1)
             #expect(previewResponse?.errors.first?.line == 3)
+        }
+    }
+
+    @Test("CSV import replaces prior imported lots for same provider and symbol")
+    func csvImportReplacesPriorImportedLotsForSameSource() async throws {
+        try await withApp { app in
+            let (token, _) = try await registerTestUser(app: app)
+            try await seedInstrument(symbol: "AAPL", on: app)
+
+            let firstCSV = """
+            symbol,shares,buy_price,buy_date
+            AAPL,2,100,2026-01-10
+            AAPL,3,110,2026-01-15
+            """
+
+            try await app.testing().test(.POST, "v1/brokers/import/csv/commit?provider=ibkr", beforeRequest: { req in
+                req.headers.bearerAuthorization = .init(token: token)
+                req.headers.replaceOrAdd(name: .contentType, value: "text/csv")
+                req.body = ByteBufferAllocator().buffer(string: firstCSV)
+            }, afterResponse: { res async throws in
+                #expect(res.status == .ok)
+                let response = try res.content.decode(CsvImportCommitResponse.self)
+                #expect(response.inserted.count == 1)
+                #expect(response.updated.isEmpty)
+                #expect(response.importedLotsCount == 2)
+            })
+
+            let replacementCSV = """
+            symbol,shares,buy_price,buy_date
+            AAPL,5,120,2026-02-01
+            """
+
+            try await app.testing().test(.POST, "v1/brokers/import/csv/commit?provider=ibkr", beforeRequest: { req in
+                req.headers.bearerAuthorization = .init(token: token)
+                req.headers.replaceOrAdd(name: .contentType, value: "text/csv")
+                req.body = ByteBufferAllocator().buffer(string: replacementCSV)
+            }, afterResponse: { res async throws in
+                #expect(res.status == .ok)
+                let response = try res.content.decode(CsvImportCommitResponse.self)
+                #expect(response.inserted.isEmpty)
+                #expect(response.updated.count == 1)
+                #expect(response.replacedSymbols == ["AAPL"])
+                #expect(response.importedLotsCount == 1)
+                #expect(response.errors.isEmpty)
+            })
+
+            try await app.testing().test(.GET, "v1/lots", beforeRequest: { req in
+                req.headers.bearerAuthorization = .init(token: token)
+            }, afterResponse: { res async throws in
+                #expect(res.status == .ok)
+                let lots = try res.content.decode([LotResponse].self)
+                #expect(lots.count == 1)
+                #expect(lots.first?.instrumentId == "AAPL")
+                #expect(lots.first?.openQuantity == 5)
+                #expect(lots.first?.openPrice == 120)
+            })
+        }
+    }
+
+    @Test("CSV import partially commits valid rows and reports malformed rows")
+    func csvImportPartiallyCommitsValidRowsAndReportsMalformedRows() async throws {
+        try await withApp { app in
+            let (token, _) = try await registerTestUser(app: app)
+            try await seedInstrument(symbol: "AAPL", on: app)
+
+            let csv = """
+            symbol,shares,buy_price,buy_date
+            AAPL,4,150,2026-01-10
+            BAD,2,50,2026-01-11
+            MSFT,3,250,
+            """
+
+            try await app.testing().test(.POST, "v1/brokers/import/csv/commit?provider=ibkr", beforeRequest: { req in
+                req.headers.bearerAuthorization = .init(token: token)
+                req.headers.replaceOrAdd(name: .contentType, value: "text/csv")
+                req.body = ByteBufferAllocator().buffer(string: csv)
+            }, afterResponse: { res async throws in
+                #expect(res.status == .ok)
+                let response = try res.content.decode(CsvImportCommitResponse.self)
+                #expect(response.inserted.count == 1)
+                #expect(response.importedLotsCount == 1)
+                #expect(response.errors.count == 2)
+                #expect(response.errors.contains(where: { $0.line == 3 && $0.message.contains("Unknown symbol") }))
+                #expect(response.errors.contains(where: { $0.line == 4 && $0.message.contains("buyDate") }))
+            })
+
+            try await app.testing().test(.GET, "v1/stocks", beforeRequest: { req in
+                req.headers.bearerAuthorization = .init(token: token)
+            }, afterResponse: { res async throws in
+                #expect(res.status == .ok)
+                let stocks = try res.content.decode([StockResponse].self)
+                #expect(stocks.count == 1)
+                #expect(stocks.first?.symbol == "AAPL")
+                #expect(stocks.first?.shares == 4)
+            })
         }
     }
 
@@ -3695,7 +3853,9 @@ struct TestFMPMarketDataProvider: FMPMarketDataProvider {
                 epsEstimated: 1.60,
                 revenueActual: 94930000000,
                 revenueEstimated: 94400000000,
-                lastUpdated: "2024-12-08"
+                lastUpdated: "2024-12-08",
+                surprisePercent: 2.5,
+                hasTranscript: true
             )
         ]
     }
@@ -3710,7 +3870,9 @@ struct TestFMPMarketDataProvider: FMPMarketDataProvider {
                 epsEstimated: 1.60,
                 revenueActual: 94930000000,
                 revenueEstimated: 94400000000,
-                lastUpdated: "2024-12-08"
+                lastUpdated: "2024-12-08",
+                surprisePercent: 2.5,
+                hasTranscript: false
             )
         ]
     }

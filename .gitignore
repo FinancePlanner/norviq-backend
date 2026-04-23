@@ -14,6 +14,7 @@ db.sqlite
 !.env.example
 default.profraw
 .vscode/
+.zed/
 .idea/
 *.xcworkspace
 *.xcconfig

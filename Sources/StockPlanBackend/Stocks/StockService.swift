@@ -608,7 +608,7 @@ struct StockServiceImpl: StockService {
         let peHigh: Double
     }
 
-    private func makeProjectionScenarios(
+    internal func makeProjectionScenarios(
         from metrics: StockAnalysisMetricsResponse,
         fallbackCurrentPrice: Double,
         fallbackMarketCap: Double,
@@ -720,7 +720,7 @@ struct StockServiceImpl: StockService {
         }
     }
 
-    private func fallbackProjectionScenarios(
+    internal func fallbackProjectionScenarios(
         currentPrice: Double,
         marketCap: Double,
         sharesOutstanding: Double

@@ -33,6 +33,12 @@ final class Stock: Model, Content, @unchecked Sendable {
     @Enum(key: "category")
     var category: AssetCategory
 
+    @OptionalField(key: "source_provider")
+    var sourceProvider: String?
+
+    @OptionalField(key: "source_account_id")
+    var sourceAccountId: UUID?
+
     @Timestamp(key: "created_at", on: .create)
     var createdAt: Date?
 
@@ -50,7 +56,9 @@ final class Stock: Model, Content, @unchecked Sendable {
         buyPrice: Double,
         buyDate: Date,
         notes: String? = nil,
-        category: AssetCategory = .stock
+        category: AssetCategory = .stock,
+        sourceProvider: String? = nil,
+        sourceAccountId: UUID? = nil
     ) {
         self.id = id
         self.userId = userId
@@ -61,5 +69,7 @@ final class Stock: Model, Content, @unchecked Sendable {
         self.buyDate = buyDate
         self.notes = notes
         self.category = category
+        self.sourceProvider = sourceProvider
+        self.sourceAccountId = sourceAccountId
     }
 }

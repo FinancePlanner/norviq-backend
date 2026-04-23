@@ -124,6 +124,7 @@ struct ExpensesController: RouteCollection {
     @Sendable
     func getHouseholdPartner(req: Request) async throws -> HouseholdPartnerProfileResponse {
         let session = try req.auth.require(SessionToken.self)
+        try await requireExpensePlannerAccess(session: session, req: req)
         return try await req.expensesService.getHouseholdPartner(
             userId: session.userId,
             on: req.db
@@ -133,6 +134,7 @@ struct ExpensesController: RouteCollection {
     @Sendable
     func updateHouseholdPartner(req: Request) async throws -> HouseholdPartnerProfileResponse {
         let session = try req.auth.require(SessionToken.self)
+        try await requireExpensePlannerAccess(session: session, req: req)
         let payload = try req.content.decode(HouseholdPartnerProfileRequest.self)
         return try await req.expensesService.updateHouseholdPartner(
             userId: session.userId,
@@ -144,6 +146,7 @@ struct ExpensesController: RouteCollection {
     @Sendable
     func getExpenses(req: Request) async throws -> [ExpenseResponse] {
         let session = try req.auth.require(SessionToken.self)
+        try await requireExpensePlannerAccess(session: session, req: req)
 
         // Optional date filters
         let dateFormatter = DateFormatter()
@@ -173,6 +176,7 @@ struct ExpensesController: RouteCollection {
     @Sendable
     func createExpense(req: Request) async throws -> Response {
         let session = try req.auth.require(SessionToken.self)
+        try await requireExpensePlannerAccess(session: session, req: req)
         let payload = try req.content.decode(ExpensePayload.self).asRequest()
 
         let created = try await req.expensesService.createExpense(
@@ -189,6 +193,7 @@ struct ExpensesController: RouteCollection {
     @Sendable
     func updateExpense(req: Request) async throws -> ExpenseResponse {
         let session = try req.auth.require(SessionToken.self)
+        try await requireExpensePlannerAccess(session: session, req: req)
         let expenseId = try requireUUIDParameter(req, name: "expenseId")
         let payload = try req.content.decode(ExpensePayload.self).asRequest()
 
@@ -203,6 +208,7 @@ struct ExpensesController: RouteCollection {
     @Sendable
     func deleteExpense(req: Request) async throws -> HTTPStatus {
         let session = try req.auth.require(SessionToken.self)
+        try await requireExpensePlannerAccess(session: session, req: req)
         let expenseId = try requireUUIDParameter(req, name: "expenseId")
 
         try await req.expensesService.deleteExpense(
@@ -231,12 +237,14 @@ struct ExpensesController: RouteCollection {
     @Sendable
     func getCategories(req: Request) async throws -> [ExpenseCategoryResponse] {
         let session = try req.auth.require(SessionToken.self)
+        try await requireExpensePlannerAccess(session: session, req: req)
         return try await req.expensesService.getCategories(userId: session.userId, on: req.db)
     }
 
     @Sendable
     func createCategory(req: Request) async throws -> Response {
         let session = try req.auth.require(SessionToken.self)
+        try await requireExpensePlannerAccess(session: session, req: req)
         let payload = try req.content.decode(ExpenseCategoryRequest.self)
         let created = try await req.expensesService.createCategory(userId: session.userId, request: payload, on: req.db)
         let res = Response(status: .created)
@@ -247,6 +255,7 @@ struct ExpensesController: RouteCollection {
     @Sendable
     func deleteCategory(req: Request) async throws -> HTTPStatus {
         let session = try req.auth.require(SessionToken.self)
+        try await requireExpensePlannerAccess(session: session, req: req)
         let categoryId = try requireUUIDParameter(req, name: "categoryId")
         try await req.expensesService.deleteCategory(userId: session.userId, categoryId: categoryId, on: req.db)
         return .noContent
@@ -257,12 +266,14 @@ struct ExpensesController: RouteCollection {
     @Sendable
     func getRecurringTemplates(req: Request) async throws -> [RecurringTemplateResponse] {
         let session = try req.auth.require(SessionToken.self)
+        try await requireExpensePlannerAccess(session: session, req: req)
         return try await req.expensesService.getRecurringTemplates(userId: session.userId, on: req.db)
     }
 
     @Sendable
     func createRecurringTemplate(req: Request) async throws -> Response {
         let session = try req.auth.require(SessionToken.self)
+        try await requireExpensePlannerAccess(session: session, req: req)
         let payload = try req.content.decode(RecurringTemplateRequest.self)
         let created = try await req.expensesService.createRecurringTemplate(userId: session.userId, request: payload, on: req.db)
         let res = Response(status: .created)
@@ -273,6 +284,7 @@ struct ExpensesController: RouteCollection {
     @Sendable
     func updateRecurringTemplate(req: Request) async throws -> RecurringTemplateResponse {
         let session = try req.auth.require(SessionToken.self)
+        try await requireExpensePlannerAccess(session: session, req: req)
         let templateId = try requireUUIDParameter(req, name: "templateId")
         let payload = try req.content.decode(RecurringTemplateRequest.self)
         return try await req.expensesService.updateRecurringTemplate(userId: session.userId, templateId: templateId, request: payload, on: req.db)
@@ -281,8 +293,17 @@ struct ExpensesController: RouteCollection {
     @Sendable
     func deleteRecurringTemplate(req: Request) async throws -> HTTPStatus {
         let session = try req.auth.require(SessionToken.self)
+        try await requireExpensePlannerAccess(session: session, req: req)
         let templateId = try requireUUIDParameter(req, name: "templateId")
         try await req.expensesService.deleteRecurringTemplate(userId: session.userId, templateId: templateId, on: req.db)
         return .noContent
+    }
+
+    private func requireExpensePlannerAccess(session: SessionToken, req: Request) async throws {
+        try await req.usageCounterService.requirePremium(
+            .expensePlanner,
+            userId: session.userId,
+            on: req.db
+        )
     }
 }

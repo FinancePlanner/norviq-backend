@@ -425,7 +425,7 @@ struct BillingTests {
             }
 
             let (status, body) = try await createStock(symbol: "TSLA", token: auth.token, on: app)
-            #expect(status == .paymentRequired)
+            #expect(status == .forbidden)
             #expect(body.contains("feature=holdings"))
 
             let counter = try await UsageCounter.query(on: app.db)
@@ -471,7 +471,7 @@ struct BillingTests {
                 csv: "symbol,quantity,average_cost,buy_date\nMSFT,1,100,2026-01-01\n",
                 on: app
             )
-            #expect(second.0 == .paymentRequired)
+            #expect(second.0 == .forbidden)
             #expect(second.1.contains("feature=csv_imports"))
 
             let counter = try await UsageCounter.query(on: app.db)
@@ -487,7 +487,7 @@ struct BillingTests {
             let auth = try await registerUser(on: app, identifier: "free-research")
 
             let (status, body) = try await get("v1/stocks/AAPL/insights", token: auth.token, on: app)
-            #expect(status == .paymentRequired)
+            #expect(status == .forbidden)
             #expect(body.contains("feature=advanced_research"))
             #expect(body.contains("required=premium"))
         }
@@ -499,7 +499,7 @@ struct BillingTests {
             let auth = try await registerUser(on: app, identifier: "free-compare")
 
             let (status, body) = try await get("v1/market/compare?symbols=AAPL,MSFT", token: auth.token, on: app)
-            #expect(status == .paymentRequired)
+            #expect(status == .forbidden)
             #expect(body.contains("feature=peer_comparison"))
             #expect(body.contains("required=premium"))
         }
@@ -511,9 +511,79 @@ struct BillingTests {
             let auth = try await registerUser(on: app, identifier: "free-earnings")
 
             let (status, body) = try await get("v1/market/earnings/AAPL", token: auth.token, on: app)
-            #expect(status == .paymentRequired)
+            #expect(status == .forbidden)
             #expect(body.contains("feature=earnings_text"))
             #expect(body.contains("required=premium"))
+        }
+    }
+
+    @Test("Free users are blocked from broker sync and expense planner routes")
+    func freeUsersAreBlockedFromBrokerAndExpenseRoutes() async throws {
+        try await withApp { app in
+            let auth = try await registerUser(on: app, identifier: "free-expense-routes")
+
+            try await app.testing().test(.POST, "v1/brokers/ibkr/sync", beforeRequest: { req in
+                req.headers.bearerAuthorization = .init(token: auth.token)
+            }, afterResponse: { res async in
+                #expect(res.status == .forbidden)
+                #expect(res.body.string.contains("feature=broker_sync"))
+            })
+
+            let checks: [(String, String)] = [
+                ("v1/expenses", "expense_planner"),
+                ("v1/budget/snapshots", "expense_planner"),
+                ("v1/reports/overview", "reports"),
+                ("v1/statistics/overview", "statistics")
+            ]
+
+            for (path, feature) in checks {
+                let (status, body) = try await get(path, token: auth.token, on: app)
+                #expect(status == .forbidden)
+                #expect(body.contains("feature=\(feature)"))
+            }
+        }
+    }
+
+    @Test("Free users are blocked from valuation and target alert routes")
+    func freeUsersAreBlockedFromValuationsAndTargets() async throws {
+        try await withApp { app in
+            let auth = try await registerUser(on: app, identifier: "free-valuations")
+
+            let stock = try await createStock(symbol: "AAPL", token: auth.token, on: app)
+            #expect(stock.0 == .created)
+
+            try await app.testing().test(.POST, "v1/stocks/symbol/AAPL/valuation", beforeRequest: { req in
+                req.headers.bearerAuthorization = .init(token: auth.token)
+                try req.content.encode(
+                    StockValuationRequest(
+                        symbol: "AAPL",
+                        bearCase: PriceRange(low: 10, high: 12),
+                        baseCase: PriceRange(low: 13, high: 15),
+                        bullCase: PriceRange(low: 16, high: 20),
+                        rationale: nil,
+                        targetDate: nil
+                    )
+                )
+            }, afterResponse: { res async in
+                #expect(res.status == .forbidden)
+                #expect(res.body.string.contains("feature=valuation_cases"))
+            })
+
+            try await app.testing().test(.POST, "v1/targets", beforeRequest: { req in
+                req.headers.bearerAuthorization = .init(token: auth.token)
+                try req.content.encode(
+                    TargetRequest(
+                        symbol: "AAPL",
+                        scenario: "bull",
+                        targetPrice: 200,
+                        targetDate: nil,
+                        rationale: nil
+                    )
+                )
+            }, afterResponse: { res async in
+                #expect(res.status == .forbidden)
+                #expect(res.body.string.contains("feature=target_alerts"))
+            })
         }
     }
 
@@ -691,7 +761,7 @@ struct BillingTests {
             try await app.testing().test(.GET, "v1/stocks/AAPL/insights", beforeRequest: { req in
                 req.headers.bearerAuthorization = .init(token: auth.token)
             }, afterResponse: { res async throws in
-                #expect(res.status == .paymentRequired)
+                #expect(res.status == .forbidden)
                 error = try res.content.decode(BillingUpgradeRequiredResponse.self)
             })
 

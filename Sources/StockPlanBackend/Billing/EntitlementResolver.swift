@@ -12,7 +12,7 @@ struct EntitlementSnapshot: Sendable {
 }
 
 struct BillingUpgradeRequiredError: Error, AbortError, Sendable {
-    let status: HTTPResponseStatus = .paymentRequired
+    let status: HTTPResponseStatus = .forbidden
     let reason: String
     let feature: BillingFeature
     let plan: String
@@ -80,6 +80,7 @@ struct DefaultEntitlementResolver: EntitlementResolver {
 }
 
 enum BillingFeature: String, Sendable {
+    case brokerSync = "broker_sync"
     case portfolioLists = "portfolio_lists"
     case holdings
     case watchlistItems = "watchlist_items"
@@ -87,6 +88,10 @@ enum BillingFeature: String, Sendable {
     case csvImports = "csv_imports"
     case targetAlerts = "target_alerts"
     case reportGenerations = "report_generations"
+    case expensePlanner = "expense_planner"
+    case reports = "reports"
+    case statistics = "statistics"
+    case marketFundamentals = "market_fundamentals"
     case advancedResearch = "advanced_research"
     case peerComparison = "peer_comparison"
     case earningsText = "earnings_text"
@@ -137,7 +142,8 @@ struct BillingPlanLimits: Sendable {
             return targetAlertCount
         case .reportGenerations:
             return reportGenerationCount
-        case .advancedResearch, .peerComparison, .earningsText:
+        case .brokerSync, .expensePlanner, .reports, .statistics, .marketFundamentals,
+            .advancedResearch, .peerComparison, .earningsText:
             return nil
         }
     }
@@ -236,7 +242,8 @@ struct DefaultUsageCounterService: UsageCounterService {
             usage.targetAlertCount
         case .reportGenerations:
             usage.reportGenerationCount
-        case .portfolioLists, .valuationCases, .advancedResearch, .peerComparison, .earningsText:
+        case .brokerSync, .portfolioLists, .valuationCases, .expensePlanner, .reports,
+            .statistics, .marketFundamentals, .advancedResearch, .peerComparison, .earningsText:
             0
         }
     }
@@ -253,7 +260,8 @@ struct DefaultUsageCounterService: UsageCounterService {
             usage.targetAlertCount = value
         case .reportGenerations:
             usage.reportGenerationCount = value
-        case .portfolioLists, .valuationCases, .advancedResearch, .peerComparison, .earningsText:
+        case .brokerSync, .portfolioLists, .valuationCases, .expensePlanner, .reports,
+            .statistics, .marketFundamentals, .advancedResearch, .peerComparison, .earningsText:
             break
         }
     }

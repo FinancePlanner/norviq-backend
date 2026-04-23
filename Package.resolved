@@ -1,5 +1,5 @@
 {
-  "originHash" : "735fcb6194ad426ca22fa17425c4989cfec51d9261e73ca3d60629f8d77e3b9a",
+  "originHash" : "253037bad5e29e369cb86962adb8bd08de75243ad7f2ed477adba9ccf5b1aab3",
   "pins" : [
     {
       "identity" : "apns",
@@ -60,8 +60,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/krzyzanowskim/CryptoSwift.git",
       "state" : {
-        "revision" : "e45a26384239e028ec87fbcc788f513b67e10d8f",
-        "version" : "1.9.0"
+        "revision" : "f2a627b84c1ff96f21ac2fcb623ab36142dd5512",
+        "version" : "1.10.0"
       }
     },
     {
@@ -70,7 +70,7 @@
       "location" : "https://github.com/FinancePlanner/FinanceShared.git",
       "state" : {
         "branch" : "main",
-        "revision" : "d8c07d592c1d0a1febc26158588232caf4dca63c"
+        "revision" : "367b086fdb469a42a1f01ec071f8ef3190ebb36f"
       }
     },
     {
@@ -375,8 +375,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/apple/swift-nio.git",
       "state" : {
-        "revision" : "cd6710454f25733900e133c6caf5188952763c36",
-        "version" : "2.98.0"
+        "revision" : "f71c8d2a5e74a2c6d11a0fbe324774b5d6084237",
+        "version" : "2.99.0"
       }
     },
     {
@@ -411,8 +411,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/apple/swift-nio-transport-services.git",
       "state" : {
-        "revision" : "9d4e67af1eea85967c7de778ad73e7776e5f1f22",
-        "version" : "1.27.0"
+        "revision" : "67787bb645a5e67d2edcdfbe48a216cc549222d5",
+        "version" : "1.28.0"
       }
     },
     {

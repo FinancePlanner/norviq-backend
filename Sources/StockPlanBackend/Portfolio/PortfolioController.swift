@@ -124,8 +124,46 @@ struct PortfolioController: RouteCollection {
 
     @Sendable
     func lots(req: Request) async throws -> [LotResponse] {
-        _ = try req.auth.require(SessionToken.self)
-        return []
+        let session = try req.auth.require(SessionToken.self)
+        let accounts = try await Account.query(on: req.db)
+            .filter(\.$userId == session.userId)
+            .all()
+        let accountIds = accounts.compactMap(\.id)
+        guard !accountIds.isEmpty else { return [] }
+
+        let instruments = try await Instrument.query(on: req.db).all()
+        let instrumentById = Dictionary(uniqueKeysWithValues: instruments.compactMap { instrument in
+            instrument.id.map { ($0, instrument) }
+        })
+
+        let lots = try await Lot.query(on: req.db)
+            .filter(\.$accountId ~~ accountIds)
+            .sort(\.$openDate, .descending)
+            .all()
+
+        let formatter = DateFormatter()
+        formatter.calendar = Calendar(identifier: .gregorian)
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = TimeZone(secondsFromGMT: 0)
+        formatter.dateFormat = "yyyy-MM-dd"
+
+        return lots.compactMap { lot in
+            guard let id = lot.id else { return nil }
+            let instrument = instrumentById[lot.instrumentId]
+            return LotResponse(
+                id: id.uuidString,
+                accountId: lot.accountId.uuidString,
+                instrumentId: instrument?.symbol ?? lot.instrumentId.uuidString,
+                openDate: formatter.string(from: lot.openDate),
+                closeDate: lot.closeDate.map { formatter.string(from: $0) },
+                openQuantity: lot.openQuantity,
+                remainingQuantity: lot.remainingQuantity,
+                openPrice: lot.openPrice,
+                currency: lot.currency,
+                realizedPnl: lot.realizedPnl,
+                status: lot.status
+            )
+        }
     }
 
     @Sendable

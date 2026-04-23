@@ -46,146 +46,39 @@ struct BrokerController: RouteCollection {
 
     @Sendable
     func syncIbkr(req: Request) async throws -> BrokerSyncResponse {
-        _ = try req.auth.require(SessionToken.self)
+        let session = try req.auth.require(SessionToken.self)
+        try await req.usageCounterService.requirePremium(
+            .brokerSync,
+            userId: session.userId,
+            on: req.db
+        )
         return BrokerSyncResponse(runId: UUID().uuidString, status: "accepted")
     }
 
     @Sendable
     func importCsvPreview(req: Request) async throws -> CsvImportPreviewResponse {
+        let session = try req.auth.require(SessionToken.self)
         let upload = try await readCsvUpload(req)
-        return try CsvImportService().preview(csv: upload.csv, provider: upload.provider)
+        return try await CsvPortfolioImportService().preview(
+            csv: upload.csv,
+            provider: upload.provider,
+            portfolioListId: req.query[String.self, at: "portfolioListId"],
+            userId: session.userId,
+            on: req
+        )
     }
 
     @Sendable
     func importCsvCommit(req: Request) async throws -> CsvImportCommitResponse {
         let session = try req.auth.require(SessionToken.self)
         let upload = try await readCsvUpload(req)
-
-        let preview = try CsvImportService().preview(csv: upload.csv, provider: upload.provider)
-        try await req.usageCounterService.incrementUsage(.csvImports, userId: session.userId, by: 1, on: req.db)
-        let broker = try await req.application.brokersService.recordCsvImport(provider: upload.provider, userId: session.userId, on: req.db)
-        var inserted: [StockResponse] = []
-        var updated: [StockResponse] = []
-        var errors = preview.errors
-
-        for item in preview.items {
-            let hasPositionData = item.shares != nil || item.buyPrice != nil || item.buyDate != nil
-            if !hasPositionData {
-                do {
-                    try await req.db.transaction { tx in
-                        try await upsertWatchlistItem(symbol: item.symbol, userId: session.userId, on: tx)
-                    }
-                } catch {
-                    let message: String
-                    if let abortError = error as? any AbortError {
-                        message = abortError.reason
-                    } else {
-                        message = "Failed to import watchlist row."
-                    }
-                    errors.append(.init(line: item.line, message: message))
-                }
-                continue
-            }
-
-            do {
-                let rowResult = try await req.db.transaction { tx -> (stock: StockResponse, wasUpdate: Bool) in
-                    let existing = try await req.application.stocksRepository.find(
-                        symbol: item.symbol,
-                        userId: session.userId,
-                        on: tx
-                    )
-
-                    guard let shares = item.shares ?? existing?.shares else {
-                        throw Abort(.badRequest, reason: "Missing shares (quantity).")
-                    }
-
-                    guard let buyPrice = item.buyPrice ?? existing?.buyPrice else {
-                        throw Abort(.badRequest, reason: "Missing buyPrice (average_cost).")
-                    }
-
-                    let buyDate: String
-                    if let rawBuyDate = item.buyDate, let normalized = CsvImportService.normalizeDateOnlyString(rawBuyDate) {
-                        buyDate = normalized
-                    } else if let existing, let existingResponse = try? StockResponse(from: existing) {
-                        buyDate = existingResponse.buyDate
-                    } else {
-                        throw Abort(.badRequest, reason: "Missing or invalid buyDate. Expected YYYY-MM-DD.")
-                    }
-
-                    let notes = item.notes ?? existing?.notes
-                    let payload = StockRequest(
-                        symbol: item.symbol,
-                        shares: shares,
-                        buyPrice: buyPrice,
-                        buyDate: buyDate,
-                        notes: notes
-                    )
-
-                    if let existing, let id = existing.id {
-                        let stock = try await req.stocksService.update(
-                            id: id,
-                            payload: payload,
-                            userId: session.userId,
-                            on: tx
-                        )
-                        return (stock, true)
-                    }
-
-                    let stock = try await req.stocksService.create(
-                        payload: payload,
-                        userId: session.userId,
-                        on: tx
-                    )
-                    return (stock, false)
-                }
-
-                if rowResult.wasUpdate {
-                    updated.append(rowResult.stock)
-                } else {
-                    inserted.append(rowResult.stock)
-                }
-            } catch {
-                let message: String
-                if let abortError = error as? any AbortError {
-                    message = abortError.reason
-                } else {
-                    message = "Failed to import row."
-                }
-                errors.append(.init(line: item.line, message: message))
-            }
-        }
-
-        return .init(provider: broker.provider, inserted: inserted, updated: updated, errors: errors)
-    }
-
-    private func upsertWatchlistItem(symbol rawSymbol: String, userId: UUID, on db: any Database) async throws {
-        let symbol = rawSymbol.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
-        guard !symbol.isEmpty else {
-            throw Abort(.badRequest, reason: "Missing symbol.")
-        }
-        guard let targetListId = try await resolveWatchlistListId(
-            requestedId: nil,
-            userId: userId,
-            on: db,
-            defaultWhenMissing: true
-        ) else {
-            throw Abort(.internalServerError, reason: "Failed to resolve default watchlist list.")
-        }
-
-        if let existing = try await WatchlistItem.query(on: db)
-            .filter(\.$userId == userId)
-            .filter(\.$watchlistListId == targetListId)
-            .filter(\.$symbol == symbol)
-            .first() {
-            if existing.status == "archived" {
-                existing.status = "active"
-                try await existing.save(on: db)
-            }
-            return
-        }
-
-        let item = WatchlistItem(userId: userId, watchlistListId: targetListId, symbol: symbol)
-        try await item.save(on: db)
+        return try await CsvPortfolioImportService().commit(
+            csv: upload.csv,
+            provider: upload.provider,
+            portfolioListId: req.query[String.self, at: "portfolioListId"],
+            userId: session.userId,
+            on: req
+        )
     }
 
     private struct CsvMultipartUpload: Content {
