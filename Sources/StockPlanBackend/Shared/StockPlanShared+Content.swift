@@ -89,6 +89,9 @@ extension CsvImportCommitResponse: @retroactive Content {}
 extension BrokerConnectionResponse: @retroactive Content {}
 extension BrokerHoldingResponse: @retroactive Content {}
 extension BrokerSyncResponse: @retroactive Content {}
+extension BrokerConnectStartRequest: @retroactive Content {}
+extension BrokerConnectStartResponse: @retroactive Content {}
+extension BrokerSyncStatusResponse: @retroactive Content {}
 
 // MARK: - Statistics
 extension StatisticsDTO: @retroactive Content {}

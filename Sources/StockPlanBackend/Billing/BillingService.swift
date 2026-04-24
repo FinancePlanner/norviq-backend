@@ -118,7 +118,7 @@ struct DefaultBillingService: BillingService {
                 cancelledAt: nil,
                 on: db
             )
-            try await upsertEntitlement(userId: userId, level: "premium", subscriptionId: subscription.id, on: db)
+            try await upsertEntitlement(userId: userId, level: "pro", subscriptionId: subscription.id, on: db)
 
         case "CANCELLATION":
             let subscription = try await upsertSubscription(
@@ -128,7 +128,7 @@ struct DefaultBillingService: BillingService {
                 cancelledAt: Date(),
                 on: db
             )
-            try await upsertEntitlement(userId: userId, level: "premium", subscriptionId: subscription.id, on: db)
+            try await upsertEntitlement(userId: userId, level: "pro", subscriptionId: subscription.id, on: db)
 
         case "EXPIRATION":
             let subscription = try await upsertSubscription(
@@ -159,7 +159,7 @@ struct DefaultBillingService: BillingService {
                 on: db
             )
             let graceEndsAt = event.gracePeriodExpiresDateMs.flatMap(dateFromMilliseconds)
-            let level = graceEndsAt.map { $0 > Date() } == true ? "premium" : "free"
+            let level = graceEndsAt.map { $0 > Date() } == true ? "pro" : "free"
             try await upsertEntitlement(userId: userId, level: level, subscriptionId: subscription.id, on: db)
 
         default:
@@ -235,9 +235,9 @@ struct DefaultBillingService: BillingService {
     private func plan(for event: RevenueCatWebhookEvent) -> String {
         let product = productId(for: event).lowercased()
         if product.contains("year") || product.contains("annual") {
-            return "premium_yearly"
+            return "pro_annual"
         }
-        return "premium_monthly"
+        return "pro_monthly"
     }
 
     private func dateFromMilliseconds(_ milliseconds: Int64) -> Date {

@@ -180,15 +180,21 @@ public func configure(_ app: Application) async throws {
         }
         app.mailer = ConsoleMailerService()
     }
+    let ibkrBaseURL = Environment.get("IBKR_API_BASE_URL")?
+        .trimmingCharacters(in: .whitespacesAndNewlines)
     app.stocksRepository = DatabaseStocksRepository()
     app.brokersRepository = DatabaseBrokersRepository()
-    app.brokersService = DefaultBrokersService(repo: app.brokersRepository)
+    app.brokersService = DefaultBrokersService(
+        repo: app.brokersRepository,
+        ibkrGatewayClient: IBKRBrokerGatewayClient(
+            baseURL: ibkrBaseURL ?? "http://localhost:5000/v1/api",
+            defaultCurrency: Environment.get("MARKET_DEFAULT_CURRENCY") ?? "USD"
+        )
+    )
     app.marketDataRepository = DatabaseMarketDataRepository()
     let configuredMarketProvider = Environment.get("MARKET_PROVIDER")?
         .trimmingCharacters(in: .whitespacesAndNewlines)
         .lowercased()
-    let ibkrBaseURL = Environment.get("IBKR_API_BASE_URL")?
-        .trimmingCharacters(in: .whitespacesAndNewlines)
     let finnhubAPIKey = Environment.get("FINNHUB_API_KEY")?
         .trimmingCharacters(in: .whitespacesAndNewlines)
     let fmpAPIKey = Environment.get("FMP_API_KEY")?
@@ -303,6 +309,7 @@ public func configure(_ app: Application) async throws {
 
     let cleanupIntervalMinutes = Environment.get("AUTH_TOKEN_CLEANUP_INTERVAL_MINUTES").flatMap(Int.init(_:)) ?? 60
     app.lifecycle.use(AuthTokenCleanup(interval: TimeInterval(cleanupIntervalMinutes * 60)))
+    app.lifecycle.use(IBKRSyncJob())
     let apnsAlertPollSeconds = Environment.get("APNS_ALERT_POLL_SECONDS").flatMap(Int64.init(_:)) ?? 300
     app.lifecycle.use(TargetAlertPoller(intervalSeconds: apnsAlertPollSeconds))
     app.lifecycle.use(TrialExpirationJob())
@@ -328,6 +335,7 @@ private func registerMigrations(_ app: Application) {
     app.migrations.add(CreateLot())
     app.migrations.add(CreatePosition())
     app.migrations.add(CreateCashBalance())
+    app.migrations.add(CreateDividend())
     app.migrations.add(CreateFxRate())
     app.migrations.add(CreatePrice())
     app.migrations.add(CreatePasswordResetToken())
@@ -352,6 +360,7 @@ private func registerMigrations(_ app: Application) {
     app.migrations.add(CreateSearchCache())
     app.migrations.add(CreateStatisticsSnapshot())
     app.migrations.add(CreateBrokerConnection())
+    app.migrations.add(AddBrokerOAuthFlowAndConnectionMetadata())
     app.migrations.add(CreateMarketNewsArchive())
     app.migrations.add(AddImageURLToMarketNewsArchive())
     app.migrations.add(AddUserScopedQueryIndexes())

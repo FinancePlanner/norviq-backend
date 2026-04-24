@@ -1,5 +1,66 @@
 # StockPlanBackend API Study Guide
 
+## Implemented Broker IBKR Sync Integration (2026-04-23)
+
+Main work:
+- iOS Portfolio import sheet now has IBKR connect / sync / disconnect.
+- iOS broker client starts browser flow with `ASWebAuthenticationSession`, then reloads Portfolio.
+- Backend has broker connect-start endpoint, public callback, sync endpoint, disconnect endpoint.
+- Backend sync pulls IBKR accounts/positions from existing IBKR gateway base URL and upserts imported holdings into Portfolio.
+- Disconnect clears broker credential state and keeps imported holdings.
+
+Key files:
+- `financeplan/API/Brokers/BrokerEndpoints.swift`
+- `financeplan/API/Brokers/BrokerHTTPClient.swift`
+- `financeplan/API/Brokers/CsvImportFlowViewModel.swift`
+- `financeplan/Features/Onboarding/BrokerService.swift`
+- `financeplan/Features/Portfolio/PortfolioCSVImportSheet.swift`
+- `financeplanTests/BrokerServiceTests.swift`
+- `financeplanTests/PortfolioCSVImportViewModelTests.swift`
+- `StockPlanBackend/Sources/StockPlanBackend/Broker/BrokerController.swift`
+- `StockPlanBackend/Sources/StockPlanBackend/Broker/BrokersService.swift`
+- `StockPlanBackend/Sources/StockPlanBackend/Broker/IBKRBrokerIntegration.swift`
+- `StockPlanBackend/Sources/StockPlanBackend/Auth/AuthController.swift`
+- `StockPlanBackend/Sources/StockPlanBackend/Models/BrokerConnection.swift`
+- `StockPlanBackend/Sources/StockPlanBackend/Models/BrokerOAuthFlow.swift`
+- `StockPlanBackend/Sources/StockPlanBackend/Migrations/AddBrokerOAuthFlowAndConnectionMetadata.swift`
+
+Build:
+- iOS xcodebuild ... build passed.
+- Backend swift build passed.
+
+Important caveat:
+- Repo package wiring uses older external shared package for broker DTOs. I kept iOS and backend broker-flow DTO additions local where needed so feature builds now without waiting on shared package publish/update.
+
+What acceptance now does:
+- Connect IBKR account: yes, from Portfolio import sheet.
+- Holdings auto-import into Portfolio: yes, callback triggers sync inline.
+- Sync button refreshes positions: yes.
+- Disconnect revokes token: best-effort local disconnect only. Current backend has no real IBKR token revoke adapter in repo, so it clears stored broker auth state and marks disconnected.
+
+Not run:
+- Full test suites.
+- Real end-to-end IBKR live session test. Need actual `IBKR_API_BASE_URL` session up for that.
+
+## Implemented Billing MVP Slice (2026-04-23)
+
+- Backend: added pro plan compatibility, Pro gates, Pro limits, RevenueCat /v1/billing/restore, REVENUECAT_API_KEY production requirement.
+- iOS: added RevenueCat package, API-key plist hook, BillingHTTPClient, BillingManager, custom SwiftUI Pro paywall, Settings subscription rows, restore/manage actions, Pro gating in reports, stock detail premium tabs/actions, portfolio alert action.
+- Shared DTOs: added isPro compatibility while preserving isPremium.
+
+Verified:
+- financeplan iOS simulator build: passed.
+- StockPlanShared swift test: passed, 23 tests.
+- StockPlanBackend swift build: blocked by pre-existing broker/shared mismatch:
+  - BrokerConnectStartRequest missing in StockPlanShared
+  - BrokerConnectStartResponse missing in StockPlanShared
+
+Still needs external config:
+- Backend env: REVENUECAT_API_KEY
+- iOS build setting: REVENUECAT_IOS_API_KEY
+- RevenueCat: entitlement pro, products pro_monthly, pro_annual
+- App Store Connect: subscription group + 14-day annual trial.
+
 Pair this guide with the iOS client's `financeplan/Documentation/source-of-truth.md`. The client document explains which features treat the API as authoritative, which data is cached in SwiftData, and which mock paths must stay preview/test-only.
 
 This guide is for studying the backend API project: Vapor, Fluent, PostgreSQL, auth, billing, market data, expenses, portfolio, notifications, observability, and tests.

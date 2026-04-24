@@ -28,6 +28,21 @@ final class BrokerConnection: Model, @unchecked Sendable {
     @Field(key: "status")
     var status: String
 
+    @OptionalField(key: "display_name")
+    var displayName: String?
+
+    @OptionalField(key: "status_detail")
+    var statusDetail: String?
+
+    @OptionalField(key: "connected_at")
+    var connectedAt: Date?
+
+    @OptionalField(key: "last_synced_at")
+    var lastSyncedAt: Date?
+
+    @OptionalField(key: "portfolio_list_id")
+    var portfolioListId: UUID?
+
     @Timestamp(key: "created_at", on: .create)
     var createdAt: Date?
 
@@ -44,7 +59,12 @@ final class BrokerConnection: Model, @unchecked Sendable {
         accessToken: String? = nil,
         refreshToken: String? = nil,
         expiresAt: Date? = nil,
-        status: String
+        status: String,
+        displayName: String? = nil,
+        statusDetail: String? = nil,
+        connectedAt: Date? = nil,
+        lastSyncedAt: Date? = nil,
+        portfolioListId: UUID? = nil
     ) {
         self.id = id
         self.userId = userId
@@ -54,5 +74,10 @@ final class BrokerConnection: Model, @unchecked Sendable {
         self.refreshToken = refreshToken
         self.expiresAt = expiresAt
         self.status = status
+        self.displayName = displayName
+        self.statusDetail = statusDetail
+        self.connectedAt = connectedAt
+        self.lastSyncedAt = lastSyncedAt
+        self.portfolioListId = portfolioListId
     }
 }

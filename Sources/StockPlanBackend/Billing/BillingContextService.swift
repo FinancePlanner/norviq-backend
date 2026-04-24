@@ -120,15 +120,15 @@ struct DefaultBillingContextService: BillingContextService {
         usageByFeature: [String: BillingUsageDTO]
     ) -> [BillingFeatureDTO] {
         BillingFeatureDescriptor.all.map { descriptor in
-            let available = entitlement.isPremium || !descriptor.premiumOnly
+            let available = entitlement.isPro || !descriptor.proOnly
             let usage = usageByFeature[descriptor.feature.rawValue]
             let limit = limits.limit(for: descriptor.feature)
             return BillingFeatureDTO(
                 key: descriptor.feature.rawValue,
                 title: descriptor.title,
                 available: available,
-                requiredPlan: available ? nil : "premium",
-                reason: available ? nil : "Upgrade to Premium to use \(descriptor.title).",
+                requiredPlan: available ? nil : "pro",
+                reason: available ? nil : "Upgrade to Pro to use \(descriptor.title).",
                 limit: limit,
                 used: usage?.used,
                 remaining: usage?.remaining
@@ -180,23 +180,23 @@ struct DefaultBillingContextService: BillingContextService {
 private struct BillingFeatureDescriptor {
     let feature: BillingFeature
     let title: String
-    let premiumOnly: Bool
+    let proOnly: Bool
 
     static let all: [BillingFeatureDescriptor] = [
-        .init(feature: .brokerSync, title: "Broker sync", premiumOnly: true),
-        .init(feature: .portfolioLists, title: "Portfolio lists", premiumOnly: false),
-        .init(feature: .holdings, title: "Holdings", premiumOnly: false),
-        .init(feature: .watchlistItems, title: "Watchlist items", premiumOnly: false),
-        .init(feature: .valuationCases, title: "Saved valuation cases", premiumOnly: true),
-        .init(feature: .csvImports, title: "CSV imports", premiumOnly: false),
-        .init(feature: .targetAlerts, title: "Target alerts", premiumOnly: true),
-        .init(feature: .reportGenerations, title: "Report generations", premiumOnly: false),
-        .init(feature: .expensePlanner, title: "Expense planner sync", premiumOnly: true),
-        .init(feature: .reports, title: "Reports", premiumOnly: true),
-        .init(feature: .statistics, title: "Advanced statistics", premiumOnly: true),
-        .init(feature: .marketFundamentals, title: "Market fundamentals", premiumOnly: true),
-        .init(feature: .advancedResearch, title: "Advanced stock research", premiumOnly: true),
-        .init(feature: .peerComparison, title: "Peer comparison", premiumOnly: true),
-        .init(feature: .earningsText, title: "Earnings detail", premiumOnly: true)
+        .init(feature: .brokerSync, title: "Broker sync", proOnly: true),
+        .init(feature: .portfolioLists, title: "Portfolio lists", proOnly: false),
+        .init(feature: .holdings, title: "Holdings", proOnly: false),
+        .init(feature: .watchlistItems, title: "Watchlist items", proOnly: false),
+        .init(feature: .valuationCases, title: "Saved valuation cases", proOnly: true),
+        .init(feature: .csvImports, title: "CSV imports", proOnly: false),
+        .init(feature: .targetAlerts, title: "Price, dividend, and earnings alerts", proOnly: true),
+        .init(feature: .reportGenerations, title: "Report generations", proOnly: false),
+        .init(feature: .expensePlanner, title: "Cloud sync for expenses and reports", proOnly: true),
+        .init(feature: .reports, title: "Reports with charts", proOnly: true),
+        .init(feature: .statistics, title: "Advanced statistics", proOnly: true),
+        .init(feature: .marketFundamentals, title: "Real stock fundamentals", proOnly: true),
+        .init(feature: .advancedResearch, title: "Advanced stock research", proOnly: true),
+        .init(feature: .peerComparison, title: "Peer comparison", proOnly: true),
+        .init(feature: .earningsText, title: "Earnings detail", proOnly: true)
     ]
 }

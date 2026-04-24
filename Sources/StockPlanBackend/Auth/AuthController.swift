@@ -30,6 +30,9 @@ struct AuthController: RouteCollection {
             oauth.post("start", use: oauthStart)
             oauth.post("exchange", use: oauthExchange)
         }
+        auth.group("brokers", "ibkr") { brokers in
+            brokers.get("callback", use: brokerIBKRCallback)
+        }
 
         let protected = auth.grouped(SessionToken.authenticator(), SessionToken.guardMiddleware())
         protected.get("me", use: me)
@@ -143,6 +146,19 @@ struct AuthController: RouteCollection {
             on: req
         )
         return try loginResponse(for: outcome, req: req)
+    }
+
+    @Sendable
+    func brokerIBKRCallback(req: Request) async throws -> Response {
+        guard let flowIdRaw = req.query[String.self, at: "flowId"],
+              let flowId = UUID(uuidString: flowIdRaw) else {
+            throw Abort(.badRequest, reason: "Invalid broker flow id.")
+        }
+        guard let state = req.query[String.self, at: "state"],
+              !state.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            throw Abort(.badRequest, reason: "Missing broker flow state.")
+        }
+        return try await req.application.brokersService.handleIBKRCallback(flowId: flowId, state: state, on: req)
     }
 
     private func oauthProvider(from req: Request) throws -> OAuthProvider {

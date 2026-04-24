@@ -4,3 +4,6 @@ import StockPlanShared
 typealias BrokerConnectionResponse = StockPlanShared.BrokerConnectionResponse
 typealias BrokerHoldingResponse = StockPlanShared.BrokerHoldingResponse
 typealias BrokerSyncResponse = StockPlanShared.BrokerSyncResponse
+typealias BrokerSyncStatusResponse = StockPlanShared.BrokerSyncStatusResponse
+typealias BrokerConnectStartRequest = StockPlanShared.BrokerConnectStartRequest
+typealias BrokerConnectStartResponse = StockPlanShared.BrokerConnectStartResponse

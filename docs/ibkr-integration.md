@@ -1,20 +1,35 @@
 # IBKR Integration Decision Note
 
-Purpose
+## Implementation Status
+
+✅ **IMPLEMENTED** - Full IBKR Gateway Docker integration completed on 2026-04-24
+
+The IBKR integration is now fully functional with:
+- IB Gateway Docker container running alongside the backend
+- Automated daily sync of positions, transactions, cash balances, and dividends
+- OAuth-like flow for user account connection
+- Read-only API access (no trading capability)
+- Comprehensive error handling and monitoring
+
+See [ibkr-implementation-summary.md](./ibkr-implementation-summary.md) for complete details.
+
+---
+
+## Purpose
 - Capture the product and technical recommendation for IBKR in this project.
 - Clarify when `IBKR_API_BASE_URL` should be used and when it should stay optional.
 
 ## Short answer
 
 Recommendation
-- Do not make IBKR mandatory.
-- Keep `IBKR_API_BASE_URL` optional.
-- Treat IBKR as one possible broker and market data integration, not as the foundation of the product.
+- IBKR is now implemented as an optional broker integration.
+- `IBKR_API_BASE_URL` is configured to point to the IB Gateway Docker container.
+- IBKR is treated as one possible broker integration, not as the foundation of the product.
 
 Why
 - The core product value is portfolio tracking, notes, valuations, and imports.
 - Users may want to add stocks manually, by CSV, or via broker APIs.
-- Requiring IBKR for basic stock workflows adds friction, operational complexity, and market data entitlement issues too early.
+- IBKR integration provides automated sync for users with IBKR accounts.
 
 ## Product view
 

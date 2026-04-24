@@ -6,8 +6,12 @@ struct EntitlementSnapshot: Sendable {
     let userId: UUID
     let level: String
 
+    var isPro: Bool {
+        level == "pro" || level.hasPrefix("pro_") || level == "premium" || level.hasPrefix("premium_") || level == "temporary"
+    }
+
     var isPremium: Bool {
-        level == "premium" || level.hasPrefix("premium_") || level == "temporary"
+        isPro
     }
 }
 
@@ -23,7 +27,7 @@ struct BillingUpgradeRequiredError: Error, AbortError, Sendable {
     init(
         feature: BillingFeature,
         plan: String,
-        requiredPlan: String = "premium",
+        requiredPlan: String = "pro",
         limit: Int? = nil,
         current: Int? = nil
     ) {
@@ -52,14 +56,14 @@ struct DefaultEntitlementResolver: EntitlementResolver {
         // 1. Explicit local/test bypass
         let bypassBilling = Environment.get("BYPASS_BILLING") == "true"
         if bypassBilling {
-            return EntitlementSnapshot(userId: userId, level: "premium")
+            return EntitlementSnapshot(userId: userId, level: "pro")
         }
 
         // 2. Admin/Premium Email Bypass
         if !premiumEmails.isEmpty,
            let user = try await User.find(userId, on: db),
            premiumEmails.contains(user.email.lowercased()) {
-            return EntitlementSnapshot(userId: userId, level: "premium")
+            return EntitlementSnapshot(userId: userId, level: "pro")
         }
 
         // 3. Fetch explicit entitlement (e.g. from a subscription)
@@ -126,6 +130,8 @@ struct BillingPlanLimits: Sendable {
         reportGenerationCount: nil
     )
 
+    static let pro = premium
+
     func limit(for feature: BillingFeature) -> Int? {
         switch feature {
         case .portfolioLists:
@@ -168,12 +174,12 @@ struct DefaultUsageCounterService: UsageCounterService {
     let entitlementResolver: any EntitlementResolver
 
     func limits(for entitlement: EntitlementSnapshot) -> BillingPlanLimits {
-        entitlement.isPremium ? .premium : .free
+        entitlement.isPro ? .pro : .free
     }
 
     func requirePremium(_ feature: BillingFeature, userId: UUID, on db: any Database) async throws {
         let entitlement = try await entitlementResolver.resolve(userId: userId, on: db)
-        guard entitlement.isPremium else {
+        guard entitlement.isPro else {
             throw billingUpgradeError(feature: feature, plan: entitlement.level)
         }
     }

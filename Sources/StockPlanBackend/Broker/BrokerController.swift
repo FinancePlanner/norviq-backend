@@ -12,7 +12,9 @@ struct BrokerController: RouteCollection {
         protected.get(":provider", use: getBroker)
         protected.post("import", "csv", use: importCsvPreview)
         protected.post("import", "csv", "commit", use: importCsvCommit)
+        protected.post("ibkr", "connect", "start", use: startIBKRConnect)
         protected.post("ibkr", "sync", use: syncIbkr)
+        protected.delete("ibkr", "connection", use: disconnectIbkr)
     }
 
     @Sendable
@@ -52,7 +54,47 @@ struct BrokerController: RouteCollection {
             userId: session.userId,
             on: req.db
         )
-        return BrokerSyncResponse(runId: UUID().uuidString, status: "accepted")
+        return try await req.application.brokersService.syncIBKR(userId: session.userId, on: req)
+    }
+
+    @Sendable
+    func getIbkrSyncStatus(req: Request) async throws -> BrokerSyncStatusResponse {
+        let session = try req.auth.require(SessionToken.self)
+        guard let connection = try await BrokerConnection.query(on: req.db)
+            .filter(\.$userId == session.userId)
+            .filter(\.$provider == "ibkr")
+            .first()
+        else {
+            throw Abort(.notFound, reason: "IBKR connection not found")
+        }
+
+        let now = Date()
+        let isStale = connection.lastSyncedAt.map { now.timeIntervalSince($0) > 24 * 3600 } ?? true
+
+        return BrokerSyncStatusResponse(
+            status: connection.status,
+            lastSyncedAt: connection.lastSyncedAt,
+            isStale: isStale,
+            statusDetail: connection.statusDetail
+        )
+    }
+
+    @Sendable
+    func startIBKRConnect(req: Request) async throws -> BrokerConnectStartResponse {
+        let session = try req.auth.require(SessionToken.self)
+        let payload = try req.content.decode(BrokerConnectStartRequest.self)
+        return try await req.application.brokersService.startIBKRConnect(
+            redirectURI: payload.redirectURI,
+            portfolioListId: payload.portfolioListId,
+            userId: session.userId,
+            on: req
+        )
+    }
+
+    @Sendable
+    func disconnectIbkr(req: Request) async throws -> BrokerConnectionResponse {
+        let session = try req.auth.require(SessionToken.self)
+        return try await req.application.brokersService.disconnectIBKR(userId: session.userId, on: req.db)
     }
 
     @Sendable

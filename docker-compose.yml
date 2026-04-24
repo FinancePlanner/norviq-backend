@@ -43,6 +43,7 @@ services:
     depends_on:
       - db
       - redis
+      - ib-gateway
     ports:
       - "8080:8080"
     # user: '0' # uncomment to run as root for testing purposes even though Dockerfile defines 'vapor' user.
@@ -56,6 +57,28 @@ services:
         "--port",
         "8080",
       ]
+  ib-gateway:
+    image: ghcr.io/gnzsnz/ib-gateway:stable
+    environment:
+      TWS_USERID: ${IBKR_USERNAME:-}
+      TWS_PASSWORD: ${IBKR_PASSWORD:-}
+      TRADING_MODE: ${IBKR_MODE:-paper}
+      READ_ONLY_API: "yes"
+      VNC_SERVER_PASSWORD: ${IBKR_VNC_PASSWORD:-}
+      TWOFA_TIMEOUT_ACTION: restart
+      AUTO_RESTART_TIME: "11:59 PM"
+      TIME_ZONE: ${TZ:-Etc/UTC}
+    ports:
+      - "127.0.0.1:4001:4003"
+      - "127.0.0.1:4002:4004"
+      - "127.0.0.1:5900:5900"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5000/v1/api/iserver/auth/status"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 120s
   migrate:
     image: stockplanbackend:latest
     build:

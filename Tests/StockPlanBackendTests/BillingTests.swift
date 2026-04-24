@@ -64,7 +64,7 @@ struct BillingTests {
         type: String,
         eventId: String,
         appUserId: String,
-        productId: String = "com.app.premium_yearly",
+        productId: String = "pro_annual",
         expirationAtMs: Int64? = nil,
         gracePeriodMs: Int64? = nil
     ) -> String {
@@ -98,7 +98,7 @@ struct BillingTests {
     }
 
     private func grantPremium(userId: UUID, on app: Application) async throws {
-        let entitlement = Entitlement(userId: userId, level: "premium")
+        let entitlement = Entitlement(userId: userId, level: "pro")
         try await entitlement.save(on: app.db)
     }
 
@@ -242,13 +242,13 @@ struct BillingTests {
 
     // MARK: - Event tests
 
-    @Test("INITIAL_PURCHASE creates active subscription and premium entitlement")
+    @Test("INITIAL_PURCHASE creates active subscription and pro entitlement")
     func initialPurchase() async throws {
         try await withApp { app in
             let auth = try await registerUser(on: app, identifier: "purchase")
             let userId = auth.userId
             let futureMs = Int64(Date().addingTimeInterval(2_592_000).timeIntervalSince1970 * 1000)
-            let payload = makePayload(type: "INITIAL_PURCHASE", eventId: UUID().uuidString, appUserId: userId.uuidString, productId: "com.app.premium_monthly", expirationAtMs: futureMs)
+            let payload = makePayload(type: "INITIAL_PURCHASE", eventId: UUID().uuidString, appUserId: userId.uuidString, productId: "pro_monthly", expirationAtMs: futureMs)
 
             let status = try await post(payload, authorization: secret, on: app)
             #expect(status == .ok)
@@ -256,12 +256,12 @@ struct BillingTests {
             let sub = try await Subscription.query(on: app.db).filter(\.$userId == userId).first()
             let ent = try await Entitlement.query(on: app.db).filter(\.$userId == userId).first()
             #expect(sub?.status == "active")
-            #expect(sub?.plan == "premium_monthly")
-            #expect(ent?.level == "premium")
+            #expect(sub?.plan == "pro_monthly")
+            #expect(ent?.level == "pro")
         }
     }
 
-    @Test("RENEWAL updates subscription and keeps premium entitlement")
+    @Test("RENEWAL updates subscription and keeps pro entitlement")
     func renewal() async throws {
         try await withApp { app in
             let auth = try await registerUser(on: app, identifier: "renewal")
@@ -278,11 +278,11 @@ struct BillingTests {
             #expect(status == .ok)
 
             let ent = try await Entitlement.query(on: app.db).filter(\.$userId == userId).first()
-            #expect(ent?.level == "premium")
+            #expect(ent?.level == "pro")
         }
     }
 
-    @Test("CANCELLATION sets subscription cancelled, entitlement stays premium")
+    @Test("CANCELLATION sets subscription cancelled, entitlement stays pro")
     func cancellation() async throws {
         try await withApp { app in
             let auth = try await registerUser(on: app, identifier: "cancel")
@@ -296,7 +296,7 @@ struct BillingTests {
             let sub = try await Subscription.query(on: app.db).filter(\.$userId == userId).first()
             let ent = try await Entitlement.query(on: app.db).filter(\.$userId == userId).first()
             #expect(sub?.status == "cancelled")
-            #expect(ent?.level == "premium")
+            #expect(ent?.level == "pro")
         }
     }
 
@@ -334,7 +334,7 @@ struct BillingTests {
         }
     }
 
-    @Test("BILLING_ISSUE with future grace period keeps premium entitlement")
+    @Test("BILLING_ISSUE with future grace period keeps pro entitlement")
     func billingIssueWithGracePeriod() async throws {
         try await withApp { app in
             let auth = try await registerUser(on: app, identifier: "billing-grace")
@@ -348,7 +348,7 @@ struct BillingTests {
             let sub = try await Subscription.query(on: app.db).filter(\.$userId == userId).first()
             let ent = try await Entitlement.query(on: app.db).filter(\.$userId == userId).first()
             #expect(sub?.status == "billing_issue")
-            #expect(ent?.level == "premium")
+            #expect(ent?.level == "pro")
         }
     }
 
@@ -489,7 +489,7 @@ struct BillingTests {
             let (status, body) = try await get("v1/stocks/AAPL/insights", token: auth.token, on: app)
             #expect(status == .forbidden)
             #expect(body.contains("feature=advanced_research"))
-            #expect(body.contains("required=premium"))
+            #expect(body.contains("required=pro"))
         }
     }
 
@@ -501,7 +501,7 @@ struct BillingTests {
             let (status, body) = try await get("v1/market/compare?symbols=AAPL,MSFT", token: auth.token, on: app)
             #expect(status == .forbidden)
             #expect(body.contains("feature=peer_comparison"))
-            #expect(body.contains("required=premium"))
+            #expect(body.contains("required=pro"))
         }
     }
 
@@ -513,7 +513,7 @@ struct BillingTests {
             let (status, body) = try await get("v1/market/earnings/AAPL", token: auth.token, on: app)
             #expect(status == .forbidden)
             #expect(body.contains("feature=earnings_text"))
-            #expect(body.contains("required=premium"))
+            #expect(body.contains("required=pro"))
         }
     }
 
@@ -601,6 +601,7 @@ struct BillingTests {
 
             let entitlement = try await app.entitlementResolver.resolve(userId: auth.userId, on: app.db)
             #expect(entitlement.level == "temporary")
+            #expect(entitlement.isPro == true)
             #expect(entitlement.isPremium == true)
         }
     }
@@ -685,12 +686,12 @@ struct BillingTests {
 
             let research = try #require(body.features.first { $0.key == "advanced_research" })
             #expect(research.available == false)
-            #expect(research.requiredPlan == "premium")
+            #expect(research.requiredPlan == "pro")
         }
     }
 
-    @Test("Billing context returns premium yearly subscription state")
-    func billingContextForPremiumYearlyUser() async throws {
+    @Test("Billing context returns pro annual subscription state")
+    func billingContextForProAnnualUser() async throws {
         try await withApp { app in
             let auth = try await registerUser(on: app, identifier: "context-yearly")
             let futureMs = Int64(Date().addingTimeInterval(31_536_000).timeIntervalSince1970 * 1000)
@@ -698,7 +699,7 @@ struct BillingTests {
                 type: "INITIAL_PURCHASE",
                 eventId: UUID().uuidString,
                 appUserId: auth.userId.uuidString,
-                productId: "com.app.premium_yearly",
+                productId: "pro_annual",
                 expirationAtMs: futureMs
             )
             #expect(try await post(payload, authorization: secret, on: app) == .ok)
@@ -706,11 +707,11 @@ struct BillingTests {
             let (status, context, _) = try await getBillingContext(token: auth.token, on: app)
             #expect(status == .ok)
             let body = try #require(context)
-            #expect(body.plan == "premium_yearly")
-            #expect(body.entitlementLevel == "premium")
+            #expect(body.plan == "pro_annual")
+            #expect(body.entitlementLevel == "pro")
             #expect(body.isPremium == true)
             #expect(body.subscription?.status == "active")
-            #expect(body.subscription?.plan == "premium_yearly")
+            #expect(body.subscription?.plan == "pro_annual")
             #expect(body.subscription?.renewsOrExpiresAt != nil)
             #expect(body.features.allSatisfy { $0.available })
             #expect(body.usage.first { $0.key == "holdings" }?.limit == nil)
@@ -770,7 +771,7 @@ struct BillingTests {
             #expect(body.code == "upgrade_required")
             #expect(body.feature == "advanced_research")
             #expect(body.plan == "free")
-            #expect(body.requiredPlan == "premium")
+            #expect(body.requiredPlan == "pro")
         }
     }
 }

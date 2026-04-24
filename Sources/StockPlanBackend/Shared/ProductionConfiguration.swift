@@ -10,6 +10,8 @@ enum ProductionConfiguration {
             username: Environment.get("DATABASE_USERNAME"),
             password: Environment.get("DATABASE_PASSWORD")
         )
+        try validateRequiredSecret(Environment.get("REVENUECAT_WEBHOOK_SECRET"), name: "REVENUECAT_WEBHOOK_SECRET")
+        try validateRequiredSecret(Environment.get("REVENUECAT_API_KEY"), name: "REVENUECAT_API_KEY")
     }
 
     static func allowedOrigins(from rawValue: String?, isProduction: Bool) throws -> [String] {
@@ -76,6 +78,13 @@ enum ProductionConfiguration {
         }
         guard password.count >= 24 else {
             throw Abort(.internalServerError, reason: "DATABASE_PASSWORD must be at least 24 characters in production.")
+        }
+    }
+
+    static func validateRequiredSecret(_ rawValue: String?, name: String) throws {
+        let value = rawValue?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard !value.isEmpty else {
+            throw Abort(.internalServerError, reason: "\(name) is required in production.")
         }
     }
 }
