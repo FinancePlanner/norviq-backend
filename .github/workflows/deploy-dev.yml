@@ -1,8 +1,8 @@
-name: Deploy
+name: Deploy Dev
 
 on:
     push:
-        branches: [main]
+        branches: [dev]
     workflow_dispatch:
         inputs:
             build_strategy:
@@ -20,7 +20,7 @@ env:
 
 jobs:
     build:
-        name: Build & Push Image
+        name: Build & Push Dev Image
         runs-on: ubuntu-latest
         permissions:
             contents: read
@@ -41,7 +41,7 @@ jobs:
               id: refs
               run: |
                   IMAGE_REPOSITORY="${REGISTRY}/${IMAGE_NAME}"
-                  IMAGE_SHA_TAG="${GITHUB_SHA}"
+                  IMAGE_SHA_TAG="dev-${GITHUB_SHA}"
                   APP_IMAGE="${IMAGE_REPOSITORY}:${IMAGE_SHA_TAG}"
                   echo "image_repository=${IMAGE_REPOSITORY}" >> "$GITHUB_OUTPUT"
                   echo "image_sha_tag=${IMAGE_SHA_TAG}" >> "$GITHUB_OUTPUT"
@@ -69,7 +69,7 @@ jobs:
                   push: true
                   tags: |
                       ${{ env.IMAGE_REPOSITORY }}:${{ env.IMAGE_SHA_TAG }}
-                      ${{ env.IMAGE_REPOSITORY }}:latest
+                      ${{ env.IMAGE_REPOSITORY }}:dev
                   labels: |
                       org.opencontainers.image.source=https://github.com/${{ github.repository }}
                       org.opencontainers.image.revision=${{ github.sha }}
@@ -120,10 +120,10 @@ jobs:
                     --cmd serve --env production --hostname 0.0.0.0 --port 8080
 
     deploy:
-        name: Deploy to Production
+        name: Deploy to Dev
         needs: build
         runs-on: ubuntu-latest
-        environment: production
+        environment: development
         permissions:
             contents: read
             packages: read
@@ -139,49 +139,42 @@ jobs:
                       set -euo pipefail
                       cd /opt/stockplan
 
-                      # Pull latest code (for docker-compose changes)
-                      git pull origin main
+                      git pull origin dev
 
                       APP_IMAGE="${{ needs.build.outputs.app_image }}"
 
-                      # Login to container registry
                       echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
 
-                      # Pull immutable image built in CI
                       docker pull "${APP_IMAGE}"
 
-                      # Persist currently deployed image reference
-                      if grep -q '^APP_IMAGE=' .env.production; then
-                        sed -i "s|^APP_IMAGE=.*|APP_IMAGE=${APP_IMAGE}|" .env.production
+                      if grep -q '^APP_IMAGE=' .env.development; then
+                        sed -i "s|^APP_IMAGE=.*|APP_IMAGE=${APP_IMAGE}|" .env.development
                       else
-                        echo "APP_IMAGE=${APP_IMAGE}" >> .env.production
+                        echo "APP_IMAGE=${APP_IMAGE}" >> .env.development
                       fi
 
-                      ln -sf /opt/stockplan/.env.production /opt/stockplan/.env
+                      ln -sf /opt/stockplan/.env.development /opt/stockplan/.env
 
                       export APP_IMAGE
-                      export APP_PORT=8080
+                      export APP_PORT=8081
 
-                      # Run migrations
-                      APP_PORT=8080 APP_IMAGE="${APP_IMAGE}" docker compose -p prod \
+                      APP_PORT=8081 APP_IMAGE="${APP_IMAGE}" docker compose -p dev \
                         -f docker-compose.production.yml \
-                        --env-file .env.production \
+                        --env-file .env.development \
                         run --rm migrate
 
-                      # Deploy
-                      APP_PORT=8080 APP_IMAGE="${APP_IMAGE}" docker compose -p prod \
+                      APP_PORT=8081 APP_IMAGE="${APP_IMAGE}" docker compose -p dev \
                         -f docker-compose.production.yml \
-                        --env-file .env.production \
+                        --env-file .env.development \
                         up -d --no-deps app
 
-                      # Health check
                       HEALTHY=0
                       for ATTEMPT in $(seq 1 30); do
-                        if curl -fsS http://127.0.0.1:8080/health/ready >/dev/null 2>&1; then
+                        if curl -fsS http://127.0.0.1:8081/health/ready >/dev/null 2>&1; then
                           HEALTHY=1
                           break
                         fi
-                        if curl -fsS http://127.0.0.1:8080/health >/dev/null 2>&1; then
+                        if curl -fsS http://127.0.0.1:8081/health >/dev/null 2>&1; then
                           HEALTHY=1
                           break
                         fi
@@ -190,13 +183,9 @@ jobs:
 
                       if [ "${HEALTHY}" -ne 1 ]; then
                         echo "Health check failed for ${APP_IMAGE}"
-                        APP_PORT=8080 APP_IMAGE="${APP_IMAGE}" docker compose -p prod \
+                        APP_PORT=8081 APP_IMAGE="${APP_IMAGE}" docker compose -p dev \
                           -f docker-compose.production.yml logs --tail=120 app
                         exit 1
                       fi
 
-                      echo "Rollback command:"
-                      echo "APP_PORT=8080 APP_IMAGE=<previous_sha_image> docker compose -p prod -f docker-compose.production.yml --env-file .env.production up -d --no-deps app"
-
-                      # Cleanup old images older than 7 days
                       docker image prune -af --filter "until=168h"

@@ -54,10 +54,12 @@ sudo apt install -y nginx certbot python3-certbot-nginx supervisor
 
 ### Domain & DNS Setup (Namecheap to Hetzner)
 
-Before configuring Nginx, ensure your domain points to your Hetzner machine:
+Before configuring Nginx, ensure your domains point to your Hetzner machine:
 1. Find your Hetzner server's public IPv4 address.
-2. In your Namecheap dashboard, navigate to **Advanced DNS** for your domain.
-3. Add an `A Record` for your API (e.g., Host: `api`, Value: `YOUR_HETZNER_IP`).
+2. In your Namecheap dashboard, navigate to **Advanced DNS** for your domains.
+3. Add `A Records` for your APIs. Since you are hosting both on the same server, they will share the same IP:
+   - Host: `www.prod-norviq.online` (or `@`), Value: `YOUR_HETZNER_IP`
+   - Host: `www.dev-norviq.online` (or `@`), Value: `YOUR_HETZNER_IP`
 4. Wait for DNS to propagate (can take a few minutes to hours).
 
 ### TLS (HTTPS) Certificates
@@ -133,10 +135,20 @@ sudo systemctl restart nginx
 
 To host both your development (`dev-norviq.online`) and production (`prod-norviq.online`) API environments securely on the same physical server, run two separate instances and route them through Nginx.
 
-**1. Run Two API Instances:**
-Instead of a single backend running on port `8080`, configure two backend services on different internal ports using `docker-compose.yml`:
-- **Production API:** Maps to internal port `8080` (reads `.env.production`).
-- **Development API:** Maps to internal port `8081` (reads `.env.development`).
+**1. Run Two API Instances with Docker Compose:**
+`docker-compose.production.yml` now supports overriding the bound port via `APP_PORT` and uses Docker compose projects (`-p`) to prevent database volume collisions. 
+
+Start Prod on port `8080`:
+```bash
+export APP_IMAGE=ghcr.io/yourusername/stockplanbackend:latest
+APP_PORT=8080 docker compose -p prod -f docker-compose.production.yml --env-file .env.production up -d
+```
+
+Start Dev on port `8081`:
+```bash
+export APP_IMAGE=ghcr.io/yourusername/stockplanbackend:dev
+APP_PORT=8081 docker compose -p dev -f docker-compose.production.yml --env-file .env.development up -d
+```
 
 **2. Configure Two Nginx Server Blocks:**
 Create two separate files in `/etc/nginx/sites-available/` and symlink them to `sites-enabled`.
