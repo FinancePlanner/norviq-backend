@@ -1,5 +1,24 @@
 # StockPlanBackend API Study Guide
 
+## Implemented Pre-Login Paywall & Privacy Flow (2026-04-24)
+
+Main work:
+- Added a pre-login privacy screen (`PrivacyWelcomeScreen`) highlighting data ownership and security.
+- Added a pre-login paywall screen (`PreLoginPaywallScreen`) allowing anonymous users to start a 7-day free trial on the Pro annual plan.
+- Configured Amplitude unified SDK for iOS analytics, initialized via DI (`AnalyticsService`), currently tracking "App Launched".
+- Set up local StoreKit testing (`Products.storekit`) in Xcode with `pro_weekly`, `pro_monthly`, and `pro_annual` to bypass App Store Connect for local simulator testing.
+- Updated `BillingManager` to support anonymous RevenueCat initialization and purchases, aliasing to the user ID upon login/signup.
+
+Key files:
+- `financeplan/Products.storekit`
+- `financeplan/Features/Analytics/AnalyticsService.swift`
+- `financeplan/API/Analytics/Container+AnalyticsFactories.swift`
+- `financeplan/Features/Auth/PrivacyWelcomeScreen.swift`
+- `financeplan/Features/Auth/PreLoginPaywallScreen.swift`
+- `financeplan/ContentView.swift`
+- `financeplan/NorviqaApp.swift`
+- `financeplan/Features/UserProfile/BillingManager.swift`
+
 ## Implemented Broker IBKR Sync Integration (2026-04-23)
 
 Main work:

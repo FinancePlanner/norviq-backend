@@ -314,9 +314,10 @@ Do not add this complexity until retention and conversion data justify it.
 ### Phase 1: Billing Core
 
 - Create billing models and migrations. Implemented with `Subscription`, `Entitlement`, `BillingEvent`, and `UsageCounter`.
-- Add `BillingService`. Implemented for RevenueCat webhook event processing.
+- Add `BillingService`. Implemented for RevenueCat webhook event processing, including support for anonymous user alias mapping on login.
 - Add RevenueCat webhook endpoint. Implemented as `POST /webhooks/revenuecat`.
 - Verify webhook signatures. Implemented using `Authorization` matched against `REVENUECAT_WEBHOOK_SECRET`.
+- Support local StoreKit `.storekit` testing through the iOS client for isolated development.
 - Persist raw webhook events. Implemented as raw payload text on `billing_events`.
 - Update subscription and entitlement state idempotently. Implemented with duplicate provider event detection.
 - Add tests for purchase, renewal, expiration, refund, cancellation, billing issue, and duplicate webhook events. Covered in `BillingTests`.

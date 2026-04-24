@@ -129,6 +129,57 @@ Restart Nginx:
 sudo systemctl restart nginx
 ```
 
+### Hosting Multiple Environments (Dev & Prod)
+
+To host both your development (`dev-norviq.online`) and production (`prod-norviq.online`) API environments securely on the same physical server, run two separate instances and route them through Nginx.
+
+**1. Run Two API Instances:**
+Instead of a single backend running on port `8080`, configure two backend services on different internal ports using `docker-compose.yml`:
+- **Production API:** Maps to internal port `8080` (reads `.env.production`).
+- **Development API:** Maps to internal port `8081` (reads `.env.development`).
+
+**2. Configure Two Nginx Server Blocks:**
+Create two separate files in `/etc/nginx/sites-available/` and symlink them to `sites-enabled`.
+
+*For Prod (`/etc/nginx/sites-available/norviq-prod`):*
+```nginx
+server {
+    listen 443 ssl http2;
+    server_name www.prod-norviq.online prod-norviq.online;
+    
+    # ... SSL certs and standard headers ...
+
+    location / {
+        proxy_pass http://127.0.0.1:8080; # Points to Prod API port
+        # ... proxy headers ...
+    }
+}
+```
+
+*For Dev (`/etc/nginx/sites-available/norviq-dev`):*
+```nginx
+server {
+    listen 443 ssl http2;
+    server_name www.dev-norviq.online dev-norviq.online;
+    
+    # ... SSL certs and standard headers ...
+
+    location / {
+        proxy_pass http://127.0.0.1:8081; # Points to Dev API port
+        # ... proxy headers ...
+    }
+}
+```
+
+**3. Generate Certificates for Both:**
+Run Certbot twice to provision Let's Encrypt certificates for both domain sets:
+```bash
+sudo certbot certonly --nginx -d www.prod-norviq.online -d prod-norviq.online
+sudo certbot certonly --nginx -d www.dev-norviq.online -d dev-norviq.online
+```
+
+After generating certificates and writing the configurations, restart Nginx (`sudo systemctl restart nginx`). Both environments will now securely route traffic to their respective backend instances.
+
 ---
 
 ## 2. Application Configuration
