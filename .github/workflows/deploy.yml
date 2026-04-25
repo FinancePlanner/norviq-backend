@@ -107,9 +107,18 @@ jobs:
           fi
 
           swift package \
+            --swift-sdk x86_64-swift-linux-musl \
             --allow-network-connections all \
             --allow-writing-to-package-directory \
-            --swift-sdk x86_64-swift-linux-musl \
+            build-container-image \
+            --product StockPlanBackend \
+            --repository "${IMAGE_REPOSITORY}" \
+            --tag "${IMAGE_SHA_TAG}" \
+            --disable-netrc \
+            --default-username "${GITHUB_ACTOR}" \
+            --default-password "${GITHUB_TOKEN}" \
+            "${RESOURCE_ARGS[@]}" \
+            --cmd serve --env production --hostname 0.0.0.0 --port 8080
             plugin \
             build-container-image \
             --product StockPlanBackend \
