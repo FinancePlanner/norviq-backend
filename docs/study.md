@@ -908,6 +908,73 @@ Important topics:
 - trial expiration job runs through app lifecycle
 - coupons can grant trial days and discounts
 
+### Subscription Plans & Products
+
+Three RevenueCat products are expected:
+
+| Product ID | Billing | Notes |
+|---|---|---|
+| `pro_annual` | Yearly | Best value; 14-day free trial; shown as prominent card in paywall |
+| `pro_monthly` | Monthly | Flexible billing; no trial |
+| `pro_weekly` | Weekly | Short-term access; no trial |
+
+RevenueCat entitlement ID: `pro`
+
+### Paywall Feature Gates
+
+#### Stock Detail Tabs (iOS `StockDetailScreen`)
+
+| Tab | Free | Pro |
+|---|---|---|
+| Chart | ✅ | ✅ |
+| Overview | ✅ | ✅ |
+| News | ✅ | ✅ |
+| Forecast | ✅ | ✅ |
+| Statements | ❌ blur + lock | ✅ |
+| Analysis | ❌ blur + lock | ✅ |
+| Compare | ❌ blur + lock | ✅ |
+| Earnings | ❌ blur + lock | ✅ |
+
+Tapping a locked tab shows `PaywallView` sheet. Implemented via `ProGateView` wrapper component.
+
+#### Expense & Budget Features (iOS `ExpensesPlannerScreen`)
+
+| Feature | Free | Pro |
+|---|---|---|
+| Record spend | ✅ | ✅ |
+| Monthly budget setup | ✅ | ✅ |
+| Current month overview | ✅ | ✅ |
+| Planned items (current month) | ✅ | ✅ |
+| Category breakdown (current month) | ✅ | ✅ |
+| Year overview / history | ❌ | ✅ |
+| Smart suggestions | ❌ | ✅ |
+| Household partner | ❌ | ✅ |
+| Recurring templates | ❌ | ✅ |
+| Reports / Comparison screen | ❌ | ✅ |
+| Cloud sync | ❌ | ✅ |
+
+#### Backend Enforcement
+
+The backend enforces limits via `UsageCounter` and `EntitlementResolver`:
+
+- free tier: limited holdings count, watchlist items, CSV imports, targets, reports
+- pro tier: unlimited access to all features
+- `BYPASS_BILLING=true` bypasses all gates (dev/TestFlight)
+- `BILLING_PREMIUM_EMAILS` grants pro to specific emails without purchase
+
+### iOS Paywall UI (`PaywallView`)
+
+The modal paywall (`PaywallView`) is shown when a free user taps a gated feature. It follows the app design system:
+
+- Norviqa logo in tinted circle hero
+- Feature comparison list with icon per row
+- Vertical plan cards: Yearly (prominent, "BEST VALUE" badge), Monthly, Weekly
+- Sticky CTA footer with gradient fade: "Get Pro Access" button + footer links
+- Uses `AppTheme.Colors.*` throughout — no hardcoded colors
+- Dismisses automatically on `billingManager.isPro` becoming true
+
+A pre-login variant (`PreLoginPaywallScreen`) is shown during onboarding before the user has an account, with "Start Free Trial" + "Continue with Free" actions.
+
 ## 16. Notifications And APNS
 
 Study:
