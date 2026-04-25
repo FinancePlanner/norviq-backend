@@ -23,7 +23,7 @@ jobs:
           POSTGRES_PASSWORD: stockplan_password
           POSTGRES_DB: stockplan_test
         options: >-
-          --health-cmd pg_isready
+          --health-cmd "pg_isready -U stockplan_user -d stockplan_test"
           --health-interval 5s
           --health-timeout 5s
           --health-retries 5
