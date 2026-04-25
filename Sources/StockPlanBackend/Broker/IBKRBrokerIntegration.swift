@@ -356,6 +356,8 @@ struct IBKRBrokerSyncService: Sendable {
                 settleDate: ibkrTransaction.date
             )
             try await transaction.save(on: req.db)
+            // Business metric: transactions created via IBKR sync
+            req.application.businessMetrics.incrementTransactionsCreated()
             syncedCount += 1
         }
 

@@ -38,7 +38,7 @@ extension StockServiceError: AbortError {
 }
 
 protocol StockService: Sendable {
-    func list(userId: UUID, portfolioListId: UUID?, limit: Int, on db: any Database) async throws -> [StockResponse]
+    func list(userId: UUID, portfolioListId: UUID?, limit: Int, cursor: Date?, on db: any Database) async throws -> (items: [StockResponse], nextCursor: String?)
     func get(id: UUID, userId: UUID, on db: any Database) async throws -> StockResponse
     func get(symbol: String, userId: UUID, on db: any Database) async throws -> StockResponse
     func getInsights(symbol: String, userId: UUID, on db: any Database) async throws -> StockInsightsResponse
@@ -70,9 +70,23 @@ struct StockServiceImpl: StockService {
     let repo: any StocksRepository
     let req: Request
 
-    func list(userId: UUID, portfolioListId: UUID?, limit: Int, on db: any Database) async throws -> [StockResponse] {
-        let stocks = try await repo.list(userId: userId, portfolioListId: portfolioListId, limit: limit, on: db)
-        return try stocks.map { try StockResponse(from: $0) }
+    func list(userId: UUID, portfolioListId: UUID?, limit: Int, cursor: Date?, on db: any Database) async throws -> (items: [StockResponse], nextCursor: String?) {
+        let fetchLimit = limit + 1
+        let stocks = try await repo.list(userId: userId, portfolioListId: portfolioListId, limit: fetchLimit, cursor: cursor, on: db)
+        if stocks.count > limit {
+            let pageStocks = Array(stocks.prefix(limit))
+            let items = try pageStocks.map { try StockResponse(from: $0) }
+            guard let lastStock = pageStocks.last, let createdAt = lastStock.createdAt else {
+                return (items, nil)
+            }
+            let formatter = ISO8601DateFormatter()
+            formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+            let nextCursor = formatter.string(from: createdAt)
+            return (items, nextCursor)
+        } else {
+            let items = try stocks.map { try StockResponse(from: $0) }
+            return (items, nil)
+        }
     }
 
     func get(id: UUID, userId: UUID, on db: any Database) async throws -> StockResponse {
@@ -788,6 +802,9 @@ extension StockResponse {
         guard let id = model.id else {
             throw Abort(.internalServerError, reason: "Stock id missing")
         }
+        guard let createdAt = model.createdAt else {
+            throw Abort(.internalServerError, reason: "Stock createdAt missing")
+        }
 
         self.init(
             id: id.uuidString,
@@ -797,7 +814,8 @@ extension StockResponse {
             buyDate: Self.formatISODateOnly(model.buyDate),
             notes: model.notes,
             category: model.category,
-            portfolioListId: model.portfolioListId.uuidString
+            portfolioListId: model.portfolioListId.uuidString,
+            createdAt: Self.formatISO8601(createdAt)
         )
     }
 
@@ -807,6 +825,12 @@ extension StockResponse {
         formatter.locale = Locale(identifier: "en_US_POSIX")
         formatter.timeZone = TimeZone(secondsFromGMT: 0)
         formatter.dateFormat = "yyyy-MM-dd"
+        return formatter.string(from: date)
+    }
+
+    private static func formatISO8601(_ date: Date) -> String {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
         return formatter.string(from: date)
     }
 }

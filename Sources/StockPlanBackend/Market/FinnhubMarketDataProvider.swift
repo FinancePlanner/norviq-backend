@@ -298,6 +298,7 @@ private extension FinnhubMarketDataProvider {
         let response = try await req.client.get(uri) { clientRequest in
             clientRequest.headers.replaceOrAdd(name: "X-Finnhub-Token", value: apiKey)
             clientRequest.headers.replaceOrAdd(name: .accept, value: "application/json")
+            clientRequest.timeout = .seconds(15)
         }
 
         switch response.status {

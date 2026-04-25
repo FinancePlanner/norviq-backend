@@ -478,7 +478,7 @@ paths:
               schema:
                 type: array
                 items:
-                  $ref: '#/components/schemas/StockResponse'
+                  $ref: '#/components/schemas/StockListItem'
         '401':
           description: Unauthorized
     post:
@@ -5594,6 +5594,31 @@ components:
           format: date
       required: [sharesToSell, sellPrice, sellDate]
     StockResponse:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        symbol:
+          type: string
+        shares:
+          type: number
+          format: double
+        buyPrice:
+          type: number
+          format: double
+        buyDate:
+          type: string
+          format: date
+        notes:
+          type: string
+        category:
+          $ref: '#/components/schemas/AssetCategory'
+        portfolioListId:
+          type: string
+          format: uuid
+      required: [id, symbol, shares, buyPrice, buyDate, category]
+    StockListItem:
       type: object
       properties:
         id:

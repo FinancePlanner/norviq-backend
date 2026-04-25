@@ -1,5 +1,5 @@
 {
-  "originHash" : "253037bad5e29e369cb86962adb8bd08de75243ad7f2ed477adba9ccf5b1aab3",
+  "originHash" : "53833690e379486000b8d3cf86350e6f41c84c4c793d786eb0733487746b30b2",
   "pins" : [
     {
       "identity" : "apns",
@@ -70,7 +70,7 @@
       "location" : "https://github.com/FinancePlanner/FinanceShared.git",
       "state" : {
         "branch" : "main",
-        "revision" : "1a3f6fea640b43e83cf19b9a6663bf5f45260fd9"
+        "revision" : "987dfe297e9b360c4ecb4d8dcd04a176899110d6"
       }
     },
     {
@@ -287,15 +287,6 @@
       "state" : {
         "revision" : "6675bc0ff86e61436e615df6fc5174e043e57924",
         "version" : "1.4.1"
-      }
-    },
-    {
-      "identity" : "swift-configuration",
-      "kind" : "remoteSourceControl",
-      "location" : "https://github.com/apple/swift-configuration.git",
-      "state" : {
-        "revision" : "be76c4ad929eb6c4bcaf3351799f2adf9e6848a9",
-        "version" : "1.2.0"
       }
     },
     {

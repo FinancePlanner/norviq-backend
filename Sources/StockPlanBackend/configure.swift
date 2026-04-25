@@ -9,6 +9,7 @@ import VaporAPNS
 import JWT
 import JWTKit
 import Redis
+import Metrics
 
 // configures your application
 public func configure(_ app: Application) async throws {
@@ -21,6 +22,7 @@ public func configure(_ app: Application) async throws {
     // uncomment to serve files from /Public folder
     // app.middleware.use(FileMiddleware(publicDirectory: app.directory.publicDirectory))
     app.traceAutoPropagation = true
+    app.routes.defaultMaxBodySize = "10mb"
     // Clear all default middleware (then, add back route logging)
     app.middleware = .init()
     let allowedOrigins = try ProductionConfiguration.allowedOrigins(
@@ -35,6 +37,11 @@ public func configure(_ app: Application) async throws {
     let cors = CORSMiddleware(configuration: corsConfiguration)
     // cors middleware should come before default error middleware using `at: .beginning`
     app.middleware.use(cors, at: .beginning)
+    // Add Vary: Origin for correct CDN caching when CORS is enabled.
+    app.middleware.use(VaryHeaderMiddleware())
+    // Enable response compression (gzip/deflate) with 1KB threshold
+    app.http.server.configuration.responseCompression = .enabled(initialByteBufferCapacity: 1024)
+    app.middleware.use(ResponseCompressionMiddleware(override: .useDefault))
     app.middleware.use(APIErrorMiddleware())
     app.middleware.use(BillingErrorMiddleware())
 
@@ -42,9 +49,26 @@ public func configure(_ app: Application) async throws {
     // Add custom error handling middleware first.
     app.middleware.use(TracingMiddleware())
 
+    // Idempotency for mutations — clients set Idempotency-Key header.
+    // Caches POST/PUT/DELETE responses in Redis (24h TTL). No-op for other methods or missing header.
+    app.middleware.use(IdempotencyMiddleware(ttl: 86_400))
+
     // Configure global JSON decoder and encoder
     ContentConfiguration.global.use(decoder: JSONDecoder.backendAPI, for: .json)
     ContentConfiguration.global.use(encoder: JSONEncoder.backendAPI, for: .json)
+
+    // === Prometheus Metrics (lightweight custom exporter) ===
+    // Enabled by env PROMETHEUS_ENABLED=1 (off by default)
+    if envBool("PROMETHEUS_ENABLED", default: false) {
+        // Register HTTP metrics middleware early (before route logging)
+        app.middleware.use(HTTPMetricsMiddleware(), at: .beginning)
+
+        // Register business metrics service (singleton)
+        app.businessMetrics = BusinessMetrics.shared
+
+        // Expose /metrics endpoint
+        try app.register(collection: MetricsController())
+    }
 
     if envBool("OBS_TRACES_ENABLED", default: false) {
         let serviceName = Environment.get("OBS_SERVICE_NAME") ?? "StockPlanBackend"
@@ -263,6 +287,10 @@ public func configure(_ app: Application) async throws {
     app.userProfileRepository = DatabaseUserProfileRepository(encryptionService: app.userPIIEncryptionService)
     app.userProfileService = DefaultUserProfileService(repo: app.userProfileRepository)
     app.pushDeviceService = DatabasePushDeviceService()
+    // Data Export service setup
+    app.dataExportRepository = DatabaseDataExportRepository()
+    app.exportService = ExportService(repository: app.dataExportRepository, application: app)
+    app.dataExportService = DefaultDataExportService(repository: app.dataExportRepository, exporter: app.exportService)
     let premiumEmails = Set(
         (Environment.get("BILLING_PREMIUM_EMAILS") ?? "")
             .split(separator: ",")
@@ -313,6 +341,8 @@ public func configure(_ app: Application) async throws {
     let apnsAlertPollSeconds = Environment.get("APNS_ALERT_POLL_SECONDS").flatMap(Int64.init(_:)) ?? 300
     app.lifecycle.use(TargetAlertPoller(intervalSeconds: apnsAlertPollSeconds))
     app.lifecycle.use(TrialExpirationJob())
+    // Data Export cleanup (expire files after 7 days)
+    app.lifecycle.use(DataExportCleanupJob(repository: app.dataExportRepository, interval: 86400))
 
     registerMigrations(app)
 
@@ -326,7 +356,6 @@ private func registerMigrations(_ app: Application) {
     app.migrations.add(AddUserProfileFields())
     app.migrations.add(DeleteFirstNameLastName())
     app.migrations.add(AddUserProfileMetadataFields())
-
     app.migrations.add(CreateGoal())
     app.migrations.add(AddGoalStatusFields())
     app.migrations.add(CreateAccount())
@@ -393,6 +422,7 @@ private func registerMigrations(_ app: Application) {
     app.migrations.add(CreateTrialWarning())
     app.migrations.add(CreateCoupons())
     app.migrations.add(CreateCouponRedemptions())
+    app.migrations.add(CreateDataExport())
 }
 
 private func envBool(_ key: String, default defaultValue: Bool) -> Bool {

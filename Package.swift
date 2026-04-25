@@ -24,6 +24,7 @@ let package = Package(
         .package(url: "https://github.com/swift-server/swift-openapi-vapor.git", from: "1.0.0"),
         .package(url: "https://github.com/apple/swift-log.git", from: "1.5.0"),
         .package(url: "https://github.com/swift-otel/swift-otel.git", from: "1.0.0"),
+        // Prometheus metrics exporter for Swift Metrics
         .package(url: "https://github.com/vapor/redis.git", from: "4.8.0"),
         // Shared API contracts used by backend and iOS app.
         .package(url: "https://github.com/FinancePlanner/FinanceShared.git", branch: "main"),

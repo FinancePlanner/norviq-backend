@@ -1,0 +1,124 @@
+import Atomics
+
+/// Central singleton for Prometheus metric values.
+///
+/// All values are stored in lock-free atomics so they can be safely
+/// incremented from any thread. The `render()` method produces a
+/// Prometheus exposition text payload.
+final class PrometheusMetrics: @unchecked Sendable {
+    static let shared = PrometheusMetrics()
+    private init() {}
+
+    // MARK: - HTTP
+
+    /// Total number of HTTP requests received (counter)
+    let httpRequestsTotal = ManagedAtomic<Int64>(0 as Int64)
+
+    /// Current number of in-flight HTTP requests (gauge)
+    let httpInflight = ManagedAtomic<Int64>(0 as Int64)
+
+    // MARK: - Latency histogram
+
+    private static let bucketBounds: [Double] = [
+        0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10
+    ]
+    private let latencyBucketCounts: [ManagedAtomic<Int64>] = {
+        PrometheusMetrics.bucketBounds.map { _ in ManagedAtomic<Int64>(0 as Int64) }
+    }()
+    let latencySum = ManagedAtomic<Int64>(0 as Int64)   // attoseconds
+    let latencyCount = ManagedAtomic<Int64>(0 as Int64)
+
+    // MARK: - Business
+
+    let stocksCreated = ManagedAtomic<Int64>(0 as Int64)
+    let portfoliosCreated = ManagedAtomic<Int64>(0 as Int64)
+    let transactionsCreated = ManagedAtomic<Int64>(0 as Int64)
+    let targetsCreated = ManagedAtomic<Int64>(0 as Int64)
+
+    // MARK: - Recording
+
+    func incrementRequestsTotal() {
+        httpRequestsTotal.wrappingIncrement(by: 1, ordering: .relaxed)
+    }
+
+    func incrementInflight() {
+        httpInflight.wrappingIncrement(by: 1, ordering: .relaxed)
+    }
+
+    func decrementInflight() {
+        httpInflight.wrappingDecrement(by: 1, ordering: .relaxed)
+    }
+
+    func recordRequestDuration(_ duration: Duration) {
+        let components = duration.components
+        let attos = Int64(components.attoseconds)
+        latencySum.wrappingIncrement(by: attos, ordering: .relaxed)
+        latencyCount.wrappingIncrement(by: 1, ordering: .relaxed)
+        let secs = Double(components.seconds) + Double(attos) / 1e18
+        for (i, bound) in Self.bucketBounds.enumerated() {
+            if secs <= bound {
+                latencyBucketCounts[i].wrappingIncrement(by: 1, ordering: .relaxed)
+                break
+            }
+        }
+    }
+
+    // MARK: - Business increments
+
+    func incrementStocksCreated() { stocksCreated.wrappingIncrement(by: 1, ordering: .relaxed) }
+    func incrementPortfoliosCreated() { portfoliosCreated.wrappingIncrement(by: 1, ordering: .relaxed) }
+    func incrementTransactionsCreated() { transactionsCreated.wrappingIncrement(by: 1, ordering: .relaxed) }
+    func incrementTargetsCreated() { targetsCreated.wrappingIncrement(by: 1, ordering: .relaxed) }
+
+    // MARK: - Render
+
+    /// Render all registered metric values as Prometheus text format.
+    func render() -> String {
+        var out = ""
+
+        // HTTP requests total
+        out.append("# HELP http_requests_total Total number of HTTP requests received.\n")
+        out.append("# TYPE http_requests_total counter\n")
+        out.append("http_requests_total \(httpRequestsTotal.load(ordering: .relaxed))\n\n")
+
+        // HTTP inflight gauge
+        out.append("# HELP http_inflight_requests Current number of in-flight HTTP requests.\n")
+        out.append("# TYPE http_inflight_requests gauge\n")
+        out.append("http_inflight_requests \(httpInflight.load(ordering: .relaxed))\n\n")
+
+        // HTTP request duration histogram
+        out.append("# HELP http_request_duration_seconds Histogram of HTTP request latency in seconds.\n")
+        out.append("# TYPE http_request_duration_seconds histogram\n")
+        for (i, bound) in Self.bucketBounds.enumerated() {
+            let le = String(format: "%.3f", bound)
+            let count = latencyBucketCounts[i].load(ordering: .relaxed)
+            out.append("http_request_duration_seconds_bucket{le=\"\(le)\"} \(count)\n")
+        }
+        // +Inf bucket
+        let total = latencyCount.load(ordering: .relaxed)
+        out.append("http_request_duration_seconds_bucket{le=\"+Inf\"} \(total)\n")
+        let sumAttos = latencySum.load(ordering: .relaxed)
+        let sumSecs = Double(sumAttos) / 1e18
+        out.append("http_request_duration_seconds_sum \(String(format: "%.6f", sumSecs))\n")
+        out.append("http_request_duration_seconds_count \(total)\n\n")
+
+        // Business metrics
+        out.append("# HELP stocks_created_total Number of stocks created via POST /v1/stocks.\n")
+        out.append("# TYPE stocks_created_total counter\n")
+        out.append("stocks_created_total \(stocksCreated.load(ordering: .relaxed))\n\n")
+
+        out.append("# HELP portfolios_created_total Number of portfolio lists created via POST /v1/portfolios.\n")
+        out.append("# TYPE portfolios_created_total counter\n")
+        out.append("portfolios_created_total \(portfoliosCreated.load(ordering: .relaxed))\n\n")
+
+        out.append("# HELP transactions_created_total Number of transactions created (including broker syncs).\n")
+        out.append("# TYPE transactions_created_total counter\n")
+        out.append("transactions_created_total \(transactionsCreated.load(ordering: .relaxed))\n\n")
+
+        out.append("# HELP targets_created_total Number of investment targets created via POST /v1/targets.\n")
+        out.append("# TYPE targets_created_total counter\n")
+        out.append("targets_created_total \(targetsCreated.load(ordering: .relaxed))\n")
+
+        return out
+    }
+}
