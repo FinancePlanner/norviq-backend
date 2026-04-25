@@ -90,8 +90,10 @@ jobs:
             set -euo pipefail
             cd /opt/stockplan
 
-            # Pull latest code (for docker-compose changes)
-            git pull origin main
+            # Ensure clean working tree before updating
+            git fetch origin main
+            git reset --hard origin/main
+            git clean -fd
 
             APP_IMAGE="${{ needs.build.outputs.app_image }}"
 

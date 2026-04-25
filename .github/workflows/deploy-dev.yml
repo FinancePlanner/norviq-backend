@@ -77,7 +77,9 @@ jobs:
           script: |
             set -euo pipefail
             cd /opt/stockplan
-            git pull origin dev
+            git fetch origin dev
+            git reset --hard origin/dev
+            git clean -fd
             APP_IMAGE="${{ needs.build.outputs.app_image }}"
             echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
             docker pull "${APP_IMAGE}"
