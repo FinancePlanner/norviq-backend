@@ -11,6 +11,14 @@ on:
       - dev
 
 jobs:
+  lint:
+    name: SwiftFormat Lint
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: SwiftFormat
+        run: swiftformat --lint . --reporter github-actions-log
+
   test:
     name: Run Tests
     runs-on: ubuntu-latest
