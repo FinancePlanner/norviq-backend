@@ -1,4 +1,4 @@
-# StockPlanBackend
+# StockPlanBackend VPS
 
 A personal stock portfolio tracker backend built with Vapor (Swift). This server-side application provides RESTful APIs for managing stock holdings, tracking historical performance, and fetching real-time price data. Designed to pair with a SwiftUI mobile app for a full-stack Swift experience.
 
