@@ -41,7 +41,7 @@ public func configure(_ app: Application) async throws {
     app.middleware.use(VaryHeaderMiddleware())
     // Enable response compression (gzip/deflate) with 1KB threshold
     app.http.server.configuration.responseCompression = .enabled(initialByteBufferCapacity: 1024)
-    app.middleware.use(ResponseCompressionMiddleware(override: .useDefault))
+    app.middleware.use(ResponseCompressionMiddleware())
     app.middleware.use(APIErrorMiddleware())
     app.middleware.use(BillingErrorMiddleware())
 
