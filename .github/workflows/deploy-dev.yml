@@ -8,7 +8,7 @@ on:
         description: "Container build path"
         type: choice
         required: false
-        default: plugin
+        default: dockerfile
         options:
           - plugin
           - dockerfile
