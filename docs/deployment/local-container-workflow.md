@@ -4,14 +4,14 @@ This is the local (developer) workflow for packaging the backend as a Linux cont
 
 ## 1) Prerequisites
 
-- Swift 6.0+
+- Swift 6.3.1+
 - `swift-container-plugin` dependency in `Package.swift`
 - Static Linux SDK installed:
 
 ```bash
 swift sdk install \
-  https://download.swift.org/swift-6.3-release/static-sdk/swift-6.3-RELEASE/swift-6.3-RELEASE_static-linux-0.1.0.artifactbundle.tar.gz \
-  --checksum d2078b69bdeb5c31202c10e9d8a11d6f66f82938b51a4b75f032ccb35c4c286c
+  https://download.swift.org/swift-6.3.1-release/static-sdk/swift-6.3.1-RELEASE/swift-6.3.1-RELEASE_static-linux-0.1.0.artifactbundle.tar.gz \
+  --checksum fac05271c1f7d060bd203240ce5251d5ca902d30ac899f553765dbb3a88b97ad
 ```
 
 ## 2) Build + publish image locally (recommended)

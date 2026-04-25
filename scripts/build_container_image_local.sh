@@ -14,7 +14,7 @@ SWIFT_SDK_ID="${SWIFT_SDK_ID:-x86_64-swift-linux-musl}"
 if ! swift sdk list | rg -q "${SWIFT_SDK_ID}"; then
   echo "Swift SDK '${SWIFT_SDK_ID}' is not installed."
   echo "Install it with:"
-  echo "  swift sdk install https://download.swift.org/swift-6.0-release/static-sdk/swift-6.0-RELEASE/swift-6.0-RELEASE_static-linux-0.1.0.artifactbundle.tar.gz --checksum 37a060662d5f0e1371190547f3b890832049d52044810756086f6a7516d2524a"
+  echo "  swift sdk install https://download.swift.org/swift-6.3.1-release/static-sdk/swift-6.3.1-RELEASE/swift-6.3.1-RELEASE_static-linux-0.1.0.artifactbundle.tar.gz --checksum fac05271c1f7d060bd203240ce5251d5ca902d30ac899f553765dbb3a88b97ad"
   exit 1
 fi
 
