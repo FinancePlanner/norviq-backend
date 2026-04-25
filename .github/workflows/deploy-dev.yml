@@ -3,15 +3,6 @@ on:
   push:
     branches: [dev]
   workflow_dispatch:
-    inputs:
-      build_strategy:
-        description: "Container build path"
-        type: choice
-        required: false
-        default: dockerfile
-        options:
-          - plugin
-          - dockerfile
 env:
   REGISTRY: ghcr.io
   IMAGE_NAME: ${{ github.repository }}
@@ -26,8 +17,6 @@ jobs:
       app_image: ${{ steps.refs.outputs.app_image }}
       image_repository: ${{ steps.refs.outputs.image_repository }}
       image_sha_tag: ${{ steps.refs.outputs.image_sha_tag }}
-    env:
-      BUILD_STRATEGY: ${{ github.event.inputs.build_strategy != '' && github.event.inputs.build_strategy || 'plugin' }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -49,11 +38,9 @@ jobs:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-      - name: Set up Docker Buildx (rollback build path)
-        if: env.BUILD_STRATEGY == 'dockerfile'
+      - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
-      - name: Build and push (Dockerfile fallback)
-        if: env.BUILD_STRATEGY == 'dockerfile'
+      - name: Build and push
         uses: docker/build-push-action@v5
         with:
           context: .
@@ -67,67 +54,6 @@ jobs:
           platforms: linux/amd64
           cache-from: type=gha
           cache-to: type=gha,mode=max
-      - name: Cache Swift toolchain
-        if: env.BUILD_STRATEGY == 'plugin'
-        uses: actions/cache@v4
-        with:
-          path: ~/.swiftenv
-          key: swift-toolchain-6.3.1
-      - name: Set up Swift toolchain
-        if: env.BUILD_STRATEGY == 'plugin'
-        uses: swift-actions/setup-swift@v3
-        with:
-          swift-version: "6.3.1"
-          skip-verify-signature: true
-      - name: Cache Static Linux SDK
-        if: env.BUILD_STRATEGY == 'plugin'
-        id: sdk-cache
-        uses: actions/cache@v4
-        with:
-          path: ~/.swiftpm/swift-sdks
-          key: swift-sdk-6.3.1-musl
-      - name: Install Static Linux SDK (x86_64 musl)
-        if: env.BUILD_STRATEGY == 'plugin' && steps.sdk-cache.outputs.cache-hit != 'true'
-        run: |
-          swift sdk install \
-            https://download.swift.org/swift-6.3.1-release/static-sdk/swift-6.3.1-RELEASE/swift-6.3.1-RELEASE_static-linux-0.1.0.artifactbundle.tar.gz \
-            --checksum fac05271c1f7d060bd203240ce5251d5ca902d30ac899f553765dbb3a88b97ad
-      - name: Cache Swift build artifacts
-        if: env.BUILD_STRATEGY == 'plugin'
-        uses: actions/cache@v4
-        with:
-          path: |
-            .build
-            ~/.swiftpm/cache
-          key: ${{ runner.os }}-swift-build-${{ hashFiles('Package.resolved') }}
-          restore-keys: |
-            ${{ runner.os }}-swift-build-
-      - name: Build and push (Swift Container Plugin)
-        if: env.BUILD_STRATEGY == 'plugin'
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          set -euo pipefail
-          RESOURCE_ARGS=()
-          if [ -d Public ]; then
-            RESOURCE_ARGS+=(--resources Public)
-          fi
-          if [ -d Resources ]; then
-            RESOURCE_ARGS+=(--resources Resources)
-          fi
-                    swift package \
-                      --swift-sdk x86_64-swift-linux-musl \
-                      --allow-network-connections all \
-                      --allow-writing-to-package-directory \
-                      build-container-image \
-                      --product StockPlanBackend \
-                      --repository "${IMAGE_REPOSITORY}" \
-                      --tag "${IMAGE_SHA_TAG}" \
-                      --disable-netrc \
-                      --default-username "${GITHUB_ACTOR}" \
-                      --default-password "${GITHUB_TOKEN}" \
-                      "${RESOURCE_ARGS[@]}" \
-                      --cmd serve --env production --hostname 0.0.0.0 --port 8080
   deploy:
     name: Deploy to Dev
     needs: build
