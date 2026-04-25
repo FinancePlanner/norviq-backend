@@ -1322,3 +1322,505 @@ Read these in order:
 The backend is a feature-oriented Vapor API. Controllers are route adapters. Services hold business rules. Repositories and Fluent models own persistence. Providers isolate external APIs. `Application` storage wires dependencies. `SessionToken` protects user routes. Most data is user-scoped and must always be queried through the authenticated user id.
 
 If you understand those boundaries, you can safely add features, debug request behavior, protect user data, and keep the iOS client contract stable.
+
+---
+
+## 📋 Comprehensive Structural Analysis (Full-Codebase Audit 2026-04-25)
+
+### Repository Layout & Module Map
+
+```
+StockPlanBackend/
+├── Sources/StockPlanBackend/
+│   ├── entrypoint.swift          # @main, env detection, app bootstrap
+│   ├── configure.swift           # middleware, DB, services, migrations, routes
+│   ├── routes.swift              # health, OpenAPI, webhooks, /v1 controller registration
+│   ├── openapi.yaml              # OpenAPI spec (source-of-truth for client generation)
+│   ├── Models/ (52 files)        # Fluent schema: User, Stock, Position, Transaction, …
+│   ├── Migrations/ (71 files)    # chronological schema evolution
+│   ├── Auth/                     # register/login/MFA/OAuth; SessionToken JWT
+│   ├── Stocks/                   # portfolio CRUD, bulk create, valuation, insights
+│   ├── Market/                   # quote/history/news; FMP/Finnhub/IBKR providers
+│   ├── Portfolio/                # summary, performance, P&L, portfolio lists
+│   ├── Crypto/                   # crypto portfolio + market data
+│   ├── Expenses/                 # budget plans, categories, household sharing
+│   ├── UserProfile/              # profile CRUD, PII encryption
+│   ├── Billing/                  # RevenueCat webhook, coupons, plan/limits
+│   ├── Notifications/            # APNS sender, device registry, target alert poller
+│   ├── Statistics/               # aggregated dashboard snapshots
+│   ├── Earnings/                 # earnings calendar provider
+│   ├── Broker/                   # CSV import, OAuth flow, IBKR sync integration
+│   ├── News/                     # Finnhub webhook ingest, news service
+│   ├── Gamification/Badges/      # badge definitions & awarding
+│   ├── Activity/                 # user activity log
+│   ├── Feedback/                 # user feedback submissions
+│   ├── Dashboard/                # home-dashboard aggregation, goals
+│   ├── Shared/                   # backend-only middleware & JSON config
+│   └── Services/                 # AuthTokenCleanup, CsvImportService, MailerService
+├── Tests/StockPlanBackendTests/  # XCTest suite (17 files)
+├── Package.swift                 # Vapor 4.115 + Fluent + Postgres + JWT + Redis + APNS
+├── Dockerfile / Dockerfile.dev   # multi-stage release + hot-reload dev images
+├── docker-compose.yml / .dev.yml / .production.yml
+├── Makefile                      # dev/start/migrate/lint/health/rollback/backup targets
+└── scripts/                      # dev-watch.sh, ops/, build_container_image_local.sh
+
+Total Swift files: ~243 (backend) + ~20 (Shared submodule) | Tests: 17
+```
+
+### Tech Stack Deep Dive
+
+| Layer | Technology | Purpose |
+|-------|------------|---------|
+| Web framework | Vapor 4.x | Routing, middleware, request/response lifecycle |
+| ORM | Fluent 4.9 + FluentKit 1.55 + PostgresDriver 2.8 | Database abstraction, migrations, query building |
+| Auth | JWTKit (JWT 5.0) | Session token signing/validation |
+| Cache | Redis 4.8 (RediStack) | optional caching & session store |
+| Push | APNS 4.0 + VaporAPNS | Apple Push Notification service |
+| Observability | swift-otel 1.0 + swift-log 1.5 | OpenTelemetry tracing, structured logging |
+| HTTP client | Vapor's `Client` (where used) / custom provider HTTP | External API calls |
+| Mail | Resend integration (ResendMailerService) | transactional email (optional) |
+| Package manager | SwiftPM 6.0 (swift-tools-version:6.0) | dependencies, builds |
+| Container runtime | Docker (swift:6.3-noble) | production multi-stage build + jemalloc |
+
+### Database Schema Highlights (52 Models)
+
+Core tables and relationships:
+
+- **users** – primary identity; fields: email, password_hash, username, bio (plaintext + encrypted), avatar URLs, household_partner_display_name (encrypted), lockout/verification flags
+- **refresh_tokens** – revocable long-lived tokens; userId, tokenHash, expiresAt, revokedAt
+- **mfa_challenges** – multi-factor auth challenges; codeHash, expiresAt, verifiedAt
+- **oauth_flows** – PKCE state for OAuth; provider, state, nonce, codeVerifier, redirectURI
+- **oauth_identities** – linked external identities; provider, subject, email verified flag
+- **stocks** – user holdings; symbol, quantity, buy_price, buy_date, notes, account_id, import_source
+- **positions** – broker-sync snapshot; quantity, average_cost, currency, market_value, last_price_date
+- **transactions** – broker-provided fills/trades; type, quantity, price, currency, trade_date, settle_date, external_id
+- **watchlist_items** – watchlist entries; symbol, notes, order_index
+- **portfolio_lists** / **watchlist_lists** – user-named collections; is_default flag
+- **stock_valuations** – DCF draft valuations per user/stock; assumptions + notes
+- **targets** – base/bear/bull price targets with scenario, timeframe, rationale
+- **expenses** – pillar-based spending; title, amount, pillar enum, occurred_on, split_mode, user_share_percent, linked_item_id (to BudgetPlanItem)
+- **budget_plan_items** – planned spending line items; pillar, planned_amount, split_mode
+- **budget_snapshots** – monthly/periodic budget view; total_budget, total_spent
+- **news_item** – archived stock news; source, title, url, published_at, image_url
+- **push_devices** – APNS device tokens; platform, apns_environment, authorization_status, is_active, last_seen_at
+- **broker_connections** – OAuth state for broker integrations; provider, access_token, refresh_token, expires_at, status
+- **coupons** / **coupon_redemptions** – promotional codes; plan, tier, expires_at, redemption tracking
+- **user_activity** – activity log for gamification and analytics
+- **user_badges** – awarded badges per user
+- **statistics_snapshot** – cached portfolio stats per day/week for performance
+- **goal** – financial goals with status, completed_at, user_id
+- **report_suggestion_dismissal** – UX personalization for in-app report suggestions
+
+Indexes & constraints: added over 71 migrations including user-scoped indexes, quote cache lookups, and foreign keys.
+
+### Service & Provider Architecture
+
+**Pattern**: Protocol + Default implementation + Application DI
+
+Repository protocols define data access; services orchestrate domain logic; providers fetch external data.
+
+Example repository pattern (StockRepository):
+```swift
+protocol StocksRepository: Sendable {
+  func list(userId: UUID, portfolioListId: UUID?, limit: Int, on db: any Database) async throws -> [Stock]
+  func find(id: UUID, userId: UUID, on db: any Database) async throws -> Stock?
+  func bulkCreate(payloads: [StockRequest], userId: UUID, on db: any Database) async throws -> [BulkStockResultItem]
+  // …
+}
+struct DatabaseStocksRepository: StocksRepository { … }
+```
+
+Provider abstraction (MarketDataProvider):
+```swift
+protocol MarketDataProvider {
+  func fetchQuote(symbol: String) async throws -> MarketProviderQuote
+  func fetchHistory(symbol: String, range: HistoryRange) async throws -> MarketProviderHistory
+  // …
+}
+struct FMPMarketDataProvider: MarketDataProvider { … }
+struct FinnhubMarketDataProvider: MarketDataProvider { … }
+struct DisabledMarketDataProvider: MarketDataProvider { … } // fallback
+```
+
+Provider selection at runtime in `configure.swift` based on environment variables (FMP key, Finnhub key, IBKR base URL). If required keys missing, falls back to Disabled provider.
+
+### Security & Encryption
+
+- **JWT session tokens**: HS256 signed; `exp` claim enforced; stateless auth for API routes
+- **Refresh tokens**: persistent, one-time revocation; cleanup job (`AuthTokenCleanup`) runs every 10s in background
+- **Password hashing**: Bcrypt/SHA256 via Vapor's `Bcrypt` (standard Vapor)
+- **MFA**: one-time codes stored hashed; challenge expiry (`MFAChallenge` model)
+- **OAuth PKCE**: code_verifier stored, state+nonce validated; identity linking across providers
+- **PII encryption**: field-level AES-GCM via `UserPIIEncryption`; key rotation supported; `User.hydrateProtectedFields`
+- **Rate limiting**: `RateLimitMiddleware` on auth routes to prevent enumeration/brute force
+- **CORS**: configurable allowed origins via `ALLOWED_ORIGINS`; tightened in production
+- **Account lockout**: `failed_login_count`, `lockout_until` on `User` model
+
+### Observability & Diagnostics
+
+- **Structured logging**: `JSONLogHandler` outputs JSON logs; `RequestLoggingMiddleware` adds request_id, method, path, status, latency, user_id
+- **Tracing**: `TracingMiddleware` + swift-otel; `app.traceAutoPropagation = true` propagates W3C traceparent
+- **Health checks**: `/health/ready` aggregates DB/Redis/mail/APNS/marketData checks + version + environment name
+- **Metrics**: Not explicitly exposed; could add Prometheus endpoint or OTel metrics later
+- **Error tracking**: Sentry not wired in backend (only iOS); errors flow through `APIErrorMiddleware` & `BillingErrorMiddleware`
+
+### Market Data Provider Detail
+
+External providers configured via env:
+
+| Provider | Env key(s) | Status |
+|----------|------------|--------|
+| FMP (Financial Modeling Prep) | `FMP_API_KEY`, `FMP_BASE_URL` | Primary quote/history/news |
+| Finnhub | `FINNHUB_API_KEY`, `FINNHUB_BASE_URL` | Secondary; also provides grades consensus, basic financials |
+| IBKR (Interactive Brokers) | `IBKR_API_BASE_URL` | Client Portal API; currently disabled provider; placeholder `IBKRBrokerIntegration` present but not selected |
+
+Provider selection occurs in `configure.swift` when registering `MarketDataProvider` in Application DI. If neither API key present, `DisabledMarketDataProvider` returns empty data.
+
+### External API Call Chain
+
+Each request flows:
+
+```
+Controller endpoint
+→ calls application.marketDataService
+→ iterates configured providers
+→ first available provider returns data
+→ maps to DTOs (MarketDataDTOs)
+→ returns to controller → JSON response
+```
+
+Implementations (`FMPMarketDataProvider`, `FinnhubMarketDataProvider`) use Vapor's `Client` to make HTTP calls; parse JSON into provider-specific structs then map to canonical DTOs.
+
+### Deployment & Environments
+
+**Environments**: `.development`, `.testing`, `.production` (Vapor detects via --env flag or ENVIRONMENT var)
+
+**Config files**:
+- `.env` – local dev overrides
+- `.env.development` – dev environment values
+- `.env.production` – production secrets template
+
+**Docker**:
+- Release image: `swift:6.3-noble`, static Swift runtime, jemalloc, multi-stage
+- Dev image: `swift:6.1-noble` with inotify-tools; `scripts/dev-watch.sh` rebuilds on file change
+- Postgres + Redis via compose
+- Migrations run in `migrate` service container
+
+**Make targets**:
+- `make dev` – hot-reload dev
+- `make start` – build + migrate + release app
+- `make migrate` – DB migrations only
+- `make lint` – SwiftLint auto-fix
+- `make backend-test` – `swift test`
+- `make health` – readiness check against live domain
+- `make backup-db` / `make restore-drill` – Postgres backup/restore (GPG encrypted)
+- `make production-preflight` – cert/domain checks pre-deploy
+
+**CI/CD**: `.github/workflows/deploy.yml` and `deploy-dev.yml` – build container, push to GHCR, SSH deploy to Hetzner (inferred from README).
+
+### RevenueCat Integration
+
+- Webhook: `POST /webhooks/revenuecat` with Authorization secret (`REVENUECAT_WEBHOOK_SECRET`)
+- Event processor: `BillingService.process(event:rawPayload:on:)`
+- Updates `BillingContext` (user entitlement snapshot)
+- iOS client uses RevenueCat SDK Purchases; anonymous aliasing on login; `PaywallView` presents products
+- Products expected: `pro_monthly`, `pro_weekly`, `pro_annual`
+- Backend feature gates via `BillingMiddleware` or service checks
+
+### Push Notifications (APNS)
+
+- Device registration: `POST /notifications/devices` stores token + platform + environment
+- Target alerts: `TargetAlertPoller` runs periodic job; evaluates user targets vs current price; enqueues send
+- Sender: `APNSPushNotificationSender` builds payload with category `TARGET_ALERT`, deep link into stock detail
+- Bootstrap: APNS credentials from env (`APNS_TEAM_ID`, `APNS_KEY_ID`, `APNS_PRIVATE_KEY_P8`, `APNS_TOPIC`)
+- Silent fallback: `NoopPushNotificationSender` when credentials missing
+
+### OpenAPI & Client Generation
+
+- `openapi.yaml` present at repo root
+- `swift-openapi-generator` dependency; `OpenAPIDocsTests` validates spec drift
+- iOS uses AnyAPI with manually curated endpoints; potential to switch to generated client in future
+
+### Testing Strategy
+
+- **Unit tests**: `Tests/StockPlanBackendTests` – repository tests, service tests, DTO decoding/encoding
+- **Integration**: Possibly tests for controller routes with in-memory DB
+- **No UI tests** (backend is headless)
+- Test DB configured via `TEST_DATABASE_*` env vars; defaults to localhost:5432
+
+Coverage: moderate (~17 test files). Focus areas to expand: provider fallback logic, auth flows, billing edge cases.
+
+### Potential / Known Gaps
+
+- WebSocket implementation claimed in README not yet present
+- IBKR full OAuth token exchange / revocation not fully implemented
+- Rate limit configuration (thresholds) hard-coded or missing
+- Metrics endpoint (Prometheus/OTLP metrics) not exported
+- Backup/restore scripts assume GPG key availability
+- Localization/i18n not yet supported
+- Audit trail for admin actions missing
+
+---
+
+## 🔗 Related Documentation
+
+- `APNS.md` – APNS bootstrap, certificate setup
+- `MFA.md` – multi-factor auth flow
+- `oauth.md` – OAuth provider setup and identity linking
+- `Observability.md` – tracing + logging setup
+- `revenuecat-setup.md` – RevenueCat product/entitlement configuration
+- `ibkr-integration.md` – IBKR sync flow and deployment notes
+- `persistence-standards.md` – database design principles
+- `pii-encryption.md` – field-level encryption design
+
+
+---
+
+## 📋 Comprehensive Structural Analysis (Full-Codebase Audit 2026-04-25)
+
+### Repository Layout & Module Map
+
+```
+StockPlanBackend/
+├── Sources/StockPlanBackend/
+│   ├── entrypoint.swift          # @main, env detection, app bootstrap
+│   ├── configure.swift           # middleware, DB, services, migrations, routes
+│   ├── routes.swift              # health, OpenAPI, webhooks, /v1 controller registration
+│   ├── openapi.yaml              # OpenAPI spec (source-of-truth for client generation)
+│   ├── Models/ (52 files)        # Fluent schema: User, Stock, Position, Transaction, …
+│   ├── Migrations/ (71 files)    # chronological schema evolution
+│   ├── Auth/                     # register/login/MFA/OAuth; SessionToken JWT
+│   ├── Stocks/                   # portfolio CRUD, bulk create, valuation, insights
+│   ├── Market/                   # quote/history/news; FMP/Finnhub/IBKR providers
+│   ├── Portfolio/                # summary, performance, P&L, portfolio lists
+│   ├── Crypto/                   # crypto portfolio + market data
+│   ├── Expenses/                 # budget plans, categories, household sharing
+│   ├── UserProfile/              # profile CRUD, PII encryption
+│   ├── Billing/                  # RevenueCat webhook, coupons, plan/limits
+│   ├── Notifications/            # APNS sender, device registry, target alert poller
+│   ├── Statistics/               # aggregated dashboard snapshots
+│   ├── Earnings/                 # earnings calendar provider
+│   ├── Broker/                   # CSV import, OAuth flow, IBKR sync integration
+│   ├── News/                     # Finnhub webhook ingest, news service
+│   ├── Gamification/Badges/      # badge definitions & awarding
+│   ├── Activity/                 # user activity log
+│   ├── Feedback/                 # user feedback submissions
+│   ├── Dashboard/                # home-dashboard aggregation, goals
+│   ├── Shared/                   # backend-only middleware & JSON config
+│   └── Services/                 # AuthTokenCleanup, CsvImportService, MailerService
+├── Tests/StockPlanBackendTests/  # XCTest suite (17 files)
+├── Package.swift                 # Vapor 4.115 + Fluent + Postgres + JWT + Redis + APNS
+├── Dockerfile / Dockerfile.dev   # multi-stage release + hot-reload dev images
+├── docker-compose.yml / .dev.yml / .production.yml
+├── Makefile                      # dev/start/migrate/lint/health/rollback/backup targets
+└── scripts/                      # dev-watch.sh, ops/, build_container_image_local.sh
+
+Total Swift files: ~243 (backend) + ~20 (Shared submodule) | Tests: 17
+```
+
+### Tech Stack Deep Dive
+
+| Layer | Technology | Purpose |
+|-------|------------|---------|
+| Web framework | Vapor 4.x | Routing, middleware, request/response lifecycle |
+| ORM | Fluent 4.9 + FluentKit 1.55 + PostgresDriver 2.8 | Database abstraction, migrations, query building |
+| Auth | JWTKit (JWT 5.0) | Session token signing/validation |
+| Cache | Redis 4.8 (RediStack) | optional caching & session store |
+| Push | APNS 4.0 + VaporAPNS | Apple Push Notification service |
+| Observability | swift-otel 1.0 + swift-log 1.5 | OpenTelemetry tracing, structured logging |
+| HTTP client | Vapor's `Client` (where used) / custom provider HTTP | External API calls |
+| Mail | Resend integration (ResendMailerService) | transactional email (optional) |
+| Package manager | SwiftPM 6.0 (swift-tools-version:6.0) | dependencies, builds |
+| Container runtime | Docker (swift:6.3-noble) | production multi-stage build + jemalloc |
+
+### Database Schema Highlights (52 Models)
+
+Core tables and relationships:
+
+- **users** – primary identity; fields: email, password_hash, username, bio (plaintext + encrypted), avatar URLs, household_partner_display_name (encrypted), lockout/verification flags
+- **refresh_tokens** – revocable long-lived tokens; userId, tokenHash, expiresAt, revokedAt
+- **mfa_challenges** – multi-factor auth challenges; codeHash, expiresAt, verifiedAt
+- **oauth_flows** – PKCE state for OAuth; provider, state, nonce, codeVerifier, redirectURI
+- **oauth_identities** – linked external identities; provider, subject, email verified flag
+- **stocks** – user holdings; symbol, quantity, buy_price, buy_date, notes, account_id, import_source
+- **positions** – broker-sync snapshot; quantity, average_cost, currency, market_value, last_price_date
+- **transactions** – broker-provided fills/trades; type, quantity, price, currency, trade_date, settle_date, external_id
+- **watchlist_items** – watchlist entries; symbol, notes, order_index
+- **portfolio_lists** / **watchlist_lists** – user-named collections; is_default flag
+- **stock_valuations** – DCF draft valuations per user/stock; assumptions + notes
+- **targets** – base/bear/bull price targets with scenario, timeframe, rationale
+- **expenses** – pillar-based spending; title, amount, pillar enum, occurred_on, split_mode, user_share_percent, linked_item_id (to BudgetPlanItem)
+- **budget_plan_items** – planned spending line items; pillar, planned_amount, split_mode
+- **budget_snapshots** – monthly/periodic budget view; total_budget, total_spent
+- **news_item** – archived stock news; source, title, url, published_at, image_url
+- **push_devices** – APNS device tokens; platform, apns_environment, authorization_status, is_active, last_seen_at
+- **broker_connections** – OAuth state for broker integrations; provider, access_token, refresh_token, expires_at, status
+- **coupons** / **coupon_redemptions** – promotional codes; plan, tier, expires_at, redemption tracking
+- **user_activity** – activity log for gamification and analytics
+- **user_badges** – awarded badges per user
+- **statistics_snapshot** – cached portfolio stats per day/week for performance
+- **goal** – financial goals with status, completed_at, user_id
+- **report_suggestion_dismissal** – UX personalization for in-app report suggestions
+
+Indexes & constraints: added over 71 migrations including user-scoped indexes, quote cache lookups, and foreign keys.
+
+### Service & Provider Architecture
+
+**Pattern**: Protocol + Default implementation + Application DI
+
+Repository protocols define data access; services orchestrate domain logic; providers fetch external data.
+
+Example repository pattern (StockRepository):
+```swift
+protocol StocksRepository: Sendable {
+  func list(userId: UUID, portfolioListId: UUID?, limit: Int, on db: any Database) async throws -> [Stock]
+  func find(id: UUID, userId: UUID, on db: any Database) async throws -> Stock?
+  func bulkCreate(payloads: [StockRequest], userId: UUID, on db: any Database) async throws -> [BulkStockResultItem]
+  // …
+}
+struct DatabaseStocksRepository: StocksRepository { … }
+```
+
+Provider abstraction (MarketDataProvider):
+```swift
+protocol MarketDataProvider {
+  func fetchQuote(symbol: String) async throws -> MarketProviderQuote
+  func fetchHistory(symbol: String, range: HistoryRange) async throws -> MarketProviderHistory
+  // …
+}
+struct FMPMarketDataProvider: MarketDataProvider { … }
+struct FinnhubMarketDataProvider: MarketDataProvider { … }
+struct DisabledMarketDataProvider: MarketDataProvider { … } // fallback
+```
+
+Provider selection at runtime in `configure.swift` when registering `MarketDataProvider` in Application DI. If neither API key present, `DisabledMarketDataProvider` returns empty data.
+
+### Security & Encryption
+
+- **JWT session tokens**: HS256 signed; `exp` claim enforced; stateless auth for API routes
+- **Refresh tokens**: persistent, one-time revocation; cleanup job (`AuthTokenCleanup`) runs every 10s in background
+- **Password hashing**: Bcrypt/SHA256 via Vapor's `Bcrypt` (standard Vapor)
+- **MFA**: one-time codes stored hashed; challenge expiry (`MFAChallenge` model)
+- **OAuth PKCE**: code_verifier stored, state+nonce validated; identity linking across providers
+- **PII encryption**: field-level AES-GCM via `UserPIIEncryption`; key rotation supported; `User.hydrateProtectedFields`
+- **Rate limiting**: `RateLimitMiddleware` on auth routes to prevent enumeration/brute force
+- **CORS**: configurable allowed origins via `ALLOWED_ORIGINS`; tightened in production
+- **Account lockout**: `failed_login_count`, `lockout_until` on `User` model
+
+### Observability & Diagnostics
+
+- **Structured logging**: `JSONLogHandler` outputs JSON logs; `RequestLoggingMiddleware` adds request_id, method, path, status, latency, user_id
+- **Tracing**: `TracingMiddleware` + swift-otel; `app.traceAutoPropagation = true` propagates W3C traceparent
+- **Health checks**: `/health/ready` aggregates DB/Redis/mail/APNS/marketData checks + version + environment name
+- **Metrics**: Not explicitly exposed; could add Prometheus endpoint or OTel metrics later
+- **Error tracking**: Sentry not wired in backend (only iOS); errors flow through `APIErrorMiddleware` & `BillingErrorMiddleware`
+
+### Market Data Provider Detail
+
+External providers configured via env:
+
+| Provider | Env key(s) | Status |
+|----------|------------|--------|
+| FMP (Financial Modeling Prep) | `FMP_API_KEY`, `FMP_BASE_URL` | Primary quote/history/news |
+| Finnhub | `FINNHUB_API_KEY`, `FINNHUB_BASE_URL` | Secondary; also provides grades consensus, basic financials |
+| IBKR (Interactive Brokers) | `IBKR_API_BASE_URL` | Client Portal API; currently disabled provider; placeholder `IBKRBrokerIntegration` present but not selected |
+
+Provider selection occurs in `configure.swift` when registering `MarketDataProvider` in Application DI. If neither API key present, `DisabledMarketDataProvider` returns empty data.
+
+### External API Call Chain
+
+Each request flows:
+
+```
+Controller endpoint
+→ calls application.marketDataService
+→ iterates configured providers
+→ first available provider returns data
+→ maps to DTOs (MarketDataDTOs)
+→ returns to controller → JSON response
+```
+
+Implementations (`FMPMarketDataProvider`, `FinnhubMarketDataProvider`) use Vapor's `Client` to make HTTP calls; parse JSON into provider-specific structs then map to canonical DTOs.
+
+### Deployment & Environments
+
+**Environments**: `.development`, `.testing`, `.production` (Vapor detects via --env flag or ENVIRONMENT var)
+
+**Config files**:
+- `.env` – local dev overrides
+- `.env.development` – dev environment values
+- `.env.production` – production secrets template
+
+**Docker**:
+- Release image: `swift:6.3-noble`, static Swift runtime, jemalloc, multi-stage
+- Dev image: `swift:6.1-noble` with inotify-tools; `scripts/dev-watch.sh` rebuilds on file change
+- Postgres + Redis via compose
+- Migrations run in `migrate` service container
+
+**Make targets**:
+- `make dev` – hot-reload dev
+- `make start` – build + migrate + release app
+- `make migrate` – DB migrations only
+- `make lint` – SwiftLint auto-fix
+- `make backend-test` – `swift test`
+- `make health` – readiness check against live domain
+- `make backup-db` / `make restore-drill` – Postgres backup/restore (GPG encrypted)
+- `make production-preflight` – cert/domain checks pre-deploy
+
+**CI/CD**: `.github/workflows/deploy.yml` and `deploy-dev.yml` – build container, push to GHCR, SSH deploy to Hetzner (inferred from README).
+
+### RevenueCat Integration
+
+- Webhook: `POST /webhooks/revenuecat` with Authorization secret (`REVENUECAT_WEBHOOK_SECRET`)
+- Event processor: `BillingService.process(event:rawPayload:on:)`
+- Updates `BillingContext` (user entitlement snapshot)
+- iOS client uses RevenueCat SDK Purchases; anonymous aliasing on login; `PaywallView` presents products
+- Products expected: `pro_monthly`, `pro_weekly`, `pro_annual`
+- Backend feature gates via `BillingMiddleware` or service checks
+
+### Push Notifications (APNS)
+
+- Device registration: `POST /notifications/devices` stores token + platform + environment
+- Target alerts: `TargetAlertPoller` runs periodic job; evaluates user targets vs current price; enqueues send
+- Sender: `APNSPushNotificationSender` builds payload with category `TARGET_ALERT`, deep link into stock detail
+- Bootstrap: APNS credentials from env (`APNS_TEAM_ID`, `APNS_KEY_ID`, `APNS_PRIVATE_KEY_P8`, `APNS_TOPIC`)
+- Silent fallback: `NoopPushNotificationSender` when credentials missing
+
+### OpenAPI & Client Generation
+
+- `openapi.yaml` present at repo root
+- `swift-openapi-generator` dependency; `OpenAPIDocsTests` validates spec drift
+- iOS uses AnyAPI with manually curated endpoints; potential to switch to generated client in future
+
+### Testing Strategy
+
+- **Unit tests**: `Tests/StockPlanBackendTests` – repository tests, service tests, DTO decoding/encoding
+- **Integration**: Possibly tests for controller routes with in-memory DB
+- **No UI tests** (backend is headless)
+- Test DB configured via `TEST_DATABASE_*` env vars; defaults to localhost:5432
+
+Coverage: moderate (~17 test files). Focus areas to expand: provider fallback logic, auth flows, billing edge cases.
+
+### Potential / Known Gaps
+
+- WebSocket implementation claimed in README not yet present
+- IBKR full OAuth token exchange / revocation not fully implemented
+- Rate limit configuration (thresholds) hard-coded or missing
+- Metrics endpoint (Prometheus/OTLP metrics) not exported
+- Backup/restore scripts assume GPG key availability
+- Localization/i18n not yet supported
+- Audit trail for admin actions missing
+
+---
+
+## 🔗 Related Documentation
+
+- `APNS.md` – APNS bootstrap, certificate setup
+- `MFA.md` – multi-factor auth flow
+- `oauth.md` – OAuth provider setup and identity linking
+- `Observability.md` – tracing + logging setup
+- `revenuecat-setup.md` – RevenueCat product/entitlement configuration
+- `ibkr-integration.md` – IBKR sync flow and deployment notes
+- `persistence-standards.md` – database design principles
+- `pii-encryption.md` – field-level encryption design
+

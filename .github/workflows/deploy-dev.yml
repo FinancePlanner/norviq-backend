@@ -1,191 +1,191 @@
 name: Deploy Dev
 
 on:
-    push:
-        branches: [dev]
-    workflow_dispatch:
-        inputs:
-            build_strategy:
-                description: "Container build path"
-                type: choice
-                required: false
-                default: plugin
-                options:
-                    - plugin
-                    - dockerfile
+  push:
+    branches: [dev]
+  workflow_dispatch:
+    inputs:
+      build_strategy:
+        description: "Container build path"
+        type: choice
+        required: false
+        default: plugin
+        options:
+          - plugin
+          - dockerfile
 
 env:
-    REGISTRY: ghcr.io
-    IMAGE_NAME: ${{ github.repository }}
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
 
 jobs:
-    build:
-        name: Build & Push Dev Image
-        runs-on: ubuntu-latest
-        permissions:
-            contents: read
-            packages: write
+  build:
+    name: Build & Push Dev Image
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
 
-        outputs:
-            app_image: ${{ steps.refs.outputs.app_image }}
-            image_repository: ${{ steps.refs.outputs.image_repository }}
-            image_sha_tag: ${{ steps.refs.outputs.image_sha_tag }}
+    outputs:
+      app_image: ${{ steps.refs.outputs.app_image }}
+      image_repository: ${{ steps.refs.outputs.image_repository }}
+      image_sha_tag: ${{ steps.refs.outputs.image_sha_tag }}
+    env:
+      BUILD_STRATEGY: ${{ github.event.inputs.build_strategy != '' && github.event.inputs.build_strategy || 'plugin' }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Resolve image references
+        id: refs
+        run: |
+          IMAGE_REPOSITORY="${REGISTRY}/${IMAGE_NAME}"
+          IMAGE_SHA_TAG="dev-${GITHUB_SHA}"
+          APP_IMAGE="${IMAGE_REPOSITORY}:${IMAGE_SHA_TAG}"
+          echo "image_repository=${IMAGE_REPOSITORY}" >> "$GITHUB_OUTPUT"
+          echo "image_sha_tag=${IMAGE_SHA_TAG}" >> "$GITHUB_OUTPUT"
+          echo "app_image=${APP_IMAGE}" >> "$GITHUB_OUTPUT"
+          echo "IMAGE_REPOSITORY=${IMAGE_REPOSITORY}" >> "$GITHUB_ENV"
+          echo "IMAGE_SHA_TAG=${IMAGE_SHA_TAG}" >> "$GITHUB_ENV"
+          echo "APP_IMAGE=${APP_IMAGE}" >> "$GITHUB_ENV"
+
+      - name: Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Docker Buildx (rollback build path)
+        if: env.BUILD_STRATEGY == 'dockerfile'
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build and push (Dockerfile fallback)
+        if: env.BUILD_STRATEGY == 'dockerfile'
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: true
+          tags: |
+            ${{ env.IMAGE_REPOSITORY }}:${{ env.IMAGE_SHA_TAG }}
+            ${{ env.IMAGE_REPOSITORY }}:dev
+          labels: |
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+          platforms: linux/amd64
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Set up Swift toolchain
+        if: env.BUILD_STRATEGY == 'plugin'
+        uses: swift-actions/setup-swift@v2
+        with:
+          swift-version: "6.0"
+
+      - name: Install Static Linux SDK (x86_64 musl)
+        if: env.BUILD_STRATEGY == 'plugin'
+        run: |
+          swift sdk install \
+            https://download.swift.org/swift-6.0-release/static-sdk/swift-6.0-RELEASE/swift-6.3-RELEASE_static-linux-0.1.0.artifactbundle.tar.gz \
+            --checksum d2078b69bdeb5c31202c10e9d8a11d6f66f82938b51a4b75f032ccb35c4c286c
+
+      - name: Build and push (Swift Container Plugin)
+        if: env.BUILD_STRATEGY == 'plugin'
         env:
-            BUILD_STRATEGY: ${{ github.event.inputs.build_strategy != '' && github.event.inputs.build_strategy || 'plugin' }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
 
-        steps:
-            - name: Checkout
-              uses: actions/checkout@v4
+          RESOURCE_ARGS=()
+          if [ -d Public ]; then
+            RESOURCE_ARGS+=(--resources Public)
+          fi
+          if [ -d Resources ]; then
+            RESOURCE_ARGS+=(--resources Resources)
+          fi
 
-            - name: Resolve image references
-              id: refs
-              run: |
-                  IMAGE_REPOSITORY="${REGISTRY}/${IMAGE_NAME}"
-                  IMAGE_SHA_TAG="dev-${GITHUB_SHA}"
-                  APP_IMAGE="${IMAGE_REPOSITORY}:${IMAGE_SHA_TAG}"
-                  echo "image_repository=${IMAGE_REPOSITORY}" >> "$GITHUB_OUTPUT"
-                  echo "image_sha_tag=${IMAGE_SHA_TAG}" >> "$GITHUB_OUTPUT"
-                  echo "app_image=${APP_IMAGE}" >> "$GITHUB_OUTPUT"
-                  echo "IMAGE_REPOSITORY=${IMAGE_REPOSITORY}" >> "$GITHUB_ENV"
-                  echo "IMAGE_SHA_TAG=${IMAGE_SHA_TAG}" >> "$GITHUB_ENV"
-                  echo "APP_IMAGE=${APP_IMAGE}" >> "$GITHUB_ENV"
+          swift package \
+            --allow-network-connections all \
+            --allow-writing-to-package-directory \
+            --swift-sdk x86_64-swift-linux-musl \
+            build-container-image \
+            --product StockPlanBackend \
+            --repository "${IMAGE_REPOSITORY}" \
+            --tag "${IMAGE_SHA_TAG}" \
+            --disable-netrc \
+            --default-username "${GITHUB_ACTOR}" \
+            --default-password "${GITHUB_TOKEN}" \
+            "${RESOURCE_ARGS[@]}" \
+            --cmd serve --env production --hostname 0.0.0.0 --port 8080
 
-            - name: Login to GHCR
-              uses: docker/login-action@v3
-              with:
-                  registry: ${{ env.REGISTRY }}
-                  username: ${{ github.actor }}
-                  password: ${{ secrets.GITHUB_TOKEN }}
+  deploy:
+    name: Deploy to Dev
+    needs: build
+    runs-on: ubuntu-latest
+    environment: development
+    permissions:
+      contents: read
+      packages: read
 
-            - name: Set up Docker Buildx (rollback build path)
-              if: env.BUILD_STRATEGY == 'dockerfile'
-              uses: docker/setup-buildx-action@v3
+    steps:
+      - name: Deploy to server
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USER }}
+          key: ${{ secrets.SERVER_SSH_KEY }}
+          script: |
+            set -euo pipefail
+            cd /opt/stockplan
 
-            - name: Build and push (Dockerfile fallback)
-              if: env.BUILD_STRATEGY == 'dockerfile'
-              uses: docker/build-push-action@v5
-              with:
-                  context: .
-                  push: true
-                  tags: |
-                      ${{ env.IMAGE_REPOSITORY }}:${{ env.IMAGE_SHA_TAG }}
-                      ${{ env.IMAGE_REPOSITORY }}:dev
-                  labels: |
-                      org.opencontainers.image.source=https://github.com/${{ github.repository }}
-                      org.opencontainers.image.revision=${{ github.sha }}
-                  platforms: linux/amd64
-                  cache-from: type=gha
-                  cache-to: type=gha,mode=max
+            git pull origin dev
 
-            - name: Set up Swift toolchain
-              if: env.BUILD_STRATEGY == 'plugin'
-              uses: swift-actions/setup-swift@v2
-              with:
-                  swift-version: "6.3"
+            APP_IMAGE="${{ needs.build.outputs.app_image }}"
 
-            - name: Install Static Linux SDK (x86_64 musl)
-              if: env.BUILD_STRATEGY == 'plugin'
-              run: |
-                  swift sdk install \
-                    https://download.swift.org/swift-6.3-release/static-sdk/swift-6.3-RELEASE/swift-6.3-RELEASE_static-linux-0.1.0.artifactbundle.tar.gz \
-                    --checksum d2078b69bdeb5c31202c10e9d8a11d6f66f82938b51a4b75f032ccb35c4c286c
+            echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
 
-            - name: Build and push (Swift Container Plugin)
-              if: env.BUILD_STRATEGY == 'plugin'
-              env:
-                  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-              run: |
-                  set -euo pipefail
+            docker pull "${APP_IMAGE}"
 
-                  RESOURCE_ARGS=()
-                  if [ -d Public ]; then
-                    RESOURCE_ARGS+=(--resources Public)
-                  fi
-                  if [ -d Resources ]; then
-                    RESOURCE_ARGS+=(--resources Resources)
-                  fi
+            if grep -q '^APP_IMAGE=' .env.development; then
+              sed -i "s|^APP_IMAGE=.*|APP_IMAGE=${APP_IMAGE}|" .env.development
+            else
+              echo "APP_IMAGE=${APP_IMAGE}" >> .env.development
+            fi
 
-                  swift package \
-                    --allow-network-connections all \
-                    --allow-writing-to-package-directory \
-                    --swift-sdk x86_64-swift-linux-musl \
-                    build-container-image \
-                    --product StockPlanBackend \
-                    --repository "${IMAGE_REPOSITORY}" \
-                    --tag "${IMAGE_SHA_TAG}" \
-                    --disable-netrc \
-                    --default-username "${GITHUB_ACTOR}" \
-                    --default-password "${GITHUB_TOKEN}" \
-                    "${RESOURCE_ARGS[@]}" \
-                    --cmd serve --env production --hostname 0.0.0.0 --port 8080
+            ln -sf /opt/stockplan/.env.development /opt/stockplan/.env
 
-    deploy:
-        name: Deploy to Dev
-        needs: build
-        runs-on: ubuntu-latest
-        environment: development
-        permissions:
-            contents: read
-            packages: read
+            export APP_IMAGE
+            export APP_PORT=8081
 
-        steps:
-            - name: Deploy to server
-              uses: appleboy/ssh-action@v1.0.3
-              with:
-                  host: ${{ secrets.SERVER_HOST }}
-                  username: ${{ secrets.SERVER_USER }}
-                  key: ${{ secrets.SERVER_SSH_KEY }}
-                  script: |
-                      set -euo pipefail
-                      cd /opt/stockplan
+            APP_PORT=8081 APP_IMAGE="${APP_IMAGE}" docker compose -p dev \
+              -f docker-compose.production.yml \
+              --env-file .env.development \
+              run --rm migrate
 
-                      git pull origin dev
+            APP_PORT=8081 APP_IMAGE="${APP_IMAGE}" docker compose -p dev \
+              -f docker-compose.production.yml \
+              --env-file .env.development \
+              up -d --no-deps app
 
-                      APP_IMAGE="${{ needs.build.outputs.app_image }}"
+            HEALTHY=0
+            for ATTEMPT in $(seq 1 30); do
+              if curl -fsS http://127.0.0.1:8081/health/ready >/dev/null 2>&1; then
+                HEALTHY=1
+                break
+              fi
+              if curl -fsS http://127.0.0.1:8081/health >/dev/null 2>&1; then
+                HEALTHY=1
+                break
+              fi
+              sleep 2
+            done
 
-                      echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+            if [ "${HEALTHY}" -ne 1 ]; then
+              echo "Health check failed for ${APP_IMAGE}"
+              APP_PORT=8081 APP_IMAGE="${APP_IMAGE}" docker compose -p dev \
+                -f docker-compose.production.yml logs --tail=120 app
+              exit 1
+            fi
 
-                      docker pull "${APP_IMAGE}"
-
-                      if grep -q '^APP_IMAGE=' .env.development; then
-                        sed -i "s|^APP_IMAGE=.*|APP_IMAGE=${APP_IMAGE}|" .env.development
-                      else
-                        echo "APP_IMAGE=${APP_IMAGE}" >> .env.development
-                      fi
-
-                      ln -sf /opt/stockplan/.env.development /opt/stockplan/.env
-
-                      export APP_IMAGE
-                      export APP_PORT=8081
-
-                      APP_PORT=8081 APP_IMAGE="${APP_IMAGE}" docker compose -p dev \
-                        -f docker-compose.production.yml \
-                        --env-file .env.development \
-                        run --rm migrate
-
-                      APP_PORT=8081 APP_IMAGE="${APP_IMAGE}" docker compose -p dev \
-                        -f docker-compose.production.yml \
-                        --env-file .env.development \
-                        up -d --no-deps app
-
-                      HEALTHY=0
-                      for ATTEMPT in $(seq 1 30); do
-                        if curl -fsS http://127.0.0.1:8081/health/ready >/dev/null 2>&1; then
-                          HEALTHY=1
-                          break
-                        fi
-                        if curl -fsS http://127.0.0.1:8081/health >/dev/null 2>&1; then
-                          HEALTHY=1
-                          break
-                        fi
-                        sleep 2
-                      done
-
-                      if [ "${HEALTHY}" -ne 1 ]; then
-                        echo "Health check failed for ${APP_IMAGE}"
-                        APP_PORT=8081 APP_IMAGE="${APP_IMAGE}" docker compose -p dev \
-                          -f docker-compose.production.yml logs --tail=120 app
-                        exit 1
-                      fi
-
-                      docker image prune -af --filter "until=168h"
+            docker image prune -af --filter "until=168h"
