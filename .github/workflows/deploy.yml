@@ -110,6 +110,7 @@ jobs:
             --allow-network-connections all \
             --allow-writing-to-package-directory \
             --swift-sdk x86_64-swift-linux-musl \
+            plugin \
             build-container-image \
             --product StockPlanBackend \
             --repository "${IMAGE_REPOSITORY}" \
