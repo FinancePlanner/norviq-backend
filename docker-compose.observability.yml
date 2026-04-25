@@ -5,6 +5,7 @@
 
 volumes:
   grafana_data:
+  prometheus_data:
 
 services:
   otel-collector:
@@ -26,20 +27,34 @@ services:
     networks:
       - internal
 
+  prometheus:
+    image: prom/prometheus:v2.54.1
+    restart: unless-stopped
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+      - "--storage.tsdb.retention.time=30d"
+      - "--web.enable-remote-write-receiver"
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    networks:
+      - internal
+    depends_on:
+      - otel-collector
+
   grafana:
     image: grafana/grafana:11.2.2
     restart: unless-stopped
     environment:
       GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
-      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?GRAFANA_ADMIN_PASSWORD is required}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
       GF_USERS_ALLOW_SIGN_UP: "false"
-      GF_SMTP_ENABLED: ${GRAFANA_SMTP_ENABLED:-true}
-      GF_SMTP_HOST: ${GRAFANA_SMTP_HOST:?GRAFANA_SMTP_HOST is required}
-      GF_SMTP_USER: ${GRAFANA_SMTP_USER:?GRAFANA_SMTP_USER is required}
-      GF_SMTP_PASSWORD: ${GRAFANA_SMTP_PASSWORD:?GRAFANA_SMTP_PASSWORD is required}
-      GF_SMTP_FROM_ADDRESS: ${GRAFANA_ALERT_EMAIL_FROM:?GRAFANA_ALERT_EMAIL_FROM is required}
-      GRAFANA_ALERT_EMAIL_TO: ${GRAFANA_ALERT_EMAIL_TO:?GRAFANA_ALERT_EMAIL_TO is required}
-      GRAFANA_SLACK_WEBHOOK_URL: ${GRAFANA_SLACK_WEBHOOK_URL:?GRAFANA_SLACK_WEBHOOK_URL is required}
+      GF_SMTP_ENABLED: ${GRAFANA_SMTP_ENABLED:-false}
+      GF_SMTP_HOST: ${GRAFANA_SMTP_HOST:-}
+      GF_SMTP_USER: ${GRAFANA_SMTP_USER:-}
+      GF_SMTP_PASSWORD: ${GRAFANA_SMTP_PASSWORD:-}
+      GF_SMTP_FROM_ADDRESS: ${GRAFANA_ALERT_EMAIL_FROM:-}
     volumes:
       - grafana_data:/var/lib/grafana
       - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
@@ -49,4 +64,4 @@ services:
       - internal
       - external
     depends_on:
-      - jaeger
+      - prometheus

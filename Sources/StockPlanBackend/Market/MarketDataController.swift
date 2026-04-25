@@ -6,37 +6,37 @@ struct MarketDataController: RouteCollection {
     func boot(routes: any RoutesBuilder) throws {
         let protected = routes.grouped(SessionToken.authenticator(), SessionToken.guardMiddleware())
         let market = protected.grouped("market")
+        let rateLimited = market.grouped(RateLimitMiddleware(limit: 120, interval: 60, keyPrefix: "ratelimit:market"))
 
-        market.get("details", use: details)
-        market.get("history", use: stockHistory)
-        market.get("history", "archive", use: archivedStockHistory)
-        market.post("history", "archive", "sync", use: syncArchivedStockHistory)
-        market.get("news", use: stockNews)
-        market.get("news", "general", use: generalMarketNews)
-        market.get("news", "archive", use: archivedStockNews)
-        market.post("news", "archive", "sync", use: syncArchivedStockNews)
-
-        market.get("quote", "batch", use: quoteBatch)
-        market.get("quote", ":symbol", use: quote)
-        market.get("profile", ":symbol", use: profile)
-        market.get("basic-financials", ":symbol", use: basicFinancials)
-        market.get("analysis", ":symbol", use: analysis)
-        market.get("compare", use: compare)
-        market.get("cash-flow-statement", ":symbol", use: cashFlowStatement)
-        market.get("balance-sheet-statement", ":symbol", use: balanceSheetStatement)
-        market.get("ratios-ttm", ":symbol", use: ratiosTTM)
-        market.get("grades-consensus", ":symbol", use: gradesConsensus)
-        market.get("financial-growth", ":symbol", use: financialGrowth)
-        market.get("earnings", ":symbol", use: earnings)
-        market.get("earnings-calendar", use: earningsCalendar)
-        market.get("analyst-estimates", ":symbol", use: analystEstimates)
-        market.get("ratios", ":symbol", use: ratios)
-        market.get("historical-sector-performance", use: historicalSectorPerformance)
-        market.get("history", ":symbol", use: history)
-        market.get("search", use: search)
-        market.get("fx", use: fx)
-        market.get("price-chart", "compare", use: priceChartComparison)
-        market.get("price-chart", ":symbol", use: priceChart)
+        rateLimited.get("details", use: details)
+        rateLimited.get("history", use: stockHistory)
+        rateLimited.get("history", "archive", use: archivedStockHistory)
+        rateLimited.post("history", "archive", "sync", use: syncArchivedStockHistory)
+        rateLimited.get("news", use: stockNews)
+        rateLimited.get("news", "general", use: generalMarketNews)
+        rateLimited.get("news", "archive", use: archivedStockNews)
+        rateLimited.post("news", "archive", "sync", use: syncArchivedStockNews)
+        rateLimited.get("quote", "batch", use: quoteBatch)
+        rateLimited.get("quote", ":symbol", use: quote)
+        rateLimited.get("profile", ":symbol", use: profile)
+        rateLimited.get("basic-financials", ":symbol", use: basicFinancials)
+        rateLimited.get("analysis", ":symbol", use: analysis)
+        rateLimited.get("compare", use: compare)
+        rateLimited.get("cash-flow-statement", ":symbol", use: cashFlowStatement)
+        rateLimited.get("balance-sheet-statement", ":symbol", use: balanceSheetStatement)
+        rateLimited.get("ratios-ttm", ":symbol", use: ratiosTTM)
+        rateLimited.get("grades-consensus", ":symbol", use: gradesConsensus)
+        rateLimited.get("financial-growth", ":symbol", use: financialGrowth)
+        rateLimited.get("earnings", ":symbol", use: earnings)
+        rateLimited.get("earnings-calendar", use: earningsCalendar)
+        rateLimited.get("analyst-estimates", ":symbol", use: analystEstimates)
+        rateLimited.get("ratios", ":symbol", use: ratios)
+        rateLimited.get("historical-sector-performance", use: historicalSectorPerformance)
+        rateLimited.get("history", ":symbol", use: history)
+        rateLimited.get("search", use: search)
+        rateLimited.get("fx", use: fx)
+        rateLimited.get("price-chart", "compare", use: priceChartComparison)
+        rateLimited.get("price-chart", ":symbol", use: priceChart)
     }
 
     @Sendable
@@ -166,19 +166,67 @@ struct MarketDataController: RouteCollection {
     }
 
     @Sendable
-    func quote(req: Request) async throws -> QuoteResponse {
+    func quote(req: Request) async throws -> Response {
         guard let symbol = req.parameters.get("symbol") else {
             throw Abort(.badRequest, reason: "Missing symbol.")
         }
-        return try await req.application.marketDataService.quote(symbol: symbol, on: req)
+        let quote = try await req.application.marketDataService.quote(symbol: symbol, on: req)
+
+        // Caching validators
+        let lastModDate = Date(timeIntervalSince1970: quote.timestamp)
+        let lastModStr = Self.formatHTTPDate(lastModDate)
+        let etag = "W/\"\(symbol)-\(quote.timestamp)\""
+
+        // Conditional GET check
+        if let ifNoneMatch = req.headers[.ifNoneMatch].first, ifNoneMatch == etag {
+            return Response(status: .notModified)
+        }
+        if let ifModifiedSince = req.headers[.ifModifiedSince].first,
+           let modDate = Self.parseHTTPDate(ifModifiedSince),
+           lastModDate <= modDate {
+            return Response(status: .notModified)
+        }
+
+        var response = Response(status: .ok)
+        try response.content.encode(quote)
+        response.headers.add(name: .lastModified, value: lastModStr)
+        response.headers.add(name: .eTag, value: etag)
+        response.headers.add(name: .cacheControl, value: "public, max-age=60")
+        return response
     }
 
     @Sendable
-    func profile(req: Request) async throws -> CompanyProfileResponse {
+    func profile(req: Request) async throws -> Response {
         guard let symbol = req.parameters.get("symbol") else {
             throw Abort(.badRequest, reason: "Missing symbol.")
         }
-        return try await req.application.marketDataService.profile(symbol: symbol, on: req)
+        let profile = try await req.application.marketDataService.profile(symbol: symbol, on: req)
+
+        // Compute weak ETag from profile content (no modification timestamp available)
+        var hasher = Hasher()
+        hasher.combine(profile.ticker ?? "")
+        hasher.combine(profile.name ?? "")
+        hasher.combine(profile.marketCapitalization ?? 0)
+        hasher.combine(profile.shareOutstanding ?? 0)
+        hasher.combine(profile.exchange ?? "")
+        hasher.combine(profile.finnhubIndustry ?? "")
+        hasher.combine(profile.ipo ?? "")
+        hasher.combine(profile.logo ?? "")
+        hasher.combine(profile.currency ?? "")
+        hasher.combine(profile.country ?? "")
+        let hash = hasher.finalize()
+        let etag = "W/\"\(symbol)-\(hash)\""
+
+        // Conditional GET
+        if let ifNoneMatch = req.headers[.ifNoneMatch].first, ifNoneMatch == etag {
+            return Response(status: .notModified)
+        }
+
+        var response = Response(status: .ok)
+        try response.content.encode(profile)
+        response.headers.add(name: .eTag, value: etag)
+        response.headers.add(name: .cacheControl, value: "public, max-age=300")
+        return response
     }
 
     @Sendable
@@ -426,14 +474,48 @@ struct MarketDataController: RouteCollection {
     }
 
     @Sendable
-    func history(req: Request) async throws -> HistoryResponse {
+    func history(req: Request) async throws -> Response {
         guard let symbol = req.parameters.get("symbol") else {
             throw Abort(.badRequest, reason: "Missing symbol.")
         }
 
         let from = req.query[String.self, at: "from"]
         let to = req.query[String.self, at: "to"]
-        return try await req.application.marketDataService.history(symbol: symbol, from: from, to: to, on: req)
+        let history = try await req.application.marketDataService.history(symbol: symbol, from: from, to: to, on: req)
+
+        // Determine latest date from bars (ascending order expected, so last is latest)
+        var lastModDate: Date? = nil
+        if let lastBar = history.bars.last {
+            let formatter = DateFormatter()
+            formatter.dateFormat = "yyyy-MM-dd"
+            formatter.locale = Locale(identifier: "en_US_POSIX")
+            formatter.timeZone = TimeZone(secondsFromGMT: 0)
+            lastModDate = formatter.date(from: lastBar.date)
+        }
+
+        let etagBase = lastModDate.map { $0.timeIntervalSince1970 } ?? 0
+        let etag = "W/\"\(symbol)-\(etagBase)\""
+        let lastModStr = lastModDate.map { Self.formatHTTPDate($0) }
+
+        // Conditional GET
+        if let ifNoneMatch = req.headers[.ifNoneMatch].first, ifNoneMatch == etag {
+            return Response(status: .notModified)
+        }
+        if let ifModifiedSince = req.headers[.ifModifiedSince].first,
+           let modDate = Self.parseHTTPDate(ifModifiedSince),
+           let lastMod = lastModDate,
+           lastMod <= modDate {
+            return Response(status: .notModified)
+        }
+
+        var response = Response(status: .ok)
+        try response.content.encode(history)
+        if let lastModStr {
+            response.headers.add(name: .lastModified, value: lastModStr)
+        }
+        response.headers.add(name: .eTag, value: etag)
+        response.headers.add(name: .cacheControl, value: "public, max-age=300")
+        return response
     }
 
     @Sendable
@@ -542,5 +624,21 @@ struct MarketDataController: RouteCollection {
                     volume: $0.volume ?? 0
                 )
             }
+    }
+
+    private static func formatHTTPDate(_ date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = TimeZone(abbreviation: "GMT")
+        formatter.dateFormat = "EEE, dd MMM yyyy HH:mm:ss 'GMT'"
+        return formatter.string(from: date)
+    }
+
+    private static func parseHTTPDate(_ string: String) -> Date? {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = TimeZone(abbreviation: "GMT")
+        formatter.dateFormat = "EEE, dd MMM yyyy HH:mm:ss 'GMT'"
+        return formatter.date(from: string)
     }
 }

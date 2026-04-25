@@ -217,6 +217,8 @@ struct PortfolioController: RouteCollection {
 
         let list = PortfolioList(userId: session.userId, name: name, isDefault: false)
         try await list.save(on: req.db)
+        // Business metric: portfolios created (lists)
+        req.application.businessMetrics.incrementPortfoliosCreated()
 
         let res = Response(status: .created)
         try res.content.encode(makePortfolioListResponse(from: list))

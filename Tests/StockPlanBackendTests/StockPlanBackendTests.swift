@@ -2457,7 +2457,7 @@ struct StockPlanBackendTests {
                 req.headers.bearerAuthorization = .init(token: token)
             }, afterResponse: { res async throws in
                 #expect(res.status == .ok)
-                let stocks = try res.content.decode([StockResponse].self)
+                let stocks = try res.content.decode([StockListItem].self)
                 let hasAAPL = stocks.contains { stock in
                     stock.symbol == "AAPL" && stock.shares == 12
                 }
@@ -2594,7 +2594,7 @@ struct StockPlanBackendTests {
                 req.headers.bearerAuthorization = .init(token: token)
             }, afterResponse: { res async throws in
                 #expect(res.status == .ok)
-                let stocks = try res.content.decode([StockResponse].self)
+                let stocks = try res.content.decode([StockListItem].self)
                 #expect(stocks.count == 1)
                 #expect(stocks.first?.symbol == "AAPL")
                 #expect(stocks.first?.shares == 4)
@@ -2656,7 +2656,7 @@ struct StockPlanBackendTests {
                 req.headers.bearerAuthorization = .init(token: token)
             }, afterResponse: { res async throws in
                 #expect(res.status == .ok)
-                let stocks = try res.content.decode([StockResponse].self)
+                let stocks = try res.content.decode([StockListItem].self)
                 #expect(stocks.contains(where: { $0.symbol == "AAPL" }))
                 #expect(!stocks.contains(where: { $0.symbol == "MSFT" }))
             })
@@ -3040,7 +3040,192 @@ struct StockPlanBackendTests {
         let text = String(decoding: payload, as: UTF8.self)
         #expect(text.contains("\"capitalLeaseObligationsCurrent\""))
     }
-}
+
+    // MARK: - Pagination
+
+    @Test("Stocks list pagination returns correct page size and next cursor")
+    func stocksListPagination() async throws {
+        try await withApp { app in
+            let (token, userId) = try await registerTestUser(app: app)
+            let seeded = try await seedDefaultLists(userId: userId, on: app.db)
+
+            // Create 75 stocks (more than default limit 50)
+            for i in 1...75 {
+                let stock = Stock(
+                    userId: userId,
+                    portfolioListId: seeded.portfolioListId,
+                    symbol: "STK\(i)",
+                    shares: Double(i),
+                    buyPrice: 100.0,
+                    buyDate: Date(),
+                    notes: nil,
+                    category: .stock,
+                    sourceProvider: nil,
+                    sourceAccountId: nil
+                )
+                try await stock.save(on: app.db)
+            }
+
+            // Page 1: default limit
+            let page1 = try await app.testing().test(.GET, "v1/stocks", beforeRequest: { req in
+                req.headers.bearerAuthorization = .init(token: token)
+            })
+            let page1Stocks = try JSONDecoder().decode([StockListItem].self, from: page1.body)
+            #expect(page1Stocks.count == 50)
+            let cursor1 = page1.headers.first(name: "X-Next-Cursor")!
+            #expect(!cursor1.isEmpty)
+
+            // Page 2: use cursor
+            let page2 = try await app.testing().test(.GET, "v1/stocks?cursor=\(cursor1)", beforeRequest: { req in
+                req.headers.bearerAuthorization = .init(token: token)
+            })
+            let page2Stocks = try JSONDecoder().decode([StockListItem].self, from: page2.body)
+            #expect(page2Stocks.count == 25)
+            #expect(!page2.headers.contains(name: "X-Next-Cursor")) // last page
+
+            // Verify no overlap
+            let page1Symbols = Set(page1Stocks.map { $0.symbol })
+            let page2Symbols = Set(page2Stocks.map { $0.symbol })
+            #expect(page1Symbols.isDisjoint(with: page2Symbols))
+        }
+    }
+
+    @Test("Expenses list pagination returns correct page size and next cursor")
+    func expensesListPagination() async throws {
+        try await withApp { app in
+            let (token, userId) = try await registerTestUser(app: app)
+            let now = Date()
+
+            // Create 55 expenses
+            for i in 1...55 {
+                let expense = Expense(
+                    userID: userId,
+                    title: "Expense \(i)",
+                    amount: Double(i) * 10.0,
+                    pillar: .fundamentals,
+                    occurredOn: Calendar.current.date(byAdding: .day, value: -i, to: now)!,
+                    linkedPlanItemID: nil,
+                    splitMode: .personal,
+                    userSharePercent: 100
+                )
+                try await expense.save(on: app.db)
+            }
+
+            // Page 1
+            let page1 = try await app.testing().test(.GET, "v1/expenses", beforeRequest: { req in
+                req.headers.bearerAuthorization = .init(token: token)
+            })
+            let page1Expenses = try JSONDecoder().decode([ExpenseResponse].self, from: page1.body)
+            #expect(page1Expenses.count == 50)
+            let cursor1 = page1.headers.first(name: "X-Next-Cursor")!
+            #expect(!cursor1.isEmpty)
+
+            // Page 2
+            let page2 = try await app.testing().test(.GET, "v1/expenses?cursor=\(cursor1)", beforeRequest: { req in
+                req.headers.bearerAuthorization = .init(token: token)
+            })
+            let page2Expenses = try JSONDecoder().decode([ExpenseResponse].self, from: page2.body)
+            #expect(page2Expenses.count == 5)
+            #expect(!page2.headers.contains(name: "X-Next-Cursor"))
+
+            // Verify ordering (by occurredOn descending)
+            let page1Dates = Set(page1Expenses.map { $0.occurredOn })
+            let page2Dates = Set(page2Expenses.map { $0.occurredOn })
+            #expect(page1Dates.isDisjoint(with: page2Dates))
+            if let earliestPage2 = page2Expenses.last {
+                #expect(page1Expenses.allSatisfy { $0.occurredOn > earliestPage2.occurredOn })
+            }
+        }
+    }
+
+    @Test("News list pagination returns correct page size and next cursor")
+    func newsListPagination() async throws {
+        try await withApp { app in
+            let (token, userId) = try await registerTestUser(app: app)
+            let now = Date()
+
+            // Create 60 news items for AAPL
+            for i in 1...60 {
+                let news = NewsItem(
+                    userId: userId,
+                    symbol: "AAPL",
+                    headline: "Apple News \(i)",
+                    source: "TestSource",
+                    url: "https://example.com/news/\(i)",
+                    summary: "Summary \(i)",
+                    publishedAt: Calendar.current.date(byAdding: .hour, value: -i, to: now)!
+                )
+                try await news.save(on: app.db)
+            }
+
+            // Page 1
+            let page1 = try await app.testing().test(.GET, "v1/news?symbol=AAPL", beforeRequest: { req in
+                req.headers.bearerAuthorization = .init(token: token)
+            })
+            let page1News = try JSONDecoder().decode([NewsItemResponse].self, from: page1.body)
+            #expect(page1News.count == 50)
+            let cursor1 = page1.headers.first(name: "X-Next-Cursor")!
+            #expect(!cursor1.isEmpty)
+
+            // Page 2
+            let page2 = try await app.testing().test(.GET, "v1/news?symbol=AAPL&cursor=\(cursor1)", beforeRequest: { req in
+                req.headers.bearerAuthorization = .init(token: token)
+            })
+            let page2News = try JSONDecoder().decode([NewsItemResponse].self, from: page2.body)
+            #expect(page2News.count == 10)
+            #expect(!page2.headers.contains(name: "X-Next-Cursor"))
+
+            // Verify ordering (publishedAt descending)
+            let page1Times = Set(page1News.map { $0.publishedAt })
+            let page2Times = Set(page2News.map { $0.publishedAt })
+            #expect(page1Times.isDisjoint(with: page2Times))
+            if let earliestPage2 = page2News.last {
+                #expect(page1News.allSatisfy { $0.publishedAt > earliestPage2.publishedAt })
+            }
+        }
+    }
+
+    @Test("Pagination respects custom limit up to max")
+    func paginationRespectsCustomLimit() async throws {
+        try await withApp { app in
+            let (token, userId) = try await registerTestUser(app: app)
+            let seeded = try await seedDefaultLists(userId: userId, on: app.db)
+
+            // Create 250 stocks
+            for i in 1...250 {
+                let stock = Stock(
+                    userId: userId,
+                    portfolioListId: seeded.portfolioListId,
+                    symbol: "LIM\(i)",
+                    shares: Double(i),
+                    buyPrice: 100.0,
+                    buyDate: Date(),
+                    notes: nil,
+                    category: .stock,
+                    sourceProvider: nil,
+                    sourceAccountId: nil
+                )
+                try await stock.save(on: app.db)
+            }
+
+            // Request limit=200 (max)
+            let resp = try await app.testing().test(.GET, "v1/stocks?limit=200", beforeRequest: { req in
+                req.headers.bearerAuthorization = .init(token: token)
+            })
+            let stocks = try JSONDecoder().decode([StockListItem].self, from: resp.body)
+            #expect(stocks.count == 200)
+            #expect(!resp.headers.contains(name: "X-Next-Cursor")) // last page
+
+            // Request limit=150
+            let resp2 = try await app.testing().test(.GET, "v1/stocks?limit=150", beforeRequest: { req in
+                req.headers.bearerAuthorization = .init(token: token)
+            })
+            let stocks2 = try JSONDecoder().decode([StockListItem].self, from: resp2.body)
+            #expect(stocks2.count == 150)
+            #expect(resp2.headers.contains(name: "X-Next-Cursor"))
+        }
+    }
+
 
 actor TestPushSenderState {
     private var summaries: [TargetPushSendSummary]

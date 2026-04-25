@@ -6,6 +6,7 @@ struct StockController: RouteCollection {
     private struct StocksListQuery: Content {
         let portfolioListId: String?
         let limit: Int?
+        let cursor: String?  // ISO8601 timestamp for keyset pagination
     }
 
     func boot(routes: any RoutesBuilder) throws {
@@ -69,7 +70,7 @@ struct StockController: RouteCollection {
     }
 
     @Sendable
-    func listStocks(req: Request) async throws -> [StockResponse] {
+    func listStocks(req: Request) async throws -> Response {
         let session = try req.auth.require(SessionToken.self)
         let query = try req.query.decode(StocksListQuery.self)
         let portfolioListId = try await resolvePortfolioListId(
@@ -78,12 +79,31 @@ struct StockController: RouteCollection {
             on: req.db,
             defaultWhenMissing: true
         )
-        return try await req.stocksService.list(
+        // Parse cursor: ISO8601 string -> Date
+        let cursorDate: Date? = {
+            guard let cursor = query.cursor else { return nil }
+            let formatter = ISO8601DateFormatter()
+            formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+            return formatter.date(from: cursor)
+        }()
+
+        let limit = clampedLimit(query.limit)
+        let result = try await req.stocksService.list(
             userId: session.userId,
             portfolioListId: portfolioListId,
-            limit: clampedLimit(query.limit),
+            limit: limit,
+            cursor: cursorDate,
             on: req.db
         )
+
+        // Build response with potential pagination header
+        var response = Response(status: .ok)
+        if let nextCursor = result.nextCursor {
+            response.headers.add(name: "X-Next-Cursor", value: nextCursor)
+        }
+        let listItems = result.items.map { StockListItem(from: $0) }
+        try response.content.encode(listItems)
+        return response
     }
 
     @Sendable
@@ -92,6 +112,8 @@ struct StockController: RouteCollection {
         let payload = try req.content.decode(StockRequest.self)
         let created = try await req.stocksService.create(
             payload: payload, userId: session.userId, on: req.db)
+        // Business metric: stocks created
+        req.application.businessMetrics.incrementStocksCreated()
         let res = Response(status: .created)
         try res.content.encode(created)
         return res
@@ -406,6 +428,8 @@ struct StockController: RouteCollection {
             alertTriggeredPrice: nil
         )
         try await target.save(on: req.db)
+        // Business metric: targets created
+        req.application.businessMetrics.incrementTargetsCreated()
         try? await req.usageCounterService.syncResourceCount(
             .targetAlerts,
             userId: session.userId,
@@ -617,7 +641,7 @@ struct StockController: RouteCollection {
         )
     }
 
-    private func clampedLimit(_ rawLimit: Int?, default defaultValue: Int = 100, max maxValue: Int = 100) -> Int {
+    private func clampedLimit(_ rawLimit: Int?, default defaultValue: Int = 50, max maxValue: Int = 200) -> Int {
         max(1, min(rawLimit ?? defaultValue, maxValue))
     }
 }

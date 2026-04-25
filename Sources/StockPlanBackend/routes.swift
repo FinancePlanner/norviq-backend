@@ -55,7 +55,9 @@ func routes(_ app: Application) throws {
     try api.register(collection: AuthController())
     try api.register(collection: BillingController())
     try api.register(collection: StockController())
-    try api.register(collection: MarketDataController())
+    // Rate limit market data endpoints (quotes, search) to protect third-party API quotas.
+    let marketRateLimit = RateLimitMiddleware(limit: 100, interval: 60, keyPrefix: "ratelimit:market")
+    try api.grouped(marketRateLimit).register(collection: MarketDataController())
     try api.register(collection: PortfolioController())
     try api.register(collection: BrokerController())
     try api.register(collection: StatisticsController())
@@ -73,6 +75,8 @@ func routes(_ app: Application) throws {
     try api.register(collection: BadgeController())
     try api.register(collection: AssetsController())
     try api.register(collection: PushNotificationsController())
+    try api.register(collection: DataExportController(exportService: app.dataExportService))
+    try api.register(collection: ExportFileController(exportService: app.dataExportService))
 }
 
 private func makeReadinessResponse(_ req: Request) async -> HealthCheckResponse {

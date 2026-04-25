@@ -17,11 +17,27 @@ struct NewsController: RouteCollection {
     }
 
     @Sendable
-    func listNews(req: Request) async throws -> [NewsItemResponse] {
+    func listNews(req: Request) async throws -> Response {
         let session = try req.auth.require(SessionToken.self)
         let symbol = req.query[String.self, at: "symbol"]
         let limit = clampedLimit(req.query[Int.self, at: "limit"])
-        return try await req.application.newsService.list(userId: session.userId, symbol: symbol, limit: limit, on: req.db)
+
+        // Cursor: ISO8601 string -> Date
+        let cursorDate: Date? = {
+            guard let cursor = req.query[String.self, at: "cursor"] else { return nil }
+            let formatter = ISO8601DateFormatter()
+            formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+            return formatter.date(from: cursor)
+        }()
+
+        let result = try await req.application.newsService.list(userId: session.userId, symbol: symbol, limit: limit, cursor: cursorDate, on: req.db)
+
+        var response = Response(status: .ok)
+        try response.content.encode(result.items)
+        if let nextCursor = result.nextCursor {
+            response.headers.add(name: "X-Next-Cursor", value: nextCursor)
+        }
+        return response
     }
 
     @Sendable
@@ -77,7 +93,7 @@ struct NewsController: RouteCollection {
         return value
     }
 
-    private func clampedLimit(_ rawLimit: Int?, default defaultValue: Int = 100, max maxValue: Int = 100) -> Int {
+    private func clampedLimit(_ rawLimit: Int?, default defaultValue: Int = 50, max maxValue: Int = 200) -> Int {
         max(1, min(rawLimit ?? defaultValue, maxValue))
     }
 }

@@ -3,7 +3,7 @@ import Foundation
 import Vapor
 
 protocol StocksRepository: Sendable {
-    func list(userId: UUID, portfolioListId: UUID?, limit: Int, on db: any Database) async throws -> [Stock]
+    func list(userId: UUID, portfolioListId: UUID?, limit: Int, cursor: Date?, on db: any Database) async throws -> [Stock]
     func find(id: UUID, userId: UUID, on db: any Database) async throws -> Stock?
     func find(symbol: String, userId: UUID, on db: any Database) async throws -> Stock?
     func findValuation(symbol: String, userId: UUID, on db: any Database) async throws
@@ -26,21 +26,25 @@ protocol StocksRepository: Sendable {
 
 extension StocksRepository {
     func list(userId: UUID, on db: any Database) async throws -> [Stock] {
-        try await list(userId: userId, portfolioListId: nil, limit: 100, on: db)
+        try await list(userId: userId, portfolioListId: nil, limit: 100, cursor: nil, on: db)
     }
 
     func list(userId: UUID, portfolioListId: UUID?, on db: any Database) async throws -> [Stock] {
-        try await list(userId: userId, portfolioListId: portfolioListId, limit: 100, on: db)
+        try await list(userId: userId, portfolioListId: portfolioListId, limit: 100, cursor: nil, on: db)
     }
 }
 
 struct DatabaseStocksRepository: StocksRepository {
-    func list(userId: UUID, portfolioListId: UUID? = nil, limit: Int, on db: any Database) async throws -> [Stock] {
-        let query = Stock.query(on: db)
+    func list(userId: UUID, portfolioListId: UUID? = nil, limit: Int, cursor: Date?, on db: any Database) async throws -> [Stock] {
+        var query = Stock.query(on: db)
             .filter(\.$userId == userId)
             .sort(\.$createdAt, .descending)
         if let portfolioListId {
             query.filter(\.$portfolioListId == portfolioListId)
+        }
+        if let cursor = cursor {
+            // Keyset: fetch records created before cursor
+            query.filter(\.$createdAt < cursor)
         }
         query.limit(limit)
         return try await query.all()

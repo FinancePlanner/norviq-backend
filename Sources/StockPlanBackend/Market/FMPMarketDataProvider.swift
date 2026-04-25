@@ -590,6 +590,7 @@ extension LiveFMPMarketDataProvider {
         let uri = try makeURI(path: path, query: query)
         let response = try await req.client.get(uri) { clientRequest in
             clientRequest.headers.replaceOrAdd(name: .accept, value: "application/json")
+            clientRequest.timeout = .seconds(30)
         }
 
         switch response.status {

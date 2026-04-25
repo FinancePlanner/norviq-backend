@@ -81,3 +81,25 @@ struct StockInsightProjectionYearDTO: Content, Sendable, Equatable {
     let cagrLow: Double?
     let cagrHigh: Double?
 }
+
+struct StockListItem: Content, Sendable {
+    let id: String
+    let symbol: String
+    let shares: Double
+    let buyPrice: Double
+    let buyDate: String
+    let notes: String?
+    let category: AssetCategory
+    let portfolioListId: String?
+
+    init(from response: StockResponse) {
+        self.id = response.id
+        self.symbol = response.symbol
+        self.shares = response.shares
+        self.buyPrice = response.buyPrice
+        self.buyDate = response.buyDate
+        self.notes = response.notes
+        self.category = response.category
+        self.portfolioListId = response.portfolioListId
+    }
+}

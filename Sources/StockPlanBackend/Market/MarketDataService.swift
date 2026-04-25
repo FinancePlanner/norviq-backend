@@ -1870,7 +1870,7 @@ extension DefaultMarketDataService {
     }
 
     fileprivate func makeProfileResponse(from model: ProfileCache) -> CompanyProfileResponse {
-        CompanyProfileResponse(
+        return CompanyProfileResponse(
             country: model.country,
             currency: model.currency,
             estimateCurrency: model.estimateCurrency,

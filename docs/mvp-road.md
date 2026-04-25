@@ -415,3 +415,55 @@ Start with gates that are easy to explain and easy to enforce:
 8. Target alerts above the free limit.
 
 Avoid gating basic onboarding too aggressively. Users should experience value before being asked to pay.
+
+## App Store & TestFlight Release Checklist
+
+### Requires Apple Developer Account ($99/year)
+
+- [ ] Apple Developer Program membership active
+- [ ] Apple Sign In — Services ID, redirect URIs for dev and prod, ES256 key (.p8)
+- [ ] APNS — `APNS_TEAM_ID`, `APNS_KEY_ID`, `APNS_PRIVATE_KEY_P8`, `APNS_TOPIC` set in `.env.production`
+- [ ] RevenueCat products created in App Store Connect (`pro_annual`, `pro_monthly`, `pro_weekly`)
+
+### Backend Production Configuration
+
+- [ ] `REVENUECAT_API_KEY` set in `.env.production`
+- [ ] `REVENUECAT_WEBHOOK_SECRET` set in `.env.production`
+- [ ] RevenueCat dashboard: app linked, `pro` entitlement created, products linked
+- [x] `AUTH_MFA_ENABLED=true` and `AUTH_MFA_ALLOW_LEGACY_BYPASS=false` in `.env.production`
+- [x] `RESEND_API_KEY` and `RESEND_FROM_EMAIL` set (domain verified in Resend)
+- [ ] `OAUTH_APPLE_CLIENT_ID`, `OAUTH_APPLE_TEAM_ID`, `OAUTH_APPLE_KEY_ID`, `OAUTH_APPLE_PRIVATE_KEY` set
+- [x] `OAUTH_GOOGLE_CLIENT_ID`, `OAUTH_GOOGLE_CLIENT_SECRET` set with production redirect URIs
+- [x] `OAUTH_X_CLIENT_ID`, `OAUTH_X_CLIENT_SECRET` set with production redirect URIs
+- [ ] `ALLOWED_ORIGINS` set to `https://www.norviqaapp.com,https://norviqaapp.com`
+- [ ] `USER_PII_ENCRYPTION_ACTIVE_KEY_ID` and `USER_PII_ENCRYPTION_ACTIVE_KEY` set with real keys
+- [ ] `JWT_SECRET` set to a strong random value (32+ chars)
+- [ ] PostgreSQL backups automated and restore-tested
+
+### Legal (Required by Apple)
+
+- [ ] Privacy Policy live at `https://norviqa.com/privacy`
+- [ ] Terms of Service live at `https://norviqa.com/terms`
+- [ ] Account deletion endpoint working end-to-end (`DELETE /v1/users`)
+
+### TestFlight → App Store Order
+
+1. Configure APNS + Apple Sign In on backend
+2. Deploy to dev server → test with TestFlight build
+3. Configure RevenueCat + subscription products
+4. Test purchases via TestFlight sandbox
+5. Deploy to production server
+6. Submit iOS app for App Store review
+
+### Already Done
+
+- [x] RevenueCat webhook implemented and idempotent
+- [x] Billing entitlements enforced server-side
+- [x] Pro feature gates on market data endpoints
+- [x] MFA flow fully implemented (email OTP via Resend)
+- [x] OAuth providers implemented (Google, Apple, X) — pending credentials
+- [x] APNS sender implemented — pending credentials
+- [x] Account deletion endpoint implemented
+- [x] Privacy Policy and Terms draft in `docs/legal`
+- [x] CI/CD pipeline (GitHub Actions → Hetzner) operational
+- [x] Dev and production environments separated on same server (ports 8081/8080)

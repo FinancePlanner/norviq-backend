@@ -37,7 +37,7 @@ extension NewsServiceError: AbortError {
 }
 
 protocol NewsService: Sendable {
-    func list(userId: UUID, symbol: String?, limit: Int, on db: any Database) async throws -> [NewsItemResponse]
+    func list(userId: UUID, symbol: String?, limit: Int, cursor: Date?, on db: any Database) async throws -> (items: [NewsItemResponse], nextCursor: String?)
     func feed(userId: UUID, limit: Int?, on db: any Database) async throws -> [NewsItemResponse]
     func get(id: UUID, userId: UUID, on db: any Database) async throws -> NewsItemResponse
     func create(payload: NewsItemRequest, userId: UUID, on db: any Database) async throws -> NewsItemResponse
@@ -56,14 +56,27 @@ struct DefaultNewsService: NewsService {
         self.provider = provider
     }
 
-    func list(userId: UUID, symbol: String?, limit: Int, on db: any Database) async throws -> [NewsItemResponse] {
+    func list(userId: UUID, symbol: String?, limit: Int, cursor: Date?, on db: any Database) async throws -> (items: [NewsItemResponse], nextCursor: String?) {
         let normalized = normalizedSymbolValue(symbol)
-        let items = try await repo.list(userId: userId, symbol: normalized, limit: limit, on: db)
-        return try items.map(makeResponse)
+        let fetchLimit = limit + 1
+        let newsItems = try await repo.list(userId: userId, symbol: normalized, limit: fetchLimit, cursor: cursor, on: db)
+        if newsItems.count > limit {
+            let pageItems = Array(newsItems.prefix(limit))
+            let items = try pageItems.map(makeResponse)
+            guard let last = pageItems.last, let createdAt = last.createdAt else {
+                return (items, nil)
+            }
+            let nextCursor = formatISODateTime(createdAt) ?? ""
+            return (items, nextCursor)
+        } else {
+            let items = try newsItems.map(makeResponse)
+            return (items, nil)
+        }
     }
 
     func list(userId: UUID, symbol: String?, on db: any Database) async throws -> [NewsItemResponse] {
-        try await list(userId: userId, symbol: symbol, limit: 100, on: db)
+        let result = try await list(userId: userId, symbol: symbol, limit: 100, cursor: nil, on: db)
+        return result.items
     }
 
     func feed(userId: UUID, limit: Int?, on db: any Database) async throws -> [NewsItemResponse] {

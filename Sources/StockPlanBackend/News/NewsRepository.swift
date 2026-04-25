@@ -2,7 +2,7 @@ import Fluent
 import Foundation
 
 protocol NewsRepository: Sendable {
-    func list(userId: UUID, symbol: String?, limit: Int?, on db: any Database) async throws -> [NewsItem]
+    func list(userId: UUID, symbol: String?, limit: Int, cursor: Date?, on db: any Database) async throws -> [NewsItem]
     func listFeed(userId: UUID, trackedSymbols: [String], limit: Int, on db: any Database) async throws -> [NewsItem]
     func find(id: UUID, userId: UUID, on db: any Database) async throws -> NewsItem?
     func trackedUserIDs(symbols: [String], on db: any Database) async throws -> [String: Set<UUID>]
@@ -13,20 +13,19 @@ protocol NewsRepository: Sendable {
 }
 
 struct DatabaseNewsRepository: NewsRepository {
-    func list(userId: UUID, symbol: String?, limit: Int?, on db: any Database) async throws -> [NewsItem] {
-        let query = NewsItem.query(on: db)
+    func list(userId: UUID, symbol: String?, limit: Int, cursor: Date?, on db: any Database) async throws -> [NewsItem] {
+        var query = NewsItem.query(on: db)
             .filter(\.$userId == userId)
-            .sort(\.$publishedAt, .descending)
             .sort(\.$createdAt, .descending)
 
         if let symbol, !symbol.isEmpty {
             query.filter(\.$symbol == symbol)
         }
-
-        if let limit, limit > 0 {
-            query.limit(limit)
+        if let cursor {
+            query.filter(\.$createdAt < cursor)
         }
 
+        query.limit(limit)
         return try await query.all()
     }
 

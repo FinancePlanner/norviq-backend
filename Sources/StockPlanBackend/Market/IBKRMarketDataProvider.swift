@@ -51,7 +51,9 @@ struct IBKRMarketDataProvider: MarketDataProvider {
             ]
         )
 
-        let response = try await req.client.get(URI(string: uri))
+        let response = try await req.client.get(URI(string: uri)) { clientRequest in
+            clientRequest.timeout = .seconds(30)
+        }
         guard response.status == HTTPResponseStatus.ok else {
             throw Abort(.badGateway, reason: "IBKR history request failed with status \(response.status.code).")
         }
@@ -82,6 +84,7 @@ struct IBKRMarketDataProvider: MarketDataProvider {
         let uri = makeURL(path: "/iserver/secdef/search")
         let response = try await req.client.post(URI(string: uri)) { clientRequest in
             clientRequest.headers.contentType = .json
+            clientRequest.timeout = .seconds(30)
             try clientRequest.content.encode(IBKRSearchRequest(symbol: query))
         }
 
@@ -184,7 +187,9 @@ private extension IBKRMarketDataProvider {
             ]
         )
 
-        let response = try await req.client.get(URI(string: uri))
+        let response = try await req.client.get(URI(string: uri)) { clientRequest in
+            clientRequest.timeout = .seconds(30)
+        }
         guard response.status == HTTPResponseStatus.ok else {
             throw Abort(.badGateway, reason: "IBKR snapshot request failed with status \(response.status.code).")
         }

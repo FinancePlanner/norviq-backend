@@ -144,7 +144,7 @@ struct ExpensesController: RouteCollection {
     }
 
     @Sendable
-    func getExpenses(req: Request) async throws -> [ExpenseResponse] {
+    func getExpenses(req: Request) async throws -> Response {
         let session = try req.auth.require(SessionToken.self)
         try await requireExpensePlannerAccess(session: session, req: req)
 
@@ -164,13 +164,31 @@ struct ExpensesController: RouteCollection {
             toDate = dateFormatter.date(from: to)
         }
 
-        return try await req.expensesService.getExpenses(
+        let limit = clampedLimit(req.query[Int.self, at: "limit"])
+
+        // Cursor: ISO8601 string -> Date
+        let cursorDate: Date? = {
+            guard let cursor = req.query[String.self, at: "cursor"] else { return nil }
+            let formatter = ISO8601DateFormatter()
+            formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+            return formatter.date(from: cursor)
+        }()
+
+        let result = try await req.expensesService.getExpenses(
             userId: session.userId,
             from: fromDate,
             to: toDate,
-            limit: clampedLimit(req.query[Int.self, at: "limit"]),
+            limit: limit,
+            cursor: cursorDate,
             on: req.db
         )
+
+        var response = Response(status: .ok)
+        try response.content.encode(result.items)
+        if let nextCursor = result.nextCursor {
+            response.headers.add(name: "X-Next-Cursor", value: nextCursor)
+        }
+        return response
     }
 
     @Sendable
@@ -228,7 +246,7 @@ struct ExpensesController: RouteCollection {
         return value
     }
 
-    private func clampedLimit(_ rawLimit: Int?, default defaultValue: Int = 100, max maxValue: Int = 100) -> Int {
+    private func clampedLimit(_ rawLimit: Int?, default defaultValue: Int = 50, max maxValue: Int = 200) -> Int {
         max(1, min(rawLimit ?? defaultValue, maxValue))
     }
 

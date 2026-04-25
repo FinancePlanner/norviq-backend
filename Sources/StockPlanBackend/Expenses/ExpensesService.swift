@@ -21,7 +21,7 @@ protocol ExpensesService: Sendable {
     func deletePlanItem(userId: UUID, itemId: UUID, on db: any Database) async throws
 
     // Expenses
-    func getExpenses(userId: UUID, from: Date?, to: Date?, limit: Int, on db: any Database) async throws -> [ExpenseResponse]
+    func getExpenses(userId: UUID, from: Date?, to: Date?, limit: Int, cursor: Date?, on db: any Database) async throws -> (items: [ExpenseResponse], nextCursor: String?)
     func createExpense(userId: UUID, request: ExpenseRequest, on db: any Database) async throws -> ExpenseResponse
     func updateExpense(userId: UUID, expenseId: UUID, request: ExpenseRequest, on db: any Database) async throws -> ExpenseResponse
     func deleteExpense(userId: UUID, expenseId: UUID, on db: any Database) async throws
@@ -338,7 +338,7 @@ final class DefaultExpensesService: ExpensesService {
 
     // MARK: - Expenses
 
-    func getExpenses(userId: UUID, from: Date?, to: Date?, limit: Int, on db: any Database) async throws -> [ExpenseResponse] {
+    func getExpenses(userId: UUID, from: Date?, to: Date?, limit: Int, cursor: Date?, on db: any Database) async throws -> (items: [ExpenseResponse], nextCursor: String?) {
         var query = Expense.query(on: db).filter(\.$user.$id == userId)
 
         if let from = from {
@@ -347,9 +347,25 @@ final class DefaultExpensesService: ExpensesService {
         if let to = to {
             query = query.filter(\.$occurredOn <= to)
         }
+        if let cursor = cursor {
+            // Keyset: fetch records created before cursor (older records)
+            query = query.filter(\.$createdAt < cursor)
+        }
 
-        let expenses = try await query.sort(\.$occurredOn, .descending).limit(limit).all()
-        return expenses.map { mapExpense($0) }
+        let fetchLimit = limit + 1
+        let expenses = try await query.sort(\.$createdAt, .descending).limit(fetchLimit).all()
+        if expenses.count > limit {
+            let pageExpenses = Array(expenses.prefix(limit))
+            let items = pageExpenses.map { mapExpense($0) }
+            guard let last = pageExpenses.last, let createdAt = last.createdAt else {
+                return (items, nil)
+            }
+            let nextCursor = formatISODate(createdAt)
+            return (items, nextCursor)
+        } else {
+            let items = expenses.map { mapExpense($0) }
+            return (items, nil)
+        }
     }
 
     func createExpense(userId: UUID, request: ExpenseRequest, on db: any Database) async throws -> ExpenseResponse {
