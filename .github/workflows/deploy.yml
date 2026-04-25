@@ -9,7 +9,7 @@ on:
         description: "Container build path"
         type: choice
         required: false
-        default: plugin
+        default: dockerfile
         options:
           - plugin
           - dockerfile
@@ -77,6 +77,13 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
+      - name: Cache Swift toolchain
+        if: env.BUILD_STRATEGY == 'plugin'
+        uses: actions/cache@v4
+        with:
+          path: ~/.swiftenv
+          key: swift-toolchain-6.3.1
+
       - name: Set up Swift toolchain
         if: env.BUILD_STRATEGY == 'plugin'
         uses: swift-actions/setup-swift@v3
@@ -84,12 +91,31 @@ jobs:
           swift-version: "6.3.1"
           skip-verify-signature: true
 
-      - name: Install Static Linux SDK (x86_64 musl)
+      - name: Cache Static Linux SDK
         if: env.BUILD_STRATEGY == 'plugin'
+        id: sdk-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.swiftpm/swift-sdks
+          key: swift-sdk-6.3.1-musl
+
+      - name: Install Static Linux SDK (x86_64 musl)
+        if: env.BUILD_STRATEGY == 'plugin' && steps.sdk-cache.outputs.cache-hit != 'true'
         run: |
           swift sdk install \
             https://download.swift.org/swift-6.3.1-release/static-sdk/swift-6.3.1-RELEASE/swift-6.3.1-RELEASE_static-linux-0.1.0.artifactbundle.tar.gz \
             --checksum fac05271c1f7d060bd203240ce5251d5ca902d30ac899f553765dbb3a88b97ad
+
+      - name: Cache Swift build artifacts
+        if: env.BUILD_STRATEGY == 'plugin'
+        uses: actions/cache@v4
+        with:
+          path: |
+            .build
+            ~/.swiftpm/cache
+          key: ${{ runner.os }}-swift-build-${{ hashFiles('Package.resolved') }}
+          restore-keys: |
+            ${{ runner.os }}-swift-build-
 
       - name: Build and push (Swift Container Plugin)
         if: env.BUILD_STRATEGY == 'plugin'
@@ -140,6 +166,12 @@ jobs:
       packages: read
 
     steps:
+      - name: Validate SSH secrets
+        run: |
+          test -n "${{ secrets.SERVER_HOST }}" || (echo "SERVER_HOST is empty" && exit 1)
+          test -n "${{ secrets.SERVER_USER }}" || (echo "SERVER_USER is empty" && exit 1)
+          test -n "${{ secrets.SERVER_SSH_KEY }}" || (echo "SERVER_SSH_KEY is empty" && exit 1)
+
       - name: Deploy to server
         uses: appleboy/ssh-action@v1.0.3
         with:
