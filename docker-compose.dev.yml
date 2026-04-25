@@ -89,7 +89,7 @@ services:
   db:
     image: postgres:18-alpine
     volumes:
-      - db_data:/var/lib/postgresql/data
+      - db_data:/var/lib/postgresql
     environment:
       POSTGRES_USER: stockplan_user
       POSTGRES_PASSWORD: stockplan_password
