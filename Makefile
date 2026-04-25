@@ -56,8 +56,15 @@ update-all:
 update-shared:
 	swift package update financeshared
 
+install-hooks:
+	cp scripts/pre-commit .git/hooks/pre-commit
+	chmod +x .git/hooks/pre-commit
+
 lint:
 	swiftlint --fix
+
+format:
+	swiftformat .
 
 backend-test:
 	LOG_LEVEL=$(or $(LOG_LEVEL),warning) swift test
