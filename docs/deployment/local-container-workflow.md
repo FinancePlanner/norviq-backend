@@ -4,7 +4,7 @@ This is the local (developer) workflow for packaging the backend as a Linux cont
 
 ## 1) Prerequisites
 
-- Swift 6.3+
+- Swift 6.0+
 - `swift-container-plugin` dependency in `Package.swift`
 - Static Linux SDK installed:
 

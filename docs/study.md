@@ -1501,7 +1501,7 @@ Implementations (`FMPMarketDataProvider`, `FinnhubMarketDataProvider`) use Vapor
 - `.env.production` – production secrets template
 
 **Docker**:
-- Release image: `swift:6.3-noble`, static Swift runtime, jemalloc, multi-stage
+- Release image: `swift:6.0-noble`, static Swift runtime, jemalloc, multi-stage
 - Dev image: `swift:6.1-noble` with inotify-tools; `scripts/dev-watch.sh` rebuilds on file change
 - Postgres + Redis via compose
 - Migrations run in `migrate` service container
@@ -1752,7 +1752,7 @@ Implementations (`FMPMarketDataProvider`, `FinnhubMarketDataProvider`) use Vapor
 - `.env.production` – production secrets template
 
 **Docker**:
-- Release image: `swift:6.3-noble`, static Swift runtime, jemalloc, multi-stage
+- Release image: `swift:6.0-noble`, static Swift runtime, jemalloc, multi-stage
 - Dev image: `swift:6.1-noble` with inotify-tools; `scripts/dev-watch.sh` rebuilds on file change
 - Postgres + Redis via compose
 - Migrations run in `migrate` service container
