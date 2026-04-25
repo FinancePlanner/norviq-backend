@@ -34,7 +34,7 @@ jobs:
       - name: Resolve image references
         id: refs
         run: |
-          IMAGE_REPOSITORY="${REGISTRY}/${IMAGE_NAME}"
+          IMAGE_REPOSITORY="${REGISTRY}/${IMAGE_NAME,,}"
           IMAGE_SHA_TAG="dev-${GITHUB_SHA}"
           APP_IMAGE="${IMAGE_REPOSITORY}:${IMAGE_SHA_TAG}"
           echo "image_repository=${IMAGE_REPOSITORY}" >> "$GITHUB_OUTPUT"
