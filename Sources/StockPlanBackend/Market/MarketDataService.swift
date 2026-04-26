@@ -1343,8 +1343,7 @@ struct DefaultMarketDataService: MarketDataService {
         if fmpAccessTier == .free || fmpAccessTier == .starter, period.lowercased() != "annual" {
             throw Abort(
                 .paymentRequired,
-                reason:
-                "Analyst estimates on the current market data coverage are limited to annual reports."
+                reason: "FMP free-tier for analyst-estimates is limited to annual reports."
             )
         }
 
@@ -2280,9 +2279,7 @@ private extension DefaultMarketDataService {
         guard FMPSymbolPlanAccess.isSupportedOnFreeTier(symbol) else {
             throw Abort(
                 .paymentRequired,
-                reason: """
-                \(operation) is not available for \(symbol) on the current market data coverage. Use a supported symbol or change the backend market data tier.
-                """
+                reason: "FMP free-tier coverage for \(operation) does not include \(symbol). Use a supported symbol or upgrade the market data tier."
             )
         }
     }

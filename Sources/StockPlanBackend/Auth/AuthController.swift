@@ -5,27 +5,44 @@ import Vapor
 struct AuthController: RouteCollection {
     private static let mfaCapabilityHeader = "X-StockPlan-Client-Capabilities"
     private static let mfaCapabilityToken = "mfa-auth-v1"
+    private let environment: Environment
+
+    init(environment: Environment) {
+        self.environment = environment
+    }
 
     func boot(routes: any RoutesBuilder) throws {
         let auth = routes.grouped("auth")
 
-        let registerRateLimit = RateLimitMiddleware(limit: 5, interval: 60, keyPrefix: "ratelimit:register")
-        let loginRateLimit = RateLimitMiddleware(limit: 10, interval: 60, keyPrefix: "ratelimit:login")
-        let forgotPasswordRateLimit = RateLimitMiddleware(limit: 5, interval: 300, keyPrefix: "ratelimit:forgot-password")
-        let resendResetRateLimit = RateLimitMiddleware(limit: 5, interval: 300, keyPrefix: "ratelimit:resend-reset")
-        let resetPasswordRateLimit = RateLimitMiddleware(limit: 5, interval: 300, keyPrefix: "ratelimit:reset-password")
-        let refreshRateLimit = RateLimitMiddleware(limit: 30, interval: 60, keyPrefix: "ratelimit:refresh")
-        let mfaVerifyRateLimit = RateLimitMiddleware(limit: 20, interval: 60, keyPrefix: "ratelimit:mfa-verify")
-        let mfaResendRateLimit = RateLimitMiddleware(limit: 10, interval: 60, keyPrefix: "ratelimit:mfa-resend")
+        if environment == .testing {
+            // Skip rate limiting in tests to avoid 429s during rapid user creation
+            auth.post("register", use: register)
+            auth.post("login", use: login)
+            auth.post("forgot-password", use: forgotPassword)
+            auth.post("resend-reset", use: resendReset)
+            auth.post("reset-password", use: resetPassword)
+            auth.post("refresh", use: refresh)
+            auth.post("mfa", "verify", use: mfaVerify)
+            auth.post("mfa", "resend", use: mfaResend)
+        } else {
+            let registerRateLimit = RateLimitMiddleware(limit: 5, interval: 60, keyPrefix: "ratelimit:register")
+            let loginRateLimit = RateLimitMiddleware(limit: 10, interval: 60, keyPrefix: "ratelimit:login")
+            let forgotPasswordRateLimit = RateLimitMiddleware(limit: 5, interval: 300, keyPrefix: "ratelimit:forgot-password")
+            let resendResetRateLimit = RateLimitMiddleware(limit: 5, interval: 300, keyPrefix: "ratelimit:resend-reset")
+            let resetPasswordRateLimit = RateLimitMiddleware(limit: 5, interval: 300, keyPrefix: "ratelimit:reset-password")
+            let refreshRateLimit = RateLimitMiddleware(limit: 30, interval: 60, keyPrefix: "ratelimit:refresh")
+            let mfaVerifyRateLimit = RateLimitMiddleware(limit: 20, interval: 60, keyPrefix: "ratelimit:mfa-verify")
+            let mfaResendRateLimit = RateLimitMiddleware(limit: 10, interval: 60, keyPrefix: "ratelimit:mfa-resend")
 
-        auth.grouped(registerRateLimit).post("register", use: register)
-        auth.grouped(loginRateLimit).post("login", use: login)
-        auth.grouped(forgotPasswordRateLimit).post("forgot-password", use: forgotPassword)
-        auth.grouped(resendResetRateLimit).post("resend-reset", use: resendReset)
-        auth.grouped(resetPasswordRateLimit).post("reset-password", use: resetPassword)
-        auth.grouped(refreshRateLimit).post("refresh", use: refresh)
-        auth.grouped(mfaVerifyRateLimit).post("mfa", "verify", use: mfaVerify)
-        auth.grouped(mfaResendRateLimit).post("mfa", "resend", use: mfaResend)
+            auth.grouped(registerRateLimit).post("register", use: register)
+            auth.grouped(loginRateLimit).post("login", use: login)
+            auth.grouped(forgotPasswordRateLimit).post("forgot-password", use: forgotPassword)
+            auth.grouped(resendResetRateLimit).post("resend-reset", use: resendReset)
+            auth.grouped(resetPasswordRateLimit).post("reset-password", use: resetPassword)
+            auth.grouped(refreshRateLimit).post("refresh", use: refresh)
+            auth.grouped(mfaVerifyRateLimit).post("mfa", "verify", use: mfaVerify)
+            auth.grouped(mfaResendRateLimit).post("mfa", "resend", use: mfaResend)
+        }
         auth.group("oauth", ":provider") { oauth in
             oauth.post("start", use: oauthStart)
             oauth.post("exchange", use: oauthExchange)

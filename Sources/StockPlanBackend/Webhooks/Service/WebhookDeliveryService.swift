@@ -38,10 +38,10 @@ enum WebhookDeliveryServiceError: AbortError {
 
 final class DefaultWebhookDeliveryService: WebhookDeliveryService {
     private let repository: any WebhookRepository
-    private let client: Client
+    private let client: any Client
     private let maxAttempts = 5
 
-    init(repository: any WebhookRepository, client: Client) {
+    init(repository: any WebhookRepository, client: any Client) {
         self.repository = repository
         self.client = client
     }

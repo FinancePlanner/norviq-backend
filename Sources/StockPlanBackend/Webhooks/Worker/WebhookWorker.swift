@@ -11,7 +11,7 @@ final class WebhookWorker: LifecycleHandler, @unchecked Sendable {
 
     init(
         repository: any WebhookRepository,
-        service: WebhookDeliveryService,
+        service: any WebhookDeliveryService,
         batchSize: Int = 100,
         intervalSeconds: Int = 30
     ) {

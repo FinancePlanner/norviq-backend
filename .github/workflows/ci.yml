@@ -5,10 +5,20 @@ on:
     branches-ignore:
       - main
       - dev
+    paths:
+      - 'Sources/**'
+      - 'Tests/**'
+      - 'Package.swift'
+      - 'Package.resolved'
   pull_request:
     branches-ignore:
       - main
       - dev
+    paths:
+      - 'Sources/**'
+      - 'Tests/**'
+      - 'Package.swift'
+      - 'Package.resolved'
 
 jobs:
   lint:

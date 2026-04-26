@@ -58,18 +58,19 @@ struct DefaultNewsService: NewsService {
 
     func list(userId: UUID, symbol: String?, limit: Int, cursor: Date?, on db: any Database) async throws -> (items: [NewsItemResponse], nextCursor: String?) {
         let normalized = normalizedSymbolValue(symbol)
+        let maxLimit = 200
         let fetchLimit = limit + 1
         let newsItems = try await repo.list(userId: userId, symbol: normalized, limit: fetchLimit, cursor: cursor, on: db)
-        if newsItems.count > limit {
+        if newsItems.count > limit, limit < maxLimit {
             let pageItems = Array(newsItems.prefix(limit))
             let items = try pageItems.map(makeResponse)
-            guard let last = pageItems.last, let createdAt = last.createdAt else {
+            guard let last = pageItems.last else {
                 return (items, nil)
             }
-            let nextCursor = formatISODateTime(createdAt) ?? ""
+            let nextCursor = formatISODateTime(last.publishedAt)
             return (items, nextCursor)
         } else {
-            let items = try newsItems.map(makeResponse)
+            let items = try Array(newsItems.prefix(limit)).map(makeResponse)
             return (items, nil)
         }
     }

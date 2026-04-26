@@ -16,13 +16,14 @@ struct DatabaseNewsRepository: NewsRepository {
     func list(userId: UUID, symbol: String?, limit: Int, cursor: Date?, on db: any Database) async throws -> [NewsItem] {
         var query = NewsItem.query(on: db)
             .filter(\.$userId == userId)
+            .sort(\.$publishedAt, .descending)
             .sort(\.$createdAt, .descending)
 
         if let symbol, !symbol.isEmpty {
             query.filter(\.$symbol == symbol)
         }
         if let cursor {
-            query.filter(\.$createdAt < cursor)
+            query.filter(\.$publishedAt < cursor)
         }
 
         query.limit(limit)

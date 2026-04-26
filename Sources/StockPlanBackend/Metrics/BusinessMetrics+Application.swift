@@ -6,7 +6,14 @@ extension Application {
     }
 
     var businessMetrics: BusinessMetrics {
-        get { storage[BusinessMetricsKey.self]! }
+        get {
+            if let existing = storage[BusinessMetricsKey.self] {
+                return existing
+            }
+            let metrics = BusinessMetrics()
+            storage[BusinessMetricsKey.self] = metrics
+            return metrics
+        }
         set { storage[BusinessMetricsKey.self] = newValue }
     }
 }
