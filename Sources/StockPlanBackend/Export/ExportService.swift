@@ -264,7 +264,7 @@ protocol ExportRow: Encodable {
 
 private struct AnyEncodable: Encodable {
     let value: any Encodable
-    func encode(to encoder: Encoder) throws {
+    func encode(to encoder: any Encoder) throws {
         try value.encode(to: encoder)
     }
 }

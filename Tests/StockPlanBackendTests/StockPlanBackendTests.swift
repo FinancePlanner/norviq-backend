@@ -3,13 +3,52 @@ import Foundation
 import NIOCore
 @testable import StockPlanBackend
 import StockPlanShared
+import Testing
+import Vapor
 
-typealias CashFlowStatementResponse = StockPlanBackend.CashFlowStatementResponse
-typealias BalanceSheetStatementResponse = StockPlanBackend.BalanceSheetStatementResponse
-typealias RatiosTTMResponse = StockPlanBackend.RatiosTTMResponse
-typealias FinancialGrowthResponse = StockPlanBackend.FinancialGrowthResponse
-typealias AnalystEstimatesResponse = StockPlanBackend.AnalystEstimatesResponse
-typealias RatiosResponse = StockPlanBackend.RatiosResponse
+typealias CashFlowStatementResponse = StockPlanShared.CashFlowStatementResponse
+typealias BalanceSheetStatementResponse = StockPlanShared.BalanceSheetStatementResponse
+typealias RatiosTTMResponse = StockPlanShared.RatiosTTMResponse
+typealias FinancialGrowthResponse = StockPlanShared.FinancialGrowthResponse
+typealias AnalystEstimatesResponse = StockPlanShared.AnalystEstimatesResponse
+typealias RatiosResponse = StockPlanShared.RatiosResponse
+typealias AuthRegisterRequest = StockPlanBackend.AuthRegisterRequest
+typealias NewsItemResponse = StockPlanShared.NewsItemResponse
+typealias NewsItemRequest = StockPlanShared.NewsItemRequest
+typealias NewsSyncResponse = StockPlanShared.NewsSyncResponse
+typealias FinnhubNewsWebhookResponse = StockPlanShared.FinnhubNewsWebhookResponse
+typealias StockRequest = StockPlanShared.StockRequest
+typealias StockResponse = StockPlanShared.StockResponse
+typealias WatchlistItemRequest = StockPlanShared.WatchlistItemRequest
+typealias WatchlistItemUpdateRequest = StockPlanShared.WatchlistItemUpdateRequest
+typealias WatchlistItemResponse = StockPlanShared.WatchlistItemResponse
+typealias WatchlistStatus = StockPlanShared.WatchlistStatus
+typealias WatchlistListRequest = StockPlanShared.WatchlistListRequest
+typealias WatchlistListResponse = StockPlanShared.WatchlistListResponse
+typealias ResearchNoteRequest = StockPlanShared.ResearchNoteRequest
+typealias ResearchNoteResponse = StockPlanShared.ResearchNoteResponse
+typealias StockHistory = StockPlanShared.StockHistory
+typealias StockNews = StockPlanShared.StockNews
+typealias BulkStockRequest = StockPlanShared.BulkStockRequest
+typealias BulkStockResultItem = StockPlanShared.BulkStockResultItem
+typealias BulkStockResponse = StockPlanShared.BulkStockResponse
+typealias TargetRequest = StockPlanShared.TargetRequest
+typealias TargetResponse = StockPlanShared.TargetResponse
+typealias SellStockRequest = StockPlanShared.SellStockRequest
+typealias PortfolioListRequest = StockPlanShared.PortfolioListRequest
+typealias PortfolioListResponse = StockPlanShared.PortfolioListResponse
+typealias StockDetailsResponse = StockPlanShared.StockDetailsResponse
+typealias CsvImportCommitResponse = StockPlanShared.CsvImportCommitResponse
+typealias CsvImportPreviewResponse = StockPlanShared.CsvImportPreviewResponse
+typealias CsvImportPreviewItem = StockPlanShared.CsvImportPreviewItem
+typealias CsvImportPreviewError = StockPlanShared.CsvImportPreviewError
+typealias BrokerConnectionResponse = StockPlanShared.BrokerConnectionResponse
+typealias BrokerHoldingResponse = StockPlanShared.BrokerHoldingResponse
+typealias BrokerSyncResponse = StockPlanShared.BrokerSyncResponse
+typealias BrokerSyncStatusResponse = StockPlanShared.BrokerSyncStatusResponse
+typealias BrokerConnectStartRequest = StockPlanShared.BrokerConnectStartRequest
+typealias BrokerConnectStartResponse = StockPlanShared.BrokerConnectStartResponse
+typealias LotResponse = StockPlanShared.LotResponse
 
 @Suite("App Tests with DB", .serialized)
 struct StockPlanBackendTests {
@@ -1211,7 +1250,7 @@ struct StockPlanBackendTests {
 
             // Test free tier limit (1 month) - 2 months ago should fail
             let twoMonthsAgo = Calendar.current.date(byAdding: .month, value: -2, to: Date())!
-            let from = formatISODateOnly(twoMonthsAgo)
+            let from = Self.formatISODateOnly(twoMonthsAgo)
 
             try await app.testing().test(.GET, "v1/market/earnings-calendar?from=\(from)", beforeRequest: { req in
                 req.headers.bearerAuthorization = .init(token: token)
@@ -1222,7 +1261,7 @@ struct StockPlanBackendTests {
 
             // Test free tier within range
             let twoWeeksAgo = Calendar.current.date(byAdding: .day, value: -14, to: Date())!
-            let fromOk = formatISODateOnly(twoWeeksAgo)
+            let fromOk = Self.formatISODateOnly(twoWeeksAgo)
 
             try await app.testing().test(.GET, "v1/market/earnings-calendar?from=\(fromOk)", beforeRequest: { req in
                 req.headers.bearerAuthorization = .init(token: token)
@@ -2956,7 +2995,7 @@ struct StockPlanBackendTests {
         let decoder = JSONDecoder()
 
         let canonicalJSON = """
-        {"date":"2024-09-28","symbol":"AAPL","capitalLeaseObligationsCurrent":123.45}
+        {"date":"2024-09-28","symbol":"AAPL","capitalLeaseOblationsCurrent":123.45}
         """
         let legacyJSON = """
         {"date":"2024-09-28","symbol":"AAPL","capitalLeaseOblationsCurrent":678.9}
@@ -2966,13 +3005,13 @@ struct StockPlanBackendTests {
             BalanceSheetStatementResponse.self,
             from: #require(canonicalJSON.data(using: .utf8))
         )
-        #expect(canonical.capitalLeaseObligationsCurrent == 123.45)
+        #expect(canonical.capitalLeaseOblationsCurrent == 123.45)
 
         let legacy = try decoder.decode(
             BalanceSheetStatementResponse.self,
             from: #require(legacyJSON.data(using: .utf8))
         )
-        #expect((legacy.capitalLeaseObligationsCurrent ?? legacy.capitalLeaseOblationsCurrent) == 678.9)
+        #expect(legacy.capitalLeaseOblationsCurrent == 678.9)
     }
 
     @Test("Balance sheet DTO encoding includes canonical lease-current key")
@@ -3012,8 +3051,7 @@ struct StockPlanBackendTests {
             otherPayables: nil,
             accruedExpenses: nil,
             shortTermDebt: nil,
-            capitalLeaseObligationsCurrent: 123.45,
-            capitalLeaseOblationsCurrent: nil,
+            capitalLeaseOblationsCurrent: 123.45,
             taxPayables: nil,
             deferredRevenue: nil,
             otherCurrentLiabilities: nil,
@@ -3044,7 +3082,7 @@ struct StockPlanBackendTests {
 
         let payload = try encoder.encode(response)
         let text = String(decoding: payload, as: UTF8.self)
-        #expect(text.contains("\"capitalLeaseObligationsCurrent\""))
+        #expect(text.contains("\"capitalLeaseOblationsCurrent\""))
     }
 
     // MARK: - Pagination
@@ -3738,7 +3776,7 @@ struct StockPlanBackendTests {
                     otherPayables: 26_601_000_000,
                     accruedExpenses: 0,
                     shortTermDebt: 20_879_000_000,
-                    capitalLeaseObligationsCurrent: 1_632_000_000,
+                    capitalLeaseOblationsCurrent: 1_632_000_000,
                     taxPayables: 26_601_000_000,
                     deferredRevenue: 8_249_000_000,
                     otherCurrentLiabilities: 50_071_000_000,

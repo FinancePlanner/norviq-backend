@@ -821,7 +821,7 @@ extension StockResponse {
             notes: model.notes,
             category: model.category,
             portfolioListId: model.portfolioListId.uuidString,
-            createdAt: Self.formatISO8601(createdAt)
+            createdAt: Self.formatISO8601(model.createdAt ?? Date())
         )
     }
 

@@ -11,7 +11,6 @@ extension EmptyAPIResponse: @retroactive Content, @unchecked Sendable {}
 
 // MARK: - Auth
 
-extension AuthRegisterRequest: Content, @unchecked Sendable {}
 extension AuthLoginRequest: @retroactive Content, @unchecked Sendable {}
 extension AuthResponse: @retroactive Content, @unchecked Sendable {}
 extension AuthUserResponse: @retroactive Content, @unchecked Sendable {}
@@ -19,9 +18,9 @@ extension AuthForgotPasswordRequest: @retroactive Content, @unchecked Sendable {
 extension AuthForgotPasswordResponse: @retroactive Content, @unchecked Sendable {}
 extension AuthResetPasswordRequest: @retroactive Content, @unchecked Sendable {}
 extension AuthRefreshRequest: @retroactive Content, @unchecked Sendable {}
-extension OAuthStartRequest: @retroactive Content, @unchecked Sendable {}
-extension OAuthStartResponse: @retroactive Content, @unchecked Sendable {}
-extension OAuthExchangeRequest: @retroactive Content, @unchecked Sendable {}
+extension OAuthStartRequest: Content, @unchecked Sendable {}
+extension OAuthStartResponse: Content, @unchecked Sendable {}
+extension OAuthExchangeRequest: Content, @unchecked Sendable {}
 
 // MARK: - Stocks
 
@@ -163,3 +162,22 @@ extension FinancialHealthStatus: @retroactive Content, @unchecked Sendable {}
 // MARK: - Activity
 
 extension UserActivityResponse: @retroactive Content, @unchecked Sendable {}
+
+// MARK: - Market (FinanceShared types used as Vapor responses)
+
+extension StockDetailsResponse: @retroactive Content, @unchecked Sendable {}
+extension QuoteResponse: @retroactive Content, @unchecked Sendable {}
+extension CompanyProfileResponse: @retroactive Content, @unchecked Sendable {}
+extension PriceBarResponse: @retroactive Content, @unchecked Sendable {}
+extension HistoryResponse: @retroactive Content, @unchecked Sendable {}
+extension SearchResultResponse: @retroactive Content, @unchecked Sendable {}
+extension FxRateResponse: @retroactive Content, @unchecked Sendable {}
+extension QuoteBatchResponse: @retroactive Content, @unchecked Sendable {}
+extension BasicFinancialSeriesPoint: @retroactive Content, @unchecked Sendable {}
+extension BasicFinancialsResponse: @retroactive Content, @unchecked Sendable {}
+extension RatiosTTMResponse: @retroactive Content, @unchecked Sendable {}
+extension BalanceSheetStatementResponse: @retroactive Content, @unchecked Sendable {}
+extension CashFlowStatementResponse: @retroactive Content, @unchecked Sendable {}
+extension FinancialGrowthResponse: @retroactive Content, @unchecked Sendable {}
+extension AnalystEstimatesResponse: @retroactive Content, @unchecked Sendable {}
+extension RatiosResponse: @retroactive Content, @unchecked Sendable {}

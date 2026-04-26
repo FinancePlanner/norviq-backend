@@ -1,5 +1,6 @@
 import Fluent
 import Foundation
+import StockPlanShared
 import Vapor
 
 protocol TargetAlertEvaluating: Sendable {

@@ -2,7 +2,7 @@ import Foundation
 import StockPlanShared
 import Vapor
 
-struct AuthRegisterRequest: Codable, Equatable {
+struct AuthRegisterRequest: Codable, Equatable, Content {
     let username: String
     let password: String
     let confirmPassword: String
