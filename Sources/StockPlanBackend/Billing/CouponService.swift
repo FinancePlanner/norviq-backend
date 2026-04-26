@@ -2,24 +2,24 @@ import Fluent
 import Foundation
 import Vapor
 
-struct CouponCodeRequest: Content, Sendable {
+struct CouponCodeRequest: Content {
     let code: String
 }
 
-struct CouponDiscountDTO: Content, Sendable, Equatable {
+struct CouponDiscountDTO: Content, Equatable {
     let percentage: Int?
     let amount: Int?
     let currency: String?
 }
 
-struct CouponResponse: Content, Sendable, Equatable {
+struct CouponResponse: Content, Equatable {
     let code: String
     let trialDays: Int
     let discount: CouponDiscountDTO
     let expiresAt: Date?
 }
 
-struct CouponRedemptionResponse: Content, Sendable, Equatable {
+struct CouponRedemptionResponse: Content, Equatable {
     let coupon: CouponResponse
     let trialDaysRemaining: Int?
     let isTrialActive: Bool
@@ -82,7 +82,7 @@ struct CouponService: CouponServicing {
             let daysRemaining: Int?
             let isTrialActive: Bool
             switch trialStatus {
-            case .active(let days), .expiringSoon(let days):
+            case let .active(days), let .expiringSoon(days):
                 daysRemaining = days
                 isTrialActive = true
             case .expired, .notOnTrial:
@@ -106,7 +106,8 @@ struct CouponService: CouponServicing {
 
         guard let coupon = try await Coupon.query(on: db)
             .filter(\.$code == normalizedCode)
-            .first() else {
+            .first()
+        else {
             throw Abort(.notFound, reason: "Invalid coupon code.")
         }
 
@@ -151,7 +152,7 @@ extension Application {
     var couponService: any CouponServicing {
         get {
             guard let service = storage[CouponServiceKey.self] else {
-                return CouponService(trialService: self.trialService)
+                return CouponService(trialService: trialService)
             }
             return service
         }

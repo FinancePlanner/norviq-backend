@@ -1,6 +1,6 @@
-import Vapor
 import Foundation
 import StockPlanShared
+import Vapor
 
 struct CryptoController: RouteCollection {
     func boot(routes: any RoutesBuilder) throws {

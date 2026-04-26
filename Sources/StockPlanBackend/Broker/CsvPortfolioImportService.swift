@@ -3,7 +3,7 @@ import Foundation
 import StockPlanShared
 import Vapor
 
-struct CsvPortfolioImportService: Sendable {
+struct CsvPortfolioImportService {
     func preview(
         csv: String,
         provider: String,
@@ -32,9 +32,8 @@ struct CsvPortfolioImportService: Sendable {
             }
 
             let existing = existingBySymbol[item.symbol] ?? CsvImportExistingPositionKind.none
-            let hasExistingImportedSymbolForSource: Bool
-            if sourceAccountId != nil && existing.hasImportedPosition {
-                hasExistingImportedSymbolForSource = try await hasExistingImportedSymbol(
+            let hasExistingImportedSymbolForSource: Bool = if sourceAccountId != nil, existing.hasImportedPosition {
+                try await hasExistingImportedSymbol(
                     symbol: item.symbol,
                     provider: provider,
                     sourceAccountId: sourceAccountId,
@@ -42,7 +41,7 @@ struct CsvPortfolioImportService: Sendable {
                     on: req.db
                 )
             } else {
-                hasExistingImportedSymbolForSource = false
+                false
             }
 
             items.append(
@@ -123,11 +122,10 @@ struct CsvPortfolioImportService: Sendable {
                     inserted.append(result.stock)
                 }
             } catch {
-                let message: String
-                if let abortError = error as? any AbortError {
-                    message = abortError.reason
+                let message: String = if let abortError = error as? any AbortError {
+                    abortError.reason
                 } else {
-                    message = "Failed to import row."
+                    "Failed to import row."
                 }
                 let line = rows.map(\.line).min() ?? 0
                 errors.append(.init(line: line, message: message))
@@ -218,7 +216,8 @@ private extension CsvPortfolioImportService {
         if let existingPosition = try await Position.query(on: db)
             .filter(\.$accountId == sourceAccount.requireID())
             .filter(\.$instrumentId == instrument.requireID())
-            .first() {
+            .first()
+        {
             try await existingPosition.delete(on: db)
         }
 
@@ -268,8 +267,8 @@ private extension CsvPortfolioImportService {
         )
         try await stock.save(on: db)
 
-        return .init(
-            stock: try StockResponse(from: stock),
+        return try .init(
+            stock: StockResponse(from: stock),
             replacedExisting: !existingImportedStocks.isEmpty || !existingLots.isEmpty,
             lotsInserted: normalizedRows.count
         )
@@ -319,10 +318,10 @@ private extension CsvPortfolioImportService {
 
         return grouped.mapValues { value in
             switch (value.hasManual, value.hasImported) {
-            case (false, false): return CsvImportExistingPositionKind.none
-            case (true, false): return CsvImportExistingPositionKind.manual
-            case (false, true): return CsvImportExistingPositionKind.imported
-            case (true, true): return CsvImportExistingPositionKind.mixed
+            case (false, false): CsvImportExistingPositionKind.none
+            case (true, false): CsvImportExistingPositionKind.manual
+            case (false, true): CsvImportExistingPositionKind.imported
+            case (true, true): CsvImportExistingPositionKind.mixed
             }
         }
     }
@@ -374,7 +373,8 @@ private extension CsvPortfolioImportService {
             .filter(\.$userId == userId)
             .filter(\.$broker == provider)
             .filter(\.$externalId == externalId)
-            .first() {
+            .first()
+        {
             return existing
         }
 
@@ -412,7 +412,8 @@ private extension CsvPortfolioImportService {
     func requireInstrument(symbol: String, on req: Request, db: any Database) async throws -> Instrument {
         if let existing = try await Instrument.query(on: db)
             .filter(\.$symbol == symbol)
-            .first() {
+            .first()
+        {
             return existing
         }
 
@@ -434,7 +435,8 @@ private extension CsvPortfolioImportService {
     func resolveInstrumentCandidate(symbol: String, on req: Request) async throws -> SearchResultResponse? {
         if let local = try await Instrument.query(on: req.db)
             .filter(\.$symbol == symbol)
-            .first() {
+            .first()
+        {
             return .init(
                 symbol: local.symbol,
                 name: local.name ?? local.symbol,

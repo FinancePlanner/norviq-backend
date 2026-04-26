@@ -8,7 +8,7 @@ typealias PortfolioListResponse = StockPlanShared.PortfolioListResponse
 typealias WatchlistListRequest = StockPlanShared.WatchlistListRequest
 typealias WatchlistListResponse = StockPlanShared.WatchlistListResponse
 
-struct Cart: Content, Sendable {
+struct Cart: Content {
     var stocks: [Stock]
 
     init(stocks: [Stock] = []) {
@@ -33,7 +33,7 @@ typealias TargetRequest = StockPlanShared.TargetRequest
 typealias TargetResponse = StockPlanShared.TargetResponse
 typealias SellStockRequest = StockPlanShared.SellStockRequest
 
-struct StockInsightsResponse: Content, Sendable, Equatable {
+struct StockInsightsResponse: Content, Equatable {
     let generatedAt: String
     let symbol: String
     let profile: StockInsightProfileDTO
@@ -41,7 +41,7 @@ struct StockInsightsResponse: Content, Sendable, Equatable {
     let projectionScenarios: [StockInsightProjectionScenarioDTO]
 }
 
-struct StockInsightProfileDTO: Content, Sendable, Equatable {
+struct StockInsightProfileDTO: Content, Equatable {
     let symbol: String
     let companyName: String
     let currentPrice: Double
@@ -53,7 +53,7 @@ struct StockInsightProfileDTO: Content, Sendable, Equatable {
     let dcfBullPrice: Double?
 }
 
-struct StockInsightPeerDTO: Content, Sendable, Equatable {
+struct StockInsightPeerDTO: Content, Equatable {
     let symbol: String
     let companyName: String
     let currentPrice: Double
@@ -61,12 +61,12 @@ struct StockInsightPeerDTO: Content, Sendable, Equatable {
     let sharesOutstanding: Double
 }
 
-struct StockInsightProjectionScenarioDTO: Content, Sendable, Equatable {
+struct StockInsightProjectionScenarioDTO: Content, Equatable {
     let kind: String
     let years: [StockInsightProjectionYearDTO]
 }
 
-struct StockInsightProjectionYearDTO: Content, Sendable, Equatable {
+struct StockInsightProjectionYearDTO: Content, Equatable {
     let year: Int
     let revenue: Double
     let revenueGrowth: Double
@@ -82,7 +82,7 @@ struct StockInsightProjectionYearDTO: Content, Sendable, Equatable {
     let cagrHigh: Double?
 }
 
-struct StockListItem: Content, Sendable {
+struct StockListItem: Content {
     let id: String
     let symbol: String
     let shares: Double
@@ -93,13 +93,13 @@ struct StockListItem: Content, Sendable {
     let portfolioListId: String?
 
     init(from response: StockResponse) {
-        self.id = response.id
-        self.symbol = response.symbol
-        self.shares = response.shares
-        self.buyPrice = response.buyPrice
-        self.buyDate = response.buyDate
-        self.notes = response.notes
-        self.category = response.category
-        self.portfolioListId = response.portfolioListId
+        id = response.id
+        symbol = response.symbol
+        shares = response.shares
+        buyPrice = response.buyPrice
+        buyDate = response.buyDate
+        notes = response.notes
+        category = response.category
+        portfolioListId = response.portfolioListId
     }
 }

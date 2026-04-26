@@ -151,11 +151,13 @@ struct AuthController: RouteCollection {
     @Sendable
     func brokerIBKRCallback(req: Request) async throws -> Response {
         guard let flowIdRaw = req.query[String.self, at: "flowId"],
-              let flowId = UUID(uuidString: flowIdRaw) else {
+              let flowId = UUID(uuidString: flowIdRaw)
+        else {
             throw Abort(.badRequest, reason: "Invalid broker flow id.")
         }
         guard let state = req.query[String.self, at: "state"],
-              !state.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+              !state.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        else {
             throw Abort(.badRequest, reason: "Missing broker flow state.")
         }
         return try await req.application.brokersService.handleIBKRCallback(flowId: flowId, state: state, on: req)
@@ -163,7 +165,7 @@ struct AuthController: RouteCollection {
 
     private func oauthProvider(from req: Request) throws -> OAuthProvider {
         guard let rawProvider = req.parameters.get("provider")?.lowercased(),
-            let provider = OAuthProvider(rawValue: rawProvider)
+              let provider = OAuthProvider(rawValue: rawProvider)
         else {
             throw Abort(.badRequest, reason: "Unsupported OAuth provider")
         }
@@ -205,7 +207,7 @@ struct AuthController: RouteCollection {
         return try jsonResponse(auth)
     }
 
-    private func jsonResponse<T: Encodable>(_ payload: T) throws -> Response {
+    private func jsonResponse(_ payload: some Encodable) throws -> Response {
         let data = try JSONEncoder.backendAPI.encode(payload)
         var headers = HTTPHeaders()
         headers.replaceOrAdd(name: .contentType, value: "application/json; charset=utf-8")

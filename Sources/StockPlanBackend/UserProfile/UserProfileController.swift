@@ -1,5 +1,5 @@
-import Vapor
 import StockPlanShared
+import Vapor
 
 struct UserProfileController: RouteCollection {
     func boot(routes: any RoutesBuilder) throws {

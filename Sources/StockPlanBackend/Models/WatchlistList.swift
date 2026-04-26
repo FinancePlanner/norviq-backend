@@ -23,7 +23,7 @@ final class WatchlistList: Model, Content, @unchecked Sendable {
     @Timestamp(key: "updated_at", on: .update)
     var updatedAt: Date?
 
-    init() { }
+    init() {}
 
     init(
         id: UUID? = nil,

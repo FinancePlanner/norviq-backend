@@ -63,7 +63,7 @@ protocol FMPMarketDataProvider: Sendable {
         on req: Request
     ) async throws -> [FMPMarketNewsItem]
 
-    // Stock price chart (intraday + EOD)
+    /// Stock price chart (intraday + EOD)
     func stockIntraday(
         interval: String,
         symbol: String,
@@ -79,7 +79,7 @@ protocol FMPMarketDataProvider: Sendable {
     ) async throws -> [CryptoHistoricalLightPoint]
 }
 
-struct FMPMarketNewsItem: Codable, Sendable {
+struct FMPMarketNewsItem: Codable {
     let symbol: String?
     let publishedDate: String?
     let title: String?
@@ -90,7 +90,7 @@ struct FMPMarketNewsItem: Codable, Sendable {
     let url: String?
 }
 
-private struct FMPEarningsItem: Codable, Sendable {
+private struct FMPEarningsItem: Codable {
     let symbol: String
     let date: String
     let epsActual: Double?
@@ -100,7 +100,7 @@ private struct FMPEarningsItem: Codable, Sendable {
     let lastUpdated: String?
 }
 
-private struct FMPTranscriptDateItem: Decodable, Sendable {
+private struct FMPTranscriptDateItem: Decodable {
     let date: String?
     let quarter: Int?
     let year: Int?
@@ -132,7 +132,7 @@ private struct FMPTranscriptDateItem: Decodable, Sendable {
     }
 }
 
-private struct TranscriptAvailabilityKey: Hashable, Sendable {
+private struct TranscriptAvailabilityKey: Hashable {
     let date: String?
     let year: Int?
     let quarter: Int?
@@ -142,7 +142,9 @@ struct LiveFMPMarketDataProvider: FMPMarketDataProvider, CryptoDataProvider {
     let baseURL: String
     let apiKey: String
 
-    var name: String { "fmp" }
+    var name: String {
+        "fmp"
+    }
 
     init(
         baseURL: String = "https://financialmodelingprep.com",
@@ -189,7 +191,8 @@ struct LiveFMPMarketDataProvider: FMPMarketDataProvider, CryptoDataProvider {
     }
 
     func historicalLight(symbol: String, from: String?, to: String?, on req: Request) async throws
-        -> [CryptoHistoricalLightPoint] {
+        -> [CryptoHistoricalLightPoint]
+    {
         let symbol = try normalizeSymbol(symbol)
         var query: [(String, String?)] = [("symbol", symbol)]
         if let from { query.append(("from", from)) }
@@ -202,7 +205,8 @@ struct LiveFMPMarketDataProvider: FMPMarketDataProvider, CryptoDataProvider {
     }
 
     func historicalFull(symbol: String, from: String?, to: String?, on req: Request) async throws
-        -> [CryptoHistoricalFullPoint] {
+        -> [CryptoHistoricalFullPoint]
+    {
         let symbol = try normalizeSymbol(symbol)
         var query: [(String, String?)] = [("symbol", symbol)]
         if let from { query.append(("from", from)) }
@@ -215,17 +219,20 @@ struct LiveFMPMarketDataProvider: FMPMarketDataProvider, CryptoDataProvider {
     }
 
     func intraday1min(symbol: String, from: String?, to: String?, on req: Request) async throws
-        -> [CryptoHistoricalPoint] {
+        -> [CryptoHistoricalPoint]
+    {
         try await fetchIntraday(interval: "1min", symbol: symbol, from: from, to: to, on: req)
     }
 
     func intraday5min(symbol: String, from: String?, to: String?, on req: Request) async throws
-        -> [CryptoHistoricalPoint] {
+        -> [CryptoHistoricalPoint]
+    {
         try await fetchIntraday(interval: "5min", symbol: symbol, from: from, to: to, on: req)
     }
 
     func intraday1hour(symbol: String, from: String?, to: String?, on req: Request) async throws
-        -> [CryptoHistoricalPoint] {
+        -> [CryptoHistoricalPoint]
+    {
         try await fetchIntraday(interval: "1hour", symbol: symbol, from: from, to: to, on: req)
     }
 
@@ -238,7 +245,7 @@ struct LiveFMPMarketDataProvider: FMPMarketDataProvider, CryptoDataProvider {
         on req: Request
     ) async throws -> [FMPMarketNewsItem] {
         var query: [(String, String?)] = []
-        if let symbol { query.append(("symbol", try normalizeSymbol(symbol))) }
+        if let symbol { try query.append(("symbol", normalizeSymbol(symbol))) }
         if let page { query.append(("page", String(page))) }
         if let limit { query.append(("limit", String(limit))) }
         if let from { query.append(("from", from)) }
@@ -337,7 +344,8 @@ struct LiveFMPMarketDataProvider: FMPMarketDataProvider, CryptoDataProvider {
     }
 
     func gradesConsensus(symbol rawSymbol: String, on req: Request) async throws
-        -> [GradesConsensusResponse] {
+        -> [GradesConsensusResponse]
+    {
         let symbol = try normalizeSymbol(rawSymbol)
         return try await fetchJSON(
             path: "/stable/grades-consensus",
@@ -437,10 +445,10 @@ struct LiveFMPMarketDataProvider: FMPMarketDataProvider, CryptoDataProvider {
             on: req
         )
 
-        let transcriptAvailability = (try? await fetchTranscriptAvailability(symbol: symbol, on: req)) ?? []
+        let transcriptAvailability = await (try? fetchTranscriptAvailability(symbol: symbol, on: req)) ?? []
 
         return items.map { item in
-            return EarningsResponse(
+            EarningsResponse(
                 symbol: item.symbol,
                 date: item.date,
                 epsActual: item.epsActual,
@@ -513,7 +521,7 @@ struct LiveFMPMarketDataProvider: FMPMarketDataProvider, CryptoDataProvider {
                 ("sector", sector),
                 ("exchange", exchange),
                 ("from", from.map(formatISODateOnly)),
-                ("to", to.map(formatISODateOnly))
+                ("to", to.map(formatISODateOnly)),
             ],
             on: req
         )
@@ -577,8 +585,8 @@ struct LiveFMPMarketDataProvider: FMPMarketDataProvider, CryptoDataProvider {
     }
 }
 
-extension LiveFMPMarketDataProvider {
-    fileprivate func fetchJSON<ResponseBody: Decodable>(
+private extension LiveFMPMarketDataProvider {
+    func fetchJSON<ResponseBody: Decodable>(
         path: String,
         query: [(String, String?)],
         on req: Request
@@ -608,8 +616,8 @@ extension LiveFMPMarketDataProvider {
             let body = extractResponseBody(response)
             let maskedApiKey =
                 apiKey.count > 4
-                ? String(repeating: "*", count: apiKey.count - 4) + apiKey.suffix(4)
-                : "****"
+                    ? String(repeating: "*", count: apiKey.count - 4) + apiKey.suffix(4)
+                    : "****"
             req.logger.error(
                 "FMP rejected the request. status=\(response.status.code) url=\(uri) apiKeyLength=\(apiKey.count) maskedKey=\(maskedApiKey) response=\(body)"
             )
@@ -619,21 +627,21 @@ extension LiveFMPMarketDataProvider {
             let body = extractResponseBody(response)
             let reason =
                 body.isEmpty
-                ? "This market data endpoint is not available for the requested symbol on the current market data coverage."
-                : "This market data endpoint is not available for the requested symbol on the current market data coverage. Upstream response: \(body)"
+                    ? "This market data endpoint is not available for the requested symbol on the current market data coverage."
+                    : "This market data endpoint is not available for the requested symbol on the current market data coverage. Upstream response: \(body)"
             throw Abort(.paymentRequired, reason: reason)
 
         default:
             let body = extractResponseBody(response)
             let reason =
                 body.isEmpty
-                ? "FMP request failed for \(path) with status \(response.status.code)."
-                : "FMP request failed for \(path) with status \(response.status.code): \(body)"
+                    ? "FMP request failed for \(path) with status \(response.status.code)."
+                    : "FMP request failed for \(path) with status \(response.status.code): \(body)"
             throw Abort(.badGateway, reason: reason)
         }
     }
 
-    fileprivate func makeURI(path: String, query: [(String, String?)]) throws -> URI {
+    func makeURI(path: String, query: [(String, String?)]) throws -> URI {
         let trimmedBaseURL = baseURL.hasSuffix("/") ? String(baseURL.dropLast()) : baseURL
         guard var components = URLComponents(string: trimmedBaseURL + path) else {
             throw Abort(.internalServerError, reason: "Invalid FMP base URL configuration.")
@@ -652,7 +660,7 @@ extension LiveFMPMarketDataProvider {
         return URI(string: url.absoluteString)
     }
 
-    fileprivate func normalizeSymbol(_ raw: String) throws -> String {
+    func normalizeSymbol(_ raw: String) throws -> String {
         let normalized = raw.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
         guard !normalized.isEmpty else {
             throw Abort(.badRequest, reason: "Symbol is required.")
@@ -660,7 +668,7 @@ extension LiveFMPMarketDataProvider {
         return normalized
     }
 
-    fileprivate func normalizeRequiredValue(_ raw: String, field: String) throws -> String {
+    func normalizeRequiredValue(_ raw: String, field: String) throws -> String {
         let normalized = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !normalized.isEmpty else {
             throw Abort(.badRequest, reason: "\(field.capitalized) is required.")
@@ -668,13 +676,13 @@ extension LiveFMPMarketDataProvider {
         return normalized
     }
 
-    fileprivate func normalizedOptionalValue(_ raw: String?) -> String? {
+    func normalizedOptionalValue(_ raw: String?) -> String? {
         guard let raw else { return nil }
         let normalized = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         return normalized.isEmpty ? nil : normalized
     }
 
-    fileprivate func extractResponseBody(_ response: ClientResponse) -> String {
+    func extractResponseBody(_ response: ClientResponse) -> String {
         response.body
             .flatMap { buffer in
                 buffer.getString(at: buffer.readerIndex, length: buffer.readableBytes)
@@ -682,7 +690,7 @@ extension LiveFMPMarketDataProvider {
             .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
     }
 
-    fileprivate func formatISODateOnly(_ date: Date) -> String {
+    func formatISODateOnly(_ date: Date) -> String {
         let formatter = DateFormatter()
         formatter.calendar = Calendar(identifier: .gregorian)
         formatter.locale = Locale(identifier: "en_US_POSIX")
@@ -691,7 +699,7 @@ extension LiveFMPMarketDataProvider {
         return formatter.string(from: date)
     }
 
-    fileprivate func fetchTranscriptAvailability(symbol: String, on req: Request) async throws
+    func fetchTranscriptAvailability(symbol: String, on req: Request) async throws
         -> Set<TranscriptAvailabilityKey>
     {
         let items: [FMPTranscriptDateItem] = try await fetchJSON(
@@ -709,7 +717,7 @@ extension LiveFMPMarketDataProvider {
         })
     }
 
-    fileprivate func transcriptAvailabilityKey(for rawDate: String) -> TranscriptAvailabilityKey {
+    func transcriptAvailabilityKey(for rawDate: String) -> TranscriptAvailabilityKey {
         let normalizedDate = normalizedDateOnly(rawDate)
         return TranscriptAvailabilityKey(
             date: normalizedDate,
@@ -718,31 +726,31 @@ extension LiveFMPMarketDataProvider {
         )
     }
 
-    fileprivate func normalizedDateOnly(_ rawDate: String?) -> String? {
+    func normalizedDateOnly(_ rawDate: String?) -> String? {
         guard let rawDate else { return nil }
         let trimmed = rawDate.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return nil }
         return String(trimmed.prefix(10))
     }
 
-    fileprivate func yearComponent(from isoDate: String) -> Int? {
+    func yearComponent(from isoDate: String) -> Int? {
         let parts = isoDate.split(separator: "-")
         guard let yearPart = parts.first else { return nil }
         return Int(yearPart)
     }
 
-    fileprivate func quarterComponent(from isoDate: String) -> Int? {
+    func quarterComponent(from isoDate: String) -> Int? {
         let parts = isoDate.split(separator: "-")
         guard parts.count >= 2, let month = Int(parts[1]) else { return nil }
         return ((month - 1) / 3) + 1
     }
 
-    fileprivate func makeEarningsSurprisePercent(actual: Double?, estimate: Double?) -> Double? {
+    func makeEarningsSurprisePercent(actual: Double?, estimate: Double?) -> Double? {
         guard let actual, let estimate, estimate != 0 else { return nil }
         return ((actual - estimate) / abs(estimate)) * 100
     }
 
-    fileprivate func hasTranscriptAvailability(
+    func hasTranscriptAvailability(
         for eventKey: TranscriptAvailabilityKey,
         in availability: Set<TranscriptAvailabilityKey>
     ) -> Bool {
@@ -751,12 +759,14 @@ extension LiveFMPMarketDataProvider {
         }
 
         if let date = eventKey.date,
-           availability.contains(.init(date: date, year: nil, quarter: nil)) {
+           availability.contains(.init(date: date, year: nil, quarter: nil))
+        {
             return true
         }
 
         if let year = eventKey.year, let quarter = eventKey.quarter,
-           availability.contains(.init(date: nil, year: year, quarter: quarter)) {
+           availability.contains(.init(date: nil, year: year, quarter: quarter))
+        {
             return true
         }
 

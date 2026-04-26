@@ -1,7 +1,7 @@
 @testable import StockPlanBackend
+import Testing
 import Vapor
 import VaporTesting
-import Testing
 
 @Suite("API Error Middleware Tests")
 struct APIErrorMiddlewareTests {

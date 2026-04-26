@@ -1,7 +1,7 @@
-import Vapor
 import Foundation
+import Vapor
 
-struct MailMessage: Sendable {
+struct MailMessage {
     let to: String
     let subject: String
     let body: String
@@ -47,7 +47,7 @@ struct ResendMailerService: MailerService {
             try clientReq.content.encode(payload)
         }
 
-        guard (200..<300).contains(response.status.code) else {
+        guard (200 ..< 300).contains(response.status.code) else {
             req.logger.error(
                 "resend.mail failed status=\(response.status.code) recipient=\(redactedEmail(message.to))"
             )

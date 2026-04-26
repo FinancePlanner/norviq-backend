@@ -10,7 +10,7 @@ protocol MarketNewsArchiveService: Sendable {
     func refreshNews(symbol: String, limit: Int?, on req: Request) async throws -> [StockNews]
 }
 
-struct MarketNewsArchiveConfig: Sendable {
+struct MarketNewsArchiveConfig {
     let ttlSeconds: Int
     let defaultLimit: Int
     let maxLimit: Int
@@ -153,7 +153,7 @@ struct DefaultMarketNewsArchiveService: MarketNewsArchiveService {
 }
 
 private extension DefaultMarketNewsArchiveService {
-    struct NormalizedArchiveArticle: Sendable {
+    struct NormalizedArchiveArticle {
         let provider: String
         let symbol: String
         let headline: String
@@ -265,7 +265,8 @@ private extension DefaultMarketNewsArchiveService {
             .filter(\.$provider == article.provider)
             .filter(\.$symbol == article.symbol)
             .filter(\.$url == article.url)
-            .first() {
+            .first()
+        {
             return existing
         }
 
@@ -330,7 +331,7 @@ private extension DefaultMarketNewsArchiveService {
         guard
             let url = URL(string: value),
             let scheme = url.scheme?.lowercased(),
-            (scheme == "http" || scheme == "https"),
+            scheme == "http" || scheme == "https",
             url.host != nil
         else {
             throw Abort(.badRequest, reason: "Invalid provider news URL.")
@@ -361,7 +362,8 @@ private extension DefaultMarketNewsArchiveService {
 
     func mapProviderError(_ error: any Error) -> any Error {
         if let abort = error as? any AbortError,
-           abort.status == .notFound || abort.status == .badRequest || abort.status == .notImplemented {
+           abort.status == .notFound || abort.status == .badRequest || abort.status == .notImplemented
+        {
             return abort
         }
 

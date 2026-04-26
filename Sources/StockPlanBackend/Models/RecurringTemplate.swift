@@ -1,7 +1,7 @@
 import Fluent
-import Vapor
 import Foundation
 import StockPlanShared
+import Vapor
 
 final class RecurringTemplate: Model, @unchecked Sendable {
     static let schema = "recurring_templates"
@@ -50,11 +50,11 @@ final class RecurringTemplate: Model, @unchecked Sendable {
         userSharePercent: Double = 100
     ) {
         self.id = id
-        self.$user.id = userID
+        $user.id = userID
         self.title = title
         self.amount = amount
         self.pillar = pillar
-        self.$category.id = categoryID
+        $category.id = categoryID
         self.frequency = frequency.rawValue
         self.splitMode = splitMode
         self.userSharePercent = userSharePercent

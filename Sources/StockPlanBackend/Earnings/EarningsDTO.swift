@@ -1,5 +1,5 @@
-import Vapor
 import StockPlanShared
+import Vapor
 
 typealias EarningsQueryRequest = StockPlanShared.EarningsQueryRequest
 typealias EarningsItemResponse = StockPlanShared.EarningsItemResponse

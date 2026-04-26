@@ -1,8 +1,8 @@
-import Vapor
 import Fluent
 import Foundation
+import Vapor
 
-struct StatisticsQueryInput: Sendable {
+struct StatisticsQueryInput {
     let period: String?
     let top: Int?
     let benchmark: String?
@@ -166,7 +166,7 @@ private extension DefaultStatisticsService {
 
     func parseTop(_ raw: Int?) throws -> Int {
         let resolved = raw ?? 10
-        guard (1...100).contains(resolved) else {
+        guard (1 ... 100).contains(resolved) else {
             throw Abort(.badRequest, reason: "Invalid `top`. Must be between 1 and 100.")
         }
         return resolved

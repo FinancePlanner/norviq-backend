@@ -10,7 +10,7 @@ struct CreateWebhookDeliveries: AsyncMigration {
             .case("failed")
             .case("exhausted")
             .create()
-        
+
         // Create the table
         try await database.schema("webhook_deliveries")
             .id()
@@ -26,12 +26,12 @@ struct CreateWebhookDeliveries: AsyncMigration {
             .field("created_at", .datetime, .required)
             .field("updated_at", .datetime)
             .create()
-        
+
         // Indexes
         try await database.createIndex(on: "webhook_deliveries", columns: ["webhook_key"])
         try await database.createIndex(on: "webhook_deliveries", columns: ["status", "next_retry_at"])
     }
-    
+
     func revert(on database: any Database) async throws {
         try await database.schema("webhook_deliveries").delete()
         try await database.enum("webhook_delivery_status").delete()

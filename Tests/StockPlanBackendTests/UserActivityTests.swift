@@ -1,13 +1,13 @@
-@testable import StockPlanBackend
-import VaporTesting
-import Testing
 import Fluent
 import Foundation
+@testable import StockPlanBackend
 import StockPlanShared
+import Testing
+import VaporTesting
 
 @Suite("UserActivity Tests", .serialized)
 struct UserActivityTests {
-    private func withApp(_ test: (Application) async throws -> ()) async throws {
+    private func withApp(_ test: (Application) async throws -> Void) async throws {
         try await DatabaseTestLock.withLock {
             let app = try await Application.make(.testing)
             do {
@@ -33,7 +33,7 @@ struct UserActivityTests {
             email: email,
             dateOfBirth: Date(timeIntervalSince1970: 946_684_800)
         )
-        
+
         var token = ""
         try await app.testing().test(.POST, "v1/auth/register", beforeRequest: { req in
             try req.content.encode(registerReq)
@@ -42,12 +42,12 @@ struct UserActivityTests {
             let response = try res.content.decode(AuthResponse.self)
             token = response.token
         })
-        
+
         let user = try await User.query(on: app.db).filter(\.$email == email).first()
-        guard let user = user else {
+        guard let user else {
             throw Abort(.internalServerError, reason: "User not created")
         }
-        
+
         return (user, token)
     }
 
@@ -57,7 +57,7 @@ struct UserActivityTests {
     func getActivitiesEmpty() async throws {
         try await withApp { app in
             let (_, token) = try await createTestUser(app: app)
-            
+
             try await app.testing().test(.GET, "v1/activities", beforeRequest: { req in
                 req.headers.bearerAuthorization = BearerAuthorization(token: token)
             }, afterResponse: { res async throws in
@@ -73,7 +73,7 @@ struct UserActivityTests {
         try await withApp { app in
             let (user, token) = try await createTestUser(app: app)
             let userId = try user.requireID()
-            
+
             // Create test activities
             let activity1 = UserActivity(
                 userId: userId,
@@ -85,7 +85,7 @@ struct UserActivityTests {
                 symbol: "chart.line.uptrend.xyaxis"
             )
             try await activity1.save(on: app.db)
-            
+
             let activity2 = UserActivity(
                 userId: userId,
                 type: .expenseRecorded,
@@ -96,14 +96,14 @@ struct UserActivityTests {
                 symbol: "house.fill"
             )
             try await activity2.save(on: app.db)
-            
+
             try await app.testing().test(.GET, "v1/activities", beforeRequest: { req in
                 req.headers.bearerAuthorization = BearerAuthorization(token: token)
             }, afterResponse: { res async throws in
                 #expect(res.status == .ok)
                 let activities = try res.content.decode([UserActivityResponse].self)
                 #expect(activities.count == 2)
-                
+
                 // Should be sorted by createdAt descending (newest first)
                 #expect(activities[0].type == .expenseRecorded)
                 #expect(activities[0].title == "Expense Added")
@@ -111,7 +111,7 @@ struct UserActivityTests {
                 #expect(activities[0].amount == 150.00)
                 #expect(activities[0].isGrowth == false)
                 #expect(activities[0].symbol == "house.fill")
-                
+
                 #expect(activities[1].type == .stockAdded)
                 #expect(activities[1].title == "Stock Added")
                 #expect(activities[1].subtitle == "AAPL - Apple Inc.")
@@ -127,9 +127,9 @@ struct UserActivityTests {
         try await withApp { app in
             let (user, token) = try await createTestUser(app: app)
             let userId = try user.requireID()
-            
+
             // Create 5 test activities
-            for i in 1...5 {
+            for i in 1 ... 5 {
                 let activity = UserActivity(
                     userId: userId,
                     type: .stockAdded,
@@ -141,7 +141,7 @@ struct UserActivityTests {
                 )
                 try await activity.save(on: app.db)
             }
-            
+
             try await app.testing().test(.GET, "v1/activities?limit=3", beforeRequest: { req in
                 req.headers.bearerAuthorization = BearerAuthorization(token: token)
             }, afterResponse: { res async throws in
@@ -166,10 +166,10 @@ struct UserActivityTests {
         try await withApp { app in
             let (user1, token1) = try await createTestUser(app: app, email: "user1@example.com")
             let (user2, _) = try await createTestUser(app: app, email: "user2@example.com")
-            
+
             let userId1 = try user1.requireID()
             let userId2 = try user2.requireID()
-            
+
             // Create activity for user1
             let activity1 = UserActivity(
                 userId: userId1,
@@ -181,7 +181,7 @@ struct UserActivityTests {
                 symbol: "chart.line.uptrend.xyaxis"
             )
             try await activity1.save(on: app.db)
-            
+
             // Create activity for user2
             let activity2 = UserActivity(
                 userId: userId2,
@@ -193,7 +193,7 @@ struct UserActivityTests {
                 symbol: "chart.line.uptrend.xyaxis"
             )
             try await activity2.save(on: app.db)
-            
+
             // User1 should only see their own activity
             try await app.testing().test(.GET, "v1/activities", beforeRequest: { req in
                 req.headers.bearerAuthorization = BearerAuthorization(token: token1)
@@ -212,7 +212,7 @@ struct UserActivityTests {
     func stockCreationRecordsActivity() async throws {
         try await withApp { app in
             let (_, token) = try await createTestUser(app: app)
-            
+
             let stockReq = StockRequest(
                 symbol: "AAPL",
                 shares: 10,
@@ -221,14 +221,14 @@ struct UserActivityTests {
                 notes: "Test stock",
                 category: .stock
             )
-            
+
             try await app.testing().test(.POST, "v1/stocks", beforeRequest: { req in
                 req.headers.bearerAuthorization = BearerAuthorization(token: token)
                 try req.content.encode(stockReq)
             }, afterResponse: { res async in
                 #expect(res.status == .created)
             })
-            
+
             // Check that activity was recorded
             try await app.testing().test(.GET, "v1/activities", beforeRequest: { req in
                 req.headers.bearerAuthorization = BearerAuthorization(token: token)
@@ -248,7 +248,7 @@ struct UserActivityTests {
         try await withApp { app in
             let (user, token) = try await createTestUser(app: app)
             let userId = try user.requireID()
-            
+
             // Create a budget snapshot first
             let snapshot = BudgetSnapshot(
                 userID: userId,
@@ -257,7 +257,7 @@ struct UserActivityTests {
                 targetShares: ["fundamentals": 0.5, "futureYou": 0.3, "fun": 0.2]
             )
             try await snapshot.save(on: app.db)
-            
+
             let expenseReq = ExpenseRequest(
                 title: "Groceries",
                 amount: 150.00,
@@ -265,14 +265,14 @@ struct UserActivityTests {
                 occurredOn: "2026-04-06",
                 linkedPlanItemId: nil
             )
-            
+
             try await app.testing().test(.POST, "v1/expenses", beforeRequest: { req in
                 req.headers.bearerAuthorization = BearerAuthorization(token: token)
                 try req.content.encode(expenseReq)
             }, afterResponse: { res async in
                 #expect(res.status == .created)
             })
-            
+
             // Check that activity was recorded
             try await app.testing().test(.GET, "v1/activities", beforeRequest: { req in
                 req.headers.bearerAuthorization = BearerAuthorization(token: token)

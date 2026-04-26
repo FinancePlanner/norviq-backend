@@ -1,6 +1,6 @@
-import Vapor
-import Foundation
 import Fluent
+import Foundation
+import Vapor
 
 struct PortfolioController: RouteCollection {
     private struct PortfolioFilterQuery: Content {
@@ -102,10 +102,10 @@ struct PortfolioController: RouteCollection {
         let today = Date()
 
         var points: [PerformancePoint] = []
-        for i in (0..<7).reversed() {
+        for i in (0 ..< 7).reversed() {
             let d = calendar.date(byAdding: .day, value: -i, to: today)!
             // Add a tiny bit of random noise for a better UI look (±0.5%)
-            let noise = totalValue * Double.random(in: -0.005...0.005)
+            let noise = totalValue * Double.random(in: -0.005 ... 0.005)
             let val = max(0, totalValue + noise)
             points.append(.init(date: formatISODateOnly(d), value: val))
         }
@@ -186,7 +186,8 @@ struct PortfolioController: RouteCollection {
 
         if try await PortfolioList.query(on: req.db)
             .filter(\.$userId == session.userId)
-            .count() == 0 {
+            .count() == 0
+        {
             _ = try await ensureDefaultPortfolioListId(userId: session.userId, on: req.db)
         }
 
@@ -239,7 +240,8 @@ struct PortfolioController: RouteCollection {
         guard let list = try await PortfolioList.query(on: req.db)
             .filter(\.$id == listId)
             .filter(\.$userId == session.userId)
-            .first() else {
+            .first()
+        else {
             throw Abort(.notFound, reason: "Portfolio list not found.")
         }
 
@@ -261,7 +263,8 @@ struct PortfolioController: RouteCollection {
             guard let list = try await PortfolioList.query(on: tx)
                 .filter(\.$id == listId)
                 .filter(\.$userId == session.userId)
-                .first() else {
+                .first()
+            else {
                 throw Abort(.notFound, reason: "Portfolio list not found.")
             }
 
@@ -285,12 +288,12 @@ struct PortfolioController: RouteCollection {
 
             for stock in stocks {
                 if let stockId = stock.id,
-                    let duplicate = try await Stock.query(on: tx)
-                        .filter(\.$userId == session.userId)
-                        .filter(\.$portfolioListId == defaultListId)
-                        .filter(\.$symbol == stock.symbol)
-                        .filter(\.$id != stockId)
-                        .first()
+                   let duplicate = try await Stock.query(on: tx)
+                   .filter(\.$userId == session.userId)
+                   .filter(\.$portfolioListId == defaultListId)
+                   .filter(\.$symbol == stock.symbol)
+                   .filter(\.$id != stockId)
+                   .first()
                 {
                     let mergedShares = duplicate.shares + stock.shares
                     let mergedCostBasis = (duplicate.shares * duplicate.buyPrice) + (stock.shares * stock.buyPrice)

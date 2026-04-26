@@ -1,5 +1,5 @@
-import Vapor
 import StockPlanShared
+import Vapor
 
 typealias DashboardResponse = StockPlanShared.DashboardResponse
 typealias DashboardPerformerDTO = StockPlanShared.DashboardPerformerDTO

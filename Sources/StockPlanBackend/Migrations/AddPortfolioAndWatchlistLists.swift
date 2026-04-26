@@ -162,7 +162,8 @@ struct AddPortfolioAndWatchlistLists: AsyncMigration {
             .filter(\.$userId == userId)
             .filter(\.$isDefault == true)
             .first(),
-            let id = existing.id {
+            let id = existing.id
+        {
             return id
         }
 
@@ -183,7 +184,8 @@ struct AddPortfolioAndWatchlistLists: AsyncMigration {
             .filter(\.$userId == userId)
             .filter(\.$isDefault == true)
             .first(),
-            let id = existing.id {
+            let id = existing.id
+        {
             return id
         }
 

@@ -4,7 +4,7 @@ import Vapor
 ///
 /// Updates in-flight gauge and records latency histogram.
 struct HTTPMetricsMiddleware: AsyncMiddleware {
-    func respond(to request: Request, chainingTo next: AsyncResponder) async throws -> Response {
+    func respond(to request: Request, chainingTo next: any AsyncResponder) async throws -> Response {
         let metrics = PrometheusMetrics.shared
         metrics.incrementInflight()
         defer { metrics.decrementInflight() }

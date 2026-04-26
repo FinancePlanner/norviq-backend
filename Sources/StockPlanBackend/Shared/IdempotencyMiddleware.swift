@@ -1,5 +1,5 @@
-import Vapor
 import Redis
+import Vapor
 
 /// Idempotency middleware using Redis.
 ///
@@ -13,7 +13,7 @@ struct IdempotencyMiddleware: AsyncMiddleware {
     let ttl: TimeInterval
     let keyPrefix: String
 
-    init(ttl: TimeInterval = 86_400, keyPrefix: String = "idempotency") {
+    init(ttl: TimeInterval = 86400, keyPrefix: String = "idempotency") {
         self.ttl = ttl
         self.keyPrefix = keyPrefix
     }
@@ -46,7 +46,8 @@ struct IdempotencyMiddleware: AsyncMiddleware {
 
         // Try cache hit.
         if let cachedString = try? await request.redis.get(key, as: String.self).get(),
-           let (status, headers, body) = Self.parseCached(cachedString) {
+           let (status, headers, body) = Self.parseCached(cachedString)
+        {
             request.logger.debug("idempotency.hit key=\(idemKey.prefix(8))...")
             var response = Response(status: HTTPStatus(statusCode: status))
             response.headers = HTTPHeaders(headers)
@@ -61,7 +62,7 @@ struct IdempotencyMiddleware: AsyncMiddleware {
 
         // Cache successful responses with body.
         let statusCode = Int(resp.status.code)
-        if (200...399).contains(statusCode), let body = resp.body.string {
+        if (200 ... 399).contains(statusCode), let body = resp.body.string {
             let headerPairs = resp.headers.map { ($0.name, $0.value) }
             let cached = Self.encodeCached(status: statusCode, headers: headerPairs, body: body)
             try? await request.redis.set(key, to: cached).get()
@@ -89,7 +90,8 @@ struct IdempotencyMiddleware: AsyncMiddleware {
 
         let metaLines = meta.split(separator: "\n", maxSplits: 1, omittingEmptySubsequences: false)
         guard let statusStr = metaLines.first,
-              let status = Int(statusStr.trimmingCharacters(in: .whitespacesAndNewlines)) else {
+              let status = Int(statusStr.trimmingCharacters(in: .whitespacesAndNewlines))
+        else {
             return nil
         }
 

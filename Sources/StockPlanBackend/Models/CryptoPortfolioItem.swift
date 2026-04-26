@@ -1,6 +1,6 @@
 import Fluent
-import Vapor
 import Foundation
+import Vapor
 
 final class CryptoPortfolioItem: Model, Content, @unchecked Sendable {
     static let schema = "crypto_portfolio_items"
@@ -29,7 +29,7 @@ final class CryptoPortfolioItem: Model, Content, @unchecked Sendable {
     @Timestamp(key: "updated_at", on: .update)
     var updatedAt: Date?
 
-    init() { }
+    init() {}
 
     init(
         id: UUID? = nil,

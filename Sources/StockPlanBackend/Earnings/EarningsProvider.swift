@@ -1,5 +1,5 @@
-import Vapor
 import Foundation
+import Vapor
 
 protocol EarningsProvider: Sendable {
     var name: String { get }
@@ -10,7 +10,9 @@ struct FinnhubEarningsProvider: EarningsProvider {
     let baseURL: String
     let apiKey: String
 
-    var name: String { "finnhub" }
+    var name: String {
+        "finnhub"
+    }
 
     init(
         baseURL: String = "https://finnhub.io/api/v1",
@@ -107,7 +109,7 @@ struct FinnhubEarningsProvider: EarningsProvider {
 struct DisabledEarningsProvider: EarningsProvider {
     let name: String = "disabled"
 
-    func fetchCalendar(query: EarningsQueryRequest, on req: Request) async throws -> [FinnhubEarningsItem] {
+    func fetchCalendar(query _: EarningsQueryRequest, on _: Request) async throws -> [FinnhubEarningsItem] {
         throw Abort(.notImplemented, reason: "Earnings provider fetch is not configured.")
     }
 }

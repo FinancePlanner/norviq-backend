@@ -1,6 +1,6 @@
-import Vapor
 import Foundation
 import StockPlanShared
+import Vapor
 
 struct MarketDataController: RouteCollection {
     func boot(routes: any RoutesBuilder) throws {
@@ -183,7 +183,8 @@ struct MarketDataController: RouteCollection {
         }
         if let ifModifiedSince = req.headers[.ifModifiedSince].first,
            let modDate = Self.parseHTTPDate(ifModifiedSince),
-           lastModDate <= modDate {
+           lastModDate <= modDate
+        {
             return Response(status: .notModified)
         }
 
@@ -493,7 +494,7 @@ struct MarketDataController: RouteCollection {
             lastModDate = formatter.date(from: lastBar.date)
         }
 
-        let etagBase = lastModDate.map { $0.timeIntervalSince1970 } ?? 0
+        let etagBase = lastModDate.map(\.timeIntervalSince1970) ?? 0
         let etag = "W/\"\(symbol)-\(etagBase)\""
         let lastModStr = lastModDate.map { Self.formatHTTPDate($0) }
 
@@ -504,7 +505,8 @@ struct MarketDataController: RouteCollection {
         if let ifModifiedSince = req.headers[.ifModifiedSince].first,
            let modDate = Self.parseHTTPDate(ifModifiedSince),
            let lastMod = lastModDate,
-           lastMod <= modDate {
+           lastMod <= modDate
+        {
             return Response(status: .notModified)
         }
 

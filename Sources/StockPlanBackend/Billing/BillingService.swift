@@ -1,6 +1,6 @@
 import Fluent
-import Vapor
 import Foundation
+import Vapor
 
 struct RevenueCatWebhookPayload: Content {
     let event: RevenueCatWebhookEvent
@@ -90,7 +90,8 @@ struct DefaultBillingService: BillingService {
     func process(event: RevenueCatWebhookEvent, rawPayload: String, on db: any Database) async throws {
         if try await BillingEvent.query(on: db)
             .filter(\.$providerEventId == event.id)
-            .first() != nil {
+            .first() != nil
+        {
             return
         }
 
@@ -179,15 +180,15 @@ struct DefaultBillingService: BillingService {
             .filter(\.$provider == provider)
             .filter(\.$providerOriginalTransactionId == transactionId)
             .first()
-        ?? Subscription(
-            userId: userId,
-            provider: provider,
-            providerCustomerId: event.appUserId,
-            providerOriginalTransactionId: transactionId,
-            productId: productId(for: event),
-            plan: plan(for: event),
-            status: status
-        )
+            ?? Subscription(
+                userId: userId,
+                provider: provider,
+                providerCustomerId: event.appUserId,
+                providerOriginalTransactionId: transactionId,
+                productId: productId(for: event),
+                plan: plan(for: event),
+                status: status
+            )
 
         subscription.userId = userId
         subscription.providerCustomerId = event.appUserId
@@ -214,7 +215,7 @@ struct DefaultBillingService: BillingService {
         let entitlement = try await Entitlement.query(on: db)
             .filter(\.$userId == userId)
             .first()
-        ?? Entitlement(userId: userId, level: level, subscriptionId: subscriptionId)
+            ?? Entitlement(userId: userId, level: level, subscriptionId: subscriptionId)
 
         entitlement.level = level
         entitlement.subscriptionId = subscriptionId
@@ -241,6 +242,6 @@ struct DefaultBillingService: BillingService {
     }
 
     private func dateFromMilliseconds(_ milliseconds: Int64) -> Date {
-        Date(timeIntervalSince1970: TimeInterval(milliseconds) / 1_000)
+        Date(timeIntervalSince1970: TimeInterval(milliseconds) / 1000)
     }
 }

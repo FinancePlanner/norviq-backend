@@ -1,5 +1,5 @@
-import Vapor
 import StockPlanShared
+import Vapor
 
 typealias BrokerConnectionResponse = StockPlanShared.BrokerConnectionResponse
 typealias BrokerHoldingResponse = StockPlanShared.BrokerHoldingResponse

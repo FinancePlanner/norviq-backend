@@ -3,10 +3,6 @@ import Vapor
 struct DataExportController: RouteCollection {
     let exportService: any DataExportService
 
-    init(exportService: any DataExportService) {
-        self.exportService = exportService
-    }
-
     func boot(routes: any RoutesBuilder) throws {
         let protected = routes.grouped(SessionToken.authenticator(), SessionToken.guardMiddleware())
         let rateLimit = RateLimitMiddleware(limit: 60, interval: 60)

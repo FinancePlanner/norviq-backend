@@ -2,9 +2,9 @@ import Foundation
 import StockPlanShared
 import Vapor
 
-struct MarketProviderQuote: Sendable {
+struct MarketProviderQuote {
     let symbol: String
-    let price: Double  // Note: Maps to `c` in Finnhub
+    let price: Double // Note: Maps to `c` in Finnhub
     let change: Double?
     let percentChange: Double?
     let high: Double?
@@ -15,7 +15,7 @@ struct MarketProviderQuote: Sendable {
     let asOf: Date
 }
 
-struct MarketProviderPriceBar: Sendable {
+struct MarketProviderPriceBar {
     let date: Date
     let open: Double
     let high: Double
@@ -24,13 +24,13 @@ struct MarketProviderPriceBar: Sendable {
     let volume: Int?
 }
 
-struct MarketProviderHistory: Sendable {
+struct MarketProviderHistory {
     let symbol: String
     let currency: String
     let bars: [MarketProviderPriceBar]
 }
 
-struct MarketProviderSearchResult: Sendable {
+struct MarketProviderSearchResult {
     let symbol: String
     let name: String
     let exchange: String
@@ -38,14 +38,14 @@ struct MarketProviderSearchResult: Sendable {
     let conid: String
 }
 
-struct MarketProviderFxRate: Sendable {
+struct MarketProviderFxRate {
     let base: String
     let quote: String
     let rate: Double
     let asOf: Date
 }
 
-struct MarketProviderCompanyProfile: Sendable {
+struct MarketProviderCompanyProfile {
     let symbol: String
     let country: String?
     let currency: String?
@@ -62,7 +62,7 @@ struct MarketProviderCompanyProfile: Sendable {
     let weburl: String?
 }
 
-struct MarketProviderBasicFinancials: Sendable {
+struct MarketProviderBasicFinancials {
     let symbol: String
     let metricType: String
     let metric: [String: BasicFinancialMetricValue]

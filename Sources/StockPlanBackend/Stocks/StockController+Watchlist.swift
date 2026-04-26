@@ -50,7 +50,8 @@ extension StockController {
             .filter(\.$userId == session.userId)
             .filter(\.$watchlistListId == targetListId)
             .filter(\.$symbol == symbol)
-            .first() {
+            .first()
+        {
             var didChange = false
 
             if let rawNote = payload.note {
@@ -121,14 +122,15 @@ extension StockController {
     func updateWatchlistItem(req: Request) async throws -> WatchlistItemResponse {
         let session = try req.auth.require(SessionToken.self)
         let watchlistId = try requireUUIDParameter(
-            req, name: "watchlistId", reason: "Invalid watchlist ID")
+            req, name: "watchlistId", reason: "Invalid watchlist ID"
+        )
         let payload = try req.content.decode(WatchlistItemUpdateRequest.self)
 
         guard
             let item = try await WatchlistItem.query(on: req.db)
-                .filter(\.$id == watchlistId)
-                .filter(\.$userId == session.userId)
-                .first()
+            .filter(\.$id == watchlistId)
+            .filter(\.$userId == session.userId)
+            .first()
         else {
             throw Abort(.notFound, reason: "Watchlist item not found.")
         }
@@ -141,13 +143,13 @@ extension StockController {
         ) ?? item.watchlistListId
 
         if targetListId != item.watchlistListId,
-            let itemId = item.id,
-            let duplicate = try await WatchlistItem.query(on: req.db)
-                .filter(\.$userId == session.userId)
-                .filter(\.$watchlistListId == targetListId)
-                .filter(\.$symbol == item.symbol)
-                .filter(\.$id != itemId)
-                .first()
+           let itemId = item.id,
+           let duplicate = try await WatchlistItem.query(on: req.db)
+           .filter(\.$userId == session.userId)
+           .filter(\.$watchlistListId == targetListId)
+           .filter(\.$symbol == item.symbol)
+           .filter(\.$id != itemId)
+           .first()
         {
             if let rawNote = payload.note {
                 duplicate.note = emptyToNil(rawNote)
@@ -221,13 +223,14 @@ extension StockController {
     func deleteWatchlistItem(req: Request) async throws -> HTTPStatus {
         let session = try req.auth.require(SessionToken.self)
         let watchlistId = try requireUUIDParameter(
-            req, name: "watchlistId", reason: "Invalid watchlist ID")
+            req, name: "watchlistId", reason: "Invalid watchlist ID"
+        )
 
         guard
             let item = try await WatchlistItem.query(on: req.db)
-                .filter(\.$id == watchlistId)
-                .filter(\.$userId == session.userId)
-                .first()
+            .filter(\.$id == watchlistId)
+            .filter(\.$userId == session.userId)
+            .first()
         else {
             throw Abort(.notFound, reason: "Watchlist item not found.")
         }
@@ -251,7 +254,8 @@ extension StockController {
 
         if try await WatchlistList.query(on: req.db)
             .filter(\.$userId == session.userId)
-            .count() == 0 {
+            .count() == 0
+        {
             _ = try await ensureDefaultWatchlistListId(userId: session.userId, on: req.db)
         }
 
@@ -293,7 +297,8 @@ extension StockController {
         guard let list = try await WatchlistList.query(on: req.db)
             .filter(\.$id == listId)
             .filter(\.$userId == session.userId)
-            .first() else {
+            .first()
+        else {
             throw Abort(.notFound, reason: "Watchlist list not found.")
         }
 
@@ -315,7 +320,8 @@ extension StockController {
             guard let list = try await WatchlistList.query(on: tx)
                 .filter(\.$id == listId)
                 .filter(\.$userId == session.userId)
-                .first() else {
+                .first()
+            else {
                 throw Abort(.notFound, reason: "Watchlist list not found.")
             }
 
@@ -339,16 +345,17 @@ extension StockController {
 
             for item in items {
                 if let itemId = item.id,
-                    let duplicate = try await WatchlistItem.query(on: tx)
-                        .filter(\.$userId == session.userId)
-                        .filter(\.$watchlistListId == defaultListId)
-                        .filter(\.$symbol == item.symbol)
-                        .filter(\.$id != itemId)
-                        .first()
+                   let duplicate = try await WatchlistItem.query(on: tx)
+                   .filter(\.$userId == session.userId)
+                   .filter(\.$watchlistListId == defaultListId)
+                   .filter(\.$symbol == item.symbol)
+                   .filter(\.$id != itemId)
+                   .first()
                 {
                     duplicate.note = duplicate.note ?? item.note
                     if duplicate.status == WatchlistStatus.archived.rawValue,
-                        item.status != WatchlistStatus.archived.rawValue {
+                       item.status != WatchlistStatus.archived.rawValue
+                    {
                         duplicate.status = item.status
                     }
                     if duplicate.lastReviewedAt == nil {

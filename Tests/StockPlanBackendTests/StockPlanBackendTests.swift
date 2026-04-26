@@ -1,9 +1,54 @@
-@testable import StockPlanBackend
-import VaporTesting
-import Testing
 import Fluent
-import NIOCore
 import Foundation
+import NIOCore
+@testable import StockPlanBackend
+import StockPlanShared
+import Testing
+import Vapor
+
+typealias CashFlowStatementResponse = StockPlanShared.CashFlowStatementResponse
+typealias BalanceSheetStatementResponse = StockPlanShared.BalanceSheetStatementResponse
+typealias RatiosTTMResponse = StockPlanShared.RatiosTTMResponse
+typealias FinancialGrowthResponse = StockPlanShared.FinancialGrowthResponse
+typealias AnalystEstimatesResponse = StockPlanShared.AnalystEstimatesResponse
+typealias RatiosResponse = StockPlanShared.RatiosResponse
+typealias AuthRegisterRequest = StockPlanBackend.AuthRegisterRequest
+typealias NewsItemResponse = StockPlanShared.NewsItemResponse
+typealias NewsItemRequest = StockPlanShared.NewsItemRequest
+typealias NewsSyncResponse = StockPlanShared.NewsSyncResponse
+typealias FinnhubNewsWebhookResponse = StockPlanShared.FinnhubNewsWebhookResponse
+typealias StockRequest = StockPlanShared.StockRequest
+typealias StockResponse = StockPlanShared.StockResponse
+typealias WatchlistItemRequest = StockPlanShared.WatchlistItemRequest
+typealias WatchlistItemUpdateRequest = StockPlanShared.WatchlistItemUpdateRequest
+typealias WatchlistItemResponse = StockPlanShared.WatchlistItemResponse
+typealias WatchlistStatus = StockPlanShared.WatchlistStatus
+typealias WatchlistListRequest = StockPlanShared.WatchlistListRequest
+typealias WatchlistListResponse = StockPlanShared.WatchlistListResponse
+typealias ResearchNoteRequest = StockPlanShared.ResearchNoteRequest
+typealias ResearchNoteResponse = StockPlanShared.ResearchNoteResponse
+typealias StockHistory = StockPlanShared.StockHistory
+typealias StockNews = StockPlanShared.StockNews
+typealias BulkStockRequest = StockPlanShared.BulkStockRequest
+typealias BulkStockResultItem = StockPlanShared.BulkStockResultItem
+typealias BulkStockResponse = StockPlanShared.BulkStockResponse
+typealias TargetRequest = StockPlanShared.TargetRequest
+typealias TargetResponse = StockPlanShared.TargetResponse
+typealias SellStockRequest = StockPlanShared.SellStockRequest
+typealias PortfolioListRequest = StockPlanShared.PortfolioListRequest
+typealias PortfolioListResponse = StockPlanShared.PortfolioListResponse
+typealias StockDetailsResponse = StockPlanShared.StockDetailsResponse
+typealias CsvImportCommitResponse = StockPlanShared.CsvImportCommitResponse
+typealias CsvImportPreviewResponse = StockPlanShared.CsvImportPreviewResponse
+typealias CsvImportPreviewItem = StockPlanShared.CsvImportPreviewItem
+typealias CsvImportPreviewError = StockPlanShared.CsvImportPreviewError
+typealias BrokerConnectionResponse = StockPlanShared.BrokerConnectionResponse
+typealias BrokerHoldingResponse = StockPlanShared.BrokerHoldingResponse
+typealias BrokerSyncResponse = StockPlanShared.BrokerSyncResponse
+typealias BrokerSyncStatusResponse = StockPlanShared.BrokerSyncStatusResponse
+typealias BrokerConnectStartRequest = StockPlanShared.BrokerConnectStartRequest
+typealias BrokerConnectStartResponse = StockPlanShared.BrokerConnectStartResponse
+typealias LotResponse = StockPlanShared.LotResponse
 
 @Suite("App Tests with DB", .serialized)
 struct StockPlanBackendTests {
@@ -48,18 +93,18 @@ struct StockPlanBackendTests {
         let name: String = "test-news"
         let state: TestNewsProviderState
 
-        func fetch(symbols: [String], on req: Request) async throws -> [ProviderNewsItem] {
+        func fetch(symbols _: [String], on _: Request) async throws -> [ProviderNewsItem] {
             await state.next()
         }
 
-        func fetchGeneral(on req: Request) async throws -> [ProviderNewsItem] {
+        func fetchGeneral(on _: Request) async throws -> [ProviderNewsItem] {
             await state.next()
         }
     }
 
-    private func withApp(_ test: (Application) async throws -> ()) async throws {
+    private func withApp(_ test: (Application) async throws -> Void) async throws {
         try await DatabaseTestLock.withLock {
-            for attempt in 0..<2 {
+            for attempt in 0 ..< 2 {
                 let app = try await Application.make(.testing)
                 do {
                     try await configure(app)
@@ -76,7 +121,7 @@ struct StockPlanBackendTests {
                         || reflected.contains("sqlState: 57P03")
                         || reflected.contains("database system is shutting down")
                         || reflected.contains("terminating connection due to administrator command")
-                    if attempt == 0 && isTransientDBRestart {
+                    if attempt == 0, isTransientDBRestart {
                         try await Task.sleep(for: .milliseconds(750))
                         continue
                     }
@@ -141,12 +186,12 @@ struct StockPlanBackendTests {
         fmpState: TestFMPProviderState? = nil,
         fmpProvider: (any FMPMarketDataProvider)? = nil,
         fmpAccessTier: FMPAccessTier = .free,
-        quoteTTLSeconds: Int = 3_600,
-        historyTTLSeconds: Int = 3_600,
-        searchTTLSeconds: Int = 3_600,
-        fxTTLSeconds: Int = 3_600,
-        profileTTLSeconds: Int = 3_600,
-        basicFinancialsTTLSeconds: Int = 3_600
+        quoteTTLSeconds: Int = 3600,
+        historyTTLSeconds: Int = 3600,
+        searchTTLSeconds: Int = 3600,
+        fxTTLSeconds: Int = 3600,
+        profileTTLSeconds: Int = 3600,
+        basicFinancialsTTLSeconds: Int = 3600
     ) -> any MarketDataService {
         DefaultMarketDataService(
             provider: TestMarketDataProvider(state: state),
@@ -158,7 +203,7 @@ struct StockPlanBackendTests {
                 fxTTLSeconds: fxTTLSeconds,
                 profileTTLSeconds: profileTTLSeconds,
                 basicFinancialsTTLSeconds: basicFinancialsTTLSeconds,
-                fmpTTLSeconds: 3_600,
+                fmpTTLSeconds: 3600,
                 defaultCurrency: "USD"
             ),
             fmpAccessTier: fmpAccessTier
@@ -744,7 +789,7 @@ struct StockPlanBackendTests {
             app.marketDataService = makeTestMarketService(state: state)
             let (token, _) = try await registerTestUser(app: app, identifier: "historyarchive")
 
-            let seededDay = Calendar(identifier: .gregorian).startOfDay(for: Date().addingTimeInterval(-86_400))
+            let seededDay = Calendar(identifier: .gregorian).startOfDay(for: Date().addingTimeInterval(-86400))
             try await PriceHistory(
                 symbol: "AAPL",
                 date: seededDay,
@@ -797,7 +842,7 @@ struct StockPlanBackendTests {
                     summary: "Archived market news",
                     image: nil,
                     publishedAt: Date(timeIntervalSince1970: 1_774_884_000)
-                )
+                ),
             ]])
             app.marketNewsArchiveService = makeTestMarketNewsArchiveService(state: state)
 
@@ -841,13 +886,13 @@ struct StockPlanBackendTests {
             app.marketDataService = DefaultMarketDataService(
                 provider: DisabledMarketDataProvider(),
                 cacheConfig: .init(
-                    quoteTTLSeconds: 3_600,
-                    historyTTLSeconds: 3_600,
-                    searchTTLSeconds: 3_600,
-                    fxTTLSeconds: 3_600,
-                    profileTTLSeconds: 3_600,
-                    basicFinancialsTTLSeconds: 3_600,
-                    fmpTTLSeconds: 3_600,
+                    quoteTTLSeconds: 3600,
+                    historyTTLSeconds: 3600,
+                    searchTTLSeconds: 3600,
+                    fxTTLSeconds: 3600,
+                    profileTTLSeconds: 3600,
+                    basicFinancialsTTLSeconds: 3600,
+                    fmpTTLSeconds: 3600,
                     defaultCurrency: "USD"
                 )
             )
@@ -880,13 +925,13 @@ struct StockPlanBackendTests {
             app.marketDataService = DefaultMarketDataService(
                 provider: FailingMarketDataProvider(),
                 cacheConfig: .init(
-                    quoteTTLSeconds: 3_600,
-                    historyTTLSeconds: 3_600,
-                    searchTTLSeconds: 3_600,
-                    fxTTLSeconds: 3_600,
-                    profileTTLSeconds: 3_600,
-                    basicFinancialsTTLSeconds: 3_600,
-                    fmpTTLSeconds: 3_600,
+                    quoteTTLSeconds: 3600,
+                    historyTTLSeconds: 3600,
+                    searchTTLSeconds: 3600,
+                    fxTTLSeconds: 3600,
+                    profileTTLSeconds: 3600,
+                    basicFinancialsTTLSeconds: 3600,
+                    fmpTTLSeconds: 3600,
                     defaultCurrency: "USD"
                 )
             )
@@ -1156,7 +1201,7 @@ struct StockPlanBackendTests {
                 let symbols = body.map(\.symbol)
                 #expect(symbols.contains("AAPL"))
                 #expect(symbols.contains("MSFT"))
-                
+
                 if let aapl = body.first(where: { $0.symbol == "AAPL" }) {
                     #expect(aapl.ttmPE == 32.889608822880916)
                     #expect(aapl.forwardPE == 28.0)
@@ -1205,7 +1250,7 @@ struct StockPlanBackendTests {
 
             // Test free tier limit (1 month) - 2 months ago should fail
             let twoMonthsAgo = Calendar.current.date(byAdding: .month, value: -2, to: Date())!
-            let from = formatISODateOnly(twoMonthsAgo)
+            let from = Self.formatISODateOnly(twoMonthsAgo)
 
             try await app.testing().test(.GET, "v1/market/earnings-calendar?from=\(from)", beforeRequest: { req in
                 req.headers.bearerAuthorization = .init(token: token)
@@ -1216,7 +1261,7 @@ struct StockPlanBackendTests {
 
             // Test free tier within range
             let twoWeeksAgo = Calendar.current.date(byAdding: .day, value: -14, to: Date())!
-            let fromOk = formatISODateOnly(twoWeeksAgo)
+            let fromOk = Self.formatISODateOnly(twoWeeksAgo)
 
             try await app.testing().test(.GET, "v1/market/earnings-calendar?from=\(fromOk)", beforeRequest: { req in
                 req.headers.bearerAuthorization = .init(token: token)
@@ -1696,10 +1741,10 @@ struct StockPlanBackendTests {
             let state = TestMarketProviderState()
             app.marketDataService = makeTestMarketService(
                 state: state,
-                quoteTTLSeconds: 3_600,
-                historyTTLSeconds: 86_400,
-                searchTTLSeconds: 3_600,
-                fxTTLSeconds: 3_600
+                quoteTTLSeconds: 3600,
+                historyTTLSeconds: 86400,
+                searchTTLSeconds: 3600,
+                fxTTLSeconds: 3600
             )
             let (token, _) = try await registerTestUser(app: app)
 
@@ -1767,9 +1812,9 @@ struct StockPlanBackendTests {
             app.marketDataService = makeTestMarketService(
                 state: state,
                 quoteTTLSeconds: 1,
-                historyTTLSeconds: 3_600,
-                searchTTLSeconds: 3_600,
-                fxTTLSeconds: 3_600
+                historyTTLSeconds: 3600,
+                searchTTLSeconds: 3600,
+                fxTTLSeconds: 3600
             )
             let (token, _) = try await registerTestUser(app: app)
 
@@ -1778,7 +1823,7 @@ struct StockPlanBackendTests {
                 symbol: "AAPL",
                 currency: "USD",
                 price: 123.45,
-                asOf: Date().addingTimeInterval(-3_600)
+                asOf: Date().addingTimeInterval(-3600)
             )
             try await stale.save(on: app.db)
             await state.setFailQuote(true)
@@ -1837,7 +1882,7 @@ struct StockPlanBackendTests {
                 source: "Bloomberg",
                 url: nil,
                 summary: nil,
-                publishedAt: Date().addingTimeInterval(-3_600)
+                publishedAt: Date().addingTimeInterval(-3600)
             )
             let untrackedNewest = NewsItem(
                 userId: userId,
@@ -1846,7 +1891,7 @@ struct StockPlanBackendTests {
                 source: "WSJ",
                 url: nil,
                 summary: nil,
-                publishedAt: Date().addingTimeInterval(3_600)
+                publishedAt: Date().addingTimeInterval(3600)
             )
 
             try await trackedRecent.save(on: app.db)
@@ -1927,7 +1972,7 @@ struct StockPlanBackendTests {
                     symbols: nil,
                     publishedAt: nil,
                     url: "https://example.com/news/apple-enterprise-service"
-                )
+                ),
             ])
 
             var firstResponse: FinnhubNewsWebhookResponse?
@@ -1994,7 +2039,7 @@ struct StockPlanBackendTests {
                     symbols: nil,
                     publishedAt: nil,
                     url: "https://example.com/news/invalid-secret"
-                )
+                ),
             ])
 
             try await app.testing().test(.POST, "webhooks/finnhub/news", beforeRequest: { req in
@@ -2046,7 +2091,7 @@ struct StockPlanBackendTests {
                         summary: "Untracked symbol should be skipped",
                         image: nil,
                         publishedAt: publishedAt
-                    )
+                    ),
                 ],
                 [
                     ProviderNewsItem(
@@ -2066,8 +2111,8 @@ struct StockPlanBackendTests {
                         summary: "Untracked symbol should still be skipped",
                         image: nil,
                         publishedAt: publishedAt
-                    )
-                ]
+                    ),
+                ],
             ])
             app.newsService = DefaultNewsService(
                 repo: app.newsRepository,
@@ -2204,7 +2249,7 @@ struct StockPlanBackendTests {
                 response = try res.content.decode(DashboardResponse.self)
             })
 
-            #expect(response?.totalValue == 2_100)
+            #expect(response?.totalValue == 2100)
             #expect(response?.dailyChange == 0)
             #expect(response?.dailyChangePercent == 0)
 
@@ -2218,7 +2263,7 @@ struct StockPlanBackendTests {
 
             #expect(response?.sectorAllocation.count == 1)
             #expect(response?.sectorAllocation.first?.sector == "Unknown")
-            #expect(response?.sectorAllocation.first?.value == 2_100)
+            #expect(response?.sectorAllocation.first?.value == 2100)
             #expect(response?.sectorAllocation.first?.percent == 100)
         }
     }
@@ -2233,11 +2278,11 @@ struct StockPlanBackendTests {
                 userId: userId,
                 year: 2026,
                 month: 1,
-                salary: 5_000,
-                planned: 1_500,
-                actual: 1_000
+                salary: 5000,
+                planned: 1500,
+                actual: 1000
             )
-            try await seedCashBuffer(app: app, userId: userId, balance: 2_000)
+            try await seedCashBuffer(app: app, userId: userId, balance: 2000)
 
             var response: DashboardInsightsResponse?
             try await app.testing().test(.GET, "v1/dashboard/insights", beforeRequest: { req in
@@ -2259,18 +2304,18 @@ struct StockPlanBackendTests {
         try await withApp { app in
             let (token, userId) = try await registerTestUser(app: app)
 
-            for month in 1...6 {
+            for month in 1 ... 6 {
                 try await seedMonthlyBudgetData(
                     app: app,
                     userId: userId,
                     year: 2026,
                     month: month,
-                    salary: 10_000,
-                    planned: 4_000,
-                    actual: 1_000
+                    salary: 10000,
+                    planned: 4000,
+                    actual: 1000
                 )
             }
-            try await seedCashBuffer(app: app, userId: userId, balance: 10_000)
+            try await seedCashBuffer(app: app, userId: userId, balance: 10000)
 
             var response: DashboardInsightsResponse?
             try await app.testing().test(.GET, "v1/dashboard/insights", beforeRequest: { req in
@@ -2290,18 +2335,18 @@ struct StockPlanBackendTests {
         try await withApp { app in
             let (token, userId) = try await registerTestUser(app: app)
 
-            for month in 1...3 {
+            for month in 1 ... 3 {
                 try await seedMonthlyBudgetData(
                     app: app,
                     userId: userId,
                     year: 2026,
                     month: month,
-                    salary: 10_000,
-                    planned: 3_000,
-                    actual: 2_000
+                    salary: 10000,
+                    planned: 3000,
+                    actual: 2000
                 )
             }
-            try await seedCashBuffer(app: app, userId: userId, balance: 1_000)
+            try await seedCashBuffer(app: app, userId: userId, balance: 1000)
 
             var response: DashboardInsightsResponse?
             try await app.testing().test(.GET, "v1/dashboard/insights", beforeRequest: { req in
@@ -2328,9 +2373,9 @@ struct StockPlanBackendTests {
                 userId: userId,
                 year: 2026,
                 month: 1,
-                salary: 1_000,
-                planned: 1_000,
-                actual: 1_500
+                salary: 1000,
+                planned: 1000,
+                actual: 1500
             )
             try await seedCashBuffer(app: app, userId: userId, balance: 0)
 
@@ -2352,19 +2397,19 @@ struct StockPlanBackendTests {
         try await withApp { app in
             let (token, userId) = try await registerTestUser(app: app)
 
-            for month in 1...6 {
+            for month in 1 ... 6 {
                 try await seedMonthlyBudgetData(
                     app: app,
                     userId: userId,
                     year: 2026,
                     month: month,
-                    salary: 8_000,
-                    planned: 2_000,
+                    salary: 8000,
+                    planned: 2000,
                     actual: 0,
                     includeExpense: false
                 )
             }
-            try await seedCashBuffer(app: app, userId: userId, balance: 50_000)
+            try await seedCashBuffer(app: app, userId: userId, balance: 50000)
 
             var response: DashboardInsightsResponse?
             try await app.testing().test(.GET, "v1/dashboard/insights", beforeRequest: { req in
@@ -2802,7 +2847,7 @@ struct StockPlanBackendTests {
 
             let senderState = TestPushSenderState(queuedSummaries: [
                 .init(delivered: 1, failed: 0),
-                .init(delivered: 1, failed: 0)
+                .init(delivered: 1, failed: 0),
             ])
             app.pushNotificationSender = TestPushNotificationSender(state: senderState)
 
@@ -2857,7 +2902,7 @@ struct StockPlanBackendTests {
             app.marketDataService = makeTestMarketService(state: marketState)
 
             let senderState = TestPushSenderState(queuedSummaries: [
-                .init(delivered: 0, failed: 1)
+                .init(delivered: 0, failed: 1),
             ])
             app.pushNotificationSender = TestPushNotificationSender(state: senderState)
 
@@ -2950,7 +2995,7 @@ struct StockPlanBackendTests {
         let decoder = JSONDecoder()
 
         let canonicalJSON = """
-        {"date":"2024-09-28","symbol":"AAPL","capitalLeaseObligationsCurrent":123.45}
+        {"date":"2024-09-28","symbol":"AAPL","capitalLeaseOblationsCurrent":123.45}
         """
         let legacyJSON = """
         {"date":"2024-09-28","symbol":"AAPL","capitalLeaseOblationsCurrent":678.9}
@@ -2958,15 +3003,15 @@ struct StockPlanBackendTests {
 
         let canonical = try decoder.decode(
             BalanceSheetStatementResponse.self,
-            from: canonicalJSON.data(using: .utf8)!
+            from: #require(canonicalJSON.data(using: .utf8))
         )
-        #expect(canonical.capitalLeaseObligationsCurrent == 123.45)
+        #expect(canonical.capitalLeaseOblationsCurrent == 123.45)
 
         let legacy = try decoder.decode(
             BalanceSheetStatementResponse.self,
-            from: legacyJSON.data(using: .utf8)!
+            from: #require(legacyJSON.data(using: .utf8))
         )
-        #expect((legacy.capitalLeaseObligationsCurrent ?? legacy.capitalLeaseOblationsCurrent) == 678.9)
+        #expect(legacy.capitalLeaseOblationsCurrent == 678.9)
     }
 
     @Test("Balance sheet DTO encoding includes canonical lease-current key")
@@ -3006,8 +3051,7 @@ struct StockPlanBackendTests {
             otherPayables: nil,
             accruedExpenses: nil,
             shortTermDebt: nil,
-            capitalLeaseObligationsCurrent: 123.45,
-            capitalLeaseOblationsCurrent: nil,
+            capitalLeaseOblationsCurrent: 123.45,
             taxPayables: nil,
             deferredRevenue: nil,
             otherCurrentLiabilities: nil,
@@ -3038,7 +3082,7 @@ struct StockPlanBackendTests {
 
         let payload = try encoder.encode(response)
         let text = String(decoding: payload, as: UTF8.self)
-        #expect(text.contains("\"capitalLeaseObligationsCurrent\""))
+        #expect(text.contains("\"capitalLeaseOblationsCurrent\""))
     }
 
     // MARK: - Pagination
@@ -3050,7 +3094,7 @@ struct StockPlanBackendTests {
             let seeded = try await seedDefaultLists(userId: userId, on: app.db)
 
             // Create 75 stocks (more than default limit 50)
-            for i in 1...75 {
+            for i in 1 ... 75 {
                 let stock = Stock(
                     userId: userId,
                     portfolioListId: seeded.portfolioListId,
@@ -3067,25 +3111,32 @@ struct StockPlanBackendTests {
             }
 
             // Page 1: default limit
-            let page1 = try await app.testing().test(.GET, "v1/stocks", beforeRequest: { req in
+            var page1Stocks: [StockListItem] = []
+            var cursor1 = ""
+            try await app.testing().test(.GET, "v1/stocks", beforeRequest: { req in
                 req.headers.bearerAuthorization = .init(token: token)
+            }, afterResponse: { res async throws in
+                page1Stocks = try res.content.decode([StockListItem].self)
+                cursor1 = res.headers.first(name: "X-Next-Cursor") ?? ""
             })
-            let page1Stocks = try JSONDecoder().decode([StockListItem].self, from: page1.body)
             #expect(page1Stocks.count == 50)
-            let cursor1 = page1.headers.first(name: "X-Next-Cursor")!
             #expect(!cursor1.isEmpty)
 
             // Page 2: use cursor
-            let page2 = try await app.testing().test(.GET, "v1/stocks?cursor=\(cursor1)", beforeRequest: { req in
+            var page2Stocks: [StockListItem] = []
+            var page2Cursor: String? = nil
+            try await app.testing().test(.GET, "v1/stocks?cursor=\(cursor1)", beforeRequest: { req in
                 req.headers.bearerAuthorization = .init(token: token)
+            }, afterResponse: { res async throws in
+                page2Stocks = try res.content.decode([StockListItem].self)
+                page2Cursor = res.headers.first(name: "X-Next-Cursor")
             })
-            let page2Stocks = try JSONDecoder().decode([StockListItem].self, from: page2.body)
             #expect(page2Stocks.count == 25)
-            #expect(!page2.headers.contains(name: "X-Next-Cursor")) // last page
+            #expect(page2Cursor == nil) // last page
 
             // Verify no overlap
-            let page1Symbols = Set(page1Stocks.map { $0.symbol })
-            let page2Symbols = Set(page2Stocks.map { $0.symbol })
+            let page1Symbols = Set(page1Stocks.map(\.symbol))
+            let page2Symbols = Set(page2Stocks.map(\.symbol))
             #expect(page1Symbols.isDisjoint(with: page2Symbols))
         }
     }
@@ -3097,7 +3148,7 @@ struct StockPlanBackendTests {
             let now = Date()
 
             // Create 55 expenses
-            for i in 1...55 {
+            for i in 1 ... 55 {
                 let expense = Expense(
                     userID: userId,
                     title: "Expense \(i)",
@@ -3112,25 +3163,32 @@ struct StockPlanBackendTests {
             }
 
             // Page 1
-            let page1 = try await app.testing().test(.GET, "v1/expenses", beforeRequest: { req in
+            var page1Expenses: [ExpenseResponse] = []
+            var cursor1 = ""
+            try await app.testing().test(.GET, "v1/expenses", beforeRequest: { req in
                 req.headers.bearerAuthorization = .init(token: token)
+            }, afterResponse: { res async throws in
+                page1Expenses = try res.content.decode([ExpenseResponse].self)
+                cursor1 = res.headers.first(name: "X-Next-Cursor") ?? ""
             })
-            let page1Expenses = try JSONDecoder().decode([ExpenseResponse].self, from: page1.body)
             #expect(page1Expenses.count == 50)
-            let cursor1 = page1.headers.first(name: "X-Next-Cursor")!
             #expect(!cursor1.isEmpty)
 
             // Page 2
-            let page2 = try await app.testing().test(.GET, "v1/expenses?cursor=\(cursor1)", beforeRequest: { req in
+            var page2Expenses: [ExpenseResponse] = []
+            var page2Cursor: String? = nil
+            try await app.testing().test(.GET, "v1/expenses?cursor=\(cursor1)", beforeRequest: { req in
                 req.headers.bearerAuthorization = .init(token: token)
+            }, afterResponse: { res async throws in
+                page2Expenses = try res.content.decode([ExpenseResponse].self)
+                page2Cursor = res.headers.first(name: "X-Next-Cursor")
             })
-            let page2Expenses = try JSONDecoder().decode([ExpenseResponse].self, from: page2.body)
             #expect(page2Expenses.count == 5)
-            #expect(!page2.headers.contains(name: "X-Next-Cursor"))
+            #expect(page2Cursor == nil)
 
             // Verify ordering (by occurredOn descending)
-            let page1Dates = Set(page1Expenses.map { $0.occurredOn })
-            let page2Dates = Set(page2Expenses.map { $0.occurredOn })
+            let page1Dates = Set(page1Expenses.map(\.occurredOn))
+            let page2Dates = Set(page2Expenses.map(\.occurredOn))
             #expect(page1Dates.isDisjoint(with: page2Dates))
             if let earliestPage2 = page2Expenses.last {
                 #expect(page1Expenses.allSatisfy { $0.occurredOn > earliestPage2.occurredOn })
@@ -3145,7 +3203,7 @@ struct StockPlanBackendTests {
             let now = Date()
 
             // Create 60 news items for AAPL
-            for i in 1...60 {
+            for i in 1 ... 60 {
                 let news = NewsItem(
                     userId: userId,
                     symbol: "AAPL",
@@ -3159,25 +3217,32 @@ struct StockPlanBackendTests {
             }
 
             // Page 1
-            let page1 = try await app.testing().test(.GET, "v1/news?symbol=AAPL", beforeRequest: { req in
+            var page1News: [NewsItemResponse] = []
+            var cursor1 = ""
+            try await app.testing().test(.GET, "v1/news?symbol=AAPL", beforeRequest: { req in
                 req.headers.bearerAuthorization = .init(token: token)
+            }, afterResponse: { res async throws in
+                page1News = try res.content.decode([NewsItemResponse].self)
+                cursor1 = res.headers.first(name: "X-Next-Cursor") ?? ""
             })
-            let page1News = try JSONDecoder().decode([NewsItemResponse].self, from: page1.body)
             #expect(page1News.count == 50)
-            let cursor1 = page1.headers.first(name: "X-Next-Cursor")!
             #expect(!cursor1.isEmpty)
 
             // Page 2
-            let page2 = try await app.testing().test(.GET, "v1/news?symbol=AAPL&cursor=\(cursor1)", beforeRequest: { req in
+            var page2News: [NewsItemResponse] = []
+            var page2Cursor: String? = nil
+            try await app.testing().test(.GET, "v1/news?symbol=AAPL&cursor=\(cursor1)", beforeRequest: { req in
                 req.headers.bearerAuthorization = .init(token: token)
+            }, afterResponse: { res async throws in
+                page2News = try res.content.decode([NewsItemResponse].self)
+                page2Cursor = res.headers.first(name: "X-Next-Cursor")
             })
-            let page2News = try JSONDecoder().decode([NewsItemResponse].self, from: page2.body)
             #expect(page2News.count == 10)
-            #expect(!page2.headers.contains(name: "X-Next-Cursor"))
+            #expect(page2Cursor == nil)
 
             // Verify ordering (publishedAt descending)
-            let page1Times = Set(page1News.map { $0.publishedAt })
-            let page2Times = Set(page2News.map { $0.publishedAt })
+            let page1Times = Set(page1News.map(\.publishedAt))
+            let page2Times = Set(page2News.map(\.publishedAt))
             #expect(page1Times.isDisjoint(with: page2Times))
             if let earliestPage2 = page2News.last {
                 #expect(page1News.allSatisfy { $0.publishedAt > earliestPage2.publishedAt })
@@ -3192,7 +3257,7 @@ struct StockPlanBackendTests {
             let seeded = try await seedDefaultLists(userId: userId, on: app.db)
 
             // Create 250 stocks
-            for i in 1...250 {
+            for i in 1 ... 250 {
                 let stock = Stock(
                     userId: userId,
                     portfolioListId: seeded.portfolioListId,
@@ -3209,1072 +3274,1086 @@ struct StockPlanBackendTests {
             }
 
             // Request limit=200 (max)
-            let resp = try await app.testing().test(.GET, "v1/stocks?limit=200", beforeRequest: { req in
+            var stocks: [StockListItem] = []
+            var respCursor: String? = nil
+            try await app.testing().test(.GET, "v1/stocks?limit=200", beforeRequest: { req in
                 req.headers.bearerAuthorization = .init(token: token)
+            }, afterResponse: { res async throws in
+                stocks = try res.content.decode([StockListItem].self)
+                respCursor = res.headers.first(name: "X-Next-Cursor")
             })
-            let stocks = try JSONDecoder().decode([StockListItem].self, from: resp.body)
             #expect(stocks.count == 200)
-            #expect(!resp.headers.contains(name: "X-Next-Cursor")) // last page
+            #expect(respCursor == nil) // last page
 
             // Request limit=150
-            let resp2 = try await app.testing().test(.GET, "v1/stocks?limit=150", beforeRequest: { req in
+            var stocks2: [StockListItem] = []
+            var resp2Cursor: String? = nil
+            try await app.testing().test(.GET, "v1/stocks?limit=150", beforeRequest: { req in
                 req.headers.bearerAuthorization = .init(token: token)
+            }, afterResponse: { res async throws in
+                stocks2 = try res.content.decode([StockListItem].self)
+                resp2Cursor = res.headers.first(name: "X-Next-Cursor")
             })
-            let stocks2 = try JSONDecoder().decode([StockListItem].self, from: resp2.body)
             #expect(stocks2.count == 150)
-            #expect(resp2.headers.contains(name: "X-Next-Cursor"))
+            #expect(resp2Cursor != nil)
         }
     }
 
+    actor TestPushSenderState {
+        private var summaries: [TargetPushSendSummary]
+        private var calls: [(symbol: String, scenario: String)] = []
 
-actor TestPushSenderState {
-    private var summaries: [TargetPushSendSummary]
-    private var calls: [(symbol: String, scenario: String)] = []
-
-    init(queuedSummaries: [TargetPushSendSummary]) {
-        summaries = queuedSummaries
-    }
-
-    func recordSend(symbol: String, scenario: String) -> TargetPushSendSummary {
-        calls.append((symbol: symbol, scenario: scenario))
-        if !summaries.isEmpty {
-            return summaries.removeFirst()
-        }
-        return .init(delivered: 1, failed: 0)
-    }
-
-    func callCount() -> Int {
-        calls.count
-    }
-
-    func sentSymbols() -> [String] {
-        calls.map(\.symbol)
-    }
-}
-
-struct TestPushNotificationSender: PushNotificationSending {
-    let state: TestPushSenderState
-
-    func sendTargetHit(
-        target: Target,
-        currentPrice: Double,
-        devices: [PushDevice],
-        req: Request
-    ) async -> TargetPushSendSummary {
-        await state.recordSend(symbol: target.symbol, scenario: target.scenario)
-    }
-}
-
-actor TestTargetAlertEvaluatorState {
-    private var calls: Int = 0
-
-    func recordCall() {
-        calls += 1
-    }
-
-    func callCount() -> Int {
-        calls
-    }
-}
-
-struct TestTargetAlertEvaluator: TargetAlertEvaluating {
-    let state: TestTargetAlertEvaluatorState
-
-    func evaluateUnresolvedTargets(req: Request) async {
-        await state.recordCall()
-    }
-}
-
-actor TestMarketProviderState {
-    private var quoteCallCount: Int = 0
-    private var historyCallCount: Int = 0
-    private var searchCallCount: Int = 0
-    private var fxCallCount: Int = 0
-    private var profileCallCount: Int = 0
-    private var basicFinancialsCallCount: Int = 0
-    private var failQuoteRequests: Bool = false
-
-    func nextQuoteCall() -> Int {
-        quoteCallCount += 1
-        return quoteCallCount
-    }
-
-    func nextHistoryCall() -> Int {
-        historyCallCount += 1
-        return historyCallCount
-    }
-
-    func nextSearchCall() -> Int {
-        searchCallCount += 1
-        return searchCallCount
-    }
-
-    func nextFxCall() -> Int {
-        fxCallCount += 1
-        return fxCallCount
-    }
-
-    func nextProfileCall() -> Int {
-        profileCallCount += 1
-        return profileCallCount
-    }
-
-    func nextBasicFinancialsCall() -> Int {
-        basicFinancialsCallCount += 1
-        return basicFinancialsCallCount
-    }
-
-    func setFailQuote(_ value: Bool) {
-        failQuoteRequests = value
-    }
-
-    func shouldFailQuote() -> Bool {
-        failQuoteRequests
-    }
-
-    func quoteCalls() -> Int {
-        quoteCallCount
-    }
-
-    func historyCalls() -> Int {
-        historyCallCount
-    }
-
-    func searchCalls() -> Int {
-        searchCallCount
-    }
-
-    func fxCalls() -> Int {
-        fxCallCount
-    }
-
-    func profileCalls() -> Int {
-        profileCallCount
-    }
-
-    func basicFinancialsCalls() -> Int {
-        basicFinancialsCallCount
-    }
-}
-
-struct FinancialGrowthRequestCapture: Sendable, Equatable {
-    let symbol: String
-    let limit: Int?
-    let period: String?
-}
-
-struct SectorPerformanceRequestCapture: Sendable, Equatable {
-    let sector: String
-    let exchange: String?
-    let from: String?
-    let to: String?
-}
-
-struct AnalystEstimatesRequestCapture: Sendable, Equatable {
-    let symbol: String
-    let period: String
-    let page: Int?
-    let limit: Int?
-}
-
-struct EarningsRequestCapture: Sendable, Equatable {
-    let symbol: String
-    let limit: Int?
-}
-
-struct EarningsCalendarRequestCapture: Sendable, Equatable {
-    let from: String?
-    let to: String?
-}
-
-actor TestFMPProviderState {
-    private var balanceSheetRequests: [FinancialGrowthRequestCapture] = []
-    private var cashFlowRequests: [FinancialGrowthRequestCapture] = []
-    private var ratiosTTMCallCount: Int = 0
-    private var gradesConsensusCallCount: Int = 0
-    private var financialGrowthRequests: [FinancialGrowthRequestCapture] = []
-    private var analystEstimatesRequests: [AnalystEstimatesRequestCapture] = []
-    private var ratiosRequests: [FinancialGrowthRequestCapture] = []
-    private var earningsRequests: [EarningsRequestCapture] = []
-    private var earningsCalendarRequests: [EarningsCalendarRequestCapture] = []
-    private var sectorPerformanceRequests: [SectorPerformanceRequestCapture] = []
-
-    func nextRatiosTTMCall() -> Int {
-        ratiosTTMCallCount += 1
-        return ratiosTTMCallCount
-    }
-
-    func nextGradesConsensusCall() -> Int {
-        gradesConsensusCallCount += 1
-        return gradesConsensusCallCount
-    }
-
-    func recordFinancialGrowth(symbol: String, limit: Int?, period: String?) {
-        financialGrowthRequests.append(.init(symbol: symbol, limit: limit, period: period))
-    }
-
-    func recordRatios(symbol: String, limit: Int?, period: String?) {
-        ratiosRequests.append(.init(symbol: symbol, limit: limit, period: period))
-    }
-
-    func recordAnalystEstimates(symbol: String, period: String, page: Int?, limit: Int?) {
-        analystEstimatesRequests.append(.init(symbol: symbol, period: period, page: page, limit: limit))
-    }
-
-    func recordEarnings(symbol: String, limit: Int?) {
-        earningsRequests.append(.init(symbol: symbol, limit: limit))
-    }
-
-    func recordEarningsCalendar(from: String?, to: String?) {
-        earningsCalendarRequests.append(.init(from: from, to: to))
-    }
-
-    func recordBalanceSheet(symbol: String, limit: Int?, period: String?) {
-        balanceSheetRequests.append(.init(symbol: symbol, limit: limit, period: period))
-    }
-
-    func recordCashFlow(symbol: String, limit: Int?, period: String?) {
-        cashFlowRequests.append(.init(symbol: symbol, limit: limit, period: period))
-    }
-
-    func recordSectorPerformance(sector: String, exchange: String?, from: String?, to: String?) {
-        sectorPerformanceRequests.append(.init(sector: sector, exchange: exchange, from: from, to: to))
-    }
-
-    func ratiosTTMCalls() -> Int {
-        ratiosTTMCallCount
-    }
-
-    func gradesConsensusCalls() -> Int {
-        gradesConsensusCallCount
-    }
-
-    func lastFinancialGrowthRequest() -> FinancialGrowthRequestCapture? {
-        financialGrowthRequests.last
-    }
-
-    func lastRatiosRequest() -> FinancialGrowthRequestCapture? {
-        ratiosRequests.last
-    }
-
-    func lastAnalystEstimatesRequest() -> AnalystEstimatesRequestCapture? {
-        analystEstimatesRequests.last
-    }
-
-    func lastBalanceSheetRequest() -> FinancialGrowthRequestCapture? {
-        balanceSheetRequests.last
-    }
-
-    func lastCashFlowRequest() -> FinancialGrowthRequestCapture? {
-        cashFlowRequests.last
-    }
-
-    func earningsCalls() -> Int {
-        earningsRequests.count
-    }
-
-    func earningsCalendarCalls() -> Int {
-        earningsCalendarRequests.count
-    }
-
-    func lastSectorPerformanceRequest() -> SectorPerformanceRequestCapture? {
-        sectorPerformanceRequests.last
-    }
-}
-
-struct TestMarketDataProvider: MarketDataProvider {
-    let state: TestMarketProviderState
-
-    var name: String { "ibkr" }
-
-    func quote(symbol: String, on req: Request) async throws -> MarketProviderQuote {
-        _ = await state.nextQuoteCall()
-        if await state.shouldFailQuote() {
-            throw Abort(.badGateway, reason: "Forced quote failure")
+        init(queuedSummaries: [TargetPushSendSummary]) {
+            summaries = queuedSummaries
         }
 
-        return MarketProviderQuote(
-            symbol: symbol,
-            price: 101.25,
-            change: nil,
-            percentChange: nil,
-            high: nil,
-            low: nil,
-            open: nil,
-            previousClose: nil,
-            currency: "USD",
-            asOf: Date()
-        )
+        func recordSend(symbol: String, scenario: String) -> TargetPushSendSummary {
+            calls.append((symbol: symbol, scenario: scenario))
+            if !summaries.isEmpty {
+                return summaries.removeFirst()
+            }
+            return .init(delivered: 1, failed: 0)
+        }
+
+        func callCount() -> Int {
+            calls.count
+        }
+
+        func sentSymbols() -> [String] {
+            calls.map(\.symbol)
+        }
     }
 
-    func history(symbol: String, from: Date?, to: Date?, on req: Request) async throws -> MarketProviderHistory {
-        _ = await state.nextHistoryCall()
-        let bar = MarketProviderPriceBar(
-            date: Date(),
-            open: 100,
-            high: 103,
-            low: 99,
-            close: 101,
-            volume: 1_000_000
-        )
+    struct TestPushNotificationSender: PushNotificationSending {
+        let state: TestPushSenderState
 
-        return MarketProviderHistory(
-            symbol: symbol,
-            currency: "USD",
-            bars: [bar]
-        )
+        func sendTargetHit(
+            target: Target,
+            currentPrice _: Double,
+            devices _: [PushDevice],
+            req _: Request
+        ) async -> TargetPushSendSummary {
+            await state.recordSend(symbol: target.symbol, scenario: target.scenario)
+        }
     }
 
-    func search(query: String, on req: Request) async throws -> [MarketProviderSearchResult] {
-        _ = await state.nextSearchCall()
-        return [
-            .init(
-                symbol: query,
-                name: "\(query) Inc",
-                exchange: "NASDAQ",
+    actor TestTargetAlertEvaluatorState {
+        private var calls: Int = 0
+
+        func recordCall() {
+            calls += 1
+        }
+
+        func callCount() -> Int {
+            calls
+        }
+    }
+
+    struct TestTargetAlertEvaluator: TargetAlertEvaluating {
+        let state: TestTargetAlertEvaluatorState
+
+        func evaluateUnresolvedTargets(req _: Request) async {
+            await state.recordCall()
+        }
+    }
+
+    actor TestMarketProviderState {
+        private var quoteCallCount: Int = 0
+        private var historyCallCount: Int = 0
+        private var searchCallCount: Int = 0
+        private var fxCallCount: Int = 0
+        private var profileCallCount: Int = 0
+        private var basicFinancialsCallCount: Int = 0
+        private var failQuoteRequests: Bool = false
+
+        func nextQuoteCall() -> Int {
+            quoteCallCount += 1
+            return quoteCallCount
+        }
+
+        func nextHistoryCall() -> Int {
+            historyCallCount += 1
+            return historyCallCount
+        }
+
+        func nextSearchCall() -> Int {
+            searchCallCount += 1
+            return searchCallCount
+        }
+
+        func nextFxCall() -> Int {
+            fxCallCount += 1
+            return fxCallCount
+        }
+
+        func nextProfileCall() -> Int {
+            profileCallCount += 1
+            return profileCallCount
+        }
+
+        func nextBasicFinancialsCall() -> Int {
+            basicFinancialsCallCount += 1
+            return basicFinancialsCallCount
+        }
+
+        func setFailQuote(_ value: Bool) {
+            failQuoteRequests = value
+        }
+
+        func shouldFailQuote() -> Bool {
+            failQuoteRequests
+        }
+
+        func quoteCalls() -> Int {
+            quoteCallCount
+        }
+
+        func historyCalls() -> Int {
+            historyCallCount
+        }
+
+        func searchCalls() -> Int {
+            searchCallCount
+        }
+
+        func fxCalls() -> Int {
+            fxCallCount
+        }
+
+        func profileCalls() -> Int {
+            profileCallCount
+        }
+
+        func basicFinancialsCalls() -> Int {
+            basicFinancialsCallCount
+        }
+    }
+
+    struct FinancialGrowthRequestCapture: Equatable {
+        let symbol: String
+        let limit: Int?
+        let period: String?
+    }
+
+    struct SectorPerformanceRequestCapture: Equatable {
+        let sector: String
+        let exchange: String?
+        let from: String?
+        let to: String?
+    }
+
+    struct AnalystEstimatesRequestCapture: Equatable {
+        let symbol: String
+        let period: String
+        let page: Int?
+        let limit: Int?
+    }
+
+    struct EarningsRequestCapture: Equatable {
+        let symbol: String
+        let limit: Int?
+    }
+
+    struct EarningsCalendarRequestCapture: Equatable {
+        let from: String?
+        let to: String?
+    }
+
+    actor TestFMPProviderState {
+        private var balanceSheetRequests: [FinancialGrowthRequestCapture] = []
+        private var cashFlowRequests: [FinancialGrowthRequestCapture] = []
+        private var ratiosTTMCallCount: Int = 0
+        private var gradesConsensusCallCount: Int = 0
+        private var financialGrowthRequests: [FinancialGrowthRequestCapture] = []
+        private var analystEstimatesRequests: [AnalystEstimatesRequestCapture] = []
+        private var ratiosRequests: [FinancialGrowthRequestCapture] = []
+        private var earningsRequests: [EarningsRequestCapture] = []
+        private var earningsCalendarRequests: [EarningsCalendarRequestCapture] = []
+        private var sectorPerformanceRequests: [SectorPerformanceRequestCapture] = []
+
+        func nextRatiosTTMCall() -> Int {
+            ratiosTTMCallCount += 1
+            return ratiosTTMCallCount
+        }
+
+        func nextGradesConsensusCall() -> Int {
+            gradesConsensusCallCount += 1
+            return gradesConsensusCallCount
+        }
+
+        func recordFinancialGrowth(symbol: String, limit: Int?, period: String?) {
+            financialGrowthRequests.append(.init(symbol: symbol, limit: limit, period: period))
+        }
+
+        func recordRatios(symbol: String, limit: Int?, period: String?) {
+            ratiosRequests.append(.init(symbol: symbol, limit: limit, period: period))
+        }
+
+        func recordAnalystEstimates(symbol: String, period: String, page: Int?, limit: Int?) {
+            analystEstimatesRequests.append(.init(symbol: symbol, period: period, page: page, limit: limit))
+        }
+
+        func recordEarnings(symbol: String, limit: Int?) {
+            earningsRequests.append(.init(symbol: symbol, limit: limit))
+        }
+
+        func recordEarningsCalendar(from: String?, to: String?) {
+            earningsCalendarRequests.append(.init(from: from, to: to))
+        }
+
+        func recordBalanceSheet(symbol: String, limit: Int?, period: String?) {
+            balanceSheetRequests.append(.init(symbol: symbol, limit: limit, period: period))
+        }
+
+        func recordCashFlow(symbol: String, limit: Int?, period: String?) {
+            cashFlowRequests.append(.init(symbol: symbol, limit: limit, period: period))
+        }
+
+        func recordSectorPerformance(sector: String, exchange: String?, from: String?, to: String?) {
+            sectorPerformanceRequests.append(.init(sector: sector, exchange: exchange, from: from, to: to))
+        }
+
+        func ratiosTTMCalls() -> Int {
+            ratiosTTMCallCount
+        }
+
+        func gradesConsensusCalls() -> Int {
+            gradesConsensusCallCount
+        }
+
+        func lastFinancialGrowthRequest() -> FinancialGrowthRequestCapture? {
+            financialGrowthRequests.last
+        }
+
+        func lastRatiosRequest() -> FinancialGrowthRequestCapture? {
+            ratiosRequests.last
+        }
+
+        func lastAnalystEstimatesRequest() -> AnalystEstimatesRequestCapture? {
+            analystEstimatesRequests.last
+        }
+
+        func lastBalanceSheetRequest() -> FinancialGrowthRequestCapture? {
+            balanceSheetRequests.last
+        }
+
+        func lastCashFlowRequest() -> FinancialGrowthRequestCapture? {
+            cashFlowRequests.last
+        }
+
+        func earningsCalls() -> Int {
+            earningsRequests.count
+        }
+
+        func earningsCalendarCalls() -> Int {
+            earningsCalendarRequests.count
+        }
+
+        func lastSectorPerformanceRequest() -> SectorPerformanceRequestCapture? {
+            sectorPerformanceRequests.last
+        }
+    }
+
+    struct TestMarketDataProvider: MarketDataProvider {
+        let state: TestMarketProviderState
+
+        var name: String {
+            "ibkr"
+        }
+
+        func quote(symbol: String, on _: Request) async throws -> MarketProviderQuote {
+            _ = await state.nextQuoteCall()
+            if await state.shouldFailQuote() {
+                throw Abort(.badGateway, reason: "Forced quote failure")
+            }
+
+            return MarketProviderQuote(
+                symbol: symbol,
+                price: 101.25,
+                change: nil,
+                percentChange: nil,
+                high: nil,
+                low: nil,
+                open: nil,
+                previousClose: nil,
                 currency: "USD",
-                conid: "265598"
+                asOf: Date()
             )
-        ]
-    }
+        }
 
-    func fx(base: String, quote: String, on req: Request) async throws -> MarketProviderFxRate {
-        _ = await state.nextFxCall()
-        return .init(base: base, quote: quote, rate: 1.1, asOf: Date())
-    }
+        func history(symbol: String, from _: Date?, to _: Date?, on _: Request) async throws -> MarketProviderHistory {
+            _ = await state.nextHistoryCall()
+            let bar = MarketProviderPriceBar(
+                date: Date(),
+                open: 100,
+                high: 103,
+                low: 99,
+                close: 101,
+                volume: 1_000_000
+            )
 
-    func profile(symbol: String, on req: Request) async throws -> MarketProviderCompanyProfile? {
-        _ = await state.nextProfileCall()
-        return MarketProviderCompanyProfile(
-            symbol: symbol,
-            country: "US",
-            currency: "USD",
-            estimateCurrency: "USD",
-            exchange: "NASDAQ",
-            finnhubIndustry: "Technology",
-            ipo: "1980-12-12",
-            logo: "https://example.com/logo.png",
-            marketCapitalization: 1000.0,
-            name: "Apple Inc",
-            phone: "123456789",
-            shareOutstanding: 100.0,
-            ticker: symbol,
-            weburl: "https://apple.com"
-        )
-    }
+            return MarketProviderHistory(
+                symbol: symbol,
+                currency: "USD",
+                bars: [bar]
+            )
+        }
 
-    func basicFinancials(symbol: String, on req: Request) async throws -> MarketProviderBasicFinancials? {
-        _ = await state.nextBasicFinancialsCall()
-        return MarketProviderBasicFinancials(
-            symbol: symbol,
-            metricType: "all",
-            metric: [
-                "52WeekHigh": .number(190.25),
-                "52WeekLow": .number(164.10),
-                "52WeekLowDate": .string("2026-01-14"),
-                "beta": .number(1.2989),
-                "forwardPE": .number(28.0),
-                "epsGrowthTTMYoy": .number(12.0),
-                "revenueGrowthTTMYoy": .number(10.0),
-                "epsGrowthQuarterlyYoy": .number(8.0),
-                "revenueGrowthQuarterlyYoy": .number(7.0),
-                "grossMarginTTM": .number(60.63),
-                "netProfitMarginTTM": .number(24.20)
-            ],
-            series: [
-                "annual": [
-                    "currentRatio": [
-                        BasicFinancialSeriesPoint(period: "2025-09-28", value: 1.5401),
-                        BasicFinancialSeriesPoint(period: "2024-09-29", value: 1.1329)
-                    ]
-                ]
+        func search(query: String, on _: Request) async throws -> [MarketProviderSearchResult] {
+            _ = await state.nextSearchCall()
+            return [
+                .init(
+                    symbol: query,
+                    name: "\(query) Inc",
+                    exchange: "NASDAQ",
+                    currency: "USD",
+                    conid: "265598"
+                ),
             ]
-        )
-    }
-}
+        }
 
-struct TestFMPMarketDataProvider: FMPMarketDataProvider {
-    let state: TestFMPProviderState
+        func fx(base: String, quote: String, on _: Request) async throws -> MarketProviderFxRate {
+            _ = await state.nextFxCall()
+            return .init(base: base, quote: quote, rate: 1.1, asOf: Date())
+        }
 
-    var name: String { "test-fmp" }
-
-    func cashFlowStatement(
-        symbol: String,
-        limit: Int?,
-        period: String?,
-        on req: Request
-    ) async throws -> [CashFlowStatementResponse] {
-        await state.recordCashFlow(symbol: symbol, limit: limit, period: period)
-        return [
-            CashFlowStatementResponse(
-                date: "2024-09-28",
+        func profile(symbol: String, on _: Request) async throws -> MarketProviderCompanyProfile? {
+            _ = await state.nextProfileCall()
+            return MarketProviderCompanyProfile(
                 symbol: symbol,
-                reportedCurrency: "USD",
-                cik: "0000320193",
-                filingDate: "2024-11-01",
-                acceptedDate: "2024-11-01 06:01:36",
-                fiscalYear: "2024",
-                period: period ?? "FY",
-                netIncome: 93_736_000_000,
-                depreciationAndAmortization: 11_445_000_000,
-                deferredIncomeTax: 0,
-                stockBasedCompensation: 11_688_000_000,
-                changeInWorkingCapital: 3_651_000_000,
-                accountsReceivables: -5_144_000_000,
-                inventory: -1_046_000_000,
-                accountsPayables: 6_020_000_000,
-                otherWorkingCapital: 3_821_000_000,
-                otherNonCashItems: -2_266_000_000,
-                netCashProvidedByOperatingActivities: 118_254_000_000,
-                investmentsInPropertyPlantAndEquipment: -9_447_000_000,
-                acquisitionsNet: 0,
-                purchasesOfInvestments: -48_656_000_000,
-                salesMaturitiesOfInvestments: 62_346_000_000,
-                otherInvestingActivities: -1_308_000_000,
-                netCashProvidedByInvestingActivities: 2_935_000_000,
-                netDebtIssuance: -5_998_000_000,
-                longTermNetDebtIssuance: -9_958_000_000,
-                shortTermNetDebtIssuance: 3_960_000_000,
-                netStockIssuance: -94_949_000_000,
-                netCommonStockIssuance: -94_949_000_000,
-                commonStockIssuance: 0,
-                commonStockRepurchased: -94_949_000_000,
-                netPreferredStockIssuance: 0,
-                netDividendsPaid: -15_234_000_000,
-                commonDividendsPaid: -15_234_000_000,
-                preferredDividendsPaid: 0,
-                otherFinancingActivities: -5_802_000_000,
-                netCashProvidedByFinancingActivities: -121_983_000_000,
-                effectOfForexChangesOnCash: 0,
-                netChangeInCash: -794_000_000,
-                cashAtEndOfPeriod: 29_943_000_000,
-                cashAtBeginningOfPeriod: 30_737_000_000,
-                operatingCashFlow: 118_254_000_000,
-                capitalExpenditure: -9_447_000_000,
-                freeCashFlow: 108_807_000_000,
-                incomeTaxesPaid: 26_102_000_000,
-                interestPaid: 0
+                country: "US",
+                currency: "USD",
+                estimateCurrency: "USD",
+                exchange: "NASDAQ",
+                finnhubIndustry: "Technology",
+                ipo: "1980-12-12",
+                logo: "https://example.com/logo.png",
+                marketCapitalization: 1000.0,
+                name: "Apple Inc",
+                phone: "123456789",
+                shareOutstanding: 100.0,
+                ticker: symbol,
+                weburl: "https://apple.com"
             )
-        ]
-    }
+        }
 
-    func balanceSheetStatement(
-        symbol: String,
-        limit: Int?,
-        period: String?,
-        on req: Request
-    ) async throws -> [BalanceSheetStatementResponse] {
-        await state.recordBalanceSheet(symbol: symbol, limit: limit, period: period)
-        return [
-            BalanceSheetStatementResponse(
-                date: "2024-09-28",
+        func basicFinancials(symbol: String, on _: Request) async throws -> MarketProviderBasicFinancials? {
+            _ = await state.nextBasicFinancialsCall()
+            return MarketProviderBasicFinancials(
                 symbol: symbol,
-                reportedCurrency: "USD",
-                cik: "0000320193",
-                filingDate: "2024-11-01",
-                acceptedDate: "2024-11-01 06:01:36",
-                fiscalYear: "2024",
-                period: period ?? "FY",
-                cashAndCashEquivalents: 29_943_000_000,
-                shortTermInvestments: 35_228_000_000,
-                cashAndShortTermInvestments: 65_171_000_000,
-                netReceivables: 66_243_000_000,
-                accountsReceivables: 33_410_000_000,
-                otherReceivables: 32_833_000_000,
-                inventory: 7_286_000_000,
-                prepaids: 0,
-                otherCurrentAssets: 14_287_000_000,
-                totalCurrentAssets: 152_987_000_000,
-                propertyPlantEquipmentNet: 45_680_000_000,
-                goodwill: 0,
-                intangibleAssets: 0,
-                goodwillAndIntangibleAssets: 0,
-                longTermInvestments: 91_479_000_000,
-                taxAssets: 19_499_000_000,
-                otherNonCurrentAssets: 55_335_000_000,
-                totalNonCurrentAssets: 211_993_000_000,
-                otherAssets: 0,
-                totalAssets: 364_980_000_000,
-                totalPayables: 95_561_000_000,
-                accountPayables: 68_960_000_000,
-                otherPayables: 26_601_000_000,
-                accruedExpenses: 0,
-                shortTermDebt: 20_879_000_000,
-                capitalLeaseObligationsCurrent: 1_632_000_000,
-                taxPayables: 26_601_000_000,
-                deferredRevenue: 8_249_000_000,
-                otherCurrentLiabilities: 50_071_000_000,
-                totalCurrentLiabilities: 176_392_000_000,
-                longTermDebt: 85_750_000_000,
-                deferredRevenueNonCurrent: 10_798_000_000,
-                deferredTaxLiabilitiesNonCurrent: 0,
-                otherNonCurrentLiabilities: 35_090_000_000,
-                totalNonCurrentLiabilities: 131_638_000_000,
-                otherLiabilities: 0,
-                capitalLeaseObligations: 12_430_000_000,
-                totalLiabilities: 308_030_000_000,
-                treasuryStock: 0,
-                preferredStock: 0,
-                commonStock: 83_276_000_000,
-                retainedEarnings: -19_154_000_000,
-                additionalPaidInCapital: 0,
-                accumulatedOtherComprehensiveIncomeLoss: -7_172_000_000,
-                otherTotalStockholdersEquity: 0,
-                totalStockholdersEquity: 56_950_000_000,
-                totalEquity: 56_950_000_000,
-                minorityInterest: 0,
-                totalLiabilitiesAndTotalEquity: 364_980_000_000,
-                totalInvestments: 126_707_000_000,
-                totalDebt: 106_629_000_000,
-                netDebt: 76_686_000_000
+                metricType: "all",
+                metric: [
+                    "52WeekHigh": .number(190.25),
+                    "52WeekLow": .number(164.10),
+                    "52WeekLowDate": .string("2026-01-14"),
+                    "beta": .number(1.2989),
+                    "forwardPE": .number(28.0),
+                    "epsGrowthTTMYoy": .number(12.0),
+                    "revenueGrowthTTMYoy": .number(10.0),
+                    "epsGrowthQuarterlyYoy": .number(8.0),
+                    "revenueGrowthQuarterlyYoy": .number(7.0),
+                    "grossMarginTTM": .number(60.63),
+                    "netProfitMarginTTM": .number(24.20),
+                ],
+                series: [
+                    "annual": [
+                        "currentRatio": [
+                            BasicFinancialSeriesPoint(period: "2025-09-28", value: 1.5401),
+                            BasicFinancialSeriesPoint(period: "2024-09-29", value: 1.1329),
+                        ],
+                    ],
+                ]
             )
-        ]
+        }
     }
 
-    func ratiosTTM(symbol: String, on req: Request) async throws -> [RatiosTTMResponse] {
-        _ = await state.nextRatiosTTMCall()
-        return [
-            RatiosTTMResponse(
-                symbol: symbol,
-                grossProfitMarginTTM: 0.46518849807964424,
-                ebitMarginTTM: 0.3175535678188801,
-                ebitdaMarginTTM: 0.34705882352941175,
-                operatingProfitMarginTTM: 0.3175535678188801,
-                pretaxProfitMarginTTM: 0.31773296947645036,
-                continuousOperationsProfitMarginTTM: 0.24295027289266222,
-                netProfitMarginTTM: 0.24295027289266222,
-                bottomLineProfitMarginTTM: 0.24295027289266222,
-                receivablesTurnoverTTM: 6.673186524129093,
-                payablesTurnoverTTM: 3.4187853335486995,
-                inventoryTurnoverTTM: 30.626103313558097,
-                fixedAssetTurnoverTTM: 8.590592372311098,
-                assetTurnoverTTM: 1.1501809145995903,
-                currentRatioTTM: 0.9229383853427077,
-                quickRatioTTM: 0.8750666712845911,
-                solvencyRatioTTM: 0.3888081578786054,
-                cashRatioTTM: 0.20987774044955496,
-                priceToEarningsRatioTTM: 32.889608822880916,
-                priceToEarningsGrowthRatioTTM: 9.104441715061135,
-                forwardPriceToEarningsGrowthRatioTTM: 9.104441715061135,
-                priceToBookRatioTTM: 47.370141231313106,
-                priceToSalesRatioTTM: 7.958949686678795,
-                priceToFreeCashFlowRatioTTM: 32.04339747098139,
-                priceToOperatingCashFlowRatioTTM: 29.201395167968677,
-                debtToAssetsRatioTTM: 0.28132292892744526,
-                debtToEquityRatioTTM: 1.4499985020521886,
-                debtToCapitalRatioTTM: 0.5918364851397372,
-                longTermDebtToCapitalRatioTTM: 0.557055084464615,
-                financialLeverageRatioTTM: 5.154213727193745,
-                workingCapitalTurnoverRatioTTM: -22.92267593397046,
-                operatingCashFlowRatioTTM: 0.7501402694558931,
-                operatingCashFlowSalesRatioTTM: 0.2736355366889024,
-                freeCashFlowOperatingCashFlowRatioTTM: 0.9077049513361775,
-                debtServiceCoverageRatioTTM: 8.390251498870981,
-                interestCoverageRatioTTM: 0,
-                shortTermOperatingCashFlowCoverageRatioTTM: 8.432142022891847,
-                operatingCashFlowCoverageRatioTTM: 1.1187512267688715,
-                capitalExpenditureCoverageRatioTTM: 10.834817408704351,
-                dividendPaidAndCapexCoverageRatioTTM: 4.287173396674584,
-                dividendPayoutRatioTTM: 0.15876235049401977,
-                dividendYieldTTM: 0.0047691720717283476,
-                enterpriseValueTTM: 3_216_333_928_000,
-                revenuePerShareTTM: 26.24103186081379,
-                netIncomePerShareTTM: 6.375265851569754,
-                interestDebtPerShareTTM: 6.418298067250137,
-                cashPerShareTTM: 3.565573803101025,
-                bookValuePerShareTTM: 4.426417032959892,
-                tangibleBookValuePerShareTTM: 4.426417032959892,
-                shareholdersEquityPerShareTTM: 4.426417032959892,
-                operatingCashFlowPerShareTTM: 7.180478836504368,
-                capexPerShareTTM: 0.6627226436447186,
-                freeCashFlowPerShareTTM: 6.5177561928596495,
-                netIncomePerEBTTTM: 0.7646366484818603,
-                ebtPerEbitTTM: 1.0005649492739208,
-                priceToFairValueTTM: 47.370141231313106,
-                debtToMarketCapTTM: 0.030731461471514124,
-                effectiveTaxRateTTM: 0.23536335151813975,
-                enterpriseValueMultipleTTM: 23.41672438697653
-            )
-        ]
-    }
+    struct TestFMPMarketDataProvider: FMPMarketDataProvider {
+        let state: TestFMPProviderState
 
-    func gradesConsensus(symbol: String, on req: Request) async throws -> [GradesConsensusResponse] {
-        _ = await state.nextGradesConsensusCall()
-        return [
-            GradesConsensusResponse(
-                symbol: symbol,
-                strongBuy: 1,
-                buy: 49,
-                hold: 11,
-                sell: 0,
-                strongSell: 0,
-                consensus: "Buy"
-            )
-        ]
-    }
+        var name: String {
+            "test-fmp"
+        }
 
-    func financialGrowth(
-        symbol: String,
-        limit: Int?,
-        period: String?,
-        on req: Request
-    ) async throws -> [FinancialGrowthResponse] {
-        await state.recordFinancialGrowth(symbol: symbol, limit: limit, period: period)
-        return [
-            FinancialGrowthResponse(
-                symbol: symbol,
-                date: "2024-09-28",
-                fiscalYear: "2024",
-                period: period ?? "FY",
-                reportedCurrency: "USD",
-                revenueGrowth: 0.020219940775141214,
-                grossProfitGrowth: 0.06819471705252206,
-                ebitgrowth: 0.07799581805933456,
-                operatingIncomeGrowth: 0.07799581805933456,
-                netIncomeGrowth: -0.033599670086086914,
-                epsgrowth: -0.008116883116883088,
-                epsdilutedGrowth: -0.008156606851549727,
-                weightedAverageSharesGrowth: -0.02543458616683152,
-                weightedAverageSharesDilutedGrowth: -0.02557791606880283,
-                dividendsPerShareGrowth: 0.040371570095532654,
-                operatingCashFlowGrowth: 0.06975566069312394,
-                receivablesGrowth: 0.08621792243994425,
-                inventoryGrowth: 0.15084504817564365,
-                assetGrowth: 0.035160515396374756,
-                bookValueperShareGrowth: -0.059693251557224776,
-                debtGrowth: -0.0401393489845888,
-                rdexpenseGrowth: 0.04863780712017383,
-                sgaexpensesGrowth: 0.04672709770575967,
-                freeCashFlowGrowth: 0.092615279562982,
-                tenYRevenueGrowthPerShare: 2.3937532854122625,
-                fiveYRevenueGrowthPerShare: 0.8093292228858464,
-                threeYRevenueGrowthPerShare: 0.163506592883552,
-                tenYOperatingCFGrowthPerShare: 2.1417809176982403,
-                fiveYOperatingCFGrowthPerShare: 1.051533221923415,
-                threeYOperatingCFGrowthPerShare: 0.23720294833900227,
-                tenYNetIncomeGrowthPerShare: 2.76381558093543,
-                fiveYNetIncomeGrowthPerShare: 1.0421744314966246,
-                threeYNetIncomeGrowthPerShare: 0.07761907162786884,
-                tenYShareholdersEquityGrowthPerShare: -0.19003774225234785,
-                fiveYShareholdersEquityGrowthPerShare: -0.24235004889283715,
-                threeYShareholdersEquityGrowthPerShare: -0.017459858915902907,
-                tenYDividendperShareGrowthPerShare: 1.1722201809466772,
-                fiveYDividendperShareGrowthPerShare: 0.29890046876764864,
-                threeYDividendperShareGrowthPerShare: 0.14617932692103452,
-                ebitdaGrowth: nil,
-                growthCapitalExpenditure: nil,
-                tenYBottomLineNetIncomeGrowthPerShare: nil,
-                fiveYBottomLineNetIncomeGrowthPerShare: nil,
-                threeYBottomLineNetIncomeGrowthPerShare: nil
-            ),
-            FinancialGrowthResponse(
-                symbol: symbol,
-                date: "2023-09-28",
-                fiscalYear: "2023",
-                period: period ?? "FY",
-                reportedCurrency: "USD",
-                revenueGrowth: 0.031,
-                grossProfitGrowth: 0.05,
-                ebitgrowth: 0.06,
-                operatingIncomeGrowth: 0.06,
-                netIncomeGrowth: 0.04,
-                epsgrowth: 0.041,
-                epsdilutedGrowth: 0.04,
-                weightedAverageSharesGrowth: -0.02,
-                weightedAverageSharesDilutedGrowth: -0.02,
-                dividendsPerShareGrowth: 0.03,
-                operatingCashFlowGrowth: 0.05,
-                receivablesGrowth: 0.04,
-                inventoryGrowth: 0.06,
-                assetGrowth: 0.03,
-                bookValueperShareGrowth: -0.04,
-                debtGrowth: -0.02,
-                rdexpenseGrowth: 0.03,
-                sgaexpensesGrowth: 0.04,
-                freeCashFlowGrowth: 0.08,
-                tenYRevenueGrowthPerShare: 2.1,
-                fiveYRevenueGrowthPerShare: 0.7,
-                threeYRevenueGrowthPerShare: 0.15,
-                tenYOperatingCFGrowthPerShare: 1.9,
-                fiveYOperatingCFGrowthPerShare: 0.9,
-                threeYOperatingCFGrowthPerShare: 0.21,
-                tenYNetIncomeGrowthPerShare: 2.2,
-                fiveYNetIncomeGrowthPerShare: 0.9,
-                threeYNetIncomeGrowthPerShare: 0.07,
-                tenYShareholdersEquityGrowthPerShare: -0.16,
-                fiveYShareholdersEquityGrowthPerShare: -0.22,
-                threeYShareholdersEquityGrowthPerShare: -0.01,
-                tenYDividendperShareGrowthPerShare: 1.0,
-                fiveYDividendperShareGrowthPerShare: 0.25,
-                threeYDividendperShareGrowthPerShare: 0.13,
-                ebitdaGrowth: nil,
-                growthCapitalExpenditure: nil,
-                tenYBottomLineNetIncomeGrowthPerShare: nil,
-                fiveYBottomLineNetIncomeGrowthPerShare: nil,
-                threeYBottomLineNetIncomeGrowthPerShare: nil
-            )
-        ]
-    }
+        func cashFlowStatement(
+            symbol: String,
+            limit: Int?,
+            period: String?,
+            on _: Request
+        ) async throws -> [CashFlowStatementResponse] {
+            await state.recordCashFlow(symbol: symbol, limit: limit, period: period)
+            return [
+                CashFlowStatementResponse(
+                    date: "2024-09-28",
+                    symbol: symbol,
+                    reportedCurrency: "USD",
+                    cik: "0000320193",
+                    filingDate: "2024-11-01",
+                    acceptedDate: "2024-11-01 06:01:36",
+                    fiscalYear: "2024",
+                    period: period ?? "FY",
+                    netIncome: 93_736_000_000,
+                    depreciationAndAmortization: 11_445_000_000,
+                    deferredIncomeTax: 0,
+                    stockBasedCompensation: 11_688_000_000,
+                    changeInWorkingCapital: 3_651_000_000,
+                    accountsReceivables: -5_144_000_000,
+                    inventory: -1_046_000_000,
+                    accountsPayables: 6_020_000_000,
+                    otherWorkingCapital: 3_821_000_000,
+                    otherNonCashItems: -2_266_000_000,
+                    netCashProvidedByOperatingActivities: 118_254_000_000,
+                    investmentsInPropertyPlantAndEquipment: -9_447_000_000,
+                    acquisitionsNet: 0,
+                    purchasesOfInvestments: -48_656_000_000,
+                    salesMaturitiesOfInvestments: 62_346_000_000,
+                    otherInvestingActivities: -1_308_000_000,
+                    netCashProvidedByInvestingActivities: 2_935_000_000,
+                    netDebtIssuance: -5_998_000_000,
+                    longTermNetDebtIssuance: -9_958_000_000,
+                    shortTermNetDebtIssuance: 3_960_000_000,
+                    netStockIssuance: -94_949_000_000,
+                    netCommonStockIssuance: -94_949_000_000,
+                    commonStockIssuance: 0,
+                    commonStockRepurchased: -94_949_000_000,
+                    netPreferredStockIssuance: 0,
+                    netDividendsPaid: -15_234_000_000,
+                    commonDividendsPaid: -15_234_000_000,
+                    preferredDividendsPaid: 0,
+                    otherFinancingActivities: -5_802_000_000,
+                    netCashProvidedByFinancingActivities: -121_983_000_000,
+                    effectOfForexChangesOnCash: 0,
+                    netChangeInCash: -794_000_000,
+                    cashAtEndOfPeriod: 29_943_000_000,
+                    cashAtBeginningOfPeriod: 30_737_000_000,
+                    operatingCashFlow: 118_254_000_000,
+                    capitalExpenditure: -9_447_000_000,
+                    freeCashFlow: 108_807_000_000,
+                    incomeTaxesPaid: 26_102_000_000,
+                    interestPaid: 0
+                ),
+            ]
+        }
 
-    func analystEstimates(
-        symbol: String,
-        period: String,
-        page: Int?,
-        limit: Int?,
-        on req: Request
-    ) async throws -> [AnalystEstimatesResponse] {
-        await state.recordAnalystEstimates(symbol: symbol, period: period, page: page, limit: limit)
-        return [
-            AnalystEstimatesResponse(
-                symbol: symbol,
-                date: "2029-09-28",
-                revenueLow: 483092500000,
-                revenueHigh: 483093500000,
-                revenueAvg: 483093000000,
-                ebitdaLow: 155952166036,
-                ebitdaHigh: 155952488856,
-                ebitdaAvg: 155952327446,
-                ebitLow: 140628295747,
-                ebitHigh: 140628586847,
-                ebitAvg: 140628441297,
-                netIncomeLow: 139446957701,
-                netIncomeHigh: 157185372990,
-                netIncomeAvg: 149150359609,
-                sgaExpenseLow: 31694652812,
-                sgaExpenseHigh: 31694718420,
-                sgaExpenseAvg: 31694685616,
-                epsAvg: 9.68,
-                epsHigh: 10.20148,
-                epsLow: 9.05024,
-                numAnalystsRevenue: 16,
-                numAnalystsEps: 6
-            )
-        ]
-    }
+        func balanceSheetStatement(
+            symbol: String,
+            limit: Int?,
+            period: String?,
+            on _: Request
+        ) async throws -> [BalanceSheetStatementResponse] {
+            await state.recordBalanceSheet(symbol: symbol, limit: limit, period: period)
+            return [
+                BalanceSheetStatementResponse(
+                    date: "2024-09-28",
+                    symbol: symbol,
+                    reportedCurrency: "USD",
+                    cik: "0000320193",
+                    filingDate: "2024-11-01",
+                    acceptedDate: "2024-11-01 06:01:36",
+                    fiscalYear: "2024",
+                    period: period ?? "FY",
+                    cashAndCashEquivalents: 29_943_000_000,
+                    shortTermInvestments: 35_228_000_000,
+                    cashAndShortTermInvestments: 65_171_000_000,
+                    netReceivables: 66_243_000_000,
+                    accountsReceivables: 33_410_000_000,
+                    otherReceivables: 32_833_000_000,
+                    inventory: 7_286_000_000,
+                    prepaids: 0,
+                    otherCurrentAssets: 14_287_000_000,
+                    totalCurrentAssets: 152_987_000_000,
+                    propertyPlantEquipmentNet: 45_680_000_000,
+                    goodwill: 0,
+                    intangibleAssets: 0,
+                    goodwillAndIntangibleAssets: 0,
+                    longTermInvestments: 91_479_000_000,
+                    taxAssets: 19_499_000_000,
+                    otherNonCurrentAssets: 55_335_000_000,
+                    totalNonCurrentAssets: 211_993_000_000,
+                    otherAssets: 0,
+                    totalAssets: 364_980_000_000,
+                    totalPayables: 95_561_000_000,
+                    accountPayables: 68_960_000_000,
+                    otherPayables: 26_601_000_000,
+                    accruedExpenses: 0,
+                    shortTermDebt: 20_879_000_000,
+                    capitalLeaseOblationsCurrent: 1_632_000_000,
+                    taxPayables: 26_601_000_000,
+                    deferredRevenue: 8_249_000_000,
+                    otherCurrentLiabilities: 50_071_000_000,
+                    totalCurrentLiabilities: 176_392_000_000,
+                    longTermDebt: 85_750_000_000,
+                    deferredRevenueNonCurrent: 10_798_000_000,
+                    deferredTaxLiabilitiesNonCurrent: 0,
+                    otherNonCurrentLiabilities: 35_090_000_000,
+                    totalNonCurrentLiabilities: 131_638_000_000,
+                    otherLiabilities: 0,
+                    capitalLeaseObligations: 12_430_000_000,
+                    totalLiabilities: 308_030_000_000,
+                    treasuryStock: 0,
+                    preferredStock: 0,
+                    commonStock: 83_276_000_000,
+                    retainedEarnings: -19_154_000_000,
+                    additionalPaidInCapital: 0,
+                    accumulatedOtherComprehensiveIncomeLoss: -7_172_000_000,
+                    otherTotalStockholdersEquity: 0,
+                    totalStockholdersEquity: 56_950_000_000,
+                    totalEquity: 56_950_000_000,
+                    minorityInterest: 0,
+                    totalLiabilitiesAndTotalEquity: 364_980_000_000,
+                    totalInvestments: 126_707_000_000,
+                    totalDebt: 106_629_000_000,
+                    netDebt: 76_686_000_000
+                ),
+            ]
+        }
 
-    func ratios(
-        symbol: String,
-        limit: Int?,
-        period: String?,
-        on req: Request
-    ) async throws -> [RatiosResponse] {
-        await state.recordRatios(symbol: symbol, limit: limit, period: period)
-        return [
-            RatiosResponse(
-                symbol: symbol,
-                date: "2024-09-28",
-                fiscalYear: "2024",
-                period: period ?? "FY",
-                reportedCurrency: "USD",
-                grossProfitMargin: 0.4620634981523393,
-                ebitMargin: 0.31510222870075566,
-                ebitdaMargin: 0.3443707085043538,
-                operatingProfitMargin: 0.31510222870075566,
-                pretaxProfitMargin: 0.3157901466620635,
-                continuousOperationsProfitMargin: 0.23971255769943867,
-                netProfitMargin: 0.23971255769943867,
-                bottomLineProfitMargin: 0.23971255769943867,
-                receivablesTurnover: 5.903038811648023,
-                payablesTurnover: 3.0503480278422272,
-                inventoryTurnover: 28.870710952511665,
-                fixedAssetTurnover: 8.560310858143607,
-                assetTurnover: 1.0713874732862074,
-                currentRatio: 0.8673125765340832,
-                quickRatio: 0.8260068483831466,
-                solvencyRatio: 0.3414634938155374,
-                cashRatio: 0.16975259648963673,
-                priceToEarningsRatio: 37.287278415656736,
-                priceToEarningsGrowthRatio: -45.93792700808932,
-                forwardPriceToEarningsGrowthRatio: -45.93792700808932,
-                priceToBookRatio: 61.37243774486391,
-                priceToSalesRatio: 8.93822887866815,
-                priceToFreeCashFlowRatio: 32.12256867269569,
-                priceToOperatingCashFlowRatio: 29.55638142954995,
-                debtToAssetsRatio: 0.29215025480848267,
-                debtToEquityRatio: 1.872326602282704,
-                debtToCapitalRatio: 0.6518501763673821,
-                longTermDebtToCapitalRatio: 0.6009110021023125,
-                financialLeverageRatio: 6.408779631255487,
-                workingCapitalTurnoverRatio: -31.099932397502684,
-                operatingCashFlowRatio: 0.6704045534944896,
-                operatingCashFlowSalesRatio: 0.3024128274962599,
-                freeCashFlowOperatingCashFlowRatio: 0.9201126388959359,
-                debtServiceCoverageRatio: 5.024761722304708,
-                interestCoverageRatio: 0,
-                shortTermOperatingCashFlowCoverageRatio: 5.663777000814215,
-                operatingCashFlowCoverageRatio: 1.109022873702276,
-                capitalExpenditureCoverageRatio: 12.517624642743728,
-                dividendPaidAndCapexCoverageRatio: 4.7912969490701345,
-                dividendPayoutRatio: 0.16252026969360758,
-                dividendYield: 0.0043585983369965175,
-                dividendYieldPercentage: 0.43585983369965176,
-                revenuePerShare: 25.484914639368924,
-                netIncomePerShare: 6.109054070954992,
-                interestDebtPerShare: 6.949329249507765,
-                cashPerShare: 4.247388013764271,
-                bookValuePerShare: 3.711600978715614,
-                tangibleBookValuePerShare: 3.711600978715614,
-                shareholdersEquityPerShare: 3.711600978715614,
-                operatingCashFlowPerShare: 7.706965094592383,
-                capexPerShare: 0.6156891035281195,
-                freeCashFlowPerShare: 7.091275991064264,
-                netIncomePerEBT: 0.7590881483581001,
-                ebtPerEbit: 1.0021831580314244,
-                priceToFairValue: 61.37243774486391,
-                debtToMarketCap: 0.03050761336980449,
-                effectiveTaxRate: 0.24091185164189982,
-                enterpriseValueMultiple: 26.524727497716487
-            )
-        ]
-    }
+        func ratiosTTM(symbol: String, on _: Request) async throws -> [RatiosTTMResponse] {
+            _ = await state.nextRatiosTTMCall()
+            return [
+                RatiosTTMResponse(
+                    symbol: symbol,
+                    grossProfitMarginTTM: 0.46518849807964424,
+                    ebitMarginTTM: 0.3175535678188801,
+                    ebitdaMarginTTM: 0.34705882352941175,
+                    operatingProfitMarginTTM: 0.3175535678188801,
+                    pretaxProfitMarginTTM: 0.31773296947645036,
+                    continuousOperationsProfitMarginTTM: 0.24295027289266222,
+                    netProfitMarginTTM: 0.24295027289266222,
+                    bottomLineProfitMarginTTM: 0.24295027289266222,
+                    receivablesTurnoverTTM: 6.673186524129093,
+                    payablesTurnoverTTM: 3.4187853335486995,
+                    inventoryTurnoverTTM: 30.626103313558097,
+                    fixedAssetTurnoverTTM: 8.590592372311098,
+                    assetTurnoverTTM: 1.1501809145995903,
+                    currentRatioTTM: 0.9229383853427077,
+                    quickRatioTTM: 0.8750666712845911,
+                    solvencyRatioTTM: 0.3888081578786054,
+                    cashRatioTTM: 0.20987774044955496,
+                    priceToEarningsRatioTTM: 32.889608822880916,
+                    priceToEarningsGrowthRatioTTM: 9.104441715061135,
+                    forwardPriceToEarningsGrowthRatioTTM: 9.104441715061135,
+                    priceToBookRatioTTM: 47.370141231313106,
+                    priceToSalesRatioTTM: 7.958949686678795,
+                    priceToFreeCashFlowRatioTTM: 32.04339747098139,
+                    priceToOperatingCashFlowRatioTTM: 29.201395167968677,
+                    debtToAssetsRatioTTM: 0.28132292892744526,
+                    debtToEquityRatioTTM: 1.4499985020521886,
+                    debtToCapitalRatioTTM: 0.5918364851397372,
+                    longTermDebtToCapitalRatioTTM: 0.557055084464615,
+                    financialLeverageRatioTTM: 5.154213727193745,
+                    workingCapitalTurnoverRatioTTM: -22.92267593397046,
+                    operatingCashFlowRatioTTM: 0.7501402694558931,
+                    operatingCashFlowSalesRatioTTM: 0.2736355366889024,
+                    freeCashFlowOperatingCashFlowRatioTTM: 0.9077049513361775,
+                    debtServiceCoverageRatioTTM: 8.390251498870981,
+                    interestCoverageRatioTTM: 0,
+                    shortTermOperatingCashFlowCoverageRatioTTM: 8.432142022891847,
+                    operatingCashFlowCoverageRatioTTM: 1.1187512267688715,
+                    capitalExpenditureCoverageRatioTTM: 10.834817408704351,
+                    dividendPaidAndCapexCoverageRatioTTM: 4.287173396674584,
+                    dividendPayoutRatioTTM: 0.15876235049401977,
+                    dividendYieldTTM: 0.0047691720717283476,
+                    enterpriseValueTTM: 3_216_333_928_000,
+                    revenuePerShareTTM: 26.24103186081379,
+                    netIncomePerShareTTM: 6.375265851569754,
+                    interestDebtPerShareTTM: 6.418298067250137,
+                    cashPerShareTTM: 3.565573803101025,
+                    bookValuePerShareTTM: 4.426417032959892,
+                    tangibleBookValuePerShareTTM: 4.426417032959892,
+                    shareholdersEquityPerShareTTM: 4.426417032959892,
+                    operatingCashFlowPerShareTTM: 7.180478836504368,
+                    capexPerShareTTM: 0.6627226436447186,
+                    freeCashFlowPerShareTTM: 6.5177561928596495,
+                    netIncomePerEBTTTM: 0.7646366484818603,
+                    ebtPerEbitTTM: 1.0005649492739208,
+                    priceToFairValueTTM: 47.370141231313106,
+                    debtToMarketCapTTM: 0.030731461471514124,
+                    effectiveTaxRateTTM: 0.23536335151813975,
+                    enterpriseValueMultipleTTM: 23.41672438697653
+                ),
+            ]
+        }
 
-    func earnings(symbol: String, limit: Int?, on req: Request) async throws -> [EarningsResponse] {
-        await state.recordEarnings(symbol: symbol, limit: limit)
-        return [
-            EarningsResponse(
-                symbol: symbol,
-                date: "2024-10-29",
-                epsActual: 1.64,
-                epsEstimated: 1.60,
-                revenueActual: 94930000000,
-                revenueEstimated: 94400000000,
-                lastUpdated: "2024-12-08",
-                surprisePercent: 2.5,
-                hasTranscript: true
-            )
-        ]
-    }
+        func gradesConsensus(symbol: String, on _: Request) async throws -> [GradesConsensusResponse] {
+            _ = await state.nextGradesConsensusCall()
+            return [
+                GradesConsensusResponse(
+                    symbol: symbol,
+                    strongBuy: 1,
+                    buy: 49,
+                    hold: 11,
+                    sell: 0,
+                    strongSell: 0,
+                    consensus: "Buy"
+                ),
+            ]
+        }
 
-    func earningsCalendar(from: Date?, to: Date?, on req: Request) async throws -> [EarningsResponse] {
-        await state.recordEarningsCalendar(from: from.map(formatISODateOnly), to: to.map(formatISODateOnly))
-        return [
-            EarningsResponse(
-                symbol: "AAPL",
-                date: "2024-10-29",
-                epsActual: 1.64,
-                epsEstimated: 1.60,
-                revenueActual: 94930000000,
-                revenueEstimated: 94400000000,
-                lastUpdated: "2024-12-08",
-                surprisePercent: 2.5,
-                hasTranscript: false
-            )
-        ]
-    }
+        func financialGrowth(
+            symbol: String,
+            limit: Int?,
+            period: String?,
+            on _: Request
+        ) async throws -> [FinancialGrowthResponse] {
+            await state.recordFinancialGrowth(symbol: symbol, limit: limit, period: period)
+            return [
+                FinancialGrowthResponse(
+                    symbol: symbol,
+                    date: "2024-09-28",
+                    fiscalYear: "2024",
+                    period: period ?? "FY",
+                    reportedCurrency: "USD",
+                    revenueGrowth: 0.020219940775141214,
+                    grossProfitGrowth: 0.06819471705252206,
+                    ebitgrowth: 0.07799581805933456,
+                    operatingIncomeGrowth: 0.07799581805933456,
+                    netIncomeGrowth: -0.033599670086086914,
+                    epsgrowth: -0.008116883116883088,
+                    epsdilutedGrowth: -0.008156606851549727,
+                    weightedAverageSharesGrowth: -0.02543458616683152,
+                    weightedAverageSharesDilutedGrowth: -0.02557791606880283,
+                    dividendsPerShareGrowth: 0.040371570095532654,
+                    operatingCashFlowGrowth: 0.06975566069312394,
+                    receivablesGrowth: 0.08621792243994425,
+                    inventoryGrowth: 0.15084504817564365,
+                    assetGrowth: 0.035160515396374756,
+                    bookValueperShareGrowth: -0.059693251557224776,
+                    debtGrowth: -0.0401393489845888,
+                    rdexpenseGrowth: 0.04863780712017383,
+                    sgaexpensesGrowth: 0.04672709770575967,
+                    freeCashFlowGrowth: 0.092615279562982,
+                    tenYRevenueGrowthPerShare: 2.3937532854122625,
+                    fiveYRevenueGrowthPerShare: 0.8093292228858464,
+                    threeYRevenueGrowthPerShare: 0.163506592883552,
+                    tenYOperatingCFGrowthPerShare: 2.1417809176982403,
+                    fiveYOperatingCFGrowthPerShare: 1.051533221923415,
+                    threeYOperatingCFGrowthPerShare: 0.23720294833900227,
+                    tenYNetIncomeGrowthPerShare: 2.76381558093543,
+                    fiveYNetIncomeGrowthPerShare: 1.0421744314966246,
+                    threeYNetIncomeGrowthPerShare: 0.07761907162786884,
+                    tenYShareholdersEquityGrowthPerShare: -0.19003774225234785,
+                    fiveYShareholdersEquityGrowthPerShare: -0.24235004889283715,
+                    threeYShareholdersEquityGrowthPerShare: -0.017459858915902907,
+                    tenYDividendperShareGrowthPerShare: 1.1722201809466772,
+                    fiveYDividendperShareGrowthPerShare: 0.29890046876764864,
+                    threeYDividendperShareGrowthPerShare: 0.14617932692103452,
+                    ebitdaGrowth: nil,
+                    growthCapitalExpenditure: nil,
+                    tenYBottomLineNetIncomeGrowthPerShare: nil,
+                    fiveYBottomLineNetIncomeGrowthPerShare: nil,
+                    threeYBottomLineNetIncomeGrowthPerShare: nil
+                ),
+                FinancialGrowthResponse(
+                    symbol: symbol,
+                    date: "2023-09-28",
+                    fiscalYear: "2023",
+                    period: period ?? "FY",
+                    reportedCurrency: "USD",
+                    revenueGrowth: 0.031,
+                    grossProfitGrowth: 0.05,
+                    ebitgrowth: 0.06,
+                    operatingIncomeGrowth: 0.06,
+                    netIncomeGrowth: 0.04,
+                    epsgrowth: 0.041,
+                    epsdilutedGrowth: 0.04,
+                    weightedAverageSharesGrowth: -0.02,
+                    weightedAverageSharesDilutedGrowth: -0.02,
+                    dividendsPerShareGrowth: 0.03,
+                    operatingCashFlowGrowth: 0.05,
+                    receivablesGrowth: 0.04,
+                    inventoryGrowth: 0.06,
+                    assetGrowth: 0.03,
+                    bookValueperShareGrowth: -0.04,
+                    debtGrowth: -0.02,
+                    rdexpenseGrowth: 0.03,
+                    sgaexpensesGrowth: 0.04,
+                    freeCashFlowGrowth: 0.08,
+                    tenYRevenueGrowthPerShare: 2.1,
+                    fiveYRevenueGrowthPerShare: 0.7,
+                    threeYRevenueGrowthPerShare: 0.15,
+                    tenYOperatingCFGrowthPerShare: 1.9,
+                    fiveYOperatingCFGrowthPerShare: 0.9,
+                    threeYOperatingCFGrowthPerShare: 0.21,
+                    tenYNetIncomeGrowthPerShare: 2.2,
+                    fiveYNetIncomeGrowthPerShare: 0.9,
+                    threeYNetIncomeGrowthPerShare: 0.07,
+                    tenYShareholdersEquityGrowthPerShare: -0.16,
+                    fiveYShareholdersEquityGrowthPerShare: -0.22,
+                    threeYShareholdersEquityGrowthPerShare: -0.01,
+                    tenYDividendperShareGrowthPerShare: 1.0,
+                    fiveYDividendperShareGrowthPerShare: 0.25,
+                    threeYDividendperShareGrowthPerShare: 0.13,
+                    ebitdaGrowth: nil,
+                    growthCapitalExpenditure: nil,
+                    tenYBottomLineNetIncomeGrowthPerShare: nil,
+                    fiveYBottomLineNetIncomeGrowthPerShare: nil,
+                    threeYBottomLineNetIncomeGrowthPerShare: nil
+                ),
+            ]
+        }
 
-    func historicalSectorPerformance(
-        sector: String,
-        exchange: String?,
-        from: Date?,
-        to: Date?,
-        on req: Request
-    ) async throws -> [HistoricalSectorPerformanceResponse] {
-        await state.recordSectorPerformance(
-            sector: sector,
-            exchange: exchange,
-            from: from.map(formatISODateOnly),
-            to: to.map(formatISODateOnly)
-        )
-        return [
-            HistoricalSectorPerformanceResponse(
-                date: "2024-02-01",
+        func analystEstimates(
+            symbol: String,
+            period: String,
+            page: Int?,
+            limit: Int?,
+            on _: Request
+        ) async throws -> [AnalystEstimatesResponse] {
+            await state.recordAnalystEstimates(symbol: symbol, period: period, page: page, limit: limit)
+            return [
+                AnalystEstimatesResponse(
+                    symbol: symbol,
+                    date: "2029-09-28",
+                    revenueLow: 483_092_500_000,
+                    revenueHigh: 483_093_500_000,
+                    revenueAvg: 483_093_000_000,
+                    ebitdaLow: 155_952_166_036,
+                    ebitdaHigh: 155_952_488_856,
+                    ebitdaAvg: 155_952_327_446,
+                    ebitLow: 140_628_295_747,
+                    ebitHigh: 140_628_586_847,
+                    ebitAvg: 140_628_441_297,
+                    netIncomeLow: 139_446_957_701,
+                    netIncomeHigh: 157_185_372_990,
+                    netIncomeAvg: 149_150_359_609,
+                    sgaExpenseLow: 31_694_652_812,
+                    sgaExpenseHigh: 31_694_718_420,
+                    sgaExpenseAvg: 31_694_685_616,
+                    epsAvg: 9.68,
+                    epsHigh: 10.20148,
+                    epsLow: 9.05024,
+                    numAnalystsRevenue: 16,
+                    numAnalystsEps: 6
+                ),
+            ]
+        }
+
+        func ratios(
+            symbol: String,
+            limit: Int?,
+            period: String?,
+            on _: Request
+        ) async throws -> [RatiosResponse] {
+            await state.recordRatios(symbol: symbol, limit: limit, period: period)
+            return [
+                RatiosResponse(
+                    symbol: symbol,
+                    date: "2024-09-28",
+                    fiscalYear: "2024",
+                    period: period ?? "FY",
+                    reportedCurrency: "USD",
+                    grossProfitMargin: 0.4620634981523393,
+                    ebitMargin: 0.31510222870075566,
+                    ebitdaMargin: 0.3443707085043538,
+                    operatingProfitMargin: 0.31510222870075566,
+                    pretaxProfitMargin: 0.3157901466620635,
+                    continuousOperationsProfitMargin: 0.23971255769943867,
+                    netProfitMargin: 0.23971255769943867,
+                    bottomLineProfitMargin: 0.23971255769943867,
+                    receivablesTurnover: 5.903038811648023,
+                    payablesTurnover: 3.0503480278422272,
+                    inventoryTurnover: 28.870710952511665,
+                    fixedAssetTurnover: 8.560310858143607,
+                    assetTurnover: 1.0713874732862074,
+                    currentRatio: 0.8673125765340832,
+                    quickRatio: 0.8260068483831466,
+                    solvencyRatio: 0.3414634938155374,
+                    cashRatio: 0.16975259648963673,
+                    priceToEarningsRatio: 37.287278415656736,
+                    priceToEarningsGrowthRatio: -45.93792700808932,
+                    forwardPriceToEarningsGrowthRatio: -45.93792700808932,
+                    priceToBookRatio: 61.37243774486391,
+                    priceToSalesRatio: 8.93822887866815,
+                    priceToFreeCashFlowRatio: 32.12256867269569,
+                    priceToOperatingCashFlowRatio: 29.55638142954995,
+                    debtToAssetsRatio: 0.29215025480848267,
+                    debtToEquityRatio: 1.872326602282704,
+                    debtToCapitalRatio: 0.6518501763673821,
+                    longTermDebtToCapitalRatio: 0.6009110021023125,
+                    financialLeverageRatio: 6.408779631255487,
+                    workingCapitalTurnoverRatio: -31.099932397502684,
+                    operatingCashFlowRatio: 0.6704045534944896,
+                    operatingCashFlowSalesRatio: 0.3024128274962599,
+                    freeCashFlowOperatingCashFlowRatio: 0.9201126388959359,
+                    debtServiceCoverageRatio: 5.024761722304708,
+                    interestCoverageRatio: 0,
+                    shortTermOperatingCashFlowCoverageRatio: 5.663777000814215,
+                    operatingCashFlowCoverageRatio: 1.109022873702276,
+                    capitalExpenditureCoverageRatio: 12.517624642743728,
+                    dividendPaidAndCapexCoverageRatio: 4.7912969490701345,
+                    dividendPayoutRatio: 0.16252026969360758,
+                    dividendYield: 0.0043585983369965175,
+                    dividendYieldPercentage: 0.43585983369965176,
+                    revenuePerShare: 25.484914639368924,
+                    netIncomePerShare: 6.109054070954992,
+                    interestDebtPerShare: 6.949329249507765,
+                    cashPerShare: 4.247388013764271,
+                    bookValuePerShare: 3.711600978715614,
+                    tangibleBookValuePerShare: 3.711600978715614,
+                    shareholdersEquityPerShare: 3.711600978715614,
+                    operatingCashFlowPerShare: 7.706965094592383,
+                    capexPerShare: 0.6156891035281195,
+                    freeCashFlowPerShare: 7.091275991064264,
+                    netIncomePerEBT: 0.7590881483581001,
+                    ebtPerEbit: 1.0021831580314244,
+                    priceToFairValue: 61.37243774486391,
+                    debtToMarketCap: 0.03050761336980449,
+                    effectiveTaxRate: 0.24091185164189982,
+                    enterpriseValueMultiple: 26.524727497716487
+                ),
+            ]
+        }
+
+        func earnings(symbol: String, limit: Int?, on _: Request) async throws -> [EarningsResponse] {
+            await state.recordEarnings(symbol: symbol, limit: limit)
+            return [
+                EarningsResponse(
+                    symbol: symbol,
+                    date: "2024-10-29",
+                    epsActual: 1.64,
+                    epsEstimated: 1.60,
+                    revenueActual: 94_930_000_000,
+                    revenueEstimated: 94_400_000_000,
+                    lastUpdated: "2024-12-08",
+                    surprisePercent: 2.5,
+                    hasTranscript: true
+                ),
+            ]
+        }
+
+        func earningsCalendar(from: Date?, to: Date?, on _: Request) async throws -> [EarningsResponse] {
+            await state.recordEarningsCalendar(from: from.map(StockPlanBackendTests.formatISODateOnly), to: to.map(StockPlanBackendTests.formatISODateOnly))
+            return [
+                EarningsResponse(
+                    symbol: "AAPL",
+                    date: "2024-10-29",
+                    epsActual: 1.64,
+                    epsEstimated: 1.60,
+                    revenueActual: 94_930_000_000,
+                    revenueEstimated: 94_400_000_000,
+                    lastUpdated: "2024-12-08",
+                    surprisePercent: 2.5,
+                    hasTranscript: false
+                ),
+            ]
+        }
+
+        func historicalSectorPerformance(
+            sector: String,
+            exchange: String?,
+            from: Date?,
+            to: Date?,
+            on _: Request
+        ) async throws -> [HistoricalSectorPerformanceResponse] {
+            await state.recordSectorPerformance(
                 sector: sector,
-                exchange: exchange ?? "NASDAQ",
-                averageChange: 0.6397534025664513
+                exchange: exchange,
+                from: from.map(StockPlanBackendTests.formatISODateOnly),
+                to: to.map(StockPlanBackendTests.formatISODateOnly)
             )
-        ]
+            return [
+                HistoricalSectorPerformanceResponse(
+                    date: "2024-02-01",
+                    sector: sector,
+                    exchange: exchange ?? "NASDAQ",
+                    averageChange: 0.6397534025664513
+                ),
+            ]
+        }
+
+        func fetchGeneralMarketNews(
+            page _: Int?,
+            limit _: Int?,
+            from _: Date?,
+            to _: Date?,
+            on _: Request
+        ) async throws -> [FMPMarketNewsItem] {
+            []
+        }
+
+        func stockIntraday(
+            interval _: String,
+            symbol _: String,
+            from _: String?,
+            to _: String?,
+            on _: Request
+        ) async throws -> [CryptoHistoricalPoint] {
+            []
+        }
+
+        func stockHistoricalEOD(
+            symbol _: String,
+            from _: String?,
+            to _: String?,
+            on _: Request
+        ) async throws -> [CryptoHistoricalLightPoint] {
+            []
+        }
     }
 
-    func fetchGeneralMarketNews(
-        page: Int?,
-        limit: Int?,
-        from: Date?,
-        to: Date?,
-        on req: Request
-    ) async throws -> [FMPMarketNewsItem] {
-        []
+    private static func formatISODateOnly(_ date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.calendar = Calendar(identifier: .gregorian)
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = TimeZone(secondsFromGMT: 0)
+        formatter.dateFormat = "yyyy-MM-dd"
+        return formatter.string(from: date)
     }
 
-    func stockIntraday(
-        interval: String,
-        symbol: String,
-        from: String?,
-        to: String?,
-        on req: Request
-    ) async throws -> [CryptoHistoricalPoint] {
-        []
+    private struct SeededLists {
+        let portfolioListId: UUID
+        let watchlistListId: UUID
     }
 
-    func stockHistoricalEOD(
-        symbol: String,
-        from: String?,
-        to: String?,
-        on req: Request
-    ) async throws -> [CryptoHistoricalLightPoint] {
-        []
-    }
-}
+    private func seedDefaultLists(userId: UUID, on db: any Database) async throws -> SeededLists {
+        let portfolioList = PortfolioList(userId: userId, name: "Main Portfolio", isDefault: true)
+        let watchlistList = WatchlistList(userId: userId, name: "Main Watchlist", isDefault: true)
+        try await portfolioList.save(on: db)
+        try await watchlistList.save(on: db)
 
-private func formatISODateOnly(_ date: Date) -> String {
-    let formatter = DateFormatter()
-    formatter.calendar = Calendar(identifier: .gregorian)
-    formatter.locale = Locale(identifier: "en_US_POSIX")
-    formatter.timeZone = TimeZone(secondsFromGMT: 0)
-    formatter.dateFormat = "yyyy-MM-dd"
-    return formatter.string(from: date)
-}
-
-private struct SeededLists {
-    let portfolioListId: UUID
-    let watchlistListId: UUID
-}
-
-private func seedDefaultLists(userId: UUID, on db: any Database) async throws -> SeededLists {
-    let portfolioList = PortfolioList(userId: userId, name: "Main Portfolio", isDefault: true)
-    let watchlistList = WatchlistList(userId: userId, name: "Main Watchlist", isDefault: true)
-    try await portfolioList.save(on: db)
-    try await watchlistList.save(on: db)
-
-    guard let portfolioListId = portfolioList.id, let watchlistListId = watchlistList.id else {
-        throw Abort(.internalServerError, reason: "Failed to seed default lists for tests.")
-    }
-    return SeededLists(portfolioListId: portfolioListId, watchlistListId: watchlistListId)
-}
-
-struct TestPaymentRequiredFMPMarketDataProvider: FMPMarketDataProvider {
-    let name: String = "test-fmp-payment-required"
-
-    func cashFlowStatement(
-        symbol: String,
-        limit: Int?,
-        period: String?,
-        on req: Request
-    ) async throws -> [CashFlowStatementResponse] {
-        []
+        guard let portfolioListId = portfolioList.id, let watchlistListId = watchlistList.id else {
+            throw Abort(.internalServerError, reason: "Failed to seed default lists for tests.")
+        }
+        return SeededLists(portfolioListId: portfolioListId, watchlistListId: watchlistListId)
     }
 
-    func balanceSheetStatement(
-        symbol: String,
-        limit: Int?,
-        period: String?,
-        on req: Request
-    ) async throws -> [BalanceSheetStatementResponse] {
-        []
+    struct TestPaymentRequiredFMPMarketDataProvider: FMPMarketDataProvider {
+        let name: String = "test-fmp-payment-required"
+
+        func cashFlowStatement(
+            symbol _: String,
+            limit _: Int?,
+            period _: String?,
+            on _: Request
+        ) async throws -> [CashFlowStatementResponse] {
+            []
+        }
+
+        func balanceSheetStatement(
+            symbol _: String,
+            limit _: Int?,
+            period _: String?,
+            on _: Request
+        ) async throws -> [BalanceSheetStatementResponse] {
+            []
+        }
+
+        func ratiosTTM(symbol _: String, on _: Request) async throws -> [RatiosTTMResponse] {
+            []
+        }
+
+        func gradesConsensus(symbol _: String, on _: Request) async throws -> [GradesConsensusResponse] {
+            throw Abort(
+                .paymentRequired,
+                reason: "FMP plan upgrade required for /stable/grades-consensus. This endpoint is not available for the requested symbol on the current subscription."
+            )
+        }
+
+        func financialGrowth(
+            symbol _: String,
+            limit _: Int?,
+            period _: String?,
+            on _: Request
+        ) async throws -> [FinancialGrowthResponse] {
+            []
+        }
+
+        func analystEstimates(
+            symbol _: String,
+            period _: String,
+            page _: Int?,
+            limit _: Int?,
+            on _: Request
+        ) async throws -> [AnalystEstimatesResponse] {
+            []
+        }
+
+        func ratios(
+            symbol _: String,
+            limit _: Int?,
+            period _: String?,
+            on _: Request
+        ) async throws -> [RatiosResponse] {
+            []
+        }
+
+        func earnings(symbol _: String, limit _: Int?, on _: Request) async throws -> [EarningsResponse] {
+            []
+        }
+
+        func earningsCalendar(from _: Date?, to _: Date?, on _: Request) async throws -> [EarningsResponse] {
+            []
+        }
+
+        func historicalSectorPerformance(
+            sector _: String,
+            exchange _: String?,
+            from _: Date?,
+            to _: Date?,
+            on _: Request
+        ) async throws -> [HistoricalSectorPerformanceResponse] {
+            []
+        }
+
+        func fetchGeneralMarketNews(
+            page _: Int?,
+            limit _: Int?,
+            from _: Date?,
+            to _: Date?,
+            on _: Request
+        ) async throws -> [FMPMarketNewsItem] {
+            []
+        }
+
+        func stockIntraday(
+            interval _: String,
+            symbol _: String,
+            from _: String?,
+            to _: String?,
+            on _: Request
+        ) async throws -> [CryptoHistoricalPoint] {
+            []
+        }
+
+        func stockHistoricalEOD(
+            symbol _: String,
+            from _: String?,
+            to _: String?,
+            on _: Request
+        ) async throws -> [CryptoHistoricalLightPoint] {
+            []
+        }
     }
 
-    func ratiosTTM(symbol: String, on req: Request) async throws -> [RatiosTTMResponse] {
-        []
-    }
+    struct FailingMarketDataProvider: MarketDataProvider {
+        var name: String {
+            "ibkr"
+        }
 
-    func gradesConsensus(symbol: String, on req: Request) async throws -> [GradesConsensusResponse] {
-        throw Abort(
-            .paymentRequired,
-            reason: "FMP plan upgrade required for /stable/grades-consensus. This endpoint is not available for the requested symbol on the current subscription."
-        )
-    }
+        func quote(symbol _: String, on _: Request) async throws -> MarketProviderQuote {
+            throw Abort(.badGateway, reason: "Forced market provider failure")
+        }
 
-    func financialGrowth(
-        symbol: String,
-        limit: Int?,
-        period: String?,
-        on req: Request
-    ) async throws -> [FinancialGrowthResponse] {
-        []
-    }
+        func history(symbol _: String, from _: Date?, to _: Date?, on _: Request) async throws
+            -> MarketProviderHistory
+        {
+            throw Abort(.badGateway, reason: "Forced market provider failure")
+        }
 
-    func analystEstimates(
-        symbol: String,
-        period: String,
-        page: Int?,
-        limit: Int?,
-        on req: Request
-    ) async throws -> [AnalystEstimatesResponse] {
-        []
-    }
+        func search(query _: String, on _: Request) async throws -> [MarketProviderSearchResult] {
+            throw Abort(.badGateway, reason: "Forced market provider failure")
+        }
 
-    func ratios(
-        symbol: String,
-        limit: Int?,
-        period: String?,
-        on req: Request
-    ) async throws -> [RatiosResponse] {
-        []
-    }
+        func fx(base _: String, quote _: String, on _: Request) async throws -> MarketProviderFxRate {
+            throw Abort(.badGateway, reason: "Forced market provider failure")
+        }
 
-    func earnings(symbol: String, limit: Int?, on req: Request) async throws -> [EarningsResponse] {
-        []
-    }
+        func profile(symbol _: String, on _: Request) async throws -> MarketProviderCompanyProfile? {
+            throw Abort(.badGateway, reason: "Forced market provider failure")
+        }
 
-    func earningsCalendar(from: Date?, to: Date?, on req: Request) async throws -> [EarningsResponse] {
-        []
-    }
-
-    func historicalSectorPerformance(
-        sector: String,
-        exchange: String?,
-        from: Date?,
-        to: Date?,
-        on req: Request
-    ) async throws -> [HistoricalSectorPerformanceResponse] {
-        []
-    }
-
-    func fetchGeneralMarketNews(
-        page: Int?,
-        limit: Int?,
-        from: Date?,
-        to: Date?,
-        on req: Request
-    ) async throws -> [FMPMarketNewsItem] {
-        []
-    }
-
-    func stockIntraday(
-        interval: String,
-        symbol: String,
-        from: String?,
-        to: String?,
-        on req: Request
-    ) async throws -> [CryptoHistoricalPoint] {
-        []
-    }
-
-    func stockHistoricalEOD(
-        symbol: String,
-        from: String?,
-        to: String?,
-        on req: Request
-    ) async throws -> [CryptoHistoricalLightPoint] {
-        []
-    }
-}
-
-struct FailingMarketDataProvider: MarketDataProvider {
-    var name: String { "ibkr" }
-
-    func quote(symbol: String, on req: Request) async throws -> MarketProviderQuote {
-        throw Abort(.badGateway, reason: "Forced market provider failure")
-    }
-
-    func history(symbol: String, from: Date?, to: Date?, on req: Request) async throws
-        -> MarketProviderHistory
-    {
-        throw Abort(.badGateway, reason: "Forced market provider failure")
-    }
-
-    func search(query: String, on req: Request) async throws -> [MarketProviderSearchResult] {
-        throw Abort(.badGateway, reason: "Forced market provider failure")
-    }
-
-    func fx(base: String, quote: String, on req: Request) async throws -> MarketProviderFxRate {
-        throw Abort(.badGateway, reason: "Forced market provider failure")
-    }
-
-    func profile(symbol: String, on req: Request) async throws -> MarketProviderCompanyProfile? {
-        throw Abort(.badGateway, reason: "Forced market provider failure")
-    }
-
-    func basicFinancials(symbol: String, on req: Request) async throws -> MarketProviderBasicFinancials? {
-        throw Abort(.badGateway, reason: "Forced market provider failure")
+        func basicFinancials(symbol _: String, on _: Request) async throws -> MarketProviderBasicFinancials? {
+            throw Abort(.badGateway, reason: "Forced market provider failure")
+        }
     }
 }

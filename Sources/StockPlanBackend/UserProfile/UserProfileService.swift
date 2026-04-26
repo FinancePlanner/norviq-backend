@@ -1,7 +1,7 @@
 import Fluent
 import Foundation
-import Vapor
 import StockPlanShared
+import Vapor
 
 protocol UserProfileService: Sendable {
     func get(userId: UUID, on db: any Database) async throws -> GetUserProfileResponse
@@ -34,13 +34,15 @@ struct DefaultUserProfileService: UserProfileService {
         try validateUsername(normalizedUsername)
 
         if let existing = try await repo.find(email: normalizedEmail, on: db),
-           existing.id != user.id {
+           existing.id != user.id
+        {
             throw Abort(.conflict, reason: "Email already registered")
         }
 
         if let normalizedUsername,
            let existing = try await repo.find(username: normalizedUsername, on: db),
-           existing.id != user.id {
+           existing.id != user.id
+        {
             throw Abort(.conflict, reason: "Username already registered")
         }
 
@@ -67,7 +69,8 @@ struct DefaultUserProfileService: UserProfileService {
 
         if let normalizedUsername,
            let existing = try await repo.find(username: normalizedUsername, on: db),
-           existing.id != user.id {
+           existing.id != user.id
+        {
             throw Abort(.conflict, reason: "Username already registered")
         }
 
@@ -82,7 +85,8 @@ struct DefaultUserProfileService: UserProfileService {
         try validateEmail(normalizedEmail)
 
         if let existing = try await repo.find(email: normalizedEmail, on: db),
-           existing.id != user.id {
+           existing.id != user.id
+        {
             throw Abort(.conflict, reason: "Email already registered")
         }
 
@@ -93,7 +97,7 @@ struct DefaultUserProfileService: UserProfileService {
 
     func updatePassword(userId: UUID, payload: UpdatePasswordRequest, on db: any Database) async throws {
         let user = try await requireUser(id: userId, on: db)
-        
+
         // Verify current password
         guard try Bcrypt.verify(payload.currentPassword, created: user.passwordHash) else {
             throw Abort(.unauthorized, reason: "Invalid current password")

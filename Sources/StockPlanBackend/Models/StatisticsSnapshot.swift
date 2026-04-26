@@ -1,12 +1,12 @@
 import Fluent
-import Vapor
 import Foundation
+import Vapor
 
-enum StatisticsKind: String, Codable, CaseIterable, Sendable {
+enum StatisticsKind: String, Codable, CaseIterable {
     case importedStocks = "imported_stocks"
-    case watchlist = "watchlist"
-    case looklist = "looklist"
-    case market = "market"
+    case watchlist
+    case looklist
+    case market
 }
 
 final class StatisticsSnapshot: Model, Content, @unchecked Sendable {
@@ -36,7 +36,7 @@ final class StatisticsSnapshot: Model, Content, @unchecked Sendable {
     @Timestamp(key: "updated_at", on: .update)
     var updatedAt: Date?
 
-    init() { }
+    init() {}
 
     init(
         id: UUID? = nil,

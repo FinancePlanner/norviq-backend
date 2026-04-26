@@ -1,5 +1,6 @@
 import Fluent
 import Foundation
+import StockPlanShared
 import Vapor
 
 struct AssetsController: RouteCollection {
@@ -14,7 +15,7 @@ struct AssetsController: RouteCollection {
         let session = try req.auth.require(SessionToken.self)
         guard let rawQuery = req.query[String.self, at: "q"]?
             .trimmingCharacters(in: .whitespacesAndNewlines),
-              !rawQuery.isEmpty
+            !rawQuery.isEmpty
         else {
             throw Abort(.badRequest, reason: "Missing query parameter `q`.")
         }

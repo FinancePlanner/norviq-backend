@@ -1,16 +1,15 @@
+@testable import StockPlanBackend
 import Testing
 import Vapor
-@testable import StockPlanBackend
 
 @Suite("MarketDataService DCF Tests", .serialized)
 struct MarketDataServiceTests {
-
     @Test("DCF math with explicit positive cash flows")
-    func testDCFMathPositiveFlows() async throws {
+    func dCFMathPositiveFlows() throws {
         let projections = [
             YearlyProjectionResponse(year: 2026, revenue: 100, revenueGrowth: 0.1, netIncome: 20, netIncomeGrowth: 0.1, netMargin: 0.2, eps: 2, fcf: 10, fcfMargin: 0.1),
             YearlyProjectionResponse(year: 2027, revenue: 110, revenueGrowth: 0.1, netIncome: 22, netIncomeGrowth: 0.1, netMargin: 0.2, eps: 2.2, fcf: 11, fcfMargin: 0.1),
-            YearlyProjectionResponse(year: 2028, revenue: 121, revenueGrowth: 0.1, netIncome: 24.2, netIncomeGrowth: 0.1, netMargin: 0.2, eps: 2.42, fcf: 12.1, fcfMargin: 0.1)
+            YearlyProjectionResponse(year: 2028, revenue: 121, revenueGrowth: 0.1, netIncome: 24.2, netIncomeGrowth: 0.1, netMargin: 0.2, eps: 2.42, fcf: 12.1, fcfMargin: 0.1),
         ]
         let shares = 10.0
         let wacc = 0.10
@@ -38,11 +37,11 @@ struct MarketDataServiceTests {
     }
 
     @Test("DCF math handles zero shares correctly")
-    func testDCFMathZeroShares() async throws {
+    func dCFMathZeroShares() {
         let projections = [
-            YearlyProjectionResponse(year: 2026, revenue: 100, revenueGrowth: 0.1, netIncome: 20, netIncomeGrowth: 0.1, netMargin: 0.2, eps: 2, fcf: 10, fcfMargin: 0.1)
+            YearlyProjectionResponse(year: 2026, revenue: 100, revenueGrowth: 0.1, netIncome: 20, netIncomeGrowth: 0.1, netMargin: 0.2, eps: 2, fcf: 10, fcfMargin: 0.1),
         ]
-        
+
         let price = DefaultMarketDataService.calculateDCFPrice(
             projections: projections,
             sharesOutstanding: 0.0,
@@ -54,11 +53,11 @@ struct MarketDataServiceTests {
     }
 
     @Test("DCF math handles missing shares correctly")
-    func testDCFMathMissingShares() async throws {
+    func dCFMathMissingShares() {
         let projections = [
-            YearlyProjectionResponse(year: 2026, revenue: 100, revenueGrowth: 0.1, netIncome: 20, netIncomeGrowth: 0.1, netMargin: 0.2, eps: 2, fcf: 10, fcfMargin: 0.1)
+            YearlyProjectionResponse(year: 2026, revenue: 100, revenueGrowth: 0.1, netIncome: 20, netIncomeGrowth: 0.1, netMargin: 0.2, eps: 2, fcf: 10, fcfMargin: 0.1),
         ]
-        
+
         let price = DefaultMarketDataService.calculateDCFPrice(
             projections: projections,
             sharesOutstanding: nil,
@@ -70,11 +69,11 @@ struct MarketDataServiceTests {
     }
 
     @Test("DCF math with zero revenue growth and zero fcf")
-    func testDCFMathZeroFCF() async throws {
+    func dCFMathZeroFCF() throws {
         let projections = [
-            YearlyProjectionResponse(year: 2026, revenue: 100, revenueGrowth: 0.0, netIncome: 0, netIncomeGrowth: 0.0, netMargin: 0.0, eps: 0, fcf: 0, fcfMargin: 0.0)
+            YearlyProjectionResponse(year: 2026, revenue: 100, revenueGrowth: 0.0, netIncome: 0, netIncomeGrowth: 0.0, netMargin: 0.0, eps: 0, fcf: 0, fcfMargin: 0.0),
         ]
-        
+
         let price = DefaultMarketDataService.calculateDCFPrice(
             projections: projections,
             sharesOutstanding: 10.0,
@@ -82,9 +81,9 @@ struct MarketDataServiceTests {
             terminalGrowthRate: 0.02,
             netDebt: 10.0
         )
-        
+
         // PV = 0, TV = 0. Equity = 0 - 10 = -10. Per share = -1.0
         let p = try #require(price)
-        #expect(abs(p - (-1.0)) < 0.01)
+        #expect(abs(p - -1.0) < 0.01)
     }
 }

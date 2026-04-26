@@ -1,6 +1,6 @@
 import Fluent
-import Vapor
 import StockPlanShared
+import Vapor
 
 struct CreateExpensesTables: AsyncMigration {
     func prepare(on database: any Database) async throws {

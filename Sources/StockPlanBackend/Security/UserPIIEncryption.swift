@@ -31,7 +31,7 @@ struct AESGCMUserPIIEncryptionService: UserPIIEncrypting, @unchecked Sendable {
         self.activeKey = activeKey
         var keys = previousKeys
         keys[activeKeyID] = activeKey
-        self.keysByID = keys
+        keysByID = keys
     }
 
     func encryptString(_ value: String) throws -> Data {
@@ -55,7 +55,8 @@ struct AESGCMUserPIIEncryptionService: UserPIIEncrypting, @unchecked Sendable {
               let combined = Data(base64Encoded: envelope.combinedCiphertext)
         else {
             if let envelope = try? JSONDecoder().decode(EnvelopeV1.self, from: payload),
-               keysByID[envelope.keyID] == nil {
+               keysByID[envelope.keyID] == nil
+            {
                 throw UserPIIEncryptionError.unknownKeyIdentifier(envelope.keyID)
             }
             throw UserPIIEncryptionError.invalidPayload

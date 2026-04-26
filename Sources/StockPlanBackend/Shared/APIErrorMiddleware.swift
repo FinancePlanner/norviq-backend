@@ -1,6 +1,6 @@
 import Vapor
 
-struct APIErrorEnvelope: Content, Sendable, Equatable {
+struct APIErrorEnvelope: Content, Equatable {
     let error: Bool
     let code: String
     let reason: String
@@ -13,7 +13,7 @@ struct APIErrorEnvelope: Content, Sendable, Equatable {
         details: [String: String]? = nil,
         requestId: String? = nil
     ) {
-        self.error = true
+        error = true
         self.code = code
         self.reason = reason
         self.details = details
@@ -72,17 +72,17 @@ struct APIErrorMiddleware: AsyncMiddleware {
         return message.isEmpty ? status.reasonPhrase : message
     }
 
-    private func code(for error: any Error, status: HTTPResponseStatus) -> String {
+    private func code(for _: any Error, status: HTTPResponseStatus) -> String {
         switch status.code {
-        case 400: return "bad_request"
-        case 401: return "unauthorized"
-        case 402: return "payment_required"
-        case 403: return "forbidden"
-        case 404: return "not_found"
-        case 409: return "conflict"
-        case 422: return "unprocessable_entity"
+        case 400: "bad_request"
+        case 401: "unauthorized"
+        case 402: "payment_required"
+        case 403: "forbidden"
+        case 404: "not_found"
+        case 409: "conflict"
+        case 422: "unprocessable_entity"
         default:
-            return status.code >= 500 ? "internal_server_error" : "request_failed"
+            status.code >= 500 ? "internal_server_error" : "request_failed"
         }
     }
 }

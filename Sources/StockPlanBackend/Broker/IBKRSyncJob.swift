@@ -1,11 +1,11 @@
-import Vapor
 import Fluent
 import Foundation
+import Vapor
 
 struct IBKRSyncJob: LifecycleHandler {
     private let state = IBKRSyncJobState()
 
-    func willBoot(_ app: Application) async throws {
+    func willBoot(_: Application) async throws {
         // Job scheduled to run
     }
 
@@ -83,13 +83,13 @@ struct IBKRSyncJob: LifecycleHandler {
                         "user_id": .string(userId.uuidString),
                         "inserted": .string("\(result.inserted)"),
                         "updated": .string("\(result.updated)"),
-                        "removed": .string("\(result.removed)")
+                        "removed": .string("\(result.removed)"),
                     ])
                     successCount += 1
                 } catch {
                     app.logger.error("ibkr_sync_job sync failed", metadata: [
                         "user_id": .string(userId.uuidString),
-                        "error": .string(error.localizedDescription)
+                        "error": .string(error.localizedDescription),
                     ])
                     failureCount += 1
 
@@ -103,7 +103,7 @@ struct IBKRSyncJob: LifecycleHandler {
             app.logger.info("ibkr_sync_job completed", metadata: [
                 "total": .string("\(connections.count)"),
                 "success": .string("\(successCount)"),
-                "failure": .string("\(failureCount)")
+                "failure": .string("\(failureCount)"),
             ])
         } catch {
             app.logger.error("ibkr_sync_job error=\(error)")

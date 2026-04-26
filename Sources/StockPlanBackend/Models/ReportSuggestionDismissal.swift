@@ -25,7 +25,7 @@ final class ReportSuggestionDismissal: Model, @unchecked Sendable {
         dismissedAt: Date = .now
     ) {
         self.id = id
-        self.$user.id = userId
+        $user.id = userId
         self.suggestionId = suggestionId
         self.dismissedAt = dismissedAt
     }

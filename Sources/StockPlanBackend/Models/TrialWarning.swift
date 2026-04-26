@@ -3,7 +3,7 @@ import Foundation
 
 enum TrialWarningType: String, Codable {
     case expiringSoon = "expiring_soon"
-    case expired = "expired"
+    case expired
 }
 
 final class TrialWarning: Model, @unchecked Sendable {
@@ -24,7 +24,7 @@ final class TrialWarning: Model, @unchecked Sendable {
     @Timestamp(key: "created_at", on: .create)
     var createdAt: Date?
 
-    init() { }
+    init() {}
 
     init(
         id: UUID? = nil,

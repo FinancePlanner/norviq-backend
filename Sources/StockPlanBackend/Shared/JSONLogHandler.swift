@@ -10,7 +10,7 @@ struct JSONLogHandler: LogHandler {
 
     init(label: String, level: Logger.Level) {
         self.label = label
-        self.logLevel = level
+        logLevel = level
     }
 
     subscript(metadataKey metadataKey: String) -> Logger.Metadata.Value? {
@@ -29,7 +29,7 @@ struct JSONLogHandler: LogHandler {
             "source": event.source,
             "file": URL(fileURLWithPath: event.file).lastPathComponent,
             "function": event.function,
-            "line": event.line
+            "line": event.line,
         ]
 
         var mergedMetadata = metadata
@@ -53,13 +53,13 @@ struct JSONLogHandler: LogHandler {
 
     private static func stringifyMetadata(_ value: Logger.Metadata.Value) -> String {
         switch value {
-        case .string(let string):
+        case let .string(string):
             return string
-        case .stringConvertible(let value):
+        case let .stringConvertible(value):
             return value.description
-        case .array(let values):
+        case let .array(values):
             return "[" + values.map(stringifyMetadata).joined(separator: ",") + "]"
-        case .dictionary(let dictionary):
+        case let .dictionary(dictionary):
             let rendered = dictionary
                 .map { "\($0.key):\(stringifyMetadata($0.value))" }
                 .sorted()

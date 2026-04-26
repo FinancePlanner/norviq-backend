@@ -1,6 +1,6 @@
-@testable import StockPlanBackend
 import Crypto
 import Foundation
+@testable import StockPlanBackend
 import Testing
 
 @Suite("User PII Encryption Tests")

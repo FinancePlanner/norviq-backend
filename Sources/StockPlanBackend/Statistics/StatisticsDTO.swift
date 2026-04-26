@@ -41,8 +41,8 @@ extension StatisticsDTO {
     }
 }
 
-extension ImportedStocksStatisticsDTO {
-    fileprivate init(from model: ImportedStocksStatisticsView) {
+private extension ImportedStocksStatisticsDTO {
+    init(from model: ImportedStocksStatisticsView) {
         self.init(
             totalPositions: model.totalPositions,
             totalMarketValue: model.totalMarketValue,
@@ -86,8 +86,8 @@ extension ImportedStocksStatisticsDTO {
     }
 }
 
-extension WatchlistStatisticsDTO {
-    fileprivate init(from model: WatchlistStatisticsView) {
+private extension WatchlistStatisticsDTO {
+    init(from model: WatchlistStatisticsView) {
         self.init(
             totalSymbols: model.totalSymbols,
             symbolsWithNotes: model.symbolsWithNotes,
@@ -105,8 +105,8 @@ extension WatchlistStatisticsDTO {
     }
 }
 
-extension LooklistStatisticsDTO {
-    fileprivate init(from model: LooklistStatisticsView) {
+private extension LooklistStatisticsDTO {
+    init(from model: LooklistStatisticsView) {
         self.init(
             totalIdeas: model.totalIdeas,
             activeIdeas: model.activeIdeas,
@@ -118,8 +118,8 @@ extension LooklistStatisticsDTO {
     }
 }
 
-extension MarketStatisticsDTO {
-    fileprivate init(from model: MarketStatisticsView) {
+private extension MarketStatisticsDTO {
+    init(from model: MarketStatisticsView) {
         self.init(
             benchmarkSymbol: model.benchmarkSymbol,
             benchmarkChange1D: model.benchmarkChange1D,

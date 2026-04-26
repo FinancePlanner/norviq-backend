@@ -1,8 +1,8 @@
 import Fluent
-import Vapor
 import Foundation
+import Vapor
 
-enum ExportType: String, Codable, Sendable {
+enum ExportType: String, Codable {
     case portfolio
     case transactions
     case watchlist
@@ -10,21 +10,21 @@ enum ExportType: String, Codable, Sendable {
     case all
 }
 
-enum ExportFormat: String, Codable, Sendable {
+enum ExportFormat: String, Codable {
     case csv
     case json
 }
 
-enum ExportStatus: String, Codable, Sendable {
+enum ExportStatus: String, Codable {
     case pending
     case ready
     case failed
 }
 
-struct ExportFilters: Content, Sendable {
-    var portfolioListId: String?  // UUID string
-    var dateFrom: String?        // ISO8601
-    var dateTo: String?          // ISO8601
+struct ExportFilters: Content {
+    var portfolioListId: String? // UUID string
+    var dateFrom: String? // ISO8601
+    var dateTo: String? // ISO8601
 }
 
 final class DataExport: Model, Content, @unchecked Sendable {
@@ -63,7 +63,7 @@ final class DataExport: Model, Content, @unchecked Sendable {
     @Timestamp(key: "updated_at", on: .update)
     var updatedAt: Date?
 
-    init() { }
+    init() {}
 
     init(
         id: UUID? = nil,
@@ -91,13 +91,13 @@ final class DataExport: Model, Content, @unchecked Sendable {
 extension ExportFilters {
     func toDictionary() -> [String: String]? {
         var dict: [String: String] = [:]
-        if let portfolioListId = portfolioListId {
+        if let portfolioListId {
             dict["portfolioListId"] = portfolioListId
         }
-        if let dateFrom = dateFrom {
+        if let dateFrom {
             dict["dateFrom"] = dateFrom
         }
-        if let dateTo = dateTo {
+        if let dateTo {
             dict["dateTo"] = dateTo
         }
         return dict.isEmpty ? nil : dict

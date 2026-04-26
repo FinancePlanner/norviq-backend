@@ -1,7 +1,7 @@
 import Fluent
 import Foundation
-import Vapor
 import StockPlanShared
+import Vapor
 
 protocol BadgeService: Sendable {
     func evaluateBadges(userId: UUID, req: Request, on db: any Database) async throws -> BadgesListResponse
@@ -127,7 +127,7 @@ private extension DefaultBadgeService {
 
         // --- First Purchase & Investor: count buy transactions ---
         let accounts = try await Account.query(on: db).filter(\.$userId == userId).all()
-        let accountIds = Set(accounts.compactMap { $0.id })
+        let accountIds = Set(accounts.compactMap(\.id))
 
         var buyCount = 0
         if !accountIds.isEmpty {
@@ -154,7 +154,7 @@ private extension DefaultBadgeService {
         // Saver: count months with positive savings
         var saverMonths = 0
         for report in monthlyReports {
-            if report.salary > 0 && report.actual < report.salary {
+            if report.salary > 0, report.actual < report.salary {
                 saverMonths += 1
             }
         }
@@ -165,7 +165,7 @@ private extension DefaultBadgeService {
         for report in monthlyReports {
             let funActual = report.pillarActuals[BudgetPillar.fun.rawValue] ?? 0
             let funPlan = report.pillarPlans[BudgetPillar.fun.rawValue] ?? 0
-            if funPlan > 0 && funActual <= funPlan {
+            if funPlan > 0, funActual <= funPlan {
                 frugalMonths += 1
             }
         }
@@ -173,12 +173,12 @@ private extension DefaultBadgeService {
 
         // Growth Mindset: count consecutive months with increasing savings (newest first)
         var growthStreak = 0
-        let reversedReports = monthlyReports.reversed().map { $0 } // newest first
+        let reversedReports = monthlyReports.reversed().map(\.self) // newest first
         if reversedReports.count >= 2 {
-            for i in 0..<(reversedReports.count - 1) {
+            for i in 0 ..< (reversedReports.count - 1) {
                 let currentSavings = reversedReports[i].salary - reversedReports[i].actual
                 let previousSavings = reversedReports[i + 1].salary - reversedReports[i + 1].actual
-                if currentSavings > previousSavings && reversedReports[i].salary > 0 {
+                if currentSavings > previousSavings, reversedReports[i].salary > 0 {
                     growthStreak += 1
                 } else {
                     break
@@ -199,7 +199,8 @@ private extension DefaultBadgeService {
         if expenses.isEmpty {
             // No expenses ever → check days since account creation
             if let user = try await User.find(userId, on: db),
-               let createdAt = user.createdAt {
+               let createdAt = user.createdAt
+            {
                 let daysSinceCreation = calendar.dateComponents([.day], from: calendar.startOfDay(for: createdAt), to: today).day ?? 0
                 counts[.spendingDetox] = max(daysSinceCreation, 0)
             } else {
@@ -224,7 +225,7 @@ private extension DefaultBadgeService {
             }
 
             // Check gaps between expense dates
-            for i in 1..<sortedDates.count {
+            for i in 1 ..< sortedDates.count {
                 let gap = calendar.dateComponents([.day], from: sortedDates[i - 1], to: sortedDates[i]).day ?? 0
                 let noSpendDays = gap - 1 // days between two expense days
                 maxGap = max(maxGap, noSpendDays)

@@ -1,7 +1,7 @@
 import Foundation
 import Vapor
 
-struct APNSBootstrapConfiguration: Sendable {
+struct APNSBootstrapConfiguration {
     let teamID: String
     let keyID: String
     let privateKeyP8: String

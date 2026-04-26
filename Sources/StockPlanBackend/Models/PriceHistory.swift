@@ -1,6 +1,6 @@
 import Fluent
-import Vapor
 import Foundation
+import Vapor
 
 final class PriceHistory: Model, Content, @unchecked Sendable {
     static let schema = "price_history"
@@ -32,7 +32,7 @@ final class PriceHistory: Model, Content, @unchecked Sendable {
     @Timestamp(key: "created_at", on: .create)
     var createdAt: Date?
 
-    init() { }
+    init() {}
 
     init(
         id: UUID? = nil,

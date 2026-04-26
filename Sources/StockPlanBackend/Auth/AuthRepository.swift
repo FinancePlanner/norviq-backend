@@ -1,6 +1,6 @@
+import Crypto
 import Fluent
 import Foundation
-import Crypto
 import Vapor
 
 protocol AuthRepository: Sendable {
@@ -68,12 +68,12 @@ struct DatabaseAuthRepository: AuthRepository {
 
     init() {
         if let service = try? UserPIIEncryptionBootstrap.fromProcessEnvironment(
-                logger: Logger(label: "auth.repository.default-encryption"),
-                isProduction: false
-            ) {
-            self.encryptionService = service
+            logger: Logger(label: "auth.repository.default-encryption"),
+            isProduction: false
+        ) {
+            encryptionService = service
         } else {
-            self.encryptionService = AESGCMUserPIIEncryptionService(
+            encryptionService = AESGCMUserPIIEncryptionService(
                 activeKeyID: "dev-default",
                 activeKey: SymmetricKey(data: Data(repeating: 0x2A, count: 32)),
                 previousKeys: [:]

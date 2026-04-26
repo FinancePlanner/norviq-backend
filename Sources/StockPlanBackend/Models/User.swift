@@ -1,6 +1,6 @@
 import Fluent
-import Vapor
 import Foundation
+import Vapor
 
 final class User: Model, Authenticatable, @unchecked Sendable {
     static let schema = "users"
@@ -99,7 +99,7 @@ final class User: Model, Authenticatable, @unchecked Sendable {
         }
     }
 
-    init() { }
+    init() {}
 
     init(
         id: UUID? = nil,
@@ -123,14 +123,14 @@ final class User: Model, Authenticatable, @unchecked Sendable {
         self.email = email
         self.passwordHash = passwordHash
         self.username = username
-        self.bioPlaintext = bio
-        self.decryptedBio = bio
+        bioPlaintext = bio
+        decryptedBio = bio
         self.avatarURLString = avatarURLString
         self.bannerAvatarURLString = bannerAvatarURLString
-        self.householdPartnerDisplayNamePlaintext = householdPartnerDisplayName
-        self.decryptedHouseholdPartnerDisplayName = householdPartnerDisplayName
-        self.dateOfBirthPlaintext = dateOfBirth
-        self.decryptedDateOfBirth = dateOfBirth
+        householdPartnerDisplayNamePlaintext = householdPartnerDisplayName
+        decryptedHouseholdPartnerDisplayName = householdPartnerDisplayName
+        dateOfBirthPlaintext = dateOfBirth
+        decryptedDateOfBirth = dateOfBirth
         self.failedLoginAttempts = failedLoginAttempts
         self.lockoutUntil = lockoutUntil
         self.isVerified = isVerified

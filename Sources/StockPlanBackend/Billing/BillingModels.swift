@@ -1,6 +1,6 @@
 import Fluent
-import Vapor
 import Foundation
+import Vapor
 
 final class Subscription: Model, Content, @unchecked Sendable {
     static let schema = "subscriptions"
@@ -127,10 +127,10 @@ final class UsageCounter: Model, Content, @unchecked Sendable {
         self.id = id
         self.userId = userId
         self.periodStart = periodStart
-        self.holdingCount = 0
-        self.watchlistItemCount = 0
-        self.csvImportCount = 0
-        self.targetAlertCount = 0
-        self.reportGenerationCount = 0
+        holdingCount = 0
+        watchlistItemCount = 0
+        csvImportCount = 0
+        targetAlertCount = 0
+        reportGenerationCount = 0
     }
 }

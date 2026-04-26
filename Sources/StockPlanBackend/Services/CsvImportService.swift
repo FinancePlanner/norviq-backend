@@ -8,21 +8,23 @@ enum CsvImportServiceError: Error {
 }
 
 extension CsvImportServiceError: AbortError {
-    var status: HTTPResponseStatus { .badRequest }
+    var status: HTTPResponseStatus {
+        .badRequest
+    }
 
     var reason: String {
         switch self {
         case .emptyBody:
-            return "CSV body is empty."
+            "CSV body is empty."
         case .missingHeader:
-            return "CSV must include a header row."
+            "CSV must include a header row."
         case .missingSymbolColumn:
-            return "CSV header must include a symbol column (symbol/ticker)."
+            "CSV header must include a symbol column (symbol/ticker)."
         }
     }
 }
 
-struct CsvImportService: Sendable {
+struct CsvImportService {
     func preview(csv raw: String, provider: String) throws -> CsvImportPreviewResponse {
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else {

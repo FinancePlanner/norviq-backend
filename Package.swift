@@ -4,7 +4,7 @@ import PackageDescription
 let package = Package(
     name: "StockPlanBackend",
     platforms: [
-        .macOS(.v13)
+        .macOS(.v13),
     ],
     dependencies: [
         // 💧 A server-side Swift web framework.
@@ -55,7 +55,7 @@ let package = Package(
                 .product(name: "VaporAPNS", package: "apns"),
             ],
             resources: [
-                .copy("openapi.yaml")
+                .copy("openapi.yaml"),
             ],
             swiftSettings: swiftSettings,
             plugins: [
@@ -68,6 +68,7 @@ let package = Package(
             dependencies: [
                 .target(name: "StockPlanBackend"),
                 .product(name: "VaporTesting", package: "vapor"),
+                .product(name: "StockPlanShared", package: "FinanceShared"),
             ],
             swiftSettings: swiftSettings
         ),
@@ -76,6 +77,6 @@ let package = Package(
 
 var swiftSettings: [SwiftSetting] {
     [
-        .enableUpcomingFeature("ExistentialAny")
+        .enableUpcomingFeature("ExistentialAny"),
     ]
 }

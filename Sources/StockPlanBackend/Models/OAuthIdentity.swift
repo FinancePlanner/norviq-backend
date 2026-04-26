@@ -28,7 +28,7 @@ final class OAuthIdentity: Model, @unchecked Sendable {
     @Timestamp(key: "updated_at", on: .update)
     var updatedAt: Date?
 
-    init() { }
+    init() {}
 
     init(
         id: UUID? = nil,
@@ -39,7 +39,7 @@ final class OAuthIdentity: Model, @unchecked Sendable {
         emailVerified: Bool
     ) {
         self.id = id
-        self.$user.id = userID
+        $user.id = userID
         self.provider = provider
         self.providerUserID = providerUserID
         self.email = email

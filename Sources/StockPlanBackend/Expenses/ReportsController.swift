@@ -1,7 +1,7 @@
-import Vapor
 import Fluent
 import Foundation
 import StockPlanShared
+import Vapor
 
 struct ReportsController: RouteCollection {
     func boot(routes: any RoutesBuilder) throws {
@@ -95,21 +95,21 @@ struct ReportsController: RouteCollection {
         // 3. Fallback to just .last if nothing else
         let todayStr = makeDateFormatter().string(from: Date())
         let currentMonthStart = String(todayStr.prefix(7)) + "-01"
-        
+
         let latestMonthSummary = monthlyReports.first { $0.monthStart == currentMonthStart }
             ?? monthlyReports.reversed().first { $0.actual > 0 }
             ?? monthlyReports.last
 
-        let latestPillarSummaries: [PillarPlanningSummaryResponse]
-        if let latestMonthSummary,
-           let monthStart = makeDateFormatter().date(from: latestMonthSummary.monthStart) {
-            latestPillarSummaries = try await req.expensesService.getPillarPlanningSummaries(
+        let latestPillarSummaries: [PillarPlanningSummaryResponse] = if let latestMonthSummary,
+                                                                        let monthStart = makeDateFormatter().date(from: latestMonthSummary.monthStart)
+        {
+            try await req.expensesService.getPillarPlanningSummaries(
                 userId: session.userId,
                 monthStart: monthStart,
                 on: req.db
             )
         } else {
-            latestPillarSummaries = []
+            []
         }
 
         let cashFlow = monthlyReports.map { report in
@@ -253,7 +253,8 @@ struct ReportsController: RouteCollection {
         let session = try req.auth.require(SessionToken.self)
         try await requireReportsAccess(session: session, req: req)
         guard let suggestionId = req.parameters.get("id")?.trimmingCharacters(in: .whitespacesAndNewlines),
-              !suggestionId.isEmpty else {
+              !suggestionId.isEmpty
+        else {
             throw Abort(.badRequest, reason: "Invalid suggestion id.")
         }
 
@@ -302,13 +303,12 @@ struct ReportsController: RouteCollection {
         let overspendRatio = planned > 0 ? overspendAmount / planned : 0
 
         if overspendAmount > 0.01 {
-            let severity: ReportSuggestionSeverity
-            if overspendRatio >= 0.20 {
-                severity = .high
+            let severity: ReportSuggestionSeverity = if overspendRatio >= 0.20 {
+                .high
             } else if overspendRatio >= 0.10 {
-                severity = .medium
+                .medium
             } else {
-                severity = .low
+                .low
             }
 
             result.append(
@@ -323,7 +323,7 @@ struct ReportsController: RouteCollection {
                     detailPayload: [
                         "planned": formatAmount(planned),
                         "actual": formatAmount(actual),
-                        "overspendAmount": formatAmount(overspendAmount)
+                        "overspendAmount": formatAmount(overspendAmount),
                     ]
                 )
             )
@@ -335,13 +335,12 @@ struct ReportsController: RouteCollection {
         }
         let unplannedRatio = planned > 0 ? totalUnplanned / planned : 0
         if totalUnplanned > 0.01 {
-            let severity: ReportSuggestionSeverity
-            if unplannedRatio >= 0.20 {
-                severity = .high
+            let severity: ReportSuggestionSeverity = if unplannedRatio >= 0.20 {
+                .high
             } else if unplannedRatio >= 0.10 {
-                severity = .medium
+                .medium
             } else {
-                severity = .low
+                .low
             }
 
             result.append(
@@ -356,7 +355,7 @@ struct ReportsController: RouteCollection {
                     detailPayload: [
                         "unplannedAmount": formatAmount(totalUnplanned),
                         "unplannedRatio": formatPercent(unplannedRatio),
-                        "plannedTotal": formatAmount(planned)
+                        "plannedTotal": formatAmount(planned),
                     ]
                 )
             )
@@ -391,7 +390,7 @@ struct ReportsController: RouteCollection {
                         "averageSavingsRate": formatPercent(avgSavingsRate / 100),
                         "latestSavingsRate": formatPercent((savingsRates.last ?? 0) / 100),
                         "monthsEvaluated": String(recent.count),
-                        "plannedItemsCount": String(planItems.count)
+                        "plannedItemsCount": String(planItems.count),
                     ]
                 )
             )
@@ -415,11 +414,11 @@ struct ReportsController: RouteCollection {
     private func severityRank(_ severity: ReportSuggestionSeverity) -> Int {
         switch severity {
         case .high:
-            return 3
+            3
         case .medium:
-            return 2
+            2
         case .low:
-            return 1
+            1
         }
     }
 

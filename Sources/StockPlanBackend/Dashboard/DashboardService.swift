@@ -1,7 +1,7 @@
-import Vapor
 import Fluent
-import StockPlanShared
 import Foundation
+import StockPlanShared
+import Vapor
 
 protocol DashboardService: Sendable {
     func dashboard(userId: UUID, req: Request, on db: any Database) async throws -> DashboardResponse
@@ -12,7 +12,7 @@ struct DefaultDashboardService: DashboardService {
     let repo: any DashboardRepository
     let statisticsRepo: any StatisticsRepository
 
-    func dashboard(userId: UUID, req: Request, on db: any Database) async throws -> DashboardResponse {
+    func dashboard(userId: UUID, req _: Request, on db: any Database) async throws -> DashboardResponse {
         let overview = try await statisticsRepo.overviewStatistics(
             userId: userId,
             options: StatisticsQueryOptions(
@@ -55,7 +55,7 @@ struct DefaultDashboardService: DashboardService {
     func insights(userId: UUID, req: Request, on db: any Database) async throws -> DashboardInsightsResponse {
         // Cash Buffer
         let accounts = try await Account.query(on: db).filter(\.$userId == userId).all()
-        let accountIds = Set(accounts.compactMap { $0.id })
+        let accountIds = Set(accounts.compactMap(\.id))
         var cashBuffer: Double = 0
         if !accountIds.isEmpty {
             let balances = try await CashBalance.query(on: db).filter(\.$accountId ~~ accountIds).all()
@@ -70,7 +70,7 @@ struct DefaultDashboardService: DashboardService {
 
         var budgetStreak = 0
         for report in monthlyReports.reversed() { // newest first, because getMonthlyReports is sorted asc
-            if report.actual <= report.planned && report.planned > 0 {
+            if report.actual <= report.planned, report.planned > 0 {
                 budgetStreak += 1
             } else {
                 break
@@ -116,27 +116,25 @@ private extension DefaultDashboardService {
         let budgetStreakComponent = normalizedBudgetStreak * 30.0
 
         let expenseBase = latestMonthlyActualExpenses ?? 0
-        let normalizedCashBufferCoverage: Double
-        if expenseBase > 0 {
-            normalizedCashBufferCoverage = min(max(cashBuffer, 0) / expenseBase, 1.0)
+        let normalizedCashBufferCoverage: Double = if expenseBase > 0 {
+            min(max(cashBuffer, 0) / expenseBase, 1.0)
         } else {
-            normalizedCashBufferCoverage = 0
+            0
         }
         let cashBufferComponent = normalizedCashBufferCoverage * 30.0
 
         let rawScore = (savingsComponent + budgetStreakComponent + cashBufferComponent).rounded()
         let clampedScore = min(max(Int(rawScore), 0), 100)
 
-        let status: FinancialHealthStatus
-        switch clampedScore {
-        case 0...39:
-            status = .atRisk
-        case 40...69:
-            status = .needsAttention
-        case 70...89:
-            status = .healthy
+        let status: FinancialHealthStatus = switch clampedScore {
+        case 0 ... 39:
+            .atRisk
+        case 40 ... 69:
+            .needsAttention
+        case 70 ... 89:
+            .healthy
         default:
-            status = .excellent
+            .excellent
         }
 
         return DashboardFinancialHealthDTO(

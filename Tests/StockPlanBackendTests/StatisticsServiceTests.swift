@@ -1,7 +1,7 @@
-@testable import StockPlanBackend
 import Fluent
 import Foundation
 import NIOCore
+@testable import StockPlanBackend
 import Testing
 import Vapor
 
@@ -237,63 +237,63 @@ private actor StatisticsRepositorySpy: StatisticsRepository {
         return model
     }
 
-    func stockLevelScorecard(userId: UUID, options: StatisticsQueryOptions, on db: any Database) async throws -> StatisticsViewModel {
+    func stockLevelScorecard(userId _: UUID, options: StatisticsQueryOptions, on _: any Database) async throws -> StatisticsViewModel {
         record("stockLevelScorecard", options: options)
     }
 
-    func stockAllocation(userId: UUID, options: StatisticsQueryOptions, on db: any Database) async throws -> StatisticsViewModel {
+    func stockAllocation(userId _: UUID, options: StatisticsQueryOptions, on _: any Database) async throws -> StatisticsViewModel {
         record("stockAllocation", options: options)
     }
 
-    func sectorAllocation(userId: UUID, options: StatisticsQueryOptions, on db: any Database) async throws -> StatisticsViewModel {
+    func sectorAllocation(userId _: UUID, options: StatisticsQueryOptions, on _: any Database) async throws -> StatisticsViewModel {
         record("sectorAllocation", options: options)
     }
 
-    func calendarPerformance(userId: UUID, options: StatisticsQueryOptions, on db: any Database) async throws -> StatisticsViewModel {
+    func calendarPerformance(userId _: UUID, options: StatisticsQueryOptions, on _: any Database) async throws -> StatisticsViewModel {
         record("calendarPerformance", options: options)
     }
 
-    func contributionAnalysis(userId: UUID, options: StatisticsQueryOptions, on db: any Database) async throws -> StatisticsViewModel {
+    func contributionAnalysis(userId _: UUID, options: StatisticsQueryOptions, on _: any Database) async throws -> StatisticsViewModel {
         record("contributionAnalysis", options: options)
     }
 
-    func winnersVsLosers(userId: UUID, options: StatisticsQueryOptions, on db: any Database) async throws -> StatisticsViewModel {
+    func winnersVsLosers(userId _: UUID, options: StatisticsQueryOptions, on _: any Database) async throws -> StatisticsViewModel {
         record("winnersVsLosers", options: options)
     }
 
-    func volatilitySnapshot(userId: UUID, options: StatisticsQueryOptions, on db: any Database) async throws -> StatisticsViewModel {
+    func volatilitySnapshot(userId _: UUID, options: StatisticsQueryOptions, on _: any Database) async throws -> StatisticsViewModel {
         record("volatilitySnapshot", options: options)
     }
 
-    func currencySplit(userId: UUID, options: StatisticsQueryOptions, on db: any Database) async throws -> StatisticsViewModel {
+    func currencySplit(userId _: UUID, options: StatisticsQueryOptions, on _: any Database) async throws -> StatisticsViewModel {
         record("currencySplit", options: options)
     }
 
-    func scenarioTracking(userId: UUID, options: StatisticsQueryOptions, on db: any Database) async throws -> StatisticsViewModel {
+    func scenarioTracking(userId _: UUID, options: StatisticsQueryOptions, on _: any Database) async throws -> StatisticsViewModel {
         record("scenarioTracking", options: options)
     }
 
-    func notesQualityMetrics(userId: UUID, options: StatisticsQueryOptions, on db: any Database) async throws -> StatisticsViewModel {
+    func notesQualityMetrics(userId _: UUID, options: StatisticsQueryOptions, on _: any Database) async throws -> StatisticsViewModel {
         record("notesQualityMetrics", options: options)
     }
 
-    func importedStocksStatistics(userId: UUID, options: StatisticsQueryOptions, on db: any Database) async throws -> StatisticsViewModel {
+    func importedStocksStatistics(userId _: UUID, options: StatisticsQueryOptions, on _: any Database) async throws -> StatisticsViewModel {
         record("importedStocksStatistics", options: options)
     }
 
-    func watchlistStatistics(userId: UUID, options: StatisticsQueryOptions, on db: any Database) async throws -> StatisticsViewModel {
+    func watchlistStatistics(userId _: UUID, options: StatisticsQueryOptions, on _: any Database) async throws -> StatisticsViewModel {
         record("watchlistStatistics", options: options)
     }
 
-    func looklistStatistics(userId: UUID, options: StatisticsQueryOptions, on db: any Database) async throws -> StatisticsViewModel {
+    func looklistStatistics(userId _: UUID, options: StatisticsQueryOptions, on _: any Database) async throws -> StatisticsViewModel {
         record("looklistStatistics", options: options)
     }
 
-    func marketStatistics(userId: UUID, options: StatisticsQueryOptions, on db: any Database) async throws -> StatisticsViewModel {
+    func marketStatistics(userId _: UUID, options: StatisticsQueryOptions, on _: any Database) async throws -> StatisticsViewModel {
         record("marketStatistics", options: options)
     }
 
-    func overviewStatistics(userId: UUID, options: StatisticsQueryOptions, on db: any Database) async throws -> StatisticsViewModel {
+    func overviewStatistics(userId _: UUID, options: StatisticsQueryOptions, on _: any Database) async throws -> StatisticsViewModel {
         record("overviewStatistics", options: options)
     }
 }
@@ -303,28 +303,30 @@ private struct UnusedDatabase: Database {
         fatalError("Unused in StatisticsServiceTests")
     }
 
-    var inTransaction: Bool { false }
+    var inTransaction: Bool {
+        false
+    }
 
     func execute(
-        query: DatabaseQuery,
-        onOutput: @escaping @Sendable (any DatabaseOutput) -> Void
+        query _: DatabaseQuery,
+        onOutput _: @escaping @Sendable (any DatabaseOutput) -> Void
     ) -> EventLoopFuture<Void> {
         fatalError("Unused in StatisticsServiceTests")
     }
 
-    func execute(schema: DatabaseSchema) -> EventLoopFuture<Void> {
+    func execute(schema _: DatabaseSchema) -> EventLoopFuture<Void> {
         fatalError("Unused in StatisticsServiceTests")
     }
 
-    func execute(enum: DatabaseEnum) -> EventLoopFuture<Void> {
+    func execute(enum _: DatabaseEnum) -> EventLoopFuture<Void> {
         fatalError("Unused in StatisticsServiceTests")
     }
 
-    func transaction<T>(_ closure: @escaping @Sendable (any Database) -> EventLoopFuture<T>) -> EventLoopFuture<T> {
+    func transaction<T>(_: @escaping @Sendable (any Database) -> EventLoopFuture<T>) -> EventLoopFuture<T> {
         fatalError("Unused in StatisticsServiceTests")
     }
 
-    func withConnection<T>(_ closure: @escaping @Sendable (any Database) -> EventLoopFuture<T>) -> EventLoopFuture<T> {
+    func withConnection<T>(_: @escaping @Sendable (any Database) -> EventLoopFuture<T>) -> EventLoopFuture<T> {
         fatalError("Unused in StatisticsServiceTests")
     }
 }
@@ -335,14 +337,14 @@ private extension StatisticsViewModel {
             generatedAt: Date(timeIntervalSince1970: 1_735_776_000),
             importedStocks: ImportedStocksStatisticsView(
                 totalPositions: 2,
-                totalMarketValue: 2_000,
-                totalCostBasis: 1_700,
+                totalMarketValue: 2000,
+                totalCostBasis: 1700,
                 totalUnrealizedPnl: 300,
                 totalRealizedPnl: 50,
                 stockSummaries: [
                     .init(
                         symbol: "AAPL",
-                        marketValue: 1_250,
+                        marketValue: 1250,
                         weightPercent: 62.5,
                         dailyChangePercent: 1.25,
                         weeklyChangePercent: 2.5,
@@ -360,11 +362,11 @@ private extension StatisticsViewModel {
                     ),
                 ],
                 stockAllocations: [
-                    .init(symbol: "AAPL", value: 1_250, weightPercent: 62.5),
+                    .init(symbol: "AAPL", value: 1250, weightPercent: 62.5),
                     .init(symbol: "MSFT", value: 750, weightPercent: 37.5),
                 ],
                 sectorAllocations: [
-                    .init(sector: "Technology", value: 2_000, weightPercent: 100),
+                    .init(sector: "Technology", value: 2000, weightPercent: 100),
                 ],
                 calendarPerformance: [
                     .init(

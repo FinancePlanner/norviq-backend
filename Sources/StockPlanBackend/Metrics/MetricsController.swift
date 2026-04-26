@@ -1,5 +1,5 @@
-import Vapor
 import HTTPTypes
+import Vapor
 
 /// Controller exposing a Prometheus `/metrics` endpoint.
 ///
@@ -12,7 +12,7 @@ struct MetricsController: RouteCollection {
         routes.get("metrics", use: getMetrics)
     }
 
-    func getMetrics(req: Request) async throws -> Response {
+    func getMetrics(req _: Request) async throws -> Response {
         let body = PrometheusMetrics.shared.render()
         var response = Response(status: .ok, body: .init(string: body))
         response.headers.contentType = HTTPMediaType.plainText

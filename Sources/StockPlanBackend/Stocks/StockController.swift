@@ -6,7 +6,7 @@ struct StockController: RouteCollection {
     private struct StocksListQuery: Content {
         let portfolioListId: String?
         let limit: Int?
-        let cursor: String?  // ISO8601 timestamp for keyset pagination
+        let cursor: String? // ISO8601 timestamp for keyset pagination
     }
 
     func boot(routes: any RoutesBuilder) throws {
@@ -111,7 +111,8 @@ struct StockController: RouteCollection {
         let session = try req.auth.require(SessionToken.self)
         let payload = try req.content.decode(StockRequest.self)
         let created = try await req.stocksService.create(
-            payload: payload, userId: session.userId, on: req.db)
+            payload: payload, userId: session.userId, on: req.db
+        )
         // Business metric: stocks created
         req.application.businessMetrics.incrementStocksCreated()
         let res = Response(status: .created)
@@ -124,7 +125,8 @@ struct StockController: RouteCollection {
         let session = try req.auth.require(SessionToken.self)
         let payload = try req.content.decode(BulkStockRequest.self)
         let result = try await req.stocksService.bulkCreate(
-            payloads: payload.stocks, userId: session.userId, on: req.db)
+            payloads: payload.stocks, userId: session.userId, on: req.db
+        )
         let res = Response(status: .ok)
         try res.content.encode(result)
         return res
@@ -135,7 +137,8 @@ struct StockController: RouteCollection {
         let session = try req.auth.require(SessionToken.self)
         let stockId = try requireUUIDParameter(req, name: "stockId", reason: "Invalid stock ID")
         return try await req.stocksService.get(
-            id: stockId, userId: session.userId, on: req.db)
+            id: stockId, userId: session.userId, on: req.db
+        )
     }
 
     @Sendable
@@ -144,7 +147,8 @@ struct StockController: RouteCollection {
         let stockId = try requireUUIDParameter(req, name: "stockId", reason: "Invalid stock ID")
         let payload = try req.content.decode(StockRequest.self)
         return try await req.stocksService.update(
-            id: stockId, payload: payload, userId: session.userId, on: req.db)
+            id: stockId, payload: payload, userId: session.userId, on: req.db
+        )
     }
 
     @Sendable
@@ -168,7 +172,8 @@ struct StockController: RouteCollection {
         let session = try req.auth.require(SessionToken.self)
         let stockId = try requireUUIDParameter(req, name: "stockId", reason: "Invalid stock ID")
         try await req.stocksService.delete(
-            id: stockId, userId: session.userId, on: req.db)
+            id: stockId, userId: session.userId, on: req.db
+        )
         return .noContent
     }
 
@@ -178,7 +183,8 @@ struct StockController: RouteCollection {
         let stockId = try requireUUIDParameter(req, name: "stockId", reason: "Invalid stock ID")
         let payload = try req.content.decode(SellStockRequest.self)
         return try await req.stocksService.sell(
-            id: stockId, payload: payload, userId: session.userId, on: req.db)
+            id: stockId, payload: payload, userId: session.userId, on: req.db
+        )
     }
 
     @Sendable
@@ -254,13 +260,12 @@ struct StockController: RouteCollection {
             userId=\(session.userId.uuidString)
             """
         )
-        let updated = try await req.stocksService.updateValuation(
+        return try await req.stocksService.updateValuation(
             symbol: symbol,
             payload: payload,
             userId: session.userId,
             on: req.db
         )
-        return updated
     }
 
     @Sendable
@@ -290,14 +295,14 @@ struct StockController: RouteCollection {
         let session = try req.auth.require(SessionToken.self)
         let payload = try req.content.decode(ResearchNoteRequest.self)
 
-        let note = ResearchNote(
+        let note = try ResearchNote(
             userId: session.userId,
-            symbol: try normalizeSymbol(payload.symbol),
+            symbol: normalizeSymbol(payload.symbol),
             title: emptyToNil(payload.title),
-            thesis: try requireNonEmpty(payload.thesis, field: "thesis"),
+            thesis: requireNonEmpty(payload.thesis, field: "thesis"),
             risks: emptyToNil(payload.risks),
             catalysts: emptyToNil(payload.catalysts),
-            referenceLinks: try encodeReferenceLinks(payload.referenceLinks)
+            referenceLinks: encodeReferenceLinks(payload.referenceLinks)
         )
         try await note.save(on: req.db)
 
@@ -311,13 +316,14 @@ struct StockController: RouteCollection {
     func getResearch(req: Request) async throws -> ResearchNoteResponse {
         let session = try req.auth.require(SessionToken.self)
         let researchId = try requireUUIDParameter(
-            req, name: "researchId", reason: "Invalid research ID")
+            req, name: "researchId", reason: "Invalid research ID"
+        )
 
         guard
             let note = try await ResearchNote.query(on: req.db)
-                .filter(\.$id == researchId)
-                .filter(\.$userId == session.userId)
-                .first()
+            .filter(\.$id == researchId)
+            .filter(\.$userId == session.userId)
+            .first()
         else {
             throw Abort(.notFound, reason: "Research note not found.")
         }
@@ -329,14 +335,15 @@ struct StockController: RouteCollection {
     func updateResearch(req: Request) async throws -> ResearchNoteResponse {
         let session = try req.auth.require(SessionToken.self)
         let researchId = try requireUUIDParameter(
-            req, name: "researchId", reason: "Invalid research ID")
+            req, name: "researchId", reason: "Invalid research ID"
+        )
         let payload = try req.content.decode(ResearchNoteRequest.self)
 
         guard
             let note = try await ResearchNote.query(on: req.db)
-                .filter(\.$id == researchId)
-                .filter(\.$userId == session.userId)
-                .first()
+            .filter(\.$id == researchId)
+            .filter(\.$userId == session.userId)
+            .first()
         else {
             throw Abort(.notFound, reason: "Research note not found.")
         }
@@ -356,13 +363,14 @@ struct StockController: RouteCollection {
     func deleteResearch(req: Request) async throws -> HTTPStatus {
         let session = try req.auth.require(SessionToken.self)
         let researchId = try requireUUIDParameter(
-            req, name: "researchId", reason: "Invalid research ID")
+            req, name: "researchId", reason: "Invalid research ID"
+        )
 
         guard
             let note = try await ResearchNote.query(on: req.db)
-                .filter(\.$id == researchId)
-                .filter(\.$userId == session.userId)
-                .first()
+            .filter(\.$id == researchId)
+            .filter(\.$userId == session.userId)
+            .first()
         else {
             throw Abort(.notFound, reason: "Research note not found.")
         }
@@ -417,12 +425,12 @@ struct StockController: RouteCollection {
             on: req.db
         )
 
-        let target = Target(
+        let target = try Target(
             userId: session.userId,
-            symbol: try normalizeSymbol(payload.symbol),
-            scenario: try normalizeScenario(payload.scenario),
+            symbol: normalizeSymbol(payload.symbol),
+            scenario: normalizeScenario(payload.scenario),
             targetPrice: payload.targetPrice,
-            targetDate: try parseISODateOnly(payload.targetDate, field: "targetDate"),
+            targetDate: parseISODateOnly(payload.targetDate, field: "targetDate"),
             rationale: emptyToNil(payload.rationale),
             alertTriggeredAt: nil,
             alertTriggeredPrice: nil
@@ -456,9 +464,9 @@ struct StockController: RouteCollection {
 
         guard
             let target = try await Target.query(on: req.db)
-                .filter(\.$id == targetId)
-                .filter(\.$userId == session.userId)
-                .first()
+            .filter(\.$id == targetId)
+            .filter(\.$userId == session.userId)
+            .first()
         else {
             throw Abort(.notFound, reason: "Target not found.")
         }
@@ -487,9 +495,9 @@ struct StockController: RouteCollection {
 
         guard
             let target = try await Target.query(on: req.db)
-                .filter(\.$id == targetId)
-                .filter(\.$userId == session.userId)
-                .first()
+            .filter(\.$id == targetId)
+            .filter(\.$userId == session.userId)
+            .first()
         else {
             throw Abort(.notFound, reason: "Target not found.")
         }
@@ -597,8 +605,8 @@ struct StockController: RouteCollection {
 
         let cleaned =
             links
-            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .filter { !$0.isEmpty }
+                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                .filter { !$0.isEmpty }
 
         guard !cleaned.isEmpty else { return nil }
 

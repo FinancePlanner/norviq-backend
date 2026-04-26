@@ -1,6 +1,6 @@
 import Fluent
-import Vapor
 import Foundation
+import Vapor
 
 final class FxRate: Model, Content, @unchecked Sendable {
     static let schema = "fx_rates"
@@ -23,7 +23,7 @@ final class FxRate: Model, Content, @unchecked Sendable {
     @Timestamp(key: "created_at", on: .create)
     var createdAt: Date?
 
-    init() { }
+    init() {}
 
     init(id: UUID? = nil, date: Date, base: String, quote: String, rate: Double) {
         self.id = id

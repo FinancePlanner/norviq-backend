@@ -1,6 +1,6 @@
 import Fluent
-import Vapor
 import Foundation
+import Vapor
 
 final class Feedback: Model, Content, @unchecked Sendable {
     static let schema = "feedbacks"
@@ -20,12 +20,12 @@ final class Feedback: Model, Content, @unchecked Sendable {
     @Timestamp(key: "created_at", on: .create)
     var createdAt: Date?
 
-    init() { }
+    init() {}
 
     init(id: UUID? = nil, topic: String, message: String, userID: User.IDValue) {
         self.id = id
         self.topic = topic
         self.message = message
-        self.$user.id = userID
+        $user.id = userID
     }
 }

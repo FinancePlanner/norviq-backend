@@ -1,6 +1,6 @@
-import Vapor
 import Fluent
 import Foundation
+import Vapor
 
 enum NewsServiceError: Error {
     case notFound
@@ -14,24 +14,24 @@ extension NewsServiceError: AbortError {
     var status: HTTPResponseStatus {
         switch self {
         case .notFound:
-            return .notFound
+            .notFound
         case .invalidSymbol, .invalidHeadline, .invalidURL, .invalidPublishedAt:
-            return .badRequest
+            .badRequest
         }
     }
 
     var reason: String {
         switch self {
         case .notFound:
-            return "News item not found."
+            "News item not found."
         case .invalidSymbol:
-            return "Invalid symbol."
+            "Invalid symbol."
         case .invalidHeadline:
-            return "Invalid headline."
+            "Invalid headline."
         case .invalidURL:
-            return "Invalid url."
+            "Invalid url."
         case .invalidPublishedAt:
-            return "Invalid publishedAt. Expected ISO8601 datetime."
+            "Invalid publishedAt. Expected ISO8601 datetime."
         }
     }
 }
@@ -96,14 +96,14 @@ struct DefaultNewsService: NewsService {
     }
 
     func create(payload: NewsItemRequest, userId: UUID, on db: any Database) async throws -> NewsItemResponse {
-        let model = NewsItem(
+        let model = try NewsItem(
             userId: userId,
-            symbol: try normalizeSymbol(payload.symbol),
-            headline: try normalizeHeadline(payload.headline),
+            symbol: normalizeSymbol(payload.symbol),
+            headline: normalizeHeadline(payload.headline),
             source: trimToNil(payload.source),
-            url: try normalizeURL(payload.url),
+            url: normalizeURL(payload.url),
             summary: trimToNil(payload.summary),
-            publishedAt: try parsePublishedAt(payload.publishedAt)
+            publishedAt: parsePublishedAt(payload.publishedAt)
         )
 
         try await repo.save(model, on: db)
@@ -257,7 +257,7 @@ private extension DefaultNewsService {
         case skipped
     }
 
-    struct NormalizedNewsArticle: Sendable {
+    struct NormalizedNewsArticle {
         let symbols: [String]
         let headline: String
         let source: String?
@@ -312,7 +312,7 @@ private extension DefaultNewsService {
         guard
             let parsed = URL(string: trimmed),
             let scheme = parsed.scheme?.lowercased(),
-            (scheme == "http" || scheme == "https"),
+            scheme == "http" || scheme == "https",
             parsed.host != nil
         else {
             throw NewsServiceError.invalidURL
@@ -365,11 +365,11 @@ private extension DefaultNewsService {
             return nil
         }
 
-        return NormalizedNewsArticle(
+        return try NormalizedNewsArticle(
             symbols: [symbol],
-            headline: try normalizeHeadline(headline),
+            headline: normalizeHeadline(headline),
             source: trimToNil(raw.source),
-            url: try normalizeURL(raw.url),
+            url: normalizeURL(raw.url),
             summary: trimToNil(raw.summary),
             publishedAt: raw.publishedAt
         )
@@ -385,18 +385,18 @@ private extension DefaultNewsService {
             return nil
         }
 
-        return NormalizedNewsArticle(
+        return try NormalizedNewsArticle(
             symbols: symbols,
-            headline: try normalizeHeadline(rawHeadline),
+            headline: normalizeHeadline(rawHeadline),
             source: trimToNil(raw.source),
-            url: try normalizeURL(raw.url),
+            url: normalizeURL(raw.url),
             summary: trimToNil(raw.summary),
-            publishedAt: try normalizeWebhookPublishedAt(raw)
+            publishedAt: normalizeWebhookPublishedAt(raw)
         )
     }
 
     func normalizedWebhookSymbols(from item: FinnhubNewsWebhookItem) -> [String] {
-        let directSymbols = (item.symbols ?? []) + [item.symbol].compactMap { $0 }
+        let directSymbols = (item.symbols ?? []) + [item.symbol].compactMap(\.self)
         let relatedSymbols = (item.related ?? "")
             .components(separatedBy: CharacterSet(charactersIn: ",;| \n\t"))
         let symbols = directSymbols + relatedSymbols
@@ -418,7 +418,7 @@ private extension DefaultNewsService {
         }
 
         if let timestamp = item.datetime {
-            let normalizedTimestamp = timestamp > 9_999_999_999 ? timestamp / 1_000 : timestamp
+            let normalizedTimestamp = timestamp > 9_999_999_999 ? timestamp / 1000 : timestamp
             return Date(timeIntervalSince1970: normalizedTimestamp)
         }
 
@@ -509,7 +509,7 @@ private extension DefaultNewsService {
         let candidateURL = normalizedDuplicateValue(candidate.url)
         let sameURL = existingURL == candidateURL
         let publishedDelta = abs(existing.publishedAt.timeIntervalSince(candidate.publishedAt))
-        if sameURL && !candidateURL.isEmpty {
+        if sameURL, !candidateURL.isEmpty {
             return true
         }
         return existing.headline == candidate.headline && publishedDelta < 1

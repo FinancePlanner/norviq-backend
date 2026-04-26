@@ -1,7 +1,7 @@
-import Vapor
 import Fluent
-import StockPlanShared
 import Foundation
+import StockPlanShared
+import Vapor
 
 struct GoalsController: RouteCollection {
     func boot(routes: any RoutesBuilder) throws {
@@ -100,7 +100,8 @@ struct GoalsController: RouteCollection {
     func show(req: Request) async throws -> GoalResponse {
         let session = try req.auth.require(SessionToken.self)
         guard let id = req.parameters.get("id", as: UUID.self),
-              let goal = try await Goal.find(id, userId: session.userId, on: req.db) else {
+              let goal = try await Goal.find(id, userId: session.userId, on: req.db)
+        else {
             throw Abort(.notFound)
         }
         return goal.toDTO()
@@ -111,7 +112,8 @@ struct GoalsController: RouteCollection {
         let session = try req.auth.require(SessionToken.self)
         let requestDTO = try req.content.decode(GoalRequest.self)
         guard let id = req.parameters.get("id", as: UUID.self),
-              let goal = try await Goal.find(id, userId: session.userId, on: req.db) else {
+              let goal = try await Goal.find(id, userId: session.userId, on: req.db)
+        else {
             throw Abort(.notFound)
         }
         goal.title = requestDTO.title
@@ -124,7 +126,8 @@ struct GoalsController: RouteCollection {
         let session = try req.auth.require(SessionToken.self)
         let requestDTO = try req.content.decode(GoalStatusUpdateRequest.self)
         guard let id = req.parameters.get("id", as: UUID.self),
-              let goal = try await Goal.find(id, userId: session.userId, on: req.db) else {
+              let goal = try await Goal.find(id, userId: session.userId, on: req.db)
+        else {
             throw Abort(.notFound)
         }
 
@@ -140,7 +143,8 @@ struct GoalsController: RouteCollection {
     func delete(req: Request) async throws -> EmptyAPIResponse {
         let session = try req.auth.require(SessionToken.self)
         guard let id = req.parameters.get("id", as: UUID.self),
-              let goal = try await Goal.find(id, userId: session.userId, on: req.db) else {
+              let goal = try await Goal.find(id, userId: session.userId, on: req.db)
+        else {
             throw Abort(.notFound)
         }
         try await goal.delete(on: req.db)

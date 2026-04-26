@@ -2,6 +2,7 @@ import StockPlanShared
 import Vapor
 
 // MARK: - Badges
+
 extension BadgeType: @retroactive Content {}
 extension BadgeTier: @retroactive Content {}
 extension EarnedTierInfo: @retroactive Content {}

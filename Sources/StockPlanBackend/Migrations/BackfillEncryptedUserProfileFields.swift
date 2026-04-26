@@ -6,8 +6,8 @@ struct BackfillEncryptedUserProfileFields: AsyncMigration {
         let logger = Logger(label: "migration.backfill-user-profile-pii")
         let rawEnvironment = (
             ProcessInfo.processInfo.environment["VAPOR_ENV"]
-            ?? ProcessInfo.processInfo.environment["ENV"]
-            ?? ""
+                ?? ProcessInfo.processInfo.environment["ENV"]
+                ?? ""
         ).lowercased()
         let encryptionService = try UserPIIEncryptionBootstrap.fromProcessEnvironment(
             logger: logger,
@@ -18,7 +18,8 @@ struct BackfillEncryptedUserProfileFields: AsyncMigration {
         for user in users {
             if user.dateOfBirthEncrypted != nil,
                user.bioEncrypted != nil,
-               user.householdPartnerDisplayNameEncrypted != nil {
+               user.householdPartnerDisplayNameEncrypted != nil
+            {
                 continue
             }
 
