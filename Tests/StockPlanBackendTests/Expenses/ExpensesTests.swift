@@ -1,10 +1,10 @@
-@testable import StockPlanBackend
-import VaporTesting
-import Testing
 import Fluent
 import Foundation
+@testable import StockPlanBackend
 import StockPlanShared
+import Testing
 import Vapor
+import VaporTesting
 
 @Suite("Expenses & Reports Service Tests", .serialized)
 struct ExpensesTests {
@@ -48,7 +48,7 @@ struct ExpensesTests {
             email: "exp_\(identifier)@example.com",
             dateOfBirth: Date(timeIntervalSince1970: 946_684_800)
         )
-        var token: String = ""
+        var token = ""
         try await app.testing().test(.POST, "v1/auth/register", beforeRequest: { req in
             try req.content.encode(register)
         }, afterResponse: { res async throws in
@@ -132,9 +132,9 @@ struct ExpensesTests {
     func monthlyReportAggregation() async throws {
         try await withExpensesApp { app in
             let token = try await registerTestUser(app: app)
-            
+
             // 1. Create a snapshot
-            var snapshotId: String = ""
+            var snapshotId = ""
             try await app.testing().test(.POST, "v1/budget/snapshots", beforeRequest: { req in
                 req.headers.bearerAuthorization = .init(token: token)
                 let reqBody = BudgetSnapshotRequest(monthStart: "2025-11-01", netSalary: 3000, targetShares: [:])
@@ -144,7 +144,7 @@ struct ExpensesTests {
                 let snap = try res.content.decode(BudgetSnapshotResponse.self)
                 snapshotId = snap.id
             })
-            
+
             // 2. Add some expenses
             try await app.testing().test(.POST, "v1/expenses", beforeRequest: { req in
                 req.headers.bearerAuthorization = .init(token: token)
@@ -153,7 +153,7 @@ struct ExpensesTests {
             }, afterResponse: { res async throws in
                 #expect(res.status == .created)
             })
-            
+
             // 3. Fetch report
             try await app.testing().test(.GET, "v1/reports/expenses?granularity=month&from=2025-11-01&to=2025-11-30", beforeRequest: { req in
                 req.headers.bearerAuthorization = .init(token: token)
@@ -184,7 +184,7 @@ struct ExpensesTests {
                         targetShares: [
                             BudgetPillar.fundamentals.rawValue: 0.5,
                             BudgetPillar.futureYou.rawValue: 0.3,
-                            BudgetPillar.fun.rawValue: 0.2
+                            BudgetPillar.fun.rawValue: 0.2,
                         ]
                     )
                 )
@@ -551,7 +551,7 @@ struct ExpensesTests {
     }
 
     @Test("Creating plan items and expenses respects percentage allocation details")
-    func testPercentageAllocationDetails() async throws {
+    func percentageAllocationDetails() async throws {
         try await withExpensesApp { app in
             let token = try await registerTestUser(app: app)
             var snapshotId = ""
@@ -752,7 +752,7 @@ struct ExpensesTests {
             let positions = [
                 StockRequest(symbol: "AAPL", shares: 2, buyPrice: 150, buyDate: "2026-01-01", notes: nil),
                 StockRequest(symbol: "MSFT", shares: 1, buyPrice: 300, buyDate: "2026-01-02", notes: nil),
-                StockRequest(symbol: "NVDA", shares: 3, buyPrice: 100, buyDate: "2026-01-03", notes: nil)
+                StockRequest(symbol: "NVDA", shares: 3, buyPrice: 100, buyDate: "2026-01-03", notes: nil),
             ]
 
             for position in positions {

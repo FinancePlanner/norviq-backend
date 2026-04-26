@@ -16,7 +16,8 @@ struct DatabasePushDeviceService: PushDeviceService {
 
         if let existing = try await PushDevice.query(on: db)
             .filter(\.$deviceToken == token)
-            .first() {
+            .first()
+        {
             existing.userId = userId
             existing.platform = payload.platform.rawValue
             existing.apnsEnvironment = payload.apnsEnvironment.rawValue
@@ -45,7 +46,8 @@ struct DatabasePushDeviceService: PushDeviceService {
         guard let model = try await PushDevice.query(on: db)
             .filter(\.$userId == userId)
             .filter(\.$deviceToken == token)
-            .first() else {
+            .first()
+        else {
             return
         }
 
@@ -58,7 +60,8 @@ struct DatabasePushDeviceService: PushDeviceService {
         let token = try normalizedDeviceToken(deviceToken)
         guard let model = try await PushDevice.query(on: db)
             .filter(\.$deviceToken == token)
-            .first() else {
+            .first()
+        else {
             return
         }
 

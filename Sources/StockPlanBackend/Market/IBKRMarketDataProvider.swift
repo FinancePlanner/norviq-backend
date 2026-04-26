@@ -1,11 +1,13 @@
-import Vapor
 import Foundation
+import Vapor
 
 struct IBKRMarketDataProvider: MarketDataProvider {
     let baseURL: String
     let defaultCurrency: String
 
-    var name: String { "ibkr" }
+    var name: String {
+        "ibkr"
+    }
 
     init(
         baseURL: String = Environment.get("IBKR_API_BASE_URL") ?? "http://localhost:5000/v1/api",
@@ -47,7 +49,7 @@ struct IBKRMarketDataProvider: MarketDataProvider {
                 ("conid", instrument.conid),
                 ("period", "1y"),
                 ("bar", "1d"),
-                ("outsideRth", "true")
+                ("outsideRth", "true"),
             ]
         )
 
@@ -151,12 +153,12 @@ struct IBKRMarketDataProvider: MarketDataProvider {
         return MarketProviderFxRate(base: base, quote: quote, rate: rate, asOf: asOf)
     }
 
-    func profile(symbol: String, on req: Request) async throws -> MarketProviderCompanyProfile? {
-        return nil // IBKR doesn't natively expose a /profile equivalent.
+    func profile(symbol _: String, on _: Request) async throws -> MarketProviderCompanyProfile? {
+        nil // IBKR doesn't natively expose a /profile equivalent.
     }
 
-    func basicFinancials(symbol: String, on req: Request) async throws -> MarketProviderBasicFinancials? {
-        return nil // IBKR doesn't natively expose a /stock/metric equivalent.
+    func basicFinancials(symbol _: String, on _: Request) async throws -> MarketProviderBasicFinancials? {
+        nil // IBKR doesn't natively expose a /stock/metric equivalent.
     }
 }
 
@@ -183,7 +185,7 @@ private extension IBKRMarketDataProvider {
             path: "/iserver/marketdata/snapshot",
             query: [
                 ("conids", conid),
-                ("fields", fields.joined(separator: ","))
+                ("fields", fields.joined(separator: ",")),
             ]
         )
 
@@ -236,7 +238,7 @@ private extension IBKRMarketDataProvider {
 
     func parseEpochMilliseconds(_ value: LossyValue?) -> Date? {
         guard let numeric = parseDouble(value) else { return nil }
-        return Date(timeIntervalSince1970: numeric / 1_000)
+        return Date(timeIntervalSince1970: numeric / 1000)
     }
 
     func toMarketBar(_ raw: IBKRHistoryBar) -> MarketProviderPriceBar? {
@@ -249,13 +251,12 @@ private extension IBKRMarketDataProvider {
             return nil
         }
 
-        let date: Date?
-        if let millis = parseDouble(raw.t ?? raw.time) {
-            date = Date(timeIntervalSince1970: millis / 1_000)
+        let date: Date? = if let millis = parseDouble(raw.t ?? raw.time) {
+            Date(timeIntervalSince1970: millis / 1000)
         } else if let dateValue = raw.date {
-            date = parseIBKRDate(dateValue)
+            parseIBKRDate(dateValue)
         } else {
-            date = nil
+            nil
         }
 
         guard let resolvedDate = date else { return nil }

@@ -1,7 +1,7 @@
-import Vapor
+import Fluent
 import Foundation
 import NIOCore
-import Fluent
+import Vapor
 
 struct BrokerController: RouteCollection {
     func boot(routes: any RoutesBuilder) throws {

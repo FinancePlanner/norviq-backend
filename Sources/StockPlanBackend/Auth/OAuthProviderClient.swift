@@ -1,17 +1,17 @@
 import Crypto
 import Foundation
-import Vapor
 import JWT
 import JWTKit
+import Vapor
 
-struct OAuthAuthorizationContext: Sendable {
+struct OAuthAuthorizationContext {
     let state: String
     let nonce: String
     let codeChallenge: String
     let redirectURI: String
 }
 
-struct OAuthIdentityInfo: Sendable {
+struct OAuthIdentityInfo {
     let providerUserID: String
     let email: String?
     let emailVerified: Bool
@@ -31,7 +31,7 @@ protocol OAuthProviderClient: Sendable {
 }
 
 struct GoogleOAuthProviderClient: OAuthProviderClient {
-    struct Config: Sendable {
+    struct Config {
         let clientID: String
         let clientSecret: String
         let authURL: URL
@@ -91,7 +91,7 @@ struct GoogleOAuthProviderClient: OAuthProviderClient {
             URLQueryItem(name: "code_challenge", value: context.codeChallenge),
             URLQueryItem(name: "code_challenge_method", value: "S256"),
             URLQueryItem(name: "prompt", value: "select_account"),
-            URLQueryItem(name: "access_type", value: "offline")
+            URLQueryItem(name: "access_type", value: "offline"),
         ]
 
         guard let url = components.url else {
@@ -113,7 +113,7 @@ struct GoogleOAuthProviderClient: OAuthProviderClient {
             "grant_type": "authorization_code",
             "code": code,
             "redirect_uri": redirectURI,
-            "code_verifier": codeVerifier
+            "code_verifier": codeVerifier,
         ])
 
         let tokenResponse = try await req.client.post(config.tokenURL) { clientRequest in
@@ -147,7 +147,8 @@ struct GoogleOAuthProviderClient: OAuthProviderClient {
         }
 
         if let authorizedPresenter = claims.azp?.trimmedNonEmpty,
-           authorizedPresenter != config.clientID {
+           authorizedPresenter != config.clientID
+        {
             throw Abort(.unauthorized, reason: "Google id_token authorized presenter is invalid")
         }
 
@@ -179,7 +180,7 @@ struct GoogleOAuthProviderClient: OAuthProviderClient {
 }
 
 struct AppleOAuthProviderClient: OAuthProviderClient {
-    struct Config: Sendable {
+    struct Config {
         let clientID: String
         let teamID: String
         let keyID: String
@@ -271,7 +272,7 @@ struct AppleOAuthProviderClient: OAuthProviderClient {
             URLQueryItem(name: "state", value: context.state),
             URLQueryItem(name: "nonce", value: context.nonce),
             URLQueryItem(name: "code_challenge", value: context.codeChallenge),
-            URLQueryItem(name: "code_challenge_method", value: "S256")
+            URLQueryItem(name: "code_challenge_method", value: "S256"),
         ]
 
         guard let url = components.url else {
@@ -294,7 +295,7 @@ struct AppleOAuthProviderClient: OAuthProviderClient {
             "grant_type": "authorization_code",
             "code": code,
             "redirect_uri": redirectURI,
-            "code_verifier": codeVerifier
+            "code_verifier": codeVerifier,
         ])
 
         let tokenResponse = try await req.client.post(config.tokenURL) { clientRequest in
@@ -357,14 +358,14 @@ struct AppleOAuthProviderClient: OAuthProviderClient {
         let header: [String: Any] = [
             "alg": "ES256",
             "kid": config.keyID,
-            "typ": "JWT"
+            "typ": "JWT",
         ]
         let claims: [String: Any] = [
             "iss": config.teamID,
             "iat": now,
             "exp": exp,
             "aud": "https://appleid.apple.com",
-            "sub": config.clientID
+            "sub": config.clientID,
         ]
 
         let headerData = try JSONSerialization.data(withJSONObject: header, options: [.sortedKeys])
@@ -377,7 +378,7 @@ struct AppleOAuthProviderClient: OAuthProviderClient {
 }
 
 struct XOAuthProviderClient: OAuthProviderClient {
-    struct Config: Sendable {
+    struct Config {
         let clientID: String
         let clientSecret: String?
         let scopes: String
@@ -421,6 +422,7 @@ struct XOAuthProviderClient: OAuthProviderClient {
             let name: String?
             let username: String?
         }
+
         let data: User
     }
 
@@ -439,7 +441,7 @@ struct XOAuthProviderClient: OAuthProviderClient {
             URLQueryItem(name: "scope", value: config.scopes),
             URLQueryItem(name: "state", value: context.state),
             URLQueryItem(name: "code_challenge", value: context.codeChallenge),
-            URLQueryItem(name: "code_challenge_method", value: "S256")
+            URLQueryItem(name: "code_challenge_method", value: "S256"),
         ]
 
         guard let url = components.url else {
@@ -460,7 +462,7 @@ struct XOAuthProviderClient: OAuthProviderClient {
             "code": code,
             "redirect_uri": redirectURI,
             "code_verifier": codeVerifier,
-            "client_id": config.clientID
+            "client_id": config.clientID,
         ])
 
         let tokenResponse = try await req.client.post(config.tokenURL) { clientRequest in
@@ -518,9 +520,9 @@ private enum OAuthFlexibleBool: Codable {
     var boolValue: Bool {
         switch self {
         case let .bool(value):
-            return value
+            value
         case let .string(value):
-            return value.lowercased() == "true"
+            value.lowercased() == "true"
         }
     }
 
@@ -530,7 +532,7 @@ private enum OAuthFlexibleBool: Codable {
             self = .bool(value)
             return
         }
-        self = .string(try container.decode(String.self))
+        self = try .string(container.decode(String.self))
     }
 
     func encode(to encoder: any Encoder) throws {
@@ -572,7 +574,7 @@ private struct GoogleIDTokenClaims: JWTPayload {
     }
 
     func verify(using _: some JWTAlgorithm) throws {
-        let validIssuers: Set<String> = ["accounts.google.com", "https://accounts.google.com"]
+        let validIssuers: Set = ["accounts.google.com", "https://accounts.google.com"]
         guard validIssuers.contains(iss) else {
             throw Abort(.unauthorized, reason: "Google id_token issuer is invalid")
         }
@@ -590,9 +592,9 @@ private enum StringOrArray: Codable {
     func contains(_ value: String) -> Bool {
         switch self {
         case let .string(raw):
-            return raw == value
+            raw == value
         case let .array(values):
-            return values.contains(value)
+            values.contains(value)
         }
     }
 
@@ -602,7 +604,7 @@ private enum StringOrArray: Codable {
             self = .string(raw)
             return
         }
-        self = .array(try container.decode([String].self))
+        self = try .array(container.decode([String].self))
     }
 
     func encode(to encoder: any Encoder) throws {
@@ -665,7 +667,8 @@ private func oauthValidateJWTHeader(
     }
 
     if let typ = (header["typ"] as? String)?.trimmedNonEmpty,
-       typ.uppercased() != "JWT" {
+       typ.uppercased() != "JWT"
+    {
         throw Abort(.unauthorized, reason: "\(providerLabel) id_token type header is invalid")
     }
 
@@ -687,7 +690,7 @@ private func oauthParseJWTHeader(_ token: String) throws -> [String: Any] {
         throw Abort(.unauthorized, reason: "Invalid JWT header encoding")
     }
 
-    return Dictionary(uniqueKeysWithValues: header.map { (key, value) in
+    return Dictionary(uniqueKeysWithValues: header.map { key, value in
         (key.lowercased(), value)
     })
 }

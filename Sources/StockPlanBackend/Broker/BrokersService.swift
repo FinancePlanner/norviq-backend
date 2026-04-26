@@ -1,6 +1,6 @@
-import Vapor
 import Fluent
 import Foundation
+import Vapor
 
 enum BrokersServiceError: Error {
     case invalidProvider
@@ -11,18 +11,18 @@ extension BrokersServiceError: AbortError {
     var status: HTTPResponseStatus {
         switch self {
         case .invalidProvider:
-            return .badRequest
+            .badRequest
         case .notFound:
-            return .notFound
+            .notFound
         }
     }
 
     var reason: String {
         switch self {
         case .invalidProvider:
-            return "Invalid broker provider."
+            "Invalid broker provider."
         case .notFound:
-            return "Broker not found."
+            "Broker not found."
         }
     }
 }
@@ -227,7 +227,8 @@ private extension DefaultBrokersService {
         guard let url = URL(string: normalized),
               let scheme = url.scheme,
               !scheme.isEmpty,
-              url.host != nil || url.path.hasPrefix("/") else {
+              url.host != nil || url.path.hasPrefix("/")
+        else {
             throw Abort(.badRequest, reason: "Invalid broker redirect URI.")
         }
         return normalized
@@ -258,7 +259,7 @@ private extension DefaultBrokersService {
         components.path = "/v1/auth/brokers/ibkr/callback"
         components.queryItems = [
             URLQueryItem(name: "flowId", value: flowId.uuidString),
-            URLQueryItem(name: "state", value: state)
+            URLQueryItem(name: "state", value: state),
         ]
         guard let url = components.url else {
             throw Abort(.internalServerError, reason: "Failed to build broker callback URL.")
@@ -320,6 +321,6 @@ private extension DefaultBrokersService {
 
     func randomURLSafeString(length: Int) -> String {
         let alphabet = Array("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-._~")
-        return String((0..<length).map { _ in alphabet.randomElement()! })
+        return String((0 ..< length).map { _ in alphabet.randomElement()! })
     }
 }

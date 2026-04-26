@@ -1,9 +1,9 @@
 import Fluent
 import FluentSQL
+import Foundation
 import Redis
 import RediStack
 import Vapor
-import Foundation
 
 private struct HealthResponse: Content {
     let status: String
@@ -139,7 +139,7 @@ private func mailerHealthCheck(_ req: Request) -> HealthCheck {
     let mfaEnabled = envBoolForHealth("AUTH_MFA_ENABLED", default: req.application.environment == .production)
     let hasResend = !(Environment.get("RESEND_API_KEY") ?? "").isEmpty
         && !(Environment.get("RESEND_FROM_EMAIL") ?? "").isEmpty
-    if mfaEnabled && !hasResend {
+    if mfaEnabled, !hasResend {
         return HealthCheck(status: "unhealthy", message: "MFA is enabled but Resend is not configured.", latencyMs: nil)
     }
     return HealthCheck(status: hasResend ? "healthy" : "skipped", message: hasResend ? nil : "Email delivery is disabled.", latencyMs: nil)
@@ -152,7 +152,7 @@ private func apnsHealthCheck(_ req: Request) -> HealthCheck {
     return HealthCheck(status: "skipped", message: "APNS is not configured; push delivery is disabled.", latencyMs: nil)
 }
 
-private func marketDataHealthCheck(_ req: Request) -> HealthCheck {
+private func marketDataHealthCheck(_: Request) -> HealthCheck {
     let hasFinnhub = !(Environment.get("FINNHUB_API_KEY") ?? "").isEmpty
     let hasIBKR = !(Environment.get("IBKR_API_BASE_URL") ?? "").isEmpty
     let hasFMP = !(Environment.get("FMP_API_KEY") ?? "").isEmpty
@@ -164,7 +164,7 @@ private func marketDataHealthCheck(_ req: Request) -> HealthCheck {
 
 private func elapsedMilliseconds(since start: DispatchTime) -> Double {
     let elapsed = DispatchTime.now().uptimeNanoseconds - start.uptimeNanoseconds
-    return (Double(elapsed) / 1_000_000).rounded() / 1_000
+    return (Double(elapsed) / 1_000_000).rounded() / 1000
 }
 
 private func envBoolForHealth(_ key: String, default defaultValue: Bool) -> Bool {

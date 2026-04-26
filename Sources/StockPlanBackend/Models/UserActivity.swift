@@ -1,7 +1,7 @@
 import Fluent
-import Vapor
 import Foundation
 import StockPlanShared
+import Vapor
 
 final class UserActivity: Model, Content, @unchecked Sendable {
     static let schema = "user_activities"
@@ -33,7 +33,7 @@ final class UserActivity: Model, Content, @unchecked Sendable {
     @Timestamp(key: "created_at", on: .create)
     var createdAt: Date?
 
-    init() { }
+    init() {}
 
     init(
         id: UUID? = nil,

@@ -4,7 +4,7 @@ import Foundation
 import Vapor
 import VaporAPNS
 
-struct TargetPushSendSummary: Sendable {
+struct TargetPushSendSummary {
     let delivered: Int
     let failed: Int
 }
@@ -21,7 +21,7 @@ protocol PushNotificationSending: Sendable {
 struct NoopPushNotificationSender: PushNotificationSending {
     func sendTargetHit(
         target: Target,
-        currentPrice: Double,
+        currentPrice _: Double,
         devices: [PushDevice],
         req: Request
     ) async -> TargetPushSendSummary {

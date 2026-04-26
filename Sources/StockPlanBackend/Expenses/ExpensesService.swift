@@ -1,7 +1,7 @@
-import Vapor
 import Fluent
-import StockPlanShared
 import Foundation
+import StockPlanShared
+import Vapor
 
 protocol ExpensesService: Sendable {
     func getHouseholdPartner(userId: UUID, on db: any Database) async throws -> HouseholdPartnerProfileResponse
@@ -102,7 +102,7 @@ final class DefaultExpensesService: ExpensesService {
         splitMode: ExpenseSplitMode,
         userSharePercent: Double
     ) throws -> (ExpenseSplitMode, Double) {
-        guard (0...100).contains(userSharePercent) else {
+        guard (0 ... 100).contains(userSharePercent) else {
             throw Abort(.badRequest, reason: "userSharePercent must be between 0 and 100.")
         }
 
@@ -117,9 +117,9 @@ final class DefaultExpensesService: ExpensesService {
     private func userPortion(of amount: Double, splitMode: ExpenseSplitMode, userSharePercent: Double) -> Double {
         switch splitMode {
         case .personal:
-            return amount
+            amount
         case .shared:
-            return amount * (userSharePercent / 100)
+            amount * (userSharePercent / 100)
         }
     }
 
@@ -163,10 +163,10 @@ final class DefaultExpensesService: ExpensesService {
         // Client filtering by year/month if provided (since monthStart is a Date, easier to filter in Swift or via Postgres extract)
         // Filtering in Swift for simplicity unless data is huge
         var filtered = snapshots
-        if let year = year {
+        if let year {
             filtered = filtered.filter { Calendar.current.component(.year, from: $0.monthStart) == year }
         }
-        if let month = month {
+        if let month {
             filtered = filtered.filter { Calendar.current.component(.month, from: $0.monthStart) == month }
         }
 
@@ -341,13 +341,13 @@ final class DefaultExpensesService: ExpensesService {
     func getExpenses(userId: UUID, from: Date?, to: Date?, limit: Int, cursor: Date?, on db: any Database) async throws -> (items: [ExpenseResponse], nextCursor: String?) {
         var query = Expense.query(on: db).filter(\.$user.$id == userId)
 
-        if let from = from {
+        if let from {
             query = query.filter(\.$occurredOn >= from)
         }
-        if let to = to {
+        if let to {
             query = query.filter(\.$occurredOn <= to)
         }
-        if let cursor = cursor {
+        if let cursor {
             // Keyset: fetch records created before cursor (older records)
             query = query.filter(\.$createdAt < cursor)
         }
@@ -598,11 +598,11 @@ final class DefaultExpensesService: ExpensesService {
         let itemsQuery = BudgetPlanItem.query(on: db).filter(\.$user.$id == userId)
         var expensesQuery = Expense.query(on: db).filter(\.$user.$id == userId)
 
-        if let from = from {
+        if let from {
             snapshotsQuery = snapshotsQuery.filter(\.$monthStart >= from)
             expensesQuery = expensesQuery.filter(\.$occurredOn >= from)
         }
-        if let to = to {
+        if let to {
             snapshotsQuery = snapshotsQuery.filter(\.$monthStart <= to)
             expensesQuery = expensesQuery.filter(\.$occurredOn <= to)
         }
@@ -641,10 +641,14 @@ final class DefaultExpensesService: ExpensesService {
             let monthExpenses = expensesByMonth[monthStart] ?? []
 
             var plannedTotal: Double = 0
-            for item in snapshotItems { plannedTotal += item.plannedAmount }
+            for item in snapshotItems {
+                plannedTotal += item.plannedAmount
+            }
 
             var actualTotal: Double = 0
-            for expense in monthExpenses { actualTotal += expense.amount }
+            for expense in monthExpenses {
+                actualTotal += expense.amount
+            }
 
             var myPlannedTotal: Double = 0
             var partnerPlannedTotal: Double = 0

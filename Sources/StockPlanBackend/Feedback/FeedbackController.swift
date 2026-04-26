@@ -1,6 +1,6 @@
 import Fluent
-import Vapor
 import StockPlanShared
+import Vapor
 
 struct FeedbackController: RouteCollection {
     func boot(routes: any RoutesBuilder) throws {
@@ -20,7 +20,7 @@ struct FeedbackController: RouteCollection {
             throw Abort(.badRequest, reason: "Feedback topic must be between 1 and 80 characters.")
         }
 
-        guard !message.isEmpty, message.count <= 5_000 else {
+        guard !message.isEmpty, message.count <= 5000 else {
             throw Abort(.badRequest, reason: "Feedback message must be between 1 and 5000 characters.")
         }
 

@@ -1,11 +1,11 @@
-@testable import StockPlanBackend
 import Fluent
+@testable import StockPlanBackend
 import Testing
 import Vapor
 
 @Suite("StocksRepository Tests", .serialized)
 struct StocksRepositoryTests {
-    private func withApp(_ test: (Application) async throws -> ()) async throws {
+    private func withApp(_ test: (Application) async throws -> Void) async throws {
         try await DatabaseTestLock.withLock {
             let app = try await Application.make(.testing)
             do {
@@ -85,7 +85,7 @@ struct StocksRepositoryTests {
             #expect(formatISODateOnly(created.buyDate) == "2024-02-03")
             #expect(created.notes == "note")
 
-            let fetched = try await repo.find(id: try created.requireID(), userId: userId, on: app.db)
+            let fetched = try await repo.find(id: created.requireID(), userId: userId, on: app.db)
             #expect(fetched?.symbol == "AAPL")
         }
     }
@@ -265,7 +265,7 @@ struct StocksRepositoryTests {
             #expect(created.baseHigh == 22)
             #expect(created.bullHigh == 30)
             #expect(created.rationale == "valuation thesis")
-            #expect(formatISODateOnly(try #require(created.targetDate)) == "2027-01-15")
+            #expect(try formatISODateOnly(#require(created.targetDate)) == "2027-01-15")
 
             let fetched = try await repo.findValuation(symbol: "aapl", userId: userId, on: app.db)
             #expect(fetched?.symbol == "AAPL")

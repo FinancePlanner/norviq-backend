@@ -1,6 +1,6 @@
-import StockPlanShared
 import Fluent
 import Foundation
+import StockPlanShared
 import Vapor
 
 struct BillingController: RouteCollection {
@@ -162,15 +162,15 @@ private extension BillingController {
             .filter(\.$provider == "revenuecat")
             .filter(\.$providerOriginalTransactionId == "\(userId.uuidString):\(productId)")
             .first()
-        ?? Subscription(
-            userId: userId,
-            provider: "revenuecat",
-            providerCustomerId: userId.uuidString,
-            providerOriginalTransactionId: "\(userId.uuidString):\(productId)",
-            productId: productId,
-            plan: plan(for: productId),
-            status: status
-        )
+            ?? Subscription(
+                userId: userId,
+                provider: "revenuecat",
+                providerCustomerId: userId.uuidString,
+                providerOriginalTransactionId: "\(userId.uuidString):\(productId)",
+                productId: productId,
+                plan: plan(for: productId),
+                status: status
+            )
 
         subscription.userId = userId
         subscription.providerCustomerId = userId.uuidString
@@ -187,7 +187,7 @@ private extension BillingController {
         let entitlement = try await Entitlement.query(on: db)
             .filter(\.$userId == userId)
             .first()
-        ?? Entitlement(userId: userId, level: entitlementLevel, subscriptionId: subscription.id)
+            ?? Entitlement(userId: userId, level: entitlementLevel, subscriptionId: subscription.id)
         entitlement.level = entitlementLevel
         entitlement.subscriptionId = subscription.id
         try await entitlement.save(on: db)

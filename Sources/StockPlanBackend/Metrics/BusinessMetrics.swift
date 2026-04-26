@@ -10,12 +10,15 @@ struct BusinessMetrics {
     func incrementStocksCreated() {
         PrometheusMetrics.shared.incrementStocksCreated()
     }
+
     func incrementPortfoliosCreated() {
         PrometheusMetrics.shared.incrementPortfoliosCreated()
     }
+
     func incrementTransactionsCreated() {
         PrometheusMetrics.shared.incrementTransactionsCreated()
     }
+
     func incrementTargetsCreated() {
         PrometheusMetrics.shared.incrementTargetsCreated()
     }

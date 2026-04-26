@@ -1,8 +1,8 @@
-import Vapor
 import Logging
 import NIOCore
 import NIOPosix
 import OTel
+import Vapor
 
 @main
 enum Entrypoint {

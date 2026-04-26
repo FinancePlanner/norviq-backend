@@ -1,7 +1,7 @@
-import Vapor
 import Foundation
+import Vapor
 
-struct ProviderNewsItem: Sendable {
+struct ProviderNewsItem {
     let symbol: String
     let headline: String
     let source: String?
@@ -23,7 +23,9 @@ struct FinnhubNewsProvider: NewsProvider {
     let lookbackDays: Int
     let maxArticlesPerSymbol: Int?
 
-    var name: String { "finnhub" }
+    var name: String {
+        "finnhub"
+    }
 
     init(
         baseURL: String = "https://finnhub.io/api/v1",
@@ -61,7 +63,7 @@ struct FinnhubNewsProvider: NewsProvider {
                 query: [
                     ("symbol", symbol),
                     ("from", window.from),
-                    ("to", window.to)
+                    ("to", window.to),
                 ],
                 on: req
             )
@@ -112,11 +114,11 @@ struct FinnhubNewsProvider: NewsProvider {
 struct ExternalAPINewsProvider: NewsProvider {
     let name: String = "external_api"
 
-    func fetch(symbols: [String], on req: Request) async throws -> [ProviderNewsItem] {
+    func fetch(symbols _: [String], on _: Request) async throws -> [ProviderNewsItem] {
         throw Abort(.notImplemented, reason: "External API news provider fetch is not implemented yet.")
     }
 
-    func fetchGeneral(on req: Request) async throws -> [ProviderNewsItem] {
+    func fetchGeneral(on _: Request) async throws -> [ProviderNewsItem] {
         throw Abort(.notImplemented, reason: "External API news provider fetchGeneral is not implemented yet.")
     }
 }
@@ -124,17 +126,17 @@ struct ExternalAPINewsProvider: NewsProvider {
 struct RSSNewsProvider: NewsProvider {
     let name: String = "rss"
 
-    func fetch(symbols: [String], on req: Request) async throws -> [ProviderNewsItem] {
+    func fetch(symbols _: [String], on _: Request) async throws -> [ProviderNewsItem] {
         throw Abort(.notImplemented, reason: "RSS news provider fetch is not implemented yet.")
     }
 
-    func fetchGeneral(on req: Request) async throws -> [ProviderNewsItem] {
+    func fetchGeneral(on _: Request) async throws -> [ProviderNewsItem] {
         throw Abort(.notImplemented, reason: "RSS news provider fetchGeneral is not implemented yet.")
     }
 }
 
 private extension FinnhubNewsProvider {
-    struct CompanyNewsWindow: Sendable {
+    struct CompanyNewsWindow {
         let from: String
         let to: String
     }

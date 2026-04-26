@@ -1,7 +1,7 @@
 import Fluent
-import Vapor
 import Foundation
 import StockPlanShared
+import Vapor
 
 final class Expense: Model, @unchecked Sendable {
     static let schema = "expenses"
@@ -65,13 +65,13 @@ final class Expense: Model, @unchecked Sendable {
         userSharePercent: Double = 100
     ) {
         self.id = id
-        self.$user.id = userID
+        $user.id = userID
         self.title = title
         self.amount = amount
         self.pillar = pillar
         self.occurredOn = occurredOn
         self.splitMode = splitMode
         self.userSharePercent = userSharePercent
-        self.$linkedPlanItem.id = linkedPlanItemID
+        $linkedPlanItem.id = linkedPlanItemID
     }
 }

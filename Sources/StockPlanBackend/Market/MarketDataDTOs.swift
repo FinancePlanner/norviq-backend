@@ -1,5 +1,5 @@
-import Vapor
 import Foundation
+import Vapor
 
 public struct StockDetailsResponse: Content, Sendable, Equatable {
     public let symbol: String
@@ -227,11 +227,11 @@ public enum BasicFinancialMetricValue: Content, Sendable, Equatable {
         var container = encoder.singleValueContainer()
 
         switch self {
-        case .number(let value):
+        case let .number(value):
             try container.encode(value)
-        case .string(let value):
+        case let .string(value):
             try container.encode(value)
-        case .bool(let value):
+        case let .bool(value):
             try container.encode(value)
         case .null:
             try container.encodeNil()

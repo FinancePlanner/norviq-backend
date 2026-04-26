@@ -1,6 +1,6 @@
-@testable import StockPlanBackend
 import Fluent
 import Foundation
+@testable import StockPlanBackend
 import struct StockPlanShared.BillingContextResponse
 import struct StockPlanShared.BillingUpgradeRequiredResponse
 import Testing
@@ -69,11 +69,11 @@ struct BillingTests {
         gracePeriodMs: Int64? = nil
     ) -> String {
         var fields = """
-            "id": "\(eventId)",
-            "type": "\(type)",
-            "app_user_id": "\(appUserId)",
-            "product_id": "\(productId)"
-            """
+        "id": "\(eventId)",
+        "type": "\(type)",
+        "app_user_id": "\(appUserId)",
+        "product_id": "\(productId)"
+        """
         if let ms = expirationAtMs { fields += ",\n\"expiration_at_ms\": \(ms)" }
         if let ms = gracePeriodMs { fields += ",\n\"grace_period_expires_date_ms\": \(ms)" }
         return "{\"event\": {\(fields)}}"
@@ -339,7 +339,7 @@ struct BillingTests {
         try await withApp { app in
             let auth = try await registerUser(on: app, identifier: "billing-grace")
             let userId = auth.userId
-            let futureGraceMs = Int64(Date().addingTimeInterval(86_400).timeIntervalSince1970 * 1000)
+            let futureGraceMs = Int64(Date().addingTimeInterval(86400).timeIntervalSince1970 * 1000)
 
             _ = try await post(makePayload(type: "INITIAL_PURCHASE", eventId: UUID().uuidString, appUserId: userId.uuidString), authorization: secret, on: app)
             let status = try await post(makePayload(type: "BILLING_ISSUE", eventId: UUID().uuidString, appUserId: userId.uuidString, gracePeriodMs: futureGraceMs), authorization: secret, on: app)
@@ -533,7 +533,7 @@ struct BillingTests {
                 ("v1/expenses", "expense_planner"),
                 ("v1/budget/snapshots", "expense_planner"),
                 ("v1/reports/overview", "reports"),
-                ("v1/statistics/overview", "statistics")
+                ("v1/statistics/overview", "statistics"),
             ]
 
             for (path, feature) in checks {
@@ -713,7 +713,7 @@ struct BillingTests {
             #expect(body.subscription?.status == "active")
             #expect(body.subscription?.plan == "pro_annual")
             #expect(body.subscription?.renewsOrExpiresAt != nil)
-            #expect(body.features.allSatisfy { $0.available })
+            #expect(body.features.allSatisfy(\.available))
             #expect(body.usage.first { $0.key == "holdings" }?.limit == nil)
         }
     }

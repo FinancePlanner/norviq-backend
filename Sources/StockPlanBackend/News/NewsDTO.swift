@@ -15,16 +15,16 @@ struct FinnhubNewsWebhookRequest: Content {
 
     init(from decoder: any Decoder) throws {
         if let items = try? [FinnhubNewsWebhookItem](from: decoder) {
-            self.news = items
+            news = items
             return
         }
 
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        self.news =
+        news =
             (try? container.decode([FinnhubNewsWebhookItem].self, forKey: .news))
-            ?? (try? container.decode([FinnhubNewsWebhookItem].self, forKey: .data))
-            ?? (try? container.decode([FinnhubNewsWebhookItem].self, forKey: .articles))
-            ?? []
+                ?? (try? container.decode([FinnhubNewsWebhookItem].self, forKey: .data))
+                ?? (try? container.decode([FinnhubNewsWebhookItem].self, forKey: .articles))
+                ?? []
     }
 
     private enum CodingKeys: String, CodingKey {

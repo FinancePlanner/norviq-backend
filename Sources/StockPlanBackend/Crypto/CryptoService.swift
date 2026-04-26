@@ -23,7 +23,6 @@ protocol CryptoService: Sendable {
 }
 
 final class DefaultCryptoService: CryptoService {
-
     let provider: any CryptoDataProvider
 
     init(provider: any CryptoDataProvider) {
@@ -51,7 +50,8 @@ final class DefaultCryptoService: CryptoService {
         if let existing = try await CryptoPortfolioItem.query(on: db)
             .filter(\.$userId == userId)
             .filter(\.$symbol == symbol)
-            .first() {
+            .first()
+        {
             let oldCost = existing.quantity * existing.averageBuyPrice
             let newCost = payload.quantity * payload.averageBuyPrice
             let totalQuantity = existing.quantity + payload.quantity
@@ -148,6 +148,7 @@ final class DefaultCryptoService: CryptoService {
     func fetchCryptoNews(symbol: String?, page: Int?, limit: Int?, from: String?, to: String?, on req: Request) async throws -> [FMPMarketNewsItem] {
         try await provider.fetchCryptoNews(symbol: symbol, page: page, limit: limit, from: from, to: to, on: req)
     }
+
     // MARK: - Private Helpers
 
     private func normalizeSymbol(_ raw: String) -> String {

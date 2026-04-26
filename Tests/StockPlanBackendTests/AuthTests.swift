@@ -1,13 +1,13 @@
-@testable import StockPlanBackend
-import VaporTesting
-import Testing
+import Crypto
 import Fluent
 import Foundation
-import Crypto
+@testable import StockPlanBackend
+import Testing
+import VaporTesting
 
 @Suite("Auth Tests", .serialized)
 struct AuthTests {
-    private func withApp(_ test: (Application) async throws -> ()) async throws {
+    private func withApp(_ test: (Application) async throws -> Void) async throws {
         try await DatabaseTestLock.withLock {
             let app = try await Application.make(.testing)
             do {
@@ -76,9 +76,9 @@ struct AuthTests {
         guard let startResponse,
               let url = URL(string: startResponse.authorizationURL),
               let state = URLComponents(url: url, resolvingAgainstBaseURL: false)?
-                .queryItems?
-                .first(where: { $0.name == "state" })?
-                .value
+              .queryItems?
+              .first(where: { $0.name == "state" })?
+              .value
         else {
             throw Abort(.internalServerError, reason: "Fake OAuth start did not return a state")
         }
@@ -174,7 +174,7 @@ struct AuthTests {
     func registerSuccess() async throws {
         try await withApp { app in
             let registerReq = makeRegisterRequest(email: "newuser@example.com", password: "Password123!")
-            
+
             try await app.testing().test(.POST, "v1/auth/register", beforeRequest: { req in
                 try req.content.encode(registerReq)
             }, afterResponse: { res async throws in
@@ -216,14 +216,14 @@ struct AuthTests {
     func registerDuplicateEmail() async throws {
         try await withApp { app in
             let registerReq = makeRegisterRequest(email: "duplicate@example.com", password: "Password123!")
-            
+
             // First registration should succeed
             try await app.testing().test(.POST, "v1/auth/register", beforeRequest: { req in
                 try req.content.encode(registerReq)
             }, afterResponse: { res async in
                 #expect(res.status == .ok)
             })
-            
+
             // Second registration with same email should fail
             try await app.testing().test(.POST, "v1/auth/register", beforeRequest: { req in
                 try req.content.encode(registerReq)
@@ -237,7 +237,7 @@ struct AuthTests {
     func registerInvalidEmail() async throws {
         try await withApp { app in
             let registerReq = makeRegisterRequest(email: "invalid-email", password: "Password123!")
-            
+
             try await app.testing().test(.POST, "v1/auth/register", beforeRequest: { req in
                 try req.content.encode(registerReq)
             }, afterResponse: { res async in
@@ -250,7 +250,7 @@ struct AuthTests {
     func registerShortPassword() async throws {
         try await withApp { app in
             let registerReq = makeRegisterRequest(email: "test@example.com", password: "short")
-            
+
             try await app.testing().test(.POST, "v1/auth/register", beforeRequest: { req in
                 try req.content.encode(registerReq)
             }, afterResponse: { res async in
@@ -263,13 +263,13 @@ struct AuthTests {
     func registerEmailNormalization() async throws {
         try await withApp { app in
             let registerReq = makeRegisterRequest(email: "  TEST@Example.COM  ", password: "Password123!")
-            
+
             try await app.testing().test(.POST, "v1/auth/register", beforeRequest: { req in
                 try req.content.encode(registerReq)
             }, afterResponse: { res async in
                 #expect(res.status == .ok)
             })
-            
+
             // Now try to login with normalized email
             let loginReq = AuthLoginRequest(email: "test@example.com", password: "Password123!")
             try await app.testing().test(.POST, "v1/auth/login", beforeRequest: { req in
@@ -286,14 +286,14 @@ struct AuthTests {
     func loginSuccess() async throws {
         try await withApp { app in
             let credentials = makeRegisterRequest(email: "login@example.com", password: "Password123!")
-            
+
             // Register first
             try await app.testing().test(.POST, "v1/auth/register", beforeRequest: { req in
                 try req.content.encode(credentials)
             }, afterResponse: { res async in
                 #expect(res.status == .ok)
             })
-            
+
             // Then login
             let loginReq = AuthLoginRequest(email: "login@example.com", password: "Password123!")
             try await app.testing().test(.POST, "v1/auth/login", beforeRequest: { req in
@@ -311,14 +311,14 @@ struct AuthTests {
     func loginWrongPassword() async throws {
         try await withApp { app in
             let registerReq = makeRegisterRequest(email: "wrongpwd@example.com", password: "Password123!")
-            
+
             // Register first
             try await app.testing().test(.POST, "v1/auth/register", beforeRequest: { req in
                 try req.content.encode(registerReq)
             }, afterResponse: { res async in
                 #expect(res.status == .ok)
             })
-            
+
             // Login with wrong password
             let loginReq = AuthLoginRequest(email: "wrongpwd@example.com", password: "WrongPassword1!")
             try await app.testing().test(.POST, "v1/auth/login", beforeRequest: { req in
@@ -333,7 +333,7 @@ struct AuthTests {
     func loginNonExistentEmail() async throws {
         try await withApp { app in
             let loginReq = AuthLoginRequest(email: "nonexistent@example.com", password: "Password123!")
-            
+
             try await app.testing().test(.POST, "v1/auth/login", beforeRequest: { req in
                 try req.content.encode(loginReq)
             }, afterResponse: { res async in
@@ -393,7 +393,8 @@ struct AuthTests {
             })
 
             guard let challengeID,
-                  let challenge = try await MFAChallenge.find(challengeID, on: app.db) else {
+                  let challenge = try await MFAChallenge.find(challengeID, on: app.db)
+            else {
                 Issue.record("Expected MFA challenge to exist")
                 return
             }
@@ -444,8 +445,8 @@ struct AuthTests {
     func getCurrentUser() async throws {
         try await withApp { app in
             let registerReq = makeRegisterRequest(email: "currentuser@example.com", password: "Password123!")
-            var authToken: String = ""
-            
+            var authToken = ""
+
             // Register to get a token
             try await app.testing().test(.POST, "v1/auth/register", beforeRequest: { req in
                 try req.content.encode(registerReq)
@@ -454,7 +455,7 @@ struct AuthTests {
                 let response = try res.content.decode(AuthResponse.self)
                 authToken = response.token
             })
-            
+
             // Get current user
             try await app.testing().test(.GET, "v1/auth/me", beforeRequest: { req in
                 req.headers.bearerAuthorization = .init(token: authToken)
@@ -481,8 +482,8 @@ struct AuthTests {
     func refreshTokenSuccess() async throws {
         try await withApp { app in
             let registerReq = makeRegisterRequest(email: "refresh@example.com", password: "Password123!")
-            var refreshToken: String = ""
-            
+            var refreshToken = ""
+
             // Register to get refresh token
             try await app.testing().test(.POST, "v1/auth/register", beforeRequest: { req in
                 try req.content.encode(registerReq)
@@ -491,7 +492,7 @@ struct AuthTests {
                 let response = try res.content.decode(AuthResponse.self)
                 refreshToken = response.refreshToken
             })
-            
+
             // Use refresh token to get new tokens
             let refreshReq = AuthRefreshRequest(refreshToken: refreshToken)
             try await app.testing().test(.POST, "v1/auth/refresh", beforeRequest: { req in
@@ -511,7 +512,7 @@ struct AuthTests {
     func refreshTokenInvalid() async throws {
         try await withApp { app in
             let refreshReq = AuthRefreshRequest(refreshToken: "invalid-refresh-token")
-            
+
             try await app.testing().test(.POST, "v1/auth/refresh", beforeRequest: { req in
                 try req.content.encode(refreshReq)
             }, afterResponse: { res async in
@@ -524,8 +525,8 @@ struct AuthTests {
     func refreshTokenRotation() async throws {
         try await withApp { app in
             let registerReq = makeRegisterRequest(email: "rotation@example.com", password: "Password123!")
-            var refreshToken: String = ""
-            
+            var refreshToken = ""
+
             // Register to get refresh token
             try await app.testing().test(.POST, "v1/auth/register", beforeRequest: { req in
                 try req.content.encode(registerReq)
@@ -533,7 +534,7 @@ struct AuthTests {
                 let response = try res.content.decode(AuthResponse.self)
                 refreshToken = response.refreshToken
             })
-            
+
             // First refresh should succeed
             let refreshReq = AuthRefreshRequest(refreshToken: refreshToken)
             try await app.testing().test(.POST, "v1/auth/refresh", beforeRequest: { req in
@@ -541,7 +542,7 @@ struct AuthTests {
             }, afterResponse: { res async in
                 #expect(res.status == .ok)
             })
-            
+
             // Second refresh with same token should fail (token was revoked)
             try await app.testing().test(.POST, "v1/auth/refresh", beforeRequest: { req in
                 try req.content.encode(refreshReq)
@@ -684,7 +685,7 @@ struct AuthTests {
             }, afterResponse: { res async in
                 #expect(res.status == .ok)
             })
-            
+
             // Request password reset
             let forgotReq = AuthForgotPasswordRequest(email: "forgot@example.com")
             try await app.testing().test(.POST, "v1/auth/forgot-password", beforeRequest: { req in
@@ -701,7 +702,7 @@ struct AuthTests {
     func forgotPasswordNonExistent() async throws {
         try await withApp { app in
             let forgotReq = AuthForgotPasswordRequest(email: "nonexistent@example.com")
-            
+
             try await app.testing().test(.POST, "v1/auth/forgot-password", beforeRequest: { req in
                 try req.content.encode(forgotReq)
             }, afterResponse: { res async throws in
@@ -723,7 +724,7 @@ struct AuthTests {
             }, afterResponse: { res async in
                 #expect(res.status == .ok)
             })
-            
+
             // Try to reset with invalid code
             let resetReq = AuthResetPasswordRequest(
                 email: "resetinvalid@example.com",
@@ -745,7 +746,7 @@ struct AuthTests {
             let repo = DatabaseAuthRepository()
             let user = try await repo.createUser(
                 email: "resetattempts@example.com",
-                passwordHash: try req.password.hash("OldPassword123!"),
+                passwordHash: req.password.hash("OldPassword123!"),
                 on: app.db
             )
             let userId = try #require(user.id)
@@ -756,7 +757,7 @@ struct AuthTests {
                 on: app.db
             )
 
-            for _ in 0..<5 {
+            for _ in 0 ..< 5 {
                 do {
                     _ = try await app.authService.resetPassword(
                         email: "resetattempts@example.com",
@@ -789,17 +790,17 @@ private struct FakeOAuthProviderClient: OAuthProviderClient {
         var components = URLComponents(string: "https://oauth.example.test/authorize")!
         components.queryItems = [
             URLQueryItem(name: "state", value: context.state),
-            URLQueryItem(name: "nonce", value: context.nonce)
+            URLQueryItem(name: "nonce", value: context.nonce),
         ]
         return components.url!
     }
 
     func resolveIdentity(
-        code: String,
-        redirectURI: String,
-        codeVerifier: String,
-        nonce: String,
-        on req: Request
+        code _: String,
+        redirectURI _: String,
+        codeVerifier _: String,
+        nonce _: String,
+        on _: Request
     ) async throws -> OAuthIdentityInfo {
         identity
     }
@@ -809,7 +810,7 @@ private struct FakeOAuthProviderClient: OAuthProviderClient {
 
 @Suite("AuthRepository Tests", .serialized)
 struct AuthRepositoryTests {
-    private func withApp(_ test: (Application) async throws -> ()) async throws {
+    private func withApp(_ test: (Application) async throws -> Void) async throws {
         try await DatabaseTestLock.withLock {
             let app = try await Application.make(.testing)
             do {
@@ -830,17 +831,17 @@ struct AuthRepositoryTests {
     func createAndFindUserByEmail() async throws {
         try await withApp { app in
             let repo = DatabaseAuthRepository()
-            
+
             // Create a user
             let user = try await repo.createUser(
                 email: "repo@example.com",
                 passwordHash: "hashed_password",
                 on: app.db
             )
-            
+
             #expect(user.id != nil)
             #expect(user.email == "repo@example.com")
-            
+
             // Find by email
             let found = try await repo.findUser(email: "repo@example.com", on: app.db)
             #expect(found != nil)
@@ -852,16 +853,16 @@ struct AuthRepositoryTests {
     func findUserById() async throws {
         try await withApp { app in
             let repo = DatabaseAuthRepository()
-            
+
             let user = try await repo.createUser(
                 email: "findbyid@example.com",
                 passwordHash: "hashed_password",
                 on: app.db
             )
-            
+
             let userId = try #require(user.id)
             let found = try await repo.findUser(id: userId, on: app.db)
-            
+
             #expect(found != nil)
             #expect(found?.email == "findbyid@example.com")
         }
@@ -871,7 +872,7 @@ struct AuthRepositoryTests {
     func findUserNonExistent() async throws {
         try await withApp { app in
             let repo = DatabaseAuthRepository()
-            
+
             let found = try await repo.findUser(email: "nonexistent@example.com", on: app.db)
             #expect(found == nil)
         }
@@ -881,7 +882,7 @@ struct AuthRepositoryTests {
     func passwordResetTokenLifecycle() async throws {
         try await withApp { app in
             let repo = DatabaseAuthRepository()
-            
+
             // Create a user first
             let user = try await repo.createUser(
                 email: "resettoken@example.com",
@@ -889,7 +890,7 @@ struct AuthRepositoryTests {
                 on: app.db
             )
             let userId = try #require(user.id)
-            
+
             // Create a reset token
             let codeHash = "test_code_hash"
             let expiresAt = Date().addingTimeInterval(15 * 60) // 15 minutes
@@ -899,7 +900,7 @@ struct AuthRepositoryTests {
                 expiresAt: expiresAt,
                 on: app.db
             )
-            
+
             // Find the valid token
             let token = try await repo.findValidPasswordResetToken(
                 userId: userId,
@@ -907,7 +908,7 @@ struct AuthRepositoryTests {
                 now: Date(),
                 on: app.db
             )
-            
+
             #expect(token != nil)
             #expect(token?.userId == userId)
             #expect(token?.codeHash == codeHash)
@@ -918,14 +919,14 @@ struct AuthRepositoryTests {
     func expiredPasswordResetToken() async throws {
         try await withApp { app in
             let repo = DatabaseAuthRepository()
-            
+
             let user = try await repo.createUser(
                 email: "expired@example.com",
                 passwordHash: "hashed_password",
                 on: app.db
             )
             let userId = try #require(user.id)
-            
+
             // Create an expired token
             let codeHash = "expired_code_hash"
             let expiresAt = Date().addingTimeInterval(-60) // Already expired
@@ -935,7 +936,7 @@ struct AuthRepositoryTests {
                 expiresAt: expiresAt,
                 on: app.db
             )
-            
+
             // Try to find - should return nil
             let token = try await repo.findValidPasswordResetToken(
                 userId: userId,
@@ -943,7 +944,7 @@ struct AuthRepositoryTests {
                 now: Date(),
                 on: app.db
             )
-            
+
             #expect(token == nil)
         }
     }
@@ -952,14 +953,14 @@ struct AuthRepositoryTests {
     func markPasswordResetTokenUsed() async throws {
         try await withApp { app in
             let repo = DatabaseAuthRepository()
-            
+
             let user = try await repo.createUser(
                 email: "markused@example.com",
                 passwordHash: "hashed_password",
                 on: app.db
             )
             let userId = try #require(user.id)
-            
+
             let codeHash = "used_code_hash"
             let expiresAt = Date().addingTimeInterval(15 * 60)
             try await repo.createPasswordResetToken(
@@ -968,7 +969,7 @@ struct AuthRepositoryTests {
                 expiresAt: expiresAt,
                 on: app.db
             )
-            
+
             // Find and mark as used
             let token = try await repo.findValidPasswordResetToken(
                 userId: userId,
@@ -977,9 +978,9 @@ struct AuthRepositoryTests {
                 on: app.db
             )
             let foundToken = try #require(token)
-            
+
             try await repo.markPasswordResetTokenUsed(foundToken, usedAt: Date(), on: app.db)
-            
+
             // Should not be findable anymore
             let usedToken = try await repo.findValidPasswordResetToken(
                 userId: userId,
@@ -987,7 +988,7 @@ struct AuthRepositoryTests {
                 now: Date(),
                 on: app.db
             )
-            
+
             #expect(usedToken == nil)
         }
     }
@@ -996,14 +997,14 @@ struct AuthRepositoryTests {
     func refreshTokenLifecycle() async throws {
         try await withApp { app in
             let repo = DatabaseAuthRepository()
-            
+
             let user = try await repo.createUser(
                 email: "refreshrepo@example.com",
                 passwordHash: "hashed_password",
                 on: app.db
             )
             let userId = try #require(user.id)
-            
+
             // Create refresh token
             let tokenHash = "refresh_token_hash"
             let expiresAt = Date().addingTimeInterval(30 * 24 * 60 * 60) // 30 days
@@ -1013,14 +1014,14 @@ struct AuthRepositoryTests {
                 expiresAt: expiresAt,
                 on: app.db
             )
-            
+
             // Find the valid token
             let token = try await repo.findValidRefreshToken(
                 tokenHash: tokenHash,
                 now: Date(),
                 on: app.db
             )
-            
+
             #expect(token != nil)
             #expect(token?.userId == userId)
             #expect(token?.tokenHash == tokenHash)
@@ -1031,14 +1032,14 @@ struct AuthRepositoryTests {
     func expiredRefreshToken() async throws {
         try await withApp { app in
             let repo = DatabaseAuthRepository()
-            
+
             let user = try await repo.createUser(
                 email: "expiredrefresh@example.com",
                 passwordHash: "hashed_password",
                 on: app.db
             )
             let userId = try #require(user.id)
-            
+
             // Create an expired token
             let tokenHash = "expired_refresh_hash"
             let expiresAt = Date().addingTimeInterval(-60) // Already expired
@@ -1048,14 +1049,14 @@ struct AuthRepositoryTests {
                 expiresAt: expiresAt,
                 on: app.db
             )
-            
+
             // Try to find - should return nil
             let token = try await repo.findValidRefreshToken(
                 tokenHash: tokenHash,
                 now: Date(),
                 on: app.db
             )
-            
+
             #expect(token == nil)
         }
     }
@@ -1064,14 +1065,14 @@ struct AuthRepositoryTests {
     func revokeRefreshToken() async throws {
         try await withApp { app in
             let repo = DatabaseAuthRepository()
-            
+
             let user = try await repo.createUser(
                 email: "revokerefresh@example.com",
                 passwordHash: "hashed_password",
                 on: app.db
             )
             let userId = try #require(user.id)
-            
+
             let tokenHash = "revoke_token_hash"
             let expiresAt = Date().addingTimeInterval(30 * 24 * 60 * 60)
             try await repo.createRefreshToken(
@@ -1080,7 +1081,7 @@ struct AuthRepositoryTests {
                 expiresAt: expiresAt,
                 on: app.db
             )
-            
+
             // Find and revoke
             let token = try await repo.findValidRefreshToken(
                 tokenHash: tokenHash,
@@ -1088,16 +1089,16 @@ struct AuthRepositoryTests {
                 on: app.db
             )
             let foundToken = try #require(token)
-            
+
             try await repo.revokeRefreshToken(foundToken, revokedAt: Date(), on: app.db)
-            
+
             // Should not be findable anymore
             let revokedToken = try await repo.findValidRefreshToken(
                 tokenHash: tokenHash,
                 now: Date(),
                 on: app.db
             )
-            
+
             #expect(revokedToken == nil)
         }
     }

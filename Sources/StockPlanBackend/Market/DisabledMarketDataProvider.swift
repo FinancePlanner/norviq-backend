@@ -7,30 +7,33 @@ struct MarketDataProviderDisabledError: AbortError {
 }
 
 struct DisabledMarketDataProvider: MarketDataProvider {
-    var name: String { "disabled" }
-
-    func quote(symbol: String, on req: Request) async throws -> MarketProviderQuote {
-        return MarketProviderQuote(symbol: symbol, price: 0, change: nil, percentChange: nil, high: nil, low: nil, open: nil, previousClose: nil, currency: "USD", asOf: Date())
+    var name: String {
+        "disabled"
     }
 
-    func history(symbol: String, from: Date?, to: Date?, on req: Request) async throws
-        -> MarketProviderHistory {
+    func quote(symbol: String, on _: Request) async throws -> MarketProviderQuote {
+        MarketProviderQuote(symbol: symbol, price: 0, change: nil, percentChange: nil, high: nil, low: nil, open: nil, previousClose: nil, currency: "USD", asOf: Date())
+    }
+
+    func history(symbol _: String, from _: Date?, to _: Date?, on _: Request) async throws
+        -> MarketProviderHistory
+    {
         throw MarketDataProviderDisabledError()
     }
 
-    func search(query: String, on req: Request) async throws -> [MarketProviderSearchResult] {
+    func search(query _: String, on _: Request) async throws -> [MarketProviderSearchResult] {
         throw MarketDataProviderDisabledError()
     }
 
-    func fx(base: String, quote: String, on req: Request) async throws -> MarketProviderFxRate {
+    func fx(base _: String, quote _: String, on _: Request) async throws -> MarketProviderFxRate {
         throw MarketDataProviderDisabledError()
     }
 
-    func profile(symbol: String, on req: Request) async throws -> MarketProviderCompanyProfile? {
+    func profile(symbol _: String, on _: Request) async throws -> MarketProviderCompanyProfile? {
         throw MarketDataProviderDisabledError()
     }
 
-    func basicFinancials(symbol: String, on req: Request) async throws -> MarketProviderBasicFinancials? {
+    func basicFinancials(symbol _: String, on _: Request) async throws -> MarketProviderBasicFinancials? {
         throw MarketDataProviderDisabledError()
     }
 }

@@ -1,7 +1,7 @@
-import Vapor
 import Fluent
 import Foundation
 import NIOCore
+import Vapor
 
 final class AuthTokenCleanup: LifecycleHandler, @unchecked Sendable {
     private let interval: TimeInterval
@@ -27,7 +27,7 @@ final class AuthTokenCleanup: LifecycleHandler, @unchecked Sendable {
         state.setScheduled(scheduled)
     }
 
-    func shutdown(_ app: Application) {
+    func shutdown(_: Application) {
         state.cancelAll()
     }
 

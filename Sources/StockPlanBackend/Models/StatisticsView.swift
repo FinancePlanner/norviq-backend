@@ -1,6 +1,6 @@
 import Foundation
 
-struct StatisticsViewModel: Sendable {
+struct StatisticsViewModel {
     let generatedAt: Date
     let importedStocks: ImportedStocksStatisticsView
     let watchlist: WatchlistStatisticsView
@@ -8,7 +8,7 @@ struct StatisticsViewModel: Sendable {
     let market: MarketStatisticsView
 }
 
-struct ImportedStocksStatisticsView: Sendable {
+struct ImportedStocksStatisticsView {
     let totalPositions: Int
     let totalMarketValue: Double
     let totalCostBasis: Double
@@ -20,21 +20,21 @@ struct ImportedStocksStatisticsView: Sendable {
     let calendarPerformance: [CalendarPerformancePoint]
 }
 
-struct WatchlistStatisticsView: Sendable {
+struct WatchlistStatisticsView {
     let totalSymbols: Int
     let symbolsWithNotes: Int
     let sectorAllocations: [SectorAllocationPoint]
     let topWatched: [WatchlistSymbolPoint]
 }
 
-struct LooklistStatisticsView: Sendable {
+struct LooklistStatisticsView {
     let totalIdeas: Int
     let activeIdeas: Int
     let ideasWithTarget: Int
     let ideasByConviction: [LooklistConvictionPoint]
 }
 
-struct MarketStatisticsView: Sendable {
+struct MarketStatisticsView {
     let benchmarkSymbol: String
     let benchmarkChange1D: Double?
     let benchmarkChange1W: Double?
@@ -43,7 +43,7 @@ struct MarketStatisticsView: Sendable {
     let heatmap: [MarketHeatmapPoint]
 }
 
-struct StockStatisticsSummary: Sendable {
+struct StockStatisticsSummary {
     let symbol: String
     let marketValue: Double
     let weightPercent: Double
@@ -53,36 +53,36 @@ struct StockStatisticsSummary: Sendable {
     let unrealizedPnl: Double
 }
 
-struct StockAllocationPoint: Sendable {
+struct StockAllocationPoint {
     let symbol: String
     let value: Double
     let weightPercent: Double
 }
 
-struct SectorAllocationPoint: Sendable {
+struct SectorAllocationPoint {
     let sector: String
     let value: Double
     let weightPercent: Double
 }
 
-struct CalendarPerformancePoint: Sendable {
+struct CalendarPerformancePoint {
     let date: Date
     let pnl: Double
     let pnlPercent: Double
     let isUpDay: Bool
 }
 
-struct WatchlistSymbolPoint: Sendable {
+struct WatchlistSymbolPoint {
     let symbol: String
     let mentionCount: Int
 }
 
-struct LooklistConvictionPoint: Sendable {
+struct LooklistConvictionPoint {
     let conviction: String
     let count: Int
 }
 
-struct MarketHeatmapPoint: Sendable {
+struct MarketHeatmapPoint {
     let symbol: String
     let changePercent: Double
 }

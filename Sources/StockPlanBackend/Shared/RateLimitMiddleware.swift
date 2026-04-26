@@ -1,7 +1,7 @@
-import Redis
-import Vapor
 import NIOCore
+import Redis
 import RediStack
+import Vapor
 
 struct RateLimitMiddleware: AsyncMiddleware {
     let limit: Int

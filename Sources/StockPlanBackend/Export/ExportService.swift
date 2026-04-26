@@ -1,8 +1,8 @@
 import Fluent
 import Foundation
-import Vapor
 import NIOCore
 import StockPlanShared
+import Vapor
 
 struct ExportService: @unchecked Sendable {
     let repository: any DataExportRepository
@@ -13,7 +13,7 @@ struct ExportService: @unchecked Sendable {
     init(repository: any DataExportRepository, application: Application) {
         self.repository = repository
         self.application = application
-        self.exportsBaseDir = application.directory.workingDirectory + ".build/exports"
+        exportsBaseDir = application.directory.workingDirectory + ".build/exports"
     }
 
     func createExportJob(
@@ -41,7 +41,7 @@ struct ExportService: @unchecked Sendable {
     }
 
     func getExportStatus(id: UUID, userId: UUID, on db: any Database) async throws -> DataExport? {
-        return try await repository.find(id: id, userId: userId, on: db)
+        try await repository.find(id: id, userId: userId, on: db)
     }
 
     func listExports(userId: UUID, limit: Int, offset: Int, on db: any Database) async throws -> [DataExport] {
@@ -128,11 +128,11 @@ struct ExportService: @unchecked Sendable {
         on db: any Database
     ) async throws -> Int64 {
         let rows = try await getExportRows(dataType: dataType, userId: userId, startDate: startDate, endDate: endDate, portfolioListId: portfolioListId, on: db)
-        
+
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        
+
         let encodableRows = rows.map { AnyEncodable(value: $0) }
         let data = try encoder.encode(encodableRows)
         try data.write(to: URL(fileURLWithPath: filePath))
@@ -149,27 +149,27 @@ struct ExportService: @unchecked Sendable {
     ) async throws -> [any ExportRow] {
         switch dataType {
         case .portfolio:
-            return try await getPortfolioRows(userId: userId, portfolioListId: portfolioListId, on: db)
+            try await getPortfolioRows(userId: userId, portfolioListId: portfolioListId, on: db)
         case .transactions:
-            return try await getTransactionRows(userId: userId, startDate: startDate, endDate: endDate, on: db)
+            try await getTransactionRows(userId: userId, startDate: startDate, endDate: endDate, on: db)
         case .watchlist:
-            return try await getWatchlistRows(userId: userId, on: db)
+            try await getWatchlistRows(userId: userId, on: db)
         case .insights:
-            return try await getInsightsRows(userId: userId, on: db)
+            try await getInsightsRows(userId: userId, on: db)
         case .all:
             // For now, return a placeholder manifest
-            return [ExportAllManifestRow(
-                portfolioCount: try await getPortfolioRows(userId: userId, portfolioListId: portfolioListId, on: db).count,
-                transactionCount: try await getTransactionRows(userId: userId, startDate: startDate, endDate: endDate, on: db).count,
-                watchlistCount: try await getWatchlistRows(userId: userId, on: db).count,
-                insightsCount: try await getInsightsRows(userId: userId, on: db).count
+            try await [ExportAllManifestRow(
+                portfolioCount: getPortfolioRows(userId: userId, portfolioListId: portfolioListId, on: db).count,
+                transactionCount: getTransactionRows(userId: userId, startDate: startDate, endDate: endDate, on: db).count,
+                watchlistCount: getWatchlistRows(userId: userId, on: db).count,
+                insightsCount: getInsightsRows(userId: userId, on: db).count
             )]
         }
     }
 
     private func getPortfolioRows(userId: UUID, portfolioListId: UUID?, on db: any Database) async throws -> [PortfolioExportRow] {
         var query = Stock.query(on: db).filter(\.$userId == userId)
-        if let portfolioListId = portfolioListId {
+        if let portfolioListId {
             query = query.filter(\.$portfolioListId == portfolioListId)
         }
         let stocks = try await query.all()
@@ -196,10 +196,10 @@ struct ExportService: @unchecked Sendable {
 
         var query = Transaction.query(on: db)
             .filter(\.$accountId ~~ accountIds)
-        if let startDate = startDate {
+        if let startDate {
             query = query.filter(\.$tradeDate >= startDate)
         }
-        if let endDate = endDate {
+        if let endDate {
             query = query.filter(\.$tradeDate <= endDate)
         }
         let transactions = try await query.all()
@@ -384,6 +384,6 @@ struct ExportAllManifestRow: ExportRow, Encodable {
 
 extension String {
     func utf8Data() -> Data {
-        return self.data(using: .utf8) ?? Data()
+        data(using: .utf8) ?? Data()
     }
 }

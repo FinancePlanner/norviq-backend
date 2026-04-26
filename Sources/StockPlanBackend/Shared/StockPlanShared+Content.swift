@@ -2,6 +2,7 @@ import StockPlanShared
 import Vapor
 
 // MARK: - Common
+
 extension APISuccess: @retroactive Content {}
 extension APIMessageResponse: @retroactive Content {}
 extension APIErrorResponse: @retroactive Content {}
@@ -9,6 +10,7 @@ extension APIEnvelope: @retroactive Content {}
 extension EmptyAPIResponse: @retroactive Content {}
 
 // MARK: - Auth
+
 extension AuthRegisterRequest: Content {}
 extension AuthLoginRequest: @retroactive Content {}
 extension AuthResponse: @retroactive Content {}
@@ -22,6 +24,7 @@ extension OAuthStartResponse: Content {}
 extension OAuthExchangeRequest: Content {}
 
 // MARK: - Stocks
+
 extension StockRequest: @retroactive Content {}
 extension SellStockRequest: @retroactive Content {}
 extension StockResponse: @retroactive Content {}
@@ -52,11 +55,13 @@ extension PriceChartSeries: @retroactive Content {}
 extension PriceChartComparisonResponse: @retroactive Content {}
 
 // MARK: - Dashboard
+
 extension DashboardResponse: @retroactive Content {}
 extension DashboardPerformerDTO: @retroactive Content {}
 extension DashboardAllocationDTO: @retroactive Content {}
 
 // MARK: - Portfolio
+
 extension PortfolioSummaryResponse: @retroactive Content {}
 extension PortfolioPerformanceResponse: @retroactive Content {}
 extension TransactionResponse: @retroactive Content {}
@@ -64,6 +69,7 @@ extension LotResponse: @retroactive Content {}
 extension PnlResponse: @retroactive Content {}
 
 // MARK: - User Profile
+
 extension GetUserProfileRequest: @retroactive Content {}
 extension GetUserProfileResponse: @retroactive Content {}
 extension UpdateUserProfileRequest: @retroactive Content {}
@@ -75,6 +81,7 @@ extension DeleteUserProfileRequest: @retroactive Content {}
 extension DeleteUserProfileResponse: @retroactive Content {}
 
 // MARK: - News & Earnings
+
 extension NewsItemResponse: @retroactive Content {}
 extension NewsSyncResponse: @retroactive Content {}
 extension FinnhubNewsWebhookResponse: @retroactive Content {}
@@ -82,6 +89,7 @@ extension EarningsItemResponse: @retroactive Content {}
 extension EarningsQueryRequest: @retroactive Content {}
 
 // MARK: - Broker / CSV
+
 extension CsvImportPreviewItem: @retroactive Content {}
 extension CsvImportPreviewError: @retroactive Content {}
 extension CsvImportPreviewResponse: @retroactive Content {}
@@ -94,6 +102,7 @@ extension BrokerConnectStartResponse: @retroactive Content {}
 extension BrokerSyncStatusResponse: @retroactive Content {}
 
 // MARK: - Statistics
+
 extension StatisticsDTO: @retroactive Content {}
 extension ImportedStocksStatisticsDTO: @retroactive Content {}
 extension StockStatisticsSummaryDTO: @retroactive Content {}
@@ -108,6 +117,7 @@ extension MarketStatisticsDTO: @retroactive Content {}
 extension MarketHeatmapDTO: @retroactive Content {}
 
 // MARK: - Crypto
+
 extension CryptoAssetResponse: @retroactive Content {}
 extension CryptoQuoteResponse: @retroactive Content {}
 extension CryptoQuoteShortResponse: @retroactive Content {}
@@ -118,6 +128,7 @@ extension CryptoPortfolioItemRequest: @retroactive Content {}
 extension CryptoPortfolioItemResponse: @retroactive Content {}
 
 // MARK: - Expenses
+
 extension BudgetSnapshotRequest: @retroactive Content {}
 extension BudgetSnapshotResponse: @retroactive Content {}
 extension HouseholdPartnerProfileRequest: @retroactive Content {}
@@ -139,6 +150,7 @@ extension ReportSuggestionResponse: @retroactive Content {}
 extension ReportSuggestionsResponse: @retroactive Content {}
 
 // MARK: - Goals & Dashboard Insights
+
 extension GoalRequest: @retroactive Content {}
 extension GoalStatus: @retroactive Content {}
 extension GoalStatusSource: @retroactive Content {}
@@ -149,4 +161,5 @@ extension DashboardFinancialHealthDTO: @retroactive Content {}
 extension FinancialHealthStatus: @retroactive Content {}
 
 // MARK: - Activity
+
 extension UserActivityResponse: @retroactive Content {}

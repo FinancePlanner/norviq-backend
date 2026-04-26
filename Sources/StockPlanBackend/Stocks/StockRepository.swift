@@ -42,7 +42,7 @@ struct DatabaseStocksRepository: StocksRepository {
         if let portfolioListId {
             query.filter(\.$portfolioListId == portfolioListId)
         }
-        if let cursor = cursor {
+        if let cursor {
             // Keyset: fetch records created before cursor
             query.filter(\.$createdAt < cursor)
         }
@@ -66,7 +66,8 @@ struct DatabaseStocksRepository: StocksRepository {
     }
 
     func findValuation(symbol: String, userId: UUID, on db: any Database) async throws
-        -> StockValuation? {
+        -> StockValuation?
+    {
         let normalizedSymbol = normalizeSymbol(symbol)
         return try await StockValuation.query(on: db)
             .filter(\.$userId == userId)
@@ -142,8 +143,9 @@ struct DatabaseStocksRepository: StocksRepository {
     }
 
     func createValuation(payload: StockValuationRequest, userId: UUID, on db: any Database)
-        async throws -> StockValuation {
-        let valuation = StockValuation(
+        async throws -> StockValuation
+    {
+        let valuation = try StockValuation(
             userId: userId,
             symbol: normalizeSymbol(payload.symbol),
             bearLow: payload.bearCase.low,
@@ -153,14 +155,15 @@ struct DatabaseStocksRepository: StocksRepository {
             bullLow: payload.bullCase.low,
             bullHigh: payload.bullCase.high,
             rationale: emptyToNil(payload.rationale),
-            targetDate: try parseOptionalISODateOnly(payload.targetDate, field: "targetDate")
+            targetDate: parseOptionalISODateOnly(payload.targetDate, field: "targetDate")
         )
         try await valuation.save(on: db)
         return valuation
     }
 
     func bulkCreate(payloads: [StockRequest], userId: UUID, on db: any Database) async throws
-        -> [BulkStockResultItem] {
+        -> [BulkStockResultItem]
+    {
         var results: [BulkStockResultItem] = []
         for (index, payload) in payloads.enumerated() {
             do {
@@ -175,7 +178,8 @@ struct DatabaseStocksRepository: StocksRepository {
     }
 
     func update(id: UUID, payload: StockRequest, userId: UUID, on db: any Database) async throws
-        -> Stock? {
+        -> Stock?
+    {
         guard let stock = try await find(id: id, userId: userId, on: db) else {
             return nil
         }
@@ -188,12 +192,12 @@ struct DatabaseStocksRepository: StocksRepository {
         let buyDate = try parseISODateOnly(payload.buyDate)
 
         if let stockId = stock.id,
-            let duplicate = try await Stock.query(on: db)
-                .filter(\.$userId == userId)
-                .filter(\.$portfolioListId == targetListId)
-                .filter(\.$symbol == normalizedSymbol)
-                .filter(\.$id != stockId)
-                .first()
+           let duplicate = try await Stock.query(on: db)
+           .filter(\.$userId == userId)
+           .filter(\.$portfolioListId == targetListId)
+           .filter(\.$symbol == normalizedSymbol)
+           .filter(\.$id != stockId)
+           .first()
         {
             let mergedShares = duplicate.shares + payload.shares
             let mergedCostBasis = (duplicate.shares * duplicate.buyPrice) + (payload.shares * payload.buyPrice)

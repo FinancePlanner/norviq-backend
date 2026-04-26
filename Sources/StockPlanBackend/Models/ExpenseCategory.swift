@@ -1,5 +1,5 @@
-import Foundation
 import Fluent
+import Foundation
 import StockPlanShared
 
 final class ExpenseCategory: Model, @unchecked Sendable {
@@ -27,7 +27,7 @@ final class ExpenseCategory: Model, @unchecked Sendable {
 
     init(id: UUID? = nil, userID: UUID, name: String, pillar: BudgetPillar? = nil, isDefault: Bool = false) {
         self.id = id
-        self.$user.id = userID
+        $user.id = userID
         self.name = name
         self.pillar = pillar?.rawValue
         self.isDefault = isDefault

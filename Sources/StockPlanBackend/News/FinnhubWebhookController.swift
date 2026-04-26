@@ -1,5 +1,5 @@
-import Vapor
 import Foundation
+import Vapor
 
 struct FinnhubWebhookController: RouteCollection {
     func boot(routes: any RoutesBuilder) throws {

@@ -2,7 +2,7 @@ import Foundation
 import StockPlanShared
 
 /// Static metadata and tier thresholds for each badge type.
-struct BadgeDefinition: Sendable {
+struct BadgeDefinition {
     let type: BadgeType
     let title: String
     let description: String
@@ -13,9 +13,9 @@ struct BadgeDefinition: Sendable {
 
     func threshold(for tier: BadgeTier) -> Int {
         switch tier {
-        case .bronze: return bronzeThreshold
-        case .silver: return silverThreshold
-        case .gold:   return goldThreshold
+        case .bronze: bronzeThreshold
+        case .silver: silverThreshold
+        case .gold: goldThreshold
         }
     }
 }
@@ -84,7 +84,7 @@ enum BadgeDefinitions {
             bronzeThreshold: 1,
             silverThreshold: 3,
             goldThreshold: 6
-        )
+        ),
     ]
 
     static func definition(for type: BadgeType) -> BadgeDefinition {

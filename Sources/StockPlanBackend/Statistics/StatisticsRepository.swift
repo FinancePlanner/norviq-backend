@@ -3,36 +3,36 @@ import FluentSQL
 import Foundation
 import Vapor
 
-enum StatisticsPeriod: String, CaseIterable, Sendable {
+enum StatisticsPeriod: String, CaseIterable {
     case oneWeek = "1w"
     case oneMonth = "1m"
     case threeMonths = "3m"
     case sixMonths = "6m"
     case oneYear = "1y"
-    case ytd = "ytd"
-    case all = "all"
+    case ytd
+    case all
 
     var dayWindow: Int? {
         switch self {
         case .oneWeek:
-            return 7
+            7
         case .oneMonth:
-            return 30
+            30
         case .threeMonths:
-            return 90
+            90
         case .sixMonths:
-            return 180
+            180
         case .oneYear:
-            return 365
+            365
         case .ytd:
-            return nil
+            nil
         case .all:
-            return nil
+            nil
         }
     }
 }
 
-struct StatisticsQueryOptions: Sendable {
+struct StatisticsQueryOptions {
     let period: StatisticsPeriod
     let top: Int
     let benchmarkSymbol: String
@@ -138,7 +138,7 @@ struct DatabaseStatisticsRepository: StatisticsRepository {
 }
 
 private extension DatabaseStatisticsRepository {
-    struct SnapshotRow: Sendable {
+    struct SnapshotRow {
         let symbol: String
         let shares: Double
         let buyPrice: Double
@@ -152,7 +152,7 @@ private extension DatabaseStatisticsRepository {
         let unrealizedPnl: Double
     }
 
-    struct LatestQuoteSnapshot: Sendable {
+    struct LatestQuoteSnapshot {
         let symbol: String
         let currency: String
         let price: Double
@@ -352,10 +352,10 @@ private extension DatabaseStatisticsRepository {
         top: Int
     ) -> WatchlistStatisticsView {
         let symbolsSet = Set(watchlistSymbols)
-        let symbolsWithNotes = symbolsSet.filter { symbol in
+        let symbolsWithNotes = symbolsSet.count(where: { symbol in
             guard let notes = notesBySymbol[symbol] else { return false }
             return !notes.isEmpty
-        }.count
+        })
 
         let sectorCounts = Dictionary(grouping: watchlistSymbols) { symbol in
             inferSector(for: symbol, notes: notesBySymbol[symbol] ?? [])
@@ -404,7 +404,7 @@ private extension DatabaseStatisticsRepository {
         let looklistSymbols = candidateSymbols.subtracting(stockSymbols)
 
         let activeThreshold = addDays(Date(), days: -30)
-        let activeIdeas = looklistSymbols.filter { symbol in
+        let activeIdeas = looklistSymbols.count(where: { symbol in
             let hasRecentNote = (notesBySymbol[symbol] ?? []).contains { note in
                 let date = note.updatedAt ?? note.createdAt ?? .distantPast
                 return date >= activeThreshold
@@ -414,15 +414,15 @@ private extension DatabaseStatisticsRepository {
                 return date >= activeThreshold
             }
             return hasRecentNote || hasRecentTarget
-        }.count
+        })
 
-        let ideasWithTarget = looklistSymbols.filter { symbol in
+        let ideasWithTarget = looklistSymbols.count(where: { symbol in
             !(targetsBySymbol[symbol] ?? []).isEmpty
-        }.count
+        })
 
         var convictionCount: [String: Int] = [:]
         for symbol in looklistSymbols {
-            for target in (targetsBySymbol[symbol] ?? []) {
+            for target in targetsBySymbol[symbol] ?? [] {
                 let conviction = normalizeScenario(target.scenario)
                 convictionCount[conviction, default: 0] += 1
             }

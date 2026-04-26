@@ -2,7 +2,7 @@ import Fluent
 import Foundation
 import Vapor
 
-struct IBKRBrokerGatewayClient: Sendable {
+struct IBKRBrokerGatewayClient {
     let baseURL: String
     let defaultCurrency: String
 
@@ -62,7 +62,7 @@ struct IBKRBrokerGatewayClient: Sendable {
         formatter.formatOptions = [.withFullDate]
         let fromStr = formatter.string(from: from)
         let toStr = formatter.string(from: to)
-        
+
         let response = try await withRetry(on: req) {
             try await req.client.get(URI(string: makeURL(path: "/pa/transactions?accountId=\(accountID)&from=\(fromStr)&to=\(toStr)")))
         }
@@ -131,7 +131,7 @@ struct IBKRBrokerGatewayClient: Sendable {
 
     private func withRetry<T>(on req: Request, maxRetries: Int = 3, operation: @escaping () async throws -> T) async throws -> T {
         var lastError: (any Error)?
-        for attempt in 0..<maxRetries {
+        for attempt in 0 ..< maxRetries {
             do {
                 if attempt > 0 {
                     let isAuthenticated = try await checkAuthStatus(on: req)
@@ -158,12 +158,12 @@ struct IBKRBrokerGatewayClient: Sendable {
     }
 }
 
-struct IBKRBrokerAccount: Sendable {
+struct IBKRBrokerAccount {
     let externalID: String
     let displayName: String?
 }
 
-struct IBKRBrokerPosition: Sendable {
+struct IBKRBrokerPosition {
     let symbol: String
     let quantity: Double
     let averageCost: Double
@@ -171,7 +171,7 @@ struct IBKRBrokerPosition: Sendable {
     let conid: String?
 }
 
-struct IBKRBrokerTransaction: Sendable {
+struct IBKRBrokerTransaction {
     let externalID: String
     let symbol: String
     let type: String
@@ -181,12 +181,12 @@ struct IBKRBrokerTransaction: Sendable {
     let date: Date
 }
 
-struct IBKRBrokerCashBalance: Sendable {
+struct IBKRBrokerCashBalance {
     let currency: String
     let amount: Double
 }
 
-struct IBKRBrokerDividend: Sendable {
+struct IBKRBrokerDividend {
     let externalID: String?
     let symbol: String
     let amount: Double
@@ -198,7 +198,7 @@ private struct IBKRAuthStatus: Decodable {
     let authenticated: Bool?
 }
 
-struct IBKRBrokerSyncService: Sendable {
+struct IBKRBrokerSyncService {
     private let gatewayClient: IBKRBrokerGatewayClient
 
     init(gatewayClient: IBKRBrokerGatewayClient) {
@@ -214,11 +214,10 @@ struct IBKRBrokerSyncService: Sendable {
             throw Abort(.internalServerError, reason: "Broker connection id missing.")
         }
 
-        let portfolioListId: UUID
-        if let existingPortfolioListId = connection.portfolioListId {
-            portfolioListId = existingPortfolioListId
+        let portfolioListId: UUID = if let existingPortfolioListId = connection.portfolioListId {
+            existingPortfolioListId
         } else {
-            portfolioListId = try await ensureDefaultPortfolioListId(userId: userId, on: req.db)
+            try await ensureDefaultPortfolioListId(userId: userId, on: req.db)
         }
         let sourceAccount = try await resolveImportAccount(
             account: account,
@@ -370,11 +369,11 @@ struct IBKRBrokerSyncService: Sendable {
         on req: Request
     ) async throws -> Int {
         let balances = try await gatewayClient.fetchCashBalances(accountID: accountID, on: req)
-        
+
         try await CashBalance.query(on: req.db)
             .filter(\.$accountId == sourceAccountId)
             .delete()
-            
+
         var syncedCount = 0
         for ibkrBalance in balances {
             let balance = CashBalance(
@@ -397,7 +396,7 @@ struct IBKRBrokerSyncService: Sendable {
         on req: Request
     ) async throws -> Int {
         let dividends = try await gatewayClient.fetchDividends(accountID: accountID, from: from, to: to, on: req)
-        
+
         var syncedCount = 0
         for ibkrDividend in dividends {
             if let externalID = ibkrDividend.externalID {
@@ -416,7 +415,7 @@ struct IBKRBrokerSyncService: Sendable {
                 db: req.db
             )
             let instrumentID = try instrument.requireID()
-            
+
             let dividend = Dividend(
                 accountId: sourceAccountId,
                 instrumentId: instrumentID,
@@ -433,14 +432,14 @@ struct IBKRBrokerSyncService: Sendable {
 
     private func mapTransactionType(_ ibkrType: String) -> String {
         switch ibkrType.uppercased() {
-        case "BUY", "BOT": return "BUY"
-        case "SELL", "SLD": return "SELL"
-        case "DIV", "DIVIDEND": return "DIVIDEND"
-        case "INTEREST": return "INTEREST"
-        case "FEE": return "FEE"
-        case "DEPOSIT": return "DEPOSIT"
-        case "WITHDRAWAL": return "WITHDRAWAL"
-        default: return ibkrType.uppercased()
+        case "BUY", "BOT": "BUY"
+        case "SELL", "SLD": "SELL"
+        case "DIV", "DIVIDEND": "DIVIDEND"
+        case "INTEREST": "INTEREST"
+        case "FEE": "FEE"
+        case "DEPOSIT": "DEPOSIT"
+        case "WITHDRAWAL": "WITHDRAWAL"
+        default: ibkrType.uppercased()
         }
     }
 }
@@ -450,7 +449,8 @@ private extension IBKRBrokerSyncService {
         let gatewayAccount = try await gatewayClient.requirePrimaryAccount(on: req)
         if let externalID = connection.externalId,
            !externalID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-           gatewayAccount.externalID != externalID {
+           gatewayAccount.externalID != externalID
+        {
             req.logger.warning("broker.ibkr account_mismatch stored=\(externalID) live=\(gatewayAccount.externalID)")
         }
         return gatewayAccount
@@ -466,7 +466,8 @@ private extension IBKRBrokerSyncService {
             .filter(\.$userId == userId)
             .filter(\.$broker == provider)
             .filter(\.$externalId == account.externalID)
-            .first() {
+            .first()
+        {
             existing.displayName = account.displayName ?? existing.displayName
             existing.updatedAt = Date()
             try await existing.save(on: db)
@@ -532,7 +533,8 @@ private extension IBKRBrokerSyncService {
             if let existingPosition = try await Position.query(on: db)
                 .filter(\.$accountId == sourceAccountId)
                 .filter(\.$instrumentId == instrumentID)
-                .first() {
+                .first()
+            {
                 try await existingPosition.delete(on: db)
             }
 
@@ -586,7 +588,8 @@ private extension IBKRBrokerSyncService {
     ) async throws -> Instrument {
         if let existing = try await Instrument.query(on: db)
             .filter(\.$symbol == symbol)
-            .first() {
+            .first()
+        {
             return existing
         }
 
@@ -639,7 +642,8 @@ private extension IBKRBrokerSyncService {
             if let instrument = try await Instrument.query(on: db)
                 .filter(\.$symbol == symbol)
                 .first(),
-               let instrumentID = instrument.id {
+                let instrumentID = instrument.id
+            {
                 let lots = try await Lot.query(on: db)
                     .filter(\.$accountId == sourceAccountId)
                     .filter(\.$instrumentId == instrumentID)
@@ -651,7 +655,8 @@ private extension IBKRBrokerSyncService {
                 if let position = try await Position.query(on: db)
                     .filter(\.$accountId == sourceAccountId)
                     .filter(\.$instrumentId == instrumentID)
-                    .first() {
+                    .first()
+                {
                     try await position.delete(on: db)
                 }
             }
@@ -663,7 +668,8 @@ private extension IBKRBrokerSyncService {
     func ensureDefaultPortfolioListId(userId: UUID, on db: any Database) async throws -> UUID {
         if let list = try await PortfolioList.query(on: db)
             .filter(\.$userId == userId)
-            .first() {
+            .first()
+        {
             return try list.requireID()
         }
         let list = PortfolioList(userId: userId, name: "Default")
@@ -687,8 +693,8 @@ private struct IBKRBrokerAccountPayload: Decodable {
     func toAccount() -> IBKRBrokerAccount? {
         let externalID =
             id?.stringValue
-            ?? accountId?.stringValue
-            ?? accountID?.stringValue
+                ?? accountId?.stringValue
+                ?? accountID?.stringValue
         guard let externalID, !externalID.isEmpty else { return nil }
 
         let displayName = [displayName, accountTitle, alias]
@@ -825,7 +831,7 @@ private struct IBKRBrokerLedgerPayload: Decodable {
             ("JPY", JPY),
             ("CHF", CHF),
             ("CAD", CAD),
-            ("AUD", AUD)
+            ("AUD", AUD),
         ]
 
         for (currency, ledger) in currencies {

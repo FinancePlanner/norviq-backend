@@ -1,7 +1,7 @@
 import Fluent
-import Vapor
 import Foundation
 import StockPlanShared
+import Vapor
 
 final class BudgetPlanItem: Model, @unchecked Sendable {
     static let schema = "budget_plan_items"
@@ -52,8 +52,8 @@ final class BudgetPlanItem: Model, @unchecked Sendable {
         userSharePercent: Double = 100
     ) {
         self.id = id
-        self.$snapshot.id = snapshotID
-        self.$user.id = userID
+        $snapshot.id = snapshotID
+        $user.id = userID
         self.title = title
         self.plannedAmount = plannedAmount
         self.pillar = pillar

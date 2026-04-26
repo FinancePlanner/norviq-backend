@@ -27,7 +27,7 @@ exporters:
     endpoint: jaeger:4317
     tls:
       insecure: true
-  logging:
+  debug:
     verbosity: basic
   prometheus:
     endpoint: 0.0.0.0:9464
@@ -37,8 +37,8 @@ service:
     traces:
       receivers: [otlp]
       processors: [memory_limiter, batch]
-      exporters: [otlp/jaeger, logging]
+      exporters: [otlp/jaeger, debug]
     metrics:
       receivers: [otlp, hostmetrics]
       processors: [memory_limiter, batch]
-      exporters: [prometheus, logging]
+      exporters: [prometheus, debug]

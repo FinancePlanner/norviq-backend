@@ -1,6 +1,6 @@
 import Fluent
-import Vapor
 import Foundation
+import Vapor
 
 final class CashBalance: Model, Content, @unchecked Sendable {
     static let schema = "cash_balances"
@@ -26,7 +26,7 @@ final class CashBalance: Model, Content, @unchecked Sendable {
     @Timestamp(key: "updated_at", on: .update)
     var updatedAt: Date?
 
-    init() { }
+    init() {}
 
     init(
         id: UUID? = nil,

@@ -2,22 +2,22 @@ import Foundation
 import Vapor
 
 struct MockCryptoDataProvider: CryptoDataProvider {
-    func cryptocurrencyList(on req: Request) async throws -> [CryptoAssetResponse] {
+    func cryptocurrencyList(on _: Request) async throws -> [CryptoAssetResponse] {
         [
             CryptoAssetResponse(
                 symbol: "BTCUSD",
                 name: "Bitcoin",
                 exchange: "CRYPTO",
                 icoDate: "2009-01-03",
-                circulatingSupply: 19000000,
-                totalSupply: 21000000
+                circulatingSupply: 19_000_000,
+                totalSupply: 21_000_000
             ),
             CryptoAssetResponse(
                 symbol: "ETHUSD",
                 name: "Ethereum",
                 exchange: "CRYPTO",
                 icoDate: "2015-07-30",
-                circulatingSupply: 120000000,
+                circulatingSupply: 120_000_000,
                 totalSupply: nil
             ),
             CryptoAssetResponse(
@@ -25,81 +25,81 @@ struct MockCryptoDataProvider: CryptoDataProvider {
                 name: "Solana",
                 exchange: "CRYPTO",
                 icoDate: "2020-03-16",
-                circulatingSupply: 400000000,
+                circulatingSupply: 400_000_000,
                 totalSupply: nil
-            )
+            ),
         ]
     }
 
-    func quote(symbols: String, on req: Request) async throws -> [CryptoQuoteResponse] {
+    func quote(symbols _: String, on _: Request) async throws -> [CryptoQuoteResponse] {
         [
             CryptoQuoteResponse(
                 symbol: "BTCUSD",
                 name: "Bitcoin",
-                price: 118741.16,
+                price: 118_741.16,
                 changePercentage: 1.25,
                 change: 1450.50,
-                volume: 75302985728,
-                marketCap: 2344693699320,
+                volume: 75_302_985_728,
+                marketCap: 2_344_693_699_320,
                 timestamp: Int(Date().timeIntervalSince1970)
-            )
+            ),
         ]
     }
 
-    func quoteShort(symbol: String, on req: Request) async throws -> [CryptoQuoteShortResponse] {
+    func quoteShort(symbol: String, on _: Request) async throws -> [CryptoQuoteShortResponse] {
         [
             CryptoQuoteShortResponse(
                 symbol: symbol.uppercased(),
-                price: 118741.16,
+                price: 118_741.16,
                 change: -37.93,
-                volume: 75302985728
-            )
+                volume: 75_302_985_728
+            ),
         ]
     }
 
-    func batchQuotes(short: Bool, on req: Request) async throws -> [CryptoQuoteShortResponse] {
+    func batchQuotes(short _: Bool, on _: Request) async throws -> [CryptoQuoteShortResponse] {
         [
-            CryptoQuoteShortResponse(symbol: "BTCUSD", price: 118741.16, change: -37.93, volume: 75302985728),
-            CryptoQuoteShortResponse(symbol: "ETHUSD", price: 4250.80, change: -36.20, volume: 25302985728)
+            CryptoQuoteShortResponse(symbol: "BTCUSD", price: 118_741.16, change: -37.93, volume: 75_302_985_728),
+            CryptoQuoteShortResponse(symbol: "ETHUSD", price: 4250.80, change: -36.20, volume: 25_302_985_728),
         ]
     }
 
-    func historicalLight(symbol: String, from: String?, to: String?, on req: Request) async throws -> [CryptoHistoricalLightPoint] {
+    func historicalLight(symbol: String, from _: String?, to _: String?, on _: Request) async throws -> [CryptoHistoricalLightPoint] {
         [
-            CryptoHistoricalLightPoint(symbol: symbol.uppercased(), date: "2025-07-24", price: 118741.16, volume: 75302985728)
+            CryptoHistoricalLightPoint(symbol: symbol.uppercased(), date: "2025-07-24", price: 118_741.16, volume: 75_302_985_728),
         ]
     }
 
-    func historicalFull(symbol: String, from: String?, to: String?, on req: Request) async throws -> [CryptoHistoricalFullPoint] {
+    func historicalFull(symbol: String, from _: String?, to _: String?, on _: Request) async throws -> [CryptoHistoricalFullPoint] {
         [
             CryptoHistoricalFullPoint(
                 symbol: symbol.uppercased(),
                 date: "2025-07-24",
-                open: 118779.09,
-                high: 119535.45,
-                low: 117435.22,
-                close: 118741.16,
-                volume: 75302985728,
+                open: 118_779.09,
+                high: 119_535.45,
+                low: 117_435.22,
+                close: 118_741.16,
+                volume: 75_302_985_728,
                 change: -37.93,
                 changePercent: -0.03193323,
-                vwap: 118570.61
-            )
+                vwap: 118_570.61
+            ),
         ]
     }
 
-    func intraday1min(symbol: String, from: String?, to: String?, on req: Request) async throws -> [CryptoHistoricalPoint] {
+    func intraday1min(symbol _: String, from _: String?, to _: String?, on _: Request) async throws -> [CryptoHistoricalPoint] {
         mockIntraday()
     }
 
-    func intraday5min(symbol: String, from: String?, to: String?, on req: Request) async throws -> [CryptoHistoricalPoint] {
+    func intraday5min(symbol _: String, from _: String?, to _: String?, on _: Request) async throws -> [CryptoHistoricalPoint] {
         mockIntraday()
     }
 
-    func intraday1hour(symbol: String, from: String?, to: String?, on req: Request) async throws -> [CryptoHistoricalPoint] {
+    func intraday1hour(symbol _: String, from _: String?, to _: String?, on _: Request) async throws -> [CryptoHistoricalPoint] {
         mockIntraday()
     }
 
-    func fetchCryptoNews(symbol: String?, page: Int?, limit: Int?, from: String?, to: String?, on req: Request) async throws -> [FMPMarketNewsItem] {
+    func fetchCryptoNews(symbol: String?, page _: Int?, limit _: Int?, from _: String?, to _: String?, on _: Request) async throws -> [FMPMarketNewsItem] {
         let allNews = [
             FMPMarketNewsItem(
                 symbol: "BTCUSD",
@@ -120,7 +120,7 @@ struct MockCryptoDataProvider: CryptoDataProvider {
                 publisher: "TheBlock",
                 text: "The upcoming hard fork aims to improve scalability and reduce transaction fees.",
                 url: "https://example.com/2"
-            )
+            ),
         ]
 
         if let symbol {
@@ -131,7 +131,7 @@ struct MockCryptoDataProvider: CryptoDataProvider {
 
     private func mockIntraday() -> [CryptoHistoricalPoint] {
         [
-            CryptoHistoricalPoint(date: "2025-07-24 12:00:00", open: 118779.09, low: 117435.22, high: 119535.45, close: 118741.16, volume: 75302985728)
+            CryptoHistoricalPoint(date: "2025-07-24 12:00:00", open: 118_779.09, low: 117_435.22, high: 119_535.45, close: 118_741.16, volume: 75_302_985_728),
         ]
     }
 }

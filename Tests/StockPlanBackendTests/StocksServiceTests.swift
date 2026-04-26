@@ -1,8 +1,7 @@
 import Fluent
+@testable import StockPlanBackend
 import Testing
 import Vapor
-
-@testable import StockPlanBackend
 
 @Suite("StockService Tests", .serialized)
 struct StockServiceTests {
@@ -53,7 +52,8 @@ struct StockServiceTests {
         notes: String? = nil
     ) -> StockRequest {
         StockRequest(
-            symbol: symbol, shares: shares, buyPrice: buyPrice, buyDate: buyDate, notes: notes)
+            symbol: symbol, shares: shares, buyPrice: buyPrice, buyDate: buyDate, notes: notes
+        )
     }
 
     private func makeValuationPayload(
@@ -98,8 +98,10 @@ struct StockServiceTests {
             let service = StockServiceImpl(repo: DatabaseStocksRepository(), req: makeRequest(app))
             let response = try await service.create(
                 payload: makePayload(
-                    symbol: "  aapl  ", shares: 2, buyPrice: 10, buyDate: "2024-05-06"),
-                userId: userId, on: app.db)
+                    symbol: "  aapl  ", shares: 2, buyPrice: 10, buyDate: "2024-05-06"
+                ),
+                userId: userId, on: app.db
+            )
 
             #expect(UUID(uuidString: response.id) != nil)
             #expect(response.symbol == "AAPL")
@@ -150,13 +152,15 @@ struct StockServiceTests {
     func createValidatesSymbol() async throws {
         try await withApp { app in
             let user = try await createUser(
-                email: "service-create-validate@example.com", on: app.db)
+                email: "service-create-validate@example.com", on: app.db
+            )
             let userId = try user.requireID()
             let service = StockServiceImpl(repo: DatabaseStocksRepository(), req: makeRequest(app))
 
             do {
                 _ = try await service.create(
-                    payload: makePayload(symbol: "   "), userId: userId, on: app.db)
+                    payload: makePayload(symbol: "   "), userId: userId, on: app.db
+                )
                 #expect(Bool(false), "Expected invalidSymbol")
             } catch StockServiceError.invalidSymbol {
                 #expect(Bool(true))
@@ -189,7 +193,8 @@ struct StockServiceTests {
 
             do {
                 _ = try await service.update(
-                    id: UUID(), payload: makePayload(symbol: "AAPL"), userId: userId, on: app.db)
+                    id: UUID(), payload: makePayload(symbol: "AAPL"), userId: userId, on: app.db
+                )
                 #expect(Bool(false), "Expected notFound")
             } catch StockServiceError.notFound {
                 #expect(Bool(true))
@@ -222,7 +227,8 @@ struct StockServiceTests {
             let repo = DatabaseStocksRepository()
             _ = try await repo.create(
                 payload: makePayload(symbol: "MSFT", buyDate: "2024-03-04"), userId: userId,
-                on: app.db)
+                on: app.db
+            )
 
             let service = StockServiceImpl(repo: repo, req: makeRequest(app))
             let response = try await service.get(symbol: "  msft  ", userId: userId, on: app.db)
@@ -245,7 +251,8 @@ struct StockServiceTests {
             ]
 
             let response = try await service.bulkCreate(
-                payloads: payloads, userId: userId, on: app.db)
+                payloads: payloads, userId: userId, on: app.db
+            )
 
             #expect(response.created == 3)
             #expect(response.failed == 0)
@@ -274,7 +281,8 @@ struct StockServiceTests {
             ]
 
             let response = try await service.bulkCreate(
-                payloads: payloads, userId: userId, on: app.db)
+                payloads: payloads, userId: userId, on: app.db
+            )
 
             #expect(response.created == 1)
             #expect(response.failed == 1)
@@ -382,7 +390,7 @@ struct StockServiceTests {
 
             let service = StockServiceImpl(repo: repo, req: makeRequest(app))
             let response = try await service.sell(
-                id: try stock.requireID(),
+                id: stock.requireID(),
                 payload: makeSellPayload(sharesToSell: 1.5, sellPrice: 160),
                 userId: userId,
                 on: app.db
@@ -414,7 +422,7 @@ struct StockServiceTests {
             let userId = try user.requireID()
             let account = try await createManualAccount(userId: userId, on: app.db)
             try await CashBalance(
-                accountId: try #require(account.id),
+                accountId: #require(account.id),
                 currency: "USD",
                 balance: 50,
                 asOf: Date()
@@ -429,7 +437,7 @@ struct StockServiceTests {
 
             let service = StockServiceImpl(repo: repo, req: makeRequest(app))
             let response = try await service.sell(
-                id: try stock.requireID(),
+                id: stock.requireID(),
                 payload: makeSellPayload(sharesToSell: 2, sellPrice: 220),
                 userId: userId,
                 on: app.db
@@ -469,7 +477,7 @@ struct StockServiceTests {
 
             do {
                 _ = try await service.sell(
-                    id: try stock.requireID(),
+                    id: stock.requireID(),
                     payload: makeSellPayload(sharesToSell: 1, sellPrice: 100, sellDate: "bad-date"),
                     userId: userId,
                     on: app.db
@@ -481,7 +489,7 @@ struct StockServiceTests {
 
             do {
                 _ = try await service.sell(
-                    id: try stock.requireID(),
+                    id: stock.requireID(),
                     payload: makeSellPayload(sharesToSell: 1, sellPrice: 0, sellDate: "2026-04-10"),
                     userId: userId,
                     on: app.db

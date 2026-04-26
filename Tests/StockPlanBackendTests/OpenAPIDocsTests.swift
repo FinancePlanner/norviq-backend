@@ -1,6 +1,6 @@
 @testable import StockPlanBackend
-import VaporTesting
 import Testing
+import VaporTesting
 
 @Suite("OpenAPI Docs Tests")
 struct OpenAPIDocsTests {
@@ -215,7 +215,7 @@ struct OpenAPIDocsTests {
                     "/v1/reports/suggestions:",
                     "/v1/dashboard:",
                     "/v1/dashboard/insights:",
-                    "/v1/crypto/portfolio:"
+                    "/v1/crypto/portfolio:",
                 ]
                 for path in requiredPublicPaths {
                     #expect(body.contains(path), "Missing OpenAPI path \(path)")

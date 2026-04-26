@@ -17,7 +17,7 @@ struct ConvertBudgetPillarEnumToString: AsyncMigration {
         try await sql.raw("DROP TYPE IF EXISTS budget_pillar").run()
     }
 
-    func revert(on database: any Database) async throws {
+    func revert(on _: any Database) async throws {
         // Irreversible without potentially lossy value mapping from custom pillars back to enum cases.
     }
 
@@ -27,14 +27,14 @@ struct ConvertBudgetPillarEnumToString: AsyncMigration {
         on sql: any SQLDatabase
     ) async throws {
         let info = try await sql.raw("""
-            SELECT data_type AS "dataType", udt_name AS "udtName"
-            FROM information_schema.columns
-            WHERE table_schema = current_schema()
-              AND table_name = \(bind: table)
-              AND column_name = \(bind: column)
-            LIMIT 1
-            """)
-            .first(decoding: ColumnTypeInfo.self)
+        SELECT data_type AS "dataType", udt_name AS "udtName"
+        FROM information_schema.columns
+        WHERE table_schema = current_schema()
+          AND table_name = \(bind: table)
+          AND column_name = \(bind: column)
+        LIMIT 1
+        """)
+        .first(decoding: ColumnTypeInfo.self)
 
         guard let info else { return }
         if info.udtName == "budget_pillar" {

@@ -1,12 +1,12 @@
-@testable import StockPlanBackend
 import Fluent
 import Foundation
+@testable import StockPlanBackend
 import Testing
 import Vapor
 
 @Suite("NewsService Tests", .serialized)
 struct NewsServiceTests {
-    private func withApp(_ test: (Application) async throws -> ()) async throws {
+    private func withApp(_ test: (Application) async throws -> Void) async throws {
         try await DatabaseTestLock.withLock {
             let app = try await Application.make(.testing)
             do {

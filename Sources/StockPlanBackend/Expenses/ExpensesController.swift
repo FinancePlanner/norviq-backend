@@ -1,6 +1,6 @@
-import Vapor
 import Foundation
 import StockPlanShared
+import Vapor
 
 struct ExpensesController: RouteCollection {
     private struct ExpensePayload: Decodable {
@@ -40,33 +40,33 @@ struct ExpensesController: RouteCollection {
 
         init(from decoder: any Decoder) throws {
             let container = try decoder.container(keyedBy: CodingKeys.self)
-            self.title = try container.decode(String.self, forKey: .title)
-            self.amount = try container.decode(Double.self, forKey: .amount)
-            self.pillar = try container.decode(BudgetPillar.self, forKey: .pillar)
-            self.occurredOn =
+            title = try container.decode(String.self, forKey: .title)
+            amount = try container.decode(Double.self, forKey: .amount)
+            pillar = try container.decode(BudgetPillar.self, forKey: .pillar)
+            occurredOn =
                 try container.decodeIfPresent(String.self, forKey: .occurredOnSnake)
-                ?? container.decode(String.self, forKey: .occurredOnCamel)
-            self.linkedPlanItemId =
+                    ?? container.decode(String.self, forKey: .occurredOnCamel)
+            linkedPlanItemId =
                 try container.decodeIfPresent(String.self, forKey: .linkedPlanItemIdSnake)
-                ?? container.decodeIfPresent(String.self, forKey: .linkedPlanItemIdCamel)
-            self.categoryId =
+                    ?? container.decodeIfPresent(String.self, forKey: .linkedPlanItemIdCamel)
+            categoryId =
                 try container.decodeIfPresent(String.self, forKey: .categoryIdSnake)
-                ?? container.decodeIfPresent(String.self, forKey: .categoryIdCamel)
-            self.splitMode =
+                    ?? container.decodeIfPresent(String.self, forKey: .categoryIdCamel)
+            splitMode =
                 try container.decodeIfPresent(ExpenseSplitMode.self, forKey: .splitModeSnake)
-                ?? container.decodeIfPresent(ExpenseSplitMode.self, forKey: .splitModeCamel)
-            self.userSharePercent =
+                    ?? container.decodeIfPresent(ExpenseSplitMode.self, forKey: .splitModeCamel)
+            userSharePercent =
                 try container.decodeIfPresent(Double.self, forKey: .userSharePercentSnake)
-                ?? container.decodeIfPresent(Double.self, forKey: .userSharePercentCamel)
-            self.foreignAmount =
+                    ?? container.decodeIfPresent(Double.self, forKey: .userSharePercentCamel)
+            foreignAmount =
                 try container.decodeIfPresent(Double.self, forKey: .foreignAmountSnake)
-                ?? container.decodeIfPresent(Double.self, forKey: .foreignAmountCamel)
-            self.foreignCurrency =
+                    ?? container.decodeIfPresent(Double.self, forKey: .foreignAmountCamel)
+            foreignCurrency =
                 try container.decodeIfPresent(String.self, forKey: .foreignCurrencySnake)
-                ?? container.decodeIfPresent(String.self, forKey: .foreignCurrencyCamel)
-            self.exchangeRate =
+                    ?? container.decodeIfPresent(String.self, forKey: .foreignCurrencyCamel)
+            exchangeRate =
                 try container.decodeIfPresent(Double.self, forKey: .exchangeRateSnake)
-                ?? container.decodeIfPresent(Double.self, forKey: .exchangeRateCamel)
+                    ?? container.decodeIfPresent(Double.self, forKey: .exchangeRateCamel)
         }
 
         func asRequest() -> ExpenseRequest {

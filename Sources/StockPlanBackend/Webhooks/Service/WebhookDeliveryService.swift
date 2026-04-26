@@ -1,6 +1,6 @@
-import Vapor
 import Fluent
 import Foundation
+import Vapor
 
 protocol WebhookDeliveryService: Sendable {
     func createDelivery(
@@ -21,17 +21,17 @@ enum WebhookDeliveryServiceError: AbortError {
 
     var status: HTTPResponseStatus {
         switch self {
-        case .invalidURL: return .badRequest
-        case .invalidMethod: return .badRequest
-        case .httpError: return .badGateway
+        case .invalidURL: .badRequest
+        case .invalidMethod: .badRequest
+        case .httpError: .badGateway
         }
     }
 
     var reason: String {
         switch self {
-        case .invalidURL: return "Invalid webhook URL"
-        case .invalidMethod: return "Invalid HTTP method"
-        case .httpError(let code): return "Webhook delivery failed with status \(code)"
+        case .invalidURL: "Invalid webhook URL"
+        case .invalidMethod: "Invalid HTTP method"
+        case let .httpError(code): "Webhook delivery failed with status \(code)"
         }
     }
 }
@@ -120,14 +120,14 @@ final class DefaultWebhookDeliveryService: WebhookDeliveryService {
         do {
             let response = try await client.send(clientRequest)
             let statusCode = response.status.code
-            if (200...299).contains(statusCode) {
+            if (200 ... 299).contains(statusCode) {
                 try await repository.markSent(webhook, on: db)
             } else if statusCode == 429 {
                 try await repository.markFailed(webhook, error: "Rate limited (429)", on: db)
                 if webhook.attemptCount >= maxAttempts {
                     try await repository.markExhausted(webhook, on: db)
                 }
-            } else if (400...499).contains(statusCode) {
+            } else if (400 ... 499).contains(statusCode) {
                 webhook.status = .failed
                 webhook.lastError = "Client error: \(statusCode)"
                 try await webhook.save(on: db)

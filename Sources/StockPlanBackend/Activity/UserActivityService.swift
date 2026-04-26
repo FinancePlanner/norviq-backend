@@ -1,7 +1,7 @@
 import Fluent
 import Foundation
-import Vapor
 import StockPlanShared
+import Vapor
 
 protocol UserActivityService: Sendable {
     func getActivities(userId: UUID, limit: Int, on db: any Database) async throws -> [UserActivityResponse]

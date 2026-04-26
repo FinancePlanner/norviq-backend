@@ -1,12 +1,8 @@
-import Vapor
 import HTTPTypes
+import Vapor
 
 struct ExportFileController: RouteCollection {
     let exportService: any DataExportService
-
-    init(exportService: any DataExportService) {
-        self.exportService = exportService
-    }
 
     func boot(routes: any RoutesBuilder) throws {
         let exports = routes.grouped("api", "v3", "export")
@@ -16,12 +12,13 @@ struct ExportFileController: RouteCollection {
     @Sendable
     func serveExportFile(req: Request) async throws -> Response {
         guard let userId = req.parameters.get("userId", as: UUID.self),
-              let filename = req.parameters.get("filename") else {
+              let filename = req.parameters.get("filename")
+        else {
             throw Abort(.badRequest, reason: "Missing parameters")
         }
 
         let exportIdString = filename.split(separator: ".").first.map(String.init)
-        guard let exportIdString = exportIdString, let exportId = UUID(uuidString: exportIdString) else {
+        guard let exportIdString, let exportId = UUID(uuidString: exportIdString) else {
             throw Abort(.badRequest, reason: "Invalid filename format")
         }
 
@@ -46,7 +43,7 @@ struct ExportFileController: RouteCollection {
             ? HTTPMediaType(type: "text", subType: "csv")
             : .json
         file.headers.add(name: "Content-Disposition", value: "attachment; filename=\"\(filename)\"")
-        
+
         return file
     }
 }

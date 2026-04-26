@@ -46,7 +46,7 @@ struct TrialService: TrialServicing {
         tierName: String,
         db: any Database
     ) async throws {
-        guard (1...31).contains(trialDays) else {
+        guard (1 ... 31).contains(trialDays) else {
             throw Abort(.badRequest, reason: "Trial duration is invalid.")
         }
         user.trialStartedAt = Date()

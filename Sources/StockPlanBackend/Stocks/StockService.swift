@@ -13,26 +13,26 @@ extension StockServiceError: AbortError {
     var status: HTTPResponseStatus {
         switch self {
         case .notFound:
-            return .notFound
+            .notFound
         case .invalidSymbol:
-            return .badRequest
+            .badRequest
         case .valuationNotFound:
-            return .notFound
+            .notFound
         case .valuationAlreadyExists:
-            return .conflict
+            .conflict
         }
     }
 
     var reason: String {
         switch self {
         case .notFound:
-            return "Stock not found."
+            "Stock not found."
         case .invalidSymbol:
-            return "Invalid stock symbol."
+            "Invalid stock symbol."
         case .valuationNotFound:
-            return "Stock valuation not found."
+            "Stock valuation not found."
         case .valuationAlreadyExists:
-            return "Stock valuation already exists."
+            "Stock valuation already exists."
         }
     }
 }
@@ -185,7 +185,8 @@ struct StockServiceImpl: StockService {
     }
 
     func getValuation(symbol: String, userId: UUID, on db: any Database) async throws
-        -> StockValuationRequest {
+        -> StockValuationRequest
+    {
         let normalizedSymbol = try validateSymbol(symbol)
         guard try await repo.find(symbol: normalizedSymbol, userId: userId, on: db) != nil else {
             throw StockServiceError.notFound
@@ -198,7 +199,8 @@ struct StockServiceImpl: StockService {
     }
 
     func create(payload: StockRequest, userId: UUID, on db: any Database) async throws
-        -> StockResponse {
+        -> StockResponse
+    {
         let normalizedSymbol = try validateSymbol(payload.symbol)
         guard let targetListId = try await resolvePortfolioListId(
             requestedId: payload.portfolioListId,
@@ -284,10 +286,11 @@ struct StockServiceImpl: StockService {
     }
 
     func bulkCreate(payloads: [StockRequest], userId: UUID, on db: any Database) async throws
-        -> BulkStockResponse {
+        -> BulkStockResponse
+    {
         let results = try await repo.bulkCreate(payloads: payloads, userId: userId, on: db)
-        let created = results.filter { $0.stock != nil }.count
-        let failed = results.filter { $0.error != nil }.count
+        let created = results.count(where: { $0.stock != nil })
+        let failed = results.count(where: { $0.error != nil })
 
         if created > 0 {
             try? await req.userActivityService.recordActivity(
@@ -306,7 +309,8 @@ struct StockServiceImpl: StockService {
     }
 
     func update(id: UUID, payload: StockRequest, userId: UUID, on db: any Database) async throws
-        -> StockResponse {
+        -> StockResponse
+    {
         _ = try validateSymbol(payload.symbol)
         guard let stock = try await repo.update(id: id, payload: payload, userId: userId, on: db)
         else {
@@ -405,7 +409,8 @@ struct StockServiceImpl: StockService {
             if let existingCash = try await CashBalance.query(on: transactionDB)
                 .filter(\.$accountId == account.id!)
                 .filter(\.$currency == currency)
-                .first() {
+                .first()
+            {
                 existingCash.balance += proceeds
                 existingCash.asOf = Date()
                 try await existingCash.save(on: transactionDB)
@@ -444,30 +449,31 @@ struct StockServiceImpl: StockService {
     }
 
     private func normalizeValuationPayload(pathSymbol: String, payload: StockValuationRequest) throws
-        -> StockValuationRequest {
+        -> StockValuationRequest
+    {
         let normalizedPathSymbol = try validateSymbol(pathSymbol)
         let normalizedBodySymbol = try validateSymbol(payload.symbol)
         guard normalizedPathSymbol == normalizedBodySymbol else {
             throw Abort(
                 .badRequest,
                 reason:
-                    """
-                    Body symbol must match the route symbol. \
-                    routeRaw=\(String(reflecting: pathSymbol)) \
-                    bodyRaw=\(String(reflecting: payload.symbol)) \
-                    routeNormalized=\(String(reflecting: normalizedPathSymbol)) \
-                    bodyNormalized=\(String(reflecting: normalizedBodySymbol))
-                    """
+                """
+                Body symbol must match the route symbol. \
+                routeRaw=\(String(reflecting: pathSymbol)) \
+                bodyRaw=\(String(reflecting: payload.symbol)) \
+                routeNormalized=\(String(reflecting: normalizedPathSymbol)) \
+                bodyNormalized=\(String(reflecting: normalizedBodySymbol))
+                """
             )
         }
 
-        return StockValuationRequest(
+        return try StockValuationRequest(
             symbol: normalizedPathSymbol,
-            bearCase: try normalizePriceRange(payload.bearCase, field: "bearCase"),
-            baseCase: try normalizePriceRange(payload.baseCase, field: "baseCase"),
-            bullCase: try normalizePriceRange(payload.bullCase, field: "bullCase"),
+            bearCase: normalizePriceRange(payload.bearCase, field: "bearCase"),
+            baseCase: normalizePriceRange(payload.baseCase, field: "baseCase"),
+            bullCase: normalizePriceRange(payload.bullCase, field: "bullCase"),
             rationale: normalizeOptionalText(payload.rationale),
-            targetDate: try normalizeOptionalDateString(payload.targetDate)
+            targetDate: normalizeOptionalDateString(payload.targetDate)
         )
     }
 
@@ -601,7 +607,7 @@ struct StockServiceImpl: StockService {
             "ttmVsNTMRevenueGrowth": metrics.ttmVsNTMRevenueGrowth,
             "currentQuarterRevenueGrowthVsPreviousYear": metrics.currentQuarterRevenueGrowthVsPreviousYear,
             "twoYearStackExpectedRevenueGrowth": metrics.twoYearStackExpectedRevenueGrowth,
-            "dcfFairValue": metrics.dcfBasePrice
+            "dcfFairValue": metrics.dcfBasePrice,
         ].compactMapValues { value in
             guard let value else { return nil }
             return value.isFinite ? value : nil
@@ -622,7 +628,7 @@ struct StockServiceImpl: StockService {
         let peHigh: Double
     }
 
-    internal func makeProjectionScenarios(
+    func makeProjectionScenarios(
         from metrics: StockAnalysisMetricsResponse,
         fallbackCurrentPrice: Double,
         fallbackMarketCap: Double,
@@ -661,7 +667,7 @@ struct StockServiceImpl: StockService {
         let config: [ProjectionScenarioConfig] = [
             ProjectionScenarioConfig(kind: "bear", growthShift: -0.03, peLowShift: -2, peHighShift: -2),
             ProjectionScenarioConfig(kind: "base", growthShift: 0, peLowShift: 0, peHighShift: 0),
-            ProjectionScenarioConfig(kind: "bull", growthShift: 0.03, peLowShift: 2, peHighShift: 2)
+            ProjectionScenarioConfig(kind: "bull", growthShift: 0.03, peLowShift: 2, peHighShift: 2),
         ]
 
         return config.map { item in
@@ -734,7 +740,7 @@ struct StockServiceImpl: StockService {
         }
     }
 
-    internal func fallbackProjectionScenarios(
+    func fallbackProjectionScenarios(
         currentPrice: Double,
         marketCap: Double,
         sharesOutstanding: Double
@@ -748,7 +754,7 @@ struct StockServiceImpl: StockService {
         let config: [FallbackProjectionScenarioConfig] = [
             FallbackProjectionScenarioConfig(kind: "bear", growth: 0.03, peLow: 12, peHigh: 15),
             FallbackProjectionScenarioConfig(kind: "base", growth: 0.07, peLow: 16, peHigh: 20),
-            FallbackProjectionScenarioConfig(kind: "bull", growth: 0.11, peLow: 20, peHigh: 25)
+            FallbackProjectionScenarioConfig(kind: "bull", growth: 0.11, peLow: 20, peHigh: 25),
         ]
 
         return config.map { scenario in
@@ -757,7 +763,7 @@ struct StockServiceImpl: StockService {
             var netIncome = baseNetIncome
             years.reserveCapacity(4)
 
-            for offset in 1...4 {
+            for offset in 1 ... 4 {
                 revenue *= (1 + scenario.growth)
                 netIncome *= (1 + scenario.growth + 0.01)
                 let margin = min(max(netIncome / revenue, 0.06), 0.35)

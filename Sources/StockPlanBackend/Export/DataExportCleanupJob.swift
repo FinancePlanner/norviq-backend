@@ -1,17 +1,17 @@
-import Vapor
 import Fluent
 import NIO
+import Vapor
 
 final class DataExportCleanupJob: LifecycleHandler, @unchecked Sendable {
     let repository: any DataExportRepository
     let interval: TimeInterval
     private var scheduledTask: RepeatedTask?
-    
+
     init(repository: any DataExportRepository, interval: TimeInterval = 86400) {
         self.repository = repository
         self.interval = interval
     }
-    
+
     func didBoot(_ app: Application) throws {
         let eventLoop = app.eventLoopGroup.next()
         scheduledTask = eventLoop.scheduleRepeatedTask(
@@ -32,8 +32,8 @@ final class DataExportCleanupJob: LifecycleHandler, @unchecked Sendable {
             }
         }
     }
-    
-    func shutdown(_ app: Application) {
+
+    func shutdown(_: Application) {
         scheduledTask?.cancel()
         scheduledTask = nil
     }

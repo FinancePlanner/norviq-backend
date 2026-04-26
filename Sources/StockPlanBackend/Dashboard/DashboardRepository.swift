@@ -2,8 +2,8 @@ import Fluent
 import FluentSQL
 import Foundation
 
-struct DashboardSnapshotModel: Sendable {
-    struct Portfolio: Sendable {
+struct DashboardSnapshotModel {
+    struct Portfolio {
         let totalPositions: Int
         let totalCostBasis: Double
         let totalMarketValue: Double
@@ -13,13 +13,13 @@ struct DashboardSnapshotModel: Sendable {
         let targetsCount: Int
     }
 
-    struct Holding: Sendable {
+    struct Holding {
         let symbol: String
         let marketValue: Double
         let weightPercent: Double
     }
 
-    struct News: Sendable {
+    struct News {
         let id: UUID
         let symbol: String
         let headline: String
@@ -126,7 +126,7 @@ private extension DatabaseDashboardRepository {
             }
     }
 
-    struct LatestQuoteSnapshot: Sendable {
+    struct LatestQuoteSnapshot {
         let symbol: String
         let currency: String
         let price: Double

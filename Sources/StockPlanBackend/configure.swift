@@ -1,17 +1,17 @@
-import NIOSSL
-import Fluent
-import FluentSQL
-import FluentPostgresDriver
-import Vapor
 import APNS
 import APNSCore
-import VaporAPNS
+import Fluent
+import FluentPostgresDriver
+import FluentSQL
 import JWT
 import JWTKit
-import Redis
 import Metrics
+import NIOSSL
+import Redis
+import Vapor
+import VaporAPNS
 
-// configures your application
+/// configures your application
 public func configure(_ app: Application) async throws {
     try ProductionConfiguration.validate(for: app)
 
@@ -51,7 +51,7 @@ public func configure(_ app: Application) async throws {
 
     // Idempotency for mutations — clients set Idempotency-Key header.
     // Caches POST/PUT/DELETE responses in Redis (24h TTL). No-op for other methods or missing header.
-    app.middleware.use(IdempotencyMiddleware(ttl: 86_400))
+    app.middleware.use(IdempotencyMiddleware(ttl: 86400))
 
     // Configure global JSON decoder and encoder
     ContentConfiguration.global.use(decoder: JSONDecoder.backendAPI, for: .json)
@@ -109,7 +109,8 @@ public func configure(_ app: Application) async throws {
         guard isTesting else { return nil }
         if let configured = Environment.get("TEST_DATABASE_SCHEMA")?
             .trimmingCharacters(in: .whitespacesAndNewlines),
-           !configured.isEmpty {
+            !configured.isEmpty
+        {
             return configured.replacingOccurrences(
                 of: #"[^a-zA-Z0-9_]"#,
                 with: "_",
@@ -120,13 +121,13 @@ public func configure(_ app: Application) async throws {
         return "stockplan_test_\(UUID().uuidString.replacingOccurrences(of: "-", with: "_").lowercased())"
     }()
 
-    var postgresConfiguration = SQLPostgresConfiguration(
+    var postgresConfiguration = try SQLPostgresConfiguration(
         hostname: databaseHost,
         port: databasePort,
         username: databaseUsername,
         password: databasePassword,
         database: databaseName,
-        tls: .prefer(try .init(configuration: .clientDefault))
+        tls: .prefer(.init(configuration: .clientDefault))
     )
     if let testDatabaseSchema {
         postgresConfiguration.searchPath = [testDatabaseSchema]
@@ -138,7 +139,8 @@ public func configure(_ app: Application) async throws {
     )
 
     if let testDatabaseSchema,
-       let sqlDatabase = app.db(.psql) as? any SQLDatabase {
+       let sqlDatabase = app.db(.psql) as? any SQLDatabase
+    {
         try await sqlDatabase.raw("CREATE SCHEMA IF NOT EXISTS \(unsafeRaw: testDatabaseSchema)").run()
     }
 
@@ -188,7 +190,7 @@ public func configure(_ app: Application) async throws {
         .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
     let resendBaseURLRaw = Environment.get("RESEND_BASE_URL")?
         .trimmingCharacters(in: .whitespacesAndNewlines)
-    if !resendAPIKey.isEmpty && !resendFromEmail.isEmpty {
+    if !resendAPIKey.isEmpty, !resendFromEmail.isEmpty {
         let resendBaseURL = URL(string: resendBaseURLRaw ?? "") ?? URL(string: "https://api.resend.com")!
         app.mailer = ResendMailerService(
             apiKey: resendAPIKey,
@@ -196,7 +198,7 @@ public func configure(_ app: Application) async throws {
             baseURL: resendBaseURL
         )
     } else {
-        if mfaEnabled && app.environment == .production {
+        if mfaEnabled, app.environment == .production {
             throw Abort(
                 .internalServerError,
                 reason: "MFA is enabled but RESEND_API_KEY and RESEND_FROM_EMAIL are not configured."
@@ -252,11 +254,10 @@ public func configure(_ app: Application) async throws {
         }
     }
 
-    let fmpProvider: (any FMPMarketDataProvider & CryptoDataProvider)?
-    if let fmpAPIKey, !fmpAPIKey.isEmpty {
-        fmpProvider = LiveFMPMarketDataProvider(apiKey: fmpAPIKey)
+    let fmpProvider: (any FMPMarketDataProvider & CryptoDataProvider)? = if let fmpAPIKey, !fmpAPIKey.isEmpty {
+        LiveFMPMarketDataProvider(apiKey: fmpAPIKey)
     } else {
-        fmpProvider = nil
+        nil
     }
 
     app.marketDataService = DefaultMarketDataService(
@@ -268,11 +269,10 @@ public func configure(_ app: Application) async throws {
     app.statisticsRepository = DatabaseStatisticsRepository()
     app.statisticsService = DefaultStatisticsService(repo: app.statisticsRepository)
     app.newsRepository = DatabaseNewsRepository()
-    let newsProvider: (any NewsProvider)?
-    if let finnhubAPIKey, !finnhubAPIKey.isEmpty {
-        newsProvider = FinnhubNewsProvider(apiKey: finnhubAPIKey)
+    let newsProvider: (any NewsProvider)? = if let finnhubAPIKey, !finnhubAPIKey.isEmpty {
+        FinnhubNewsProvider(apiKey: finnhubAPIKey)
     } else {
-        newsProvider = nil
+        nil
     }
     app.marketNewsArchiveService = DefaultMarketNewsArchiveService(
         provider: newsProvider,
@@ -308,9 +308,9 @@ public func configure(_ app: Application) async throws {
     app.targetAlertEvaluator = DefaultTargetAlertEvaluator()
 
     if let apnsConfig = APNSBootstrapConfiguration.fromEnvironment(app: app) {
-        app.apns.configure(
+        try app.apns.configure(
             .jwt(
-                privateKey: try .loadFrom(string: apnsConfig.privateKeyP8),
+                privateKey: .loadFrom(string: apnsConfig.privateKeyP8),
                 keyIdentifier: apnsConfig.keyID,
                 teamIdentifier: apnsConfig.teamID
             )
@@ -320,11 +320,10 @@ public func configure(_ app: Application) async throws {
         app.pushNotificationSender = NoopPushNotificationSender()
     }
 
-    let earningsProvider: any EarningsProvider
-    if let finnhubAPIKey, !finnhubAPIKey.isEmpty {
-        earningsProvider = FinnhubEarningsProvider(apiKey: finnhubAPIKey)
+    let earningsProvider: any EarningsProvider = if let finnhubAPIKey, !finnhubAPIKey.isEmpty {
+        FinnhubEarningsProvider(apiKey: finnhubAPIKey)
     } else {
-        earningsProvider = DisabledEarningsProvider()
+        DisabledEarningsProvider()
     }
     app.earningsService = DefaultEarningsService(provider: earningsProvider)
 

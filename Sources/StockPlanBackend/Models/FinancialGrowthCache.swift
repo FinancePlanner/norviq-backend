@@ -1,6 +1,6 @@
 import Fluent
-import Vapor
 import Foundation
+import Vapor
 
 final class FinancialGrowthCache: Model, Content, @unchecked Sendable {
     static let schema = "financial_growth_cache"
@@ -29,7 +29,7 @@ final class FinancialGrowthCache: Model, Content, @unchecked Sendable {
     @Timestamp(key: "updated_at", on: .update)
     var updatedAt: Date?
 
-    init() { }
+    init() {}
 
     init(
         id: UUID? = nil,

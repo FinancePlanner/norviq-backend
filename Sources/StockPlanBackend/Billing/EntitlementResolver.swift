@@ -2,7 +2,7 @@ import Fluent
 import Foundation
 import Vapor
 
-struct EntitlementSnapshot: Sendable {
+struct EntitlementSnapshot {
     let userId: UUID
     let level: String
 
@@ -15,7 +15,7 @@ struct EntitlementSnapshot: Sendable {
     }
 }
 
-struct BillingUpgradeRequiredError: Error, AbortError, Sendable {
+struct BillingUpgradeRequiredError: Error, AbortError {
     let status: HTTPResponseStatus = .forbidden
     let reason: String
     let feature: BillingFeature
@@ -37,9 +37,9 @@ struct BillingUpgradeRequiredError: Error, AbortError, Sendable {
         self.limit = limit
         self.current = current
         if let limit, let current {
-            self.reason = "Upgrade required. feature=\(feature.rawValue) plan=\(plan) limit=\(limit) current=\(current)"
+            reason = "Upgrade required. feature=\(feature.rawValue) plan=\(plan) limit=\(limit) current=\(current)"
         } else {
-            self.reason = "Upgrade required. feature=\(feature.rawValue) plan=\(plan) required=\(requiredPlan)"
+            reason = "Upgrade required. feature=\(feature.rawValue) plan=\(plan) required=\(requiredPlan)"
         }
     }
 }
@@ -62,7 +62,8 @@ struct DefaultEntitlementResolver: EntitlementResolver {
         // 2. Admin/Premium Email Bypass
         if !premiumEmails.isEmpty,
            let user = try await User.find(userId, on: db),
-           premiumEmails.contains(user.email.lowercased()) {
+           premiumEmails.contains(user.email.lowercased())
+        {
             return EntitlementSnapshot(userId: userId, level: "pro")
         }
 
@@ -70,7 +71,7 @@ struct DefaultEntitlementResolver: EntitlementResolver {
         let entitlement = try await Entitlement.query(on: db)
             .filter(\.$userId == userId)
             .first()
-        
+
         // 4. Trial Logic: Trial Tier ("temporary") should override "free" or missing entitlements
         if let user = try await User.find(userId, on: db), let trialTier = user.trialTier {
             // If user has a trial, and no entitlement or the entitlement is "free", trial wins.
@@ -83,7 +84,7 @@ struct DefaultEntitlementResolver: EntitlementResolver {
     }
 }
 
-enum BillingFeature: String, Sendable {
+enum BillingFeature: String {
     case brokerSync = "broker_sync"
     case portfolioLists = "portfolio_lists"
     case holdings
@@ -93,15 +94,15 @@ enum BillingFeature: String, Sendable {
     case targetAlerts = "target_alerts"
     case reportGenerations = "report_generations"
     case expensePlanner = "expense_planner"
-    case reports = "reports"
-    case statistics = "statistics"
+    case reports
+    case statistics
     case marketFundamentals = "market_fundamentals"
     case advancedResearch = "advanced_research"
     case peerComparison = "peer_comparison"
     case earningsText = "earnings_text"
 }
 
-struct BillingPlanLimits: Sendable {
+struct BillingPlanLimits {
     let portfolioListCount: Int?
     let holdingCount: Int?
     let watchlistItemCount: Int?
@@ -135,22 +136,22 @@ struct BillingPlanLimits: Sendable {
     func limit(for feature: BillingFeature) -> Int? {
         switch feature {
         case .portfolioLists:
-            return portfolioListCount
+            portfolioListCount
         case .holdings:
-            return holdingCount
+            holdingCount
         case .watchlistItems:
-            return watchlistItemCount
+            watchlistItemCount
         case .valuationCases:
-            return valuationCaseCount
+            valuationCaseCount
         case .csvImports:
-            return csvImportCount
+            csvImportCount
         case .targetAlerts:
-            return targetAlertCount
+            targetAlertCount
         case .reportGenerations:
-            return reportGenerationCount
+            reportGenerationCount
         case .brokerSync, .expensePlanner, .reports, .statistics, .marketFundamentals,
-            .advancedResearch, .peerComparison, .earningsText:
-            return nil
+             .advancedResearch, .peerComparison, .earningsText:
+            nil
         }
     }
 }
@@ -188,7 +189,8 @@ struct DefaultUsageCounterService: UsageCounterService {
         let periodStart = Self.monthStart(for: Date())
         if let existing = try await UsageCounter.query(on: db)
             .filter(\.$userId == userId)
-            .first() {
+            .first()
+        {
             if existing.periodStart < periodStart {
                 existing.periodStart = periodStart
                 existing.csvImportCount = 0
@@ -249,7 +251,7 @@ struct DefaultUsageCounterService: UsageCounterService {
         case .reportGenerations:
             usage.reportGenerationCount
         case .brokerSync, .portfolioLists, .valuationCases, .expensePlanner, .reports,
-            .statistics, .marketFundamentals, .advancedResearch, .peerComparison, .earningsText:
+             .statistics, .marketFundamentals, .advancedResearch, .peerComparison, .earningsText:
             0
         }
     }
@@ -267,7 +269,7 @@ struct DefaultUsageCounterService: UsageCounterService {
         case .reportGenerations:
             usage.reportGenerationCount = value
         case .brokerSync, .portfolioLists, .valuationCases, .expensePlanner, .reports,
-            .statistics, .marketFundamentals, .advancedResearch, .peerComparison, .earningsText:
+             .statistics, .marketFundamentals, .advancedResearch, .peerComparison, .earningsText:
             break
         }
     }

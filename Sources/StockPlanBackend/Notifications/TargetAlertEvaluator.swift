@@ -92,11 +92,11 @@ struct DefaultTargetAlertEvaluator: TargetAlertEvaluating {
     private func shouldTrigger(target: Target, currentPrice: Double) -> Bool {
         switch target.scenario.lowercased() {
         case "bear":
-            return currentPrice <= target.targetPrice
+            currentPrice <= target.targetPrice
         case "base", "bull":
-            return currentPrice >= target.targetPrice
+            currentPrice >= target.targetPrice
         default:
-            return false
+            false
         }
     }
 

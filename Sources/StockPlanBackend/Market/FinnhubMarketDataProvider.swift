@@ -1,13 +1,15 @@
-import Vapor
 import Foundation
 import StockPlanShared
+import Vapor
 
 struct FinnhubMarketDataProvider: MarketDataProvider {
     let baseURL: String
     let apiKey: String
     let defaultCurrency: String
 
-    var name: String { "finnhub" }
+    var name: String {
+        "finnhub"
+    }
 
     init(
         baseURL: String = "https://finnhub.io/api/v1",
@@ -49,7 +51,7 @@ struct FinnhubMarketDataProvider: MarketDataProvider {
                     ("symbol", symbol),
                     ("resolution", "D"),
                     ("from", String(Int(effectiveFrom.timeIntervalSince1970))),
-                    ("to", String(Int(effectiveTo.timeIntervalSince1970)))
+                    ("to", String(Int(effectiveTo.timeIntervalSince1970))),
                 ],
                 on: req
             )
@@ -123,7 +125,7 @@ struct FinnhubMarketDataProvider: MarketDataProvider {
             path: "/stock/metric",
             query: [
                 ("symbol", symbol),
-                ("metric", "all")
+                ("metric", "all"),
             ],
             on: req
         )
@@ -143,7 +145,7 @@ struct FinnhubMarketDataProvider: MarketDataProvider {
 
 private extension FinnhubMarketDataProvider {
     func mapProfile(symbol: String, payload: FinnhubCompanyProfilePayload) -> MarketProviderCompanyProfile {
-        return MarketProviderCompanyProfile(
+        MarketProviderCompanyProfile(
             symbol: symbol,
             country: payload.country,
             currency: payload.currency,
@@ -209,7 +211,7 @@ private extension FinnhubMarketDataProvider {
         var bars: [MarketProviderPriceBar] = []
         bars.reserveCapacity(count)
 
-        for index in 0..<count {
+        for index in 0 ..< count {
             let volume = index < volumes.count ? Int(volumes[index].rounded()) : nil
             bars.append(
                 MarketProviderPriceBar(
@@ -485,17 +487,17 @@ private struct AnyCodingKey: CodingKey {
 
     init?(stringValue: String) {
         self.stringValue = stringValue
-        self.intValue = nil
+        intValue = nil
     }
 
     init?(intValue: Int) {
-        self.stringValue = String(intValue)
+        stringValue = String(intValue)
         self.intValue = intValue
     }
 
     init(_ string: String) {
-        self.stringValue = string
-        self.intValue = nil
+        stringValue = string
+        intValue = nil
     }
 }
 

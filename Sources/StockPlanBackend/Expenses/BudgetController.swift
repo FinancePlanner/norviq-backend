@@ -1,6 +1,6 @@
-import Vapor
 import Foundation
 import StockPlanShared
+import Vapor
 
 struct BudgetController: RouteCollection {
     private struct BudgetSnapshotPayload: Decodable {
@@ -19,16 +19,16 @@ struct BudgetController: RouteCollection {
 
         init(from decoder: any Decoder) throws {
             let container = try decoder.container(keyedBy: CodingKeys.self)
-            self.monthStart =
+            monthStart =
                 try container.decodeIfPresent(String.self, forKey: .monthStartSnake)
-                ?? container.decode(String.self, forKey: .monthStartCamel)
-            self.netSalary =
+                    ?? container.decode(String.self, forKey: .monthStartCamel)
+            netSalary =
                 try container.decodeIfPresent(Double.self, forKey: .netSalarySnake)
-                ?? container.decode(Double.self, forKey: .netSalaryCamel)
-            self.targetShares =
+                    ?? container.decode(Double.self, forKey: .netSalaryCamel)
+            targetShares =
                 try container.decodeIfPresent([String: Double].self, forKey: .targetSharesSnake)
-                ?? container.decodeIfPresent([String: Double].self, forKey: .targetSharesCamel)
-                ?? [:]
+                    ?? container.decodeIfPresent([String: Double].self, forKey: .targetSharesCamel)
+                    ?? [:]
         }
 
         func asRequest() -> BudgetSnapshotRequest {
@@ -63,20 +63,20 @@ struct BudgetController: RouteCollection {
 
         init(from decoder: any Decoder) throws {
             let container = try decoder.container(keyedBy: CodingKeys.self)
-            self.snapshotId =
+            snapshotId =
                 try container.decodeIfPresent(String.self, forKey: .snapshotIdSnake)
-                ?? container.decode(String.self, forKey: .snapshotIdCamel)
-            self.title = try container.decode(String.self, forKey: .title)
-            self.plannedAmount =
+                    ?? container.decode(String.self, forKey: .snapshotIdCamel)
+            title = try container.decode(String.self, forKey: .title)
+            plannedAmount =
                 try container.decodeIfPresent(Double.self, forKey: .plannedAmountSnake)
-                ?? container.decode(Double.self, forKey: .plannedAmountCamel)
-            self.pillar = try container.decode(BudgetPillar.self, forKey: .pillar)
-            self.splitMode =
+                    ?? container.decode(Double.self, forKey: .plannedAmountCamel)
+            pillar = try container.decode(BudgetPillar.self, forKey: .pillar)
+            splitMode =
                 try container.decodeIfPresent(ExpenseSplitMode.self, forKey: .splitModeSnake)
-                ?? container.decodeIfPresent(ExpenseSplitMode.self, forKey: .splitModeCamel)
-            self.userSharePercent =
+                    ?? container.decodeIfPresent(ExpenseSplitMode.self, forKey: .splitModeCamel)
+            userSharePercent =
                 try container.decodeIfPresent(Double.self, forKey: .userSharePercentSnake)
-                ?? container.decodeIfPresent(Double.self, forKey: .userSharePercentCamel)
+                    ?? container.decodeIfPresent(Double.self, forKey: .userSharePercentCamel)
         }
 
         func asRequest() -> BudgetPlanItemRequest {

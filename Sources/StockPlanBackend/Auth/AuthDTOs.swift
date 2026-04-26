@@ -2,7 +2,7 @@ import Foundation
 import StockPlanShared
 import Vapor
 
-struct AuthRegisterRequest: Codable, Sendable, Equatable {
+struct AuthRegisterRequest: Codable, Equatable {
     let username: String
     let password: String
     let confirmPassword: String
@@ -48,7 +48,8 @@ struct AuthRegisterRequest: Codable, Sendable, Equatable {
         username = try container.decode(String.self, forKey: .username)
         password = try container.decode(String.self, forKey: .password)
         if let confirmPassword = try container.decodeIfPresent(String.self, forKey: .confirmPassword)
-            ?? container.decodeIfPresent(String.self, forKey: .confirm_password) {
+            ?? container.decodeIfPresent(String.self, forKey: .confirm_password)
+        {
             self.confirmPassword = confirmPassword
         } else {
             throw DecodingError.keyNotFound(
@@ -101,7 +102,7 @@ extension AuthMFAChallengeResponse: @retroactive Content {}
 extension AuthMFAVerifyRequest: @retroactive Content {}
 extension AuthMFAResendRequest: @retroactive Content {}
 
-struct OAuthStartRequest: Codable, Sendable, Equatable {
+struct OAuthStartRequest: Codable, Equatable {
     let redirectURI: String
 
     init(redirectURI: String) {
@@ -118,7 +119,8 @@ struct OAuthStartRequest: Codable, Sendable, Equatable {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         if let redirectURI = try container.decodeIfPresent(String.self, forKey: .redirectURI)
             ?? container.decodeIfPresent(String.self, forKey: .redirectUri)
-            ?? container.decodeIfPresent(String.self, forKey: .redirect_uri) {
+            ?? container.decodeIfPresent(String.self, forKey: .redirect_uri)
+        {
             self.redirectURI = redirectURI
             return
         }
@@ -135,7 +137,7 @@ struct OAuthStartRequest: Codable, Sendable, Equatable {
     }
 }
 
-struct OAuthStartResponse: Codable, Sendable, Equatable {
+struct OAuthStartResponse: Codable, Equatable {
     let flowId: UUID
     let authorizationURL: String
     let expiresIn: Int
@@ -160,7 +162,8 @@ struct OAuthStartResponse: Codable, Sendable, Equatable {
         let container = try decoder.container(keyedBy: CodingKeys.self)
 
         guard let flowId = try container.decodeIfPresent(UUID.self, forKey: .flowId)
-            ?? container.decodeIfPresent(UUID.self, forKey: .flow_id) else {
+            ?? container.decodeIfPresent(UUID.self, forKey: .flow_id)
+        else {
             throw DecodingError.keyNotFound(
                 CodingKeys.flowId,
                 .init(codingPath: decoder.codingPath, debugDescription: "Missing flowId")
@@ -169,7 +172,8 @@ struct OAuthStartResponse: Codable, Sendable, Equatable {
 
         guard let authorizationURL = try container.decodeIfPresent(String.self, forKey: .authorizationURL)
             ?? container.decodeIfPresent(String.self, forKey: .authorizationUrl)
-            ?? container.decodeIfPresent(String.self, forKey: .authorization_url) else {
+            ?? container.decodeIfPresent(String.self, forKey: .authorization_url)
+        else {
             throw DecodingError.keyNotFound(
                 CodingKeys.authorizationURL,
                 .init(codingPath: decoder.codingPath, debugDescription: "Missing authorizationURL")
@@ -177,7 +181,8 @@ struct OAuthStartResponse: Codable, Sendable, Equatable {
         }
 
         guard let expiresIn = try container.decodeIfPresent(Int.self, forKey: .expiresIn)
-            ?? container.decodeIfPresent(Int.self, forKey: .expires_in) else {
+            ?? container.decodeIfPresent(Int.self, forKey: .expires_in)
+        else {
             throw DecodingError.keyNotFound(
                 CodingKeys.expiresIn,
                 .init(codingPath: decoder.codingPath, debugDescription: "Missing expiresIn")
@@ -197,7 +202,7 @@ struct OAuthStartResponse: Codable, Sendable, Equatable {
     }
 }
 
-struct OAuthExchangeRequest: Codable, Sendable, Equatable {
+struct OAuthExchangeRequest: Codable, Equatable {
     let flowId: UUID
     let code: String
     let state: String
@@ -224,7 +229,8 @@ struct OAuthExchangeRequest: Codable, Sendable, Equatable {
         let container = try decoder.container(keyedBy: CodingKeys.self)
 
         guard let flowId = try container.decodeIfPresent(UUID.self, forKey: .flowId)
-            ?? container.decodeIfPresent(UUID.self, forKey: .flow_id) else {
+            ?? container.decodeIfPresent(UUID.self, forKey: .flow_id)
+        else {
             throw DecodingError.keyNotFound(
                 CodingKeys.flowId,
                 .init(codingPath: decoder.codingPath, debugDescription: "Missing flowId")
@@ -233,7 +239,8 @@ struct OAuthExchangeRequest: Codable, Sendable, Equatable {
 
         guard let redirectURI = try container.decodeIfPresent(String.self, forKey: .redirectURI)
             ?? container.decodeIfPresent(String.self, forKey: .redirectUri)
-            ?? container.decodeIfPresent(String.self, forKey: .redirect_uri) else {
+            ?? container.decodeIfPresent(String.self, forKey: .redirect_uri)
+        else {
             throw DecodingError.keyNotFound(
                 CodingKeys.redirectURI,
                 .init(codingPath: decoder.codingPath, debugDescription: "Missing redirectURI")
@@ -241,8 +248,8 @@ struct OAuthExchangeRequest: Codable, Sendable, Equatable {
         }
 
         self.flowId = flowId
-        self.code = try container.decode(String.self, forKey: .code)
-        self.state = try container.decode(String.self, forKey: .state)
+        code = try container.decode(String.self, forKey: .code)
+        state = try container.decode(String.self, forKey: .state)
         self.redirectURI = redirectURI
     }
 

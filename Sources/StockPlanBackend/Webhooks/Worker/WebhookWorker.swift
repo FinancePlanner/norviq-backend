@@ -1,6 +1,6 @@
+import Fluent
 import NIO
 import Vapor
-import Fluent
 
 final class WebhookWorker: LifecycleHandler, @unchecked Sendable {
     private let repository: any WebhookRepository
@@ -8,7 +8,7 @@ final class WebhookWorker: LifecycleHandler, @unchecked Sendable {
     private let batchSize: Int
     private let intervalSeconds: Int
     private var scheduledTask: RepeatedTask?
-    
+
     init(
         repository: any WebhookRepository,
         service: WebhookDeliveryService,
@@ -20,7 +20,7 @@ final class WebhookWorker: LifecycleHandler, @unchecked Sendable {
         self.batchSize = batchSize
         self.intervalSeconds = max(intervalSeconds, 10)
     }
-    
+
     func didBoot(_ app: Application) throws {
         let eventLoop = app.eventLoopGroup.next()
         scheduledTask = eventLoop.scheduleRepeatedTask(
@@ -38,8 +38,8 @@ final class WebhookWorker: LifecycleHandler, @unchecked Sendable {
             }
         }
     }
-    
-    func shutdown(_ app: Application) {
+
+    func shutdown(_: Application) {
         scheduledTask?.cancel()
         scheduledTask = nil
     }

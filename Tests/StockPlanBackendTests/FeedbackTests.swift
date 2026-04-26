@@ -1,5 +1,5 @@
-@testable import StockPlanBackend
 import Foundation
+@testable import StockPlanBackend
 import Testing
 import VaporTesting
 

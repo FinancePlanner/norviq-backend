@@ -47,14 +47,12 @@ struct DefaultBillingContextService: BillingContextService {
         let limits = usageCounterService.limits(for: entitlement)
 
         let trialStatus = trialService.checkTrialStatus(user: user)
-        let (trialDaysRemaining, isTrialActive): (Int?, Bool) = {
-            switch trialStatus {
-            case .active(let days), .expiringSoon(let days):
-                return (days, true)
-            case .expired, .notOnTrial:
-                return (nil, false)
-            }
-        }()
+        let (trialDaysRemaining, isTrialActive): (Int?, Bool) = switch trialStatus {
+        case let .active(days), let .expiringSoon(days):
+            (days, true)
+        case .expired, .notOnTrial:
+            (nil, false)
+        }
 
         let usageRows = makeUsageRows(
             usage: usage,
@@ -110,7 +108,7 @@ struct DefaultBillingContextService: BillingContextService {
             usageRow(.valuationCases, used: valuationCaseCount, limit: limits.limit(for: .valuationCases), periodStart: nil),
             usageRow(.csvImports, used: usage.csvImportCount, limit: limits.limit(for: .csvImports), periodStart: usage.periodStart),
             usageRow(.targetAlerts, used: targetAlertCount, limit: limits.limit(for: .targetAlerts), periodStart: nil),
-            usageRow(.reportGenerations, used: usage.reportGenerationCount, limit: limits.limit(for: .reportGenerations), periodStart: usage.periodStart)
+            usageRow(.reportGenerations, used: usage.reportGenerationCount, limit: limits.limit(for: .reportGenerations), periodStart: usage.periodStart),
         ]
     }
 
@@ -197,6 +195,6 @@ private struct BillingFeatureDescriptor {
         .init(feature: .marketFundamentals, title: "Real stock fundamentals", proOnly: true),
         .init(feature: .advancedResearch, title: "Advanced stock research", proOnly: true),
         .init(feature: .peerComparison, title: "Peer comparison", proOnly: true),
-        .init(feature: .earningsText, title: "Earnings detail", proOnly: true)
+        .init(feature: .earningsText, title: "Earnings detail", proOnly: true),
     ]
 }

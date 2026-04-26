@@ -4,7 +4,7 @@ import Vapor
 struct TrialExpirationJob: LifecycleHandler {
     private let state = TrialExpirationJobState()
 
-    func willBoot(_ app: Application) async throws {
+    func willBoot(_: Application) async throws {
         // Job scheduled to run
     }
 
@@ -29,7 +29,7 @@ struct TrialExpirationJob: LifecycleHandler {
                     let expiredUserIDs = try await trialService.processExpiredTrials(db: db)
                     if !expiredUserIDs.isEmpty {
                         app.logger.info(
-                            "trial_expiration_job processed_users=\(expiredUserIDs.count) user_ids=\(expiredUserIDs.map { $0.uuidString }.joined(separator: ","))"
+                            "trial_expiration_job processed_users=\(expiredUserIDs.count) user_ids=\(expiredUserIDs.map(\.uuidString).joined(separator: ","))"
                         )
                     }
                 } catch is CancellationError {

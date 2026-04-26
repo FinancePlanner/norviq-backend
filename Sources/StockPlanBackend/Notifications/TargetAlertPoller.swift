@@ -31,7 +31,7 @@ final class TargetAlertPoller: LifecycleHandler, @unchecked Sendable {
         state.setScheduled(scheduled)
     }
 
-    func shutdown(_ app: Application) {
+    func shutdown(_: Application) {
         state.cancelAll()
     }
 

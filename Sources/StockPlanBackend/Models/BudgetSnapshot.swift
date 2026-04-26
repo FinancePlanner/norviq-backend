@@ -1,6 +1,6 @@
 import Fluent
-import Vapor
 import Foundation
+import Vapor
 
 final class BudgetSnapshot: Model, @unchecked Sendable {
     static let schema = "budget_snapshots"
@@ -36,7 +36,7 @@ final class BudgetSnapshot: Model, @unchecked Sendable {
         targetShares: [String: Double]
     ) {
         self.id = id
-        self.$user.id = userID
+        $user.id = userID
         self.monthStart = monthStart
         self.netSalary = netSalary
         self.targetShares = targetShares

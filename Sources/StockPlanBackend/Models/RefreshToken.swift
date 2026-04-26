@@ -22,7 +22,7 @@ final class RefreshToken: Model, @unchecked Sendable {
     @Timestamp(key: "created_at", on: .create)
     var createdAt: Date?
 
-    init() { }
+    init() {}
 
     init(
         id: UUID? = nil,
