@@ -348,22 +348,23 @@ final class DefaultExpensesService: ExpensesService {
             query = query.filter(\.$occurredOn <= to)
         }
         if let cursor {
-            // Keyset: fetch records created before cursor (older records)
-            query = query.filter(\.$createdAt < cursor)
+            // Keyset: fetch records with occurredOn strictly before cursor (older records)
+            query = query.filter(\.$occurredOn < cursor)
         }
 
+        let maxLimit = 200
         let fetchLimit = limit + 1
-        let expenses = try await query.sort(\.$createdAt, .descending).limit(fetchLimit).all()
-        if expenses.count > limit {
+        let expenses = try await query.sort(\.$occurredOn, .descending).limit(fetchLimit).all()
+        if expenses.count > limit, limit < maxLimit {
             let pageExpenses = Array(expenses.prefix(limit))
             let items = pageExpenses.map { mapExpense($0) }
-            guard let last = pageExpenses.last, let createdAt = last.createdAt else {
+            guard let last = pageExpenses.last else {
                 return (items, nil)
             }
-            let nextCursor = formatISODate(createdAt)
+            let nextCursor = formatISODate(last.occurredOn)
             return (items, nextCursor)
         } else {
-            let items = expenses.map { mapExpense($0) }
+            let items = Array(expenses.prefix(limit)).map { mapExpense($0) }
             return (items, nil)
         }
     }

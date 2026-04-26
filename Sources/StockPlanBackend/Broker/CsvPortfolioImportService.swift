@@ -157,7 +157,7 @@ private extension CsvPortfolioImportService {
         let notes: String?
     }
 
-    func validatePreviewItem(_ item: CsvImportPreviewItem, on req: Request) async throws -> String? {
+    func validatePreviewItem(_ item: CsvImportPreviewItem, on _: Request) async throws -> String? {
         guard let shares = item.shares, shares > 0 else {
             return "Missing or invalid shares (quantity)."
         }
@@ -168,11 +168,6 @@ private extension CsvPortfolioImportService {
               CsvImportService.normalizeDateOnlyString(rawBuyDate) != nil
         else {
             return "Missing or invalid buyDate. Expected YYYY-MM-DD."
-        }
-
-        let resolved = try await resolveInstrumentCandidate(symbol: item.symbol, on: req)
-        guard resolved != nil else {
-            return "Unknown symbol."
         }
         return nil
     }
@@ -417,16 +412,14 @@ private extension CsvPortfolioImportService {
             return existing
         }
 
-        guard let candidate = try await resolveInstrumentCandidate(symbol: symbol, on: req) else {
-            throw Abort(.badRequest, reason: "Unknown symbol.")
-        }
+        let candidate = try await resolveInstrumentCandidate(symbol: symbol, on: req)
 
         let instrument = Instrument(
-            conid: candidate.conid,
-            symbol: candidate.symbol,
-            exchange: candidate.exchange,
-            currency: candidate.currency,
-            name: candidate.name
+            conid: candidate?.conid ?? "csv-\(symbol.lowercased())",
+            symbol: candidate?.symbol ?? symbol.uppercased(),
+            exchange: candidate?.exchange ?? "UNKNOWN",
+            currency: candidate?.currency ?? "USD",
+            name: candidate?.name ?? symbol.uppercased()
         )
         try await instrument.save(on: db)
         return instrument

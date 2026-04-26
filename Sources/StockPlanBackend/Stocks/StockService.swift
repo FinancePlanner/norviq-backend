@@ -71,9 +71,10 @@ struct StockServiceImpl: StockService {
     let req: Request
 
     func list(userId: UUID, portfolioListId: UUID?, limit: Int, cursor: Date?, on db: any Database) async throws -> (items: [StockResponse], nextCursor: String?) {
+        let maxLimit = 200
         let fetchLimit = limit + 1
         let stocks = try await repo.list(userId: userId, portfolioListId: portfolioListId, limit: fetchLimit, cursor: cursor, on: db)
-        if stocks.count > limit {
+        if stocks.count > limit, limit < maxLimit {
             let pageStocks = Array(stocks.prefix(limit))
             let items = try pageStocks.map { try StockResponse(from: $0) }
             guard let lastStock = pageStocks.last, let createdAt = lastStock.createdAt else {
@@ -84,7 +85,7 @@ struct StockServiceImpl: StockService {
             let nextCursor = formatter.string(from: createdAt)
             return (items, nextCursor)
         } else {
-            let items = try stocks.map { try StockResponse(from: $0) }
+            let items = try Array(stocks.prefix(limit)).map { try StockResponse(from: $0) }
             return (items, nil)
         }
     }
