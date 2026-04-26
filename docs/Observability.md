@@ -164,6 +164,131 @@ LOG_FORMAT=json \
 swift run StockPlanBackend serve --hostname 127.0.0.1 --port 8080
 ```
 
+## Production Server Setup (Hetzner / SSH)
+
+This section covers the exact steps to bring up and fix the observability stack on a live server when GitHub Actions is unavailable or containers need manual intervention.
+
+### Starting the full stack
+
+```bash
+ssh root@<server-ip>
+cd /opt/stockplan
+
+# Start prod app + infra
+docker compose -p prod -f docker-compose.production.yml up -d
+
+# Start observability stack
+docker compose -p prod -f docker-compose.production.yml -f docker-compose.observability.yml up -d
+```
+
+### Updating env vars without a redeploy
+
+`restart` does not reload env files. You must force-recreate the container:
+
+```bash
+# Edit the env file
+nano /opt/stockplan/.env
+
+# Force-recreate to pick up changes
+docker compose -p prod -f docker-compose.production.yml up -d --force-recreate app
+
+# Verify the var is live
+docker exec prod-app-1 env | grep YOUR_VAR
+```
+
+### Accessing Grafana (SSH tunnel)
+
+Grafana is bound to `127.0.0.1:3000` on the server and is not publicly exposed. Access it via tunnel from your local machine:
+
+```bash
+ssh -L 3001:127.0.0.1:3000 root@<server-ip>
+```
+
+Then open `http://localhost:3001`. If port 3001 is also taken, use any free local port.
+
+### Resetting the Grafana admin password
+
+```bash
+docker exec prod-grafana-1 grafana cli admin reset-admin-password yournewpassword
+```
+
+Note: avoid special shell characters like `!` in the password when running via `docker exec` — they can be misinterpreted by the shell.
+
+### Fixing Grafana crash on startup (Slack contact point)
+
+If Grafana crashes with `token must be specified when using the Slack chat API`, the Slack alerting provisioning file is missing a webhook URL. Disable it until you have a real webhook:
+
+```bash
+mv /opt/stockplan/monitoring/grafana/provisioning/alerting/contact-points.yaml \
+   /opt/stockplan/monitoring/grafana/provisioning/alerting/contact-points.yaml.disabled
+
+docker compose -p prod -f docker-compose.production.yml -f docker-compose.observability.yml up -d --force-recreate grafana
+```
+
+To re-enable later, add `GRAFANA_SLACK_WEBHOOK_URL=https://hooks.slack.com/...` to `.env` and rename the file back.
+
+### Verifying Prometheus is scraping
+
+Prometheus runs on the internal Docker network only. Query it via `docker exec`:
+
+```bash
+# Check targets are up
+docker exec prod-prometheus-1 wget -qO- "http://localhost:9090/api/v1/targets" | python3 -m json.tool | grep health
+
+# List available metric names
+docker exec prod-prometheus-1 wget -qO- "http://localhost:9090/api/v1/label/__name__/values" | python3 -m json.tool | head -30
+```
+
+`"health": "up"` confirms Prometheus is scraping the OTel Collector successfully.
+
+### Reloading Prometheus config without restart
+
+```bash
+docker exec prod-prometheus-1 kill -HUP 1
+```
+
+### Pushing updated monitoring files to the server
+
+Run from your local project root:
+
+```bash
+cd /path/to/StockPlanBackend
+
+scp monitoring/prometheus.yml root@<server-ip>:/opt/stockplan/monitoring/prometheus.yml
+scp monitoring/otel-collector.yaml root@<server-ip>:/opt/stockplan/monitoring/otel-collector.yaml
+scp monitoring/grafana/provisioning/datasources/datasources.yaml root@<server-ip>:/opt/stockplan/monitoring/grafana/provisioning/datasources/datasources.yaml
+scp monitoring/grafana/provisioning/dashboards/stockplan-production.json root@<server-ip>:/opt/stockplan/monitoring/grafana/provisioning/dashboards/stockplan-production.json
+```
+
+Then reload:
+
+```bash
+docker exec prod-prometheus-1 kill -HUP 1
+docker compose -p prod -f docker-compose.production.yml -f docker-compose.observability.yml up -d --force-recreate grafana
+```
+
+### Datasource configuration
+
+The Grafana datasources are provisioned from `monitoring/grafana/provisioning/datasources/datasources.yaml`:
+
+- **Prometheus** (`http://prometheus:9090`) — default datasource for all metrics panels.
+- **Jaeger** (`http://jaeger:16686`) — for distributed trace search.
+
+The OTel Collector Prometheus exporter (`:9464`) is scraped by Prometheus, not queried directly by Grafana.
+
+### Checking which Docker networks containers share
+
+If the app cannot reach the OTel Collector (traces not appearing in Jaeger), verify they are on the same network:
+
+```bash
+docker inspect prod-app-1 --format '{{json .NetworkSettings.Networks}}' | python3 -m json.tool
+docker inspect prod-otel-collector-1 --format '{{json .NetworkSettings.Networks}}' | python3 -m json.tool
+```
+
+Both must share `prod_internal`. If the app was started with a different project name it will be on a different network. Always use `-p prod` when starting the prod stack.
+
+---
+
 ## Production Test Procedure
 
 1. Set real production env values:
