@@ -3,8 +3,13 @@ import Foundation
 import NIOCore
 @testable import StockPlanBackend
 import StockPlanShared
-import Testing
-import VaporTesting
+
+typealias CashFlowStatementResponse = StockPlanBackend.CashFlowStatementResponse
+typealias BalanceSheetStatementResponse = StockPlanBackend.BalanceSheetStatementResponse
+typealias RatiosTTMResponse = StockPlanBackend.RatiosTTMResponse
+typealias FinancialGrowthResponse = StockPlanBackend.FinancialGrowthResponse
+typealias AnalystEstimatesResponse = StockPlanBackend.AnalystEstimatesResponse
+typealias RatiosResponse = StockPlanBackend.RatiosResponse
 
 @Suite("App Tests with DB", .serialized)
 struct StockPlanBackendTests {
@@ -3070,24 +3075,26 @@ struct StockPlanBackendTests {
             // Page 1: default limit
             var page1Stocks: [StockListItem] = []
             var cursor1 = ""
-            let page1 = try await app.testing().test(.GET, "v1/stocks", beforeRequest: { req in
+            try await app.testing().test(.GET, "v1/stocks", beforeRequest: { req in
                 req.headers.bearerAuthorization = .init(token: token)
             }, afterResponse: { res async throws in
                 page1Stocks = try res.content.decode([StockListItem].self)
-                cursor1 = res.headers.first(name: "X-Next-Cursor")!
+                cursor1 = res.headers.first(name: "X-Next-Cursor") ?? ""
             })
             #expect(page1Stocks.count == 50)
             #expect(!cursor1.isEmpty)
 
             // Page 2: use cursor
             var page2Stocks: [StockListItem] = []
-            let page2 = try await app.testing().test(.GET, "v1/stocks?cursor=\(cursor1)", beforeRequest: { req in
+            var page2Cursor: String? = nil
+            try await app.testing().test(.GET, "v1/stocks?cursor=\(cursor1)", beforeRequest: { req in
                 req.headers.bearerAuthorization = .init(token: token)
             }, afterResponse: { res async throws in
                 page2Stocks = try res.content.decode([StockListItem].self)
+                page2Cursor = res.headers.first(name: "X-Next-Cursor")
             })
             #expect(page2Stocks.count == 25)
-            #expect(!page2.headers.contains(name: "X-Next-Cursor")) // last page
+            #expect(page2Cursor == nil) // last page
 
             // Verify no overlap
             let page1Symbols = Set(page1Stocks.map(\.symbol))
@@ -3119,24 +3126,27 @@ struct StockPlanBackendTests {
 
             // Page 1
             var page1Expenses: [ExpenseResponse] = []
-            let page1 = try await app.testing().test(.GET, "v1/expenses", beforeRequest: { req in
+            var cursor1 = ""
+            try await app.testing().test(.GET, "v1/expenses", beforeRequest: { req in
                 req.headers.bearerAuthorization = .init(token: token)
             }, afterResponse: { res async throws in
                 page1Expenses = try res.content.decode([ExpenseResponse].self)
+                cursor1 = res.headers.first(name: "X-Next-Cursor") ?? ""
             })
             #expect(page1Expenses.count == 50)
-            let cursor1 = page1.headers.first(name: "X-Next-Cursor")!
             #expect(!cursor1.isEmpty)
 
             // Page 2
             var page2Expenses: [ExpenseResponse] = []
-            let page2 = try await app.testing().test(.GET, "v1/expenses?cursor=\(cursor1)", beforeRequest: { req in
+            var page2Cursor: String? = nil
+            try await app.testing().test(.GET, "v1/expenses?cursor=\(cursor1)", beforeRequest: { req in
                 req.headers.bearerAuthorization = .init(token: token)
             }, afterResponse: { res async throws in
                 page2Expenses = try res.content.decode([ExpenseResponse].self)
+                page2Cursor = res.headers.first(name: "X-Next-Cursor")
             })
             #expect(page2Expenses.count == 5)
-            #expect(!page2.headers.contains(name: "X-Next-Cursor"))
+            #expect(page2Cursor == nil)
 
             // Verify ordering (by occurredOn descending)
             let page1Dates = Set(page1Expenses.map(\.occurredOn))
@@ -3170,24 +3180,27 @@ struct StockPlanBackendTests {
 
             // Page 1
             var page1News: [NewsItemResponse] = []
-            let page1 = try await app.testing().test(.GET, "v1/news?symbol=AAPL", beforeRequest: { req in
+            var cursor1 = ""
+            try await app.testing().test(.GET, "v1/news?symbol=AAPL", beforeRequest: { req in
                 req.headers.bearerAuthorization = .init(token: token)
             }, afterResponse: { res async throws in
                 page1News = try res.content.decode([NewsItemResponse].self)
+                cursor1 = res.headers.first(name: "X-Next-Cursor") ?? ""
             })
             #expect(page1News.count == 50)
-            let cursor1 = page1.headers.first(name: "X-Next-Cursor")!
             #expect(!cursor1.isEmpty)
 
             // Page 2
             var page2News: [NewsItemResponse] = []
-            let page2 = try await app.testing().test(.GET, "v1/news?symbol=AAPL&cursor=\(cursor1)", beforeRequest: { req in
+            var page2Cursor: String? = nil
+            try await app.testing().test(.GET, "v1/news?symbol=AAPL&cursor=\(cursor1)", beforeRequest: { req in
                 req.headers.bearerAuthorization = .init(token: token)
             }, afterResponse: { res async throws in
                 page2News = try res.content.decode([NewsItemResponse].self)
+                page2Cursor = res.headers.first(name: "X-Next-Cursor")
             })
             #expect(page2News.count == 10)
-            #expect(!page2.headers.contains(name: "X-Next-Cursor"))
+            #expect(page2Cursor == nil)
 
             // Verify ordering (publishedAt descending)
             let page1Times = Set(page1News.map(\.publishedAt))
@@ -3224,23 +3237,27 @@ struct StockPlanBackendTests {
 
             // Request limit=200 (max)
             var stocks: [StockListItem] = []
-            let resp = try await app.testing().test(.GET, "v1/stocks?limit=200", beforeRequest: { req in
+            var respCursor: String? = nil
+            try await app.testing().test(.GET, "v1/stocks?limit=200", beforeRequest: { req in
                 req.headers.bearerAuthorization = .init(token: token)
             }, afterResponse: { res async throws in
                 stocks = try res.content.decode([StockListItem].self)
+                respCursor = res.headers.first(name: "X-Next-Cursor")
             })
             #expect(stocks.count == 200)
-            #expect(!resp.headers.contains(name: "X-Next-Cursor")) // last page
+            #expect(respCursor == nil) // last page
 
             // Request limit=150
             var stocks2: [StockListItem] = []
-            let resp2 = try await app.testing().test(.GET, "v1/stocks?limit=150", beforeRequest: { req in
+            var resp2Cursor: String? = nil
+            try await app.testing().test(.GET, "v1/stocks?limit=150", beforeRequest: { req in
                 req.headers.bearerAuthorization = .init(token: token)
             }, afterResponse: { res async throws in
                 stocks2 = try res.content.decode([StockListItem].self)
+                resp2Cursor = res.headers.first(name: "X-Next-Cursor")
             })
             #expect(stocks2.count == 150)
-            #expect(resp2.headers.contains(name: "X-Next-Cursor"))
+            #expect(resp2Cursor != nil)
         }
     }
 
