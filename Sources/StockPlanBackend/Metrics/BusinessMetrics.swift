@@ -5,7 +5,7 @@ import Foundation
 /// Acts as a thin wrapper around the underlying PrometheusMetrics singleton.
 struct BusinessMetrics {
     static let shared = BusinessMetrics()
-    private init() {}
+    init() {}
 
     func incrementStocksCreated() {
         PrometheusMetrics.shared.incrementStocksCreated()

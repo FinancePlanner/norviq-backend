@@ -5,11 +5,16 @@ import Vapor
 struct AuthController: RouteCollection {
     private static let mfaCapabilityHeader = "X-StockPlan-Client-Capabilities"
     private static let mfaCapabilityToken = "mfa-auth-v1"
+    private let environment: Environment
+
+    init(environment: Environment) {
+        self.environment = environment
+    }
 
     func boot(routes: any RoutesBuilder) throws {
         let auth = routes.grouped("auth")
 
-        if routes.application.environment == .testing {
+        if environment == .testing {
             // Skip rate limiting in tests to avoid 429s during rapid user creation
             auth.post("register", use: register)
             auth.post("login", use: login)

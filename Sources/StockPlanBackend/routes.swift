@@ -52,7 +52,7 @@ func routes(_ app: Application) throws {
     try app.register(collection: FinnhubWebhookController())
     try app.register(collection: RevenueCatWebhookController())
 
-    try api.register(collection: AuthController())
+    try api.register(collection: AuthController(environment: app.environment))
     try api.register(collection: BillingController())
     try api.register(collection: StockController())
     // Rate limit market data endpoints (quotes, search) to protect third-party API quotas.
