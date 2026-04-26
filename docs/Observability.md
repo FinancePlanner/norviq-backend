@@ -190,16 +190,7 @@ mv /opt/stockplan/monitoring/grafana/provisioning/alerting/contact-points.yaml.d
    /opt/stockplan/monitoring/grafana/provisioning/alerting/contact-points.yaml
 ```
 
-### Step 4 — Fix the alert rules datasource
-
-The provisioned alert rules currently reference `otel-collector-metrics` as the datasource UID. Update them to use `prometheus` (the fixed datasource UID from the datasources.yaml update):
-
-```bash
-sed -i 's/datasourceUid: otel-collector-metrics/datasourceUid: prometheus/g' \
-  /opt/stockplan/monitoring/grafana/provisioning/alerting/rules.yaml
-```
-
-### Step 5 — Recreate Grafana to pick up all changes
+### Step 4 — Recreate Grafana to pick up all changes
 
 ```bash
 docker compose -p prod -f docker-compose.production.yml -f docker-compose.observability.yml up -d --force-recreate grafana
