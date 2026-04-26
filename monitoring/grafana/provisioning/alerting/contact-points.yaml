@@ -1,5 +1,9 @@
 apiVersion: 1
 
+# Note: Grafana provisioning does not expand shell env vars.
+# Set the webhook URL directly here, or manage this file outside of git
+# and inject it at deploy time.
+
 contactPoints:
   - orgId: 1
     name: stockplan-slack
@@ -8,7 +12,7 @@ contactPoints:
         type: slack
         disableResolveMessage: false
         settings:
-          url: ${GRAFANA_SLACK_WEBHOOK_URL:-}
+          url: ${GRAFANA_SLACK_WEBHOOK_URL}
           recipient: "#alerts"
           mentionChannel: here
 

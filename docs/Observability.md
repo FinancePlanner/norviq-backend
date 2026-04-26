@@ -164,6 +164,83 @@ LOG_FORMAT=json \
 swift run StockPlanBackend serve --hostname 127.0.0.1 --port 8080
 ```
 
+## Setting Up Slack Alerts
+
+### Step 1 — Create a Slack Incoming Webhook
+
+1. Go to https://api.slack.com/apps and click **Create New App → From scratch**.
+2. Name it `StockPlan Alerts`, pick your workspace, click **Create App**.
+3. In the left sidebar click **Incoming Webhooks**, toggle it **On**.
+4. Click **Add New Webhook to Workspace**, pick your `#alerts` channel (or create one), click **Allow**.
+5. Copy the webhook URL — it looks like `https://hooks.slack.com/services/T.../B.../...`.
+
+### Step 2 — Add the webhook to the contact points file
+
+Grafana provisioning files do **not** expand shell environment variables. You must put the URL directly in the file on the server:
+
+```bash
+sed -i 's|url: .*|url: https://hooks.slack.com/services/YOUR/WEBHOOK/URL|' \
+  /opt/stockplan/monitoring/grafana/provisioning/alerting/contact-points.yaml
+```
+
+### Step 3 — Re-enable the contact point provisioning file
+
+```bash
+mv /opt/stockplan/monitoring/grafana/provisioning/alerting/contact-points.yaml.disabled \
+   /opt/stockplan/monitoring/grafana/provisioning/alerting/contact-points.yaml
+```
+
+### Step 4 — Fix the alert rules datasource
+
+The provisioned alert rules currently reference `otel-collector-metrics` as the datasource UID. Update them to use `prometheus` (the fixed datasource UID from the datasources.yaml update):
+
+```bash
+sed -i 's/datasourceUid: otel-collector-metrics/datasourceUid: prometheus/g' \
+  /opt/stockplan/monitoring/grafana/provisioning/alerting/rules.yaml
+```
+
+### Step 5 — Recreate Grafana to pick up all changes
+
+```bash
+docker compose -p prod -f docker-compose.production.yml -f docker-compose.observability.yml up -d --force-recreate grafana
+docker logs prod-grafana-1 --tail=20
+```
+
+Grafana should start cleanly with no errors.
+
+### Step 6 — Verify in Grafana UI
+
+1. Open Grafana via SSH tunnel (`ssh -L 3001:127.0.0.1:3000 root@<server-ip>`) then go to `http://localhost:3001`.
+2. Go to **Alerting → Contact points** — you should see `stockplan-slack`.
+3. Click the **Test** button next to it — a test message should appear in your Slack channel within seconds.
+4. Go to **Alerting → Alert rules** — you should see the `stockplan-production` group with 4 rules.
+
+### Alerts that are configured
+
+| Alert | Severity | Triggers when |
+|---|---|---|
+| App or collector metrics missing | critical | No metrics reach Grafana for 5 min |
+| Sustained high host CPU | warning | CPU > 85% for 10 min |
+| Sustained high host memory | warning | Memory > 85% for 10 min |
+| Billing webhook errors | critical | RevenueCat webhook returns 5xx |
+
+### Adding more Slack channels
+
+To route different severity alerts to different channels, edit `contact-points.yaml` locally and add another receiver:
+
+```yaml
+  - uid: stockplan-slack-critical
+    type: slack
+    settings:
+      url: ${GRAFANA_SLACK_WEBHOOK_URL_CRITICAL:-}
+      recipient: "#incidents"
+      mentionChannel: here
+```
+
+Then add `GRAFANA_SLACK_WEBHOOK_URL_CRITICAL=https://hooks.slack.com/...` to `.env` and push the file to the server.
+
+---
+
 ## Production Server Setup (Hetzner / SSH)
 
 This section covers the exact steps to bring up and fix the observability stack on a live server when GitHub Actions is unavailable or containers need manual intervention.
