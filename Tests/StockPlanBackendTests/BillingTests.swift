@@ -161,6 +161,27 @@ struct BillingTests {
         return (status, body)
     }
 
+    private func request(
+        _ method: HTTPMethod,
+        _ path: String,
+        token: String,
+        body: (any Content)? = nil,
+        on app: Application
+    ) async throws -> (HTTPStatus, String) {
+        var status: HTTPStatus = .internalServerError
+        var responseBody = ""
+        try await app.testing().test(method, path, beforeRequest: { req in
+            req.headers.bearerAuthorization = .init(token: token)
+            if let body {
+                try req.content.encode(body)
+            }
+        }, afterResponse: { res async in
+            status = res.status
+            responseBody = res.body.string
+        })
+        return (status, responseBody)
+    }
+
     private func getBillingContext(
         token: String,
         on app: Application
@@ -220,6 +241,103 @@ struct BillingTests {
             }
         })
         return (status, redemption, body)
+    }
+
+    private func assertUpgradeRequired(
+        _ result: (HTTPStatus, String),
+        feature: String,
+        sourceLocation: SourceLocation = #_sourceLocation
+    ) {
+        #expect(result.0 == .forbidden, sourceLocation: sourceLocation)
+        #expect(result.1.contains("\"code\":\"upgrade_required\"") || result.1.contains("upgrade_required"), sourceLocation: sourceLocation)
+        #expect(result.1.contains("\"feature\":\"\(feature)\"") || result.1.contains("feature=\(feature)"), sourceLocation: sourceLocation)
+        #expect(result.1.contains("\"requiredPlan\":\"pro\"") || result.1.contains("required=pro"), sourceLocation: sourceLocation)
+    }
+
+    private func assertNotUpgradeRequired(
+        _ result: (HTTPStatus, String),
+        sourceLocation: SourceLocation = #_sourceLocation
+    ) {
+        #expect(result.0 != .forbidden || !result.1.contains("upgrade_required"), sourceLocation: sourceLocation)
+    }
+
+    private func assertAllFeaturesAvailable(
+        _ context: BillingContextResponse,
+        sourceLocation: SourceLocation = #_sourceLocation
+    ) {
+        #expect(context.isPremium == true, sourceLocation: sourceLocation)
+        #expect(context.features.allSatisfy(\.available), sourceLocation: sourceLocation)
+        #expect(context.usage.first { $0.key == "holdings" }?.limit == nil, sourceLocation: sourceLocation)
+        #expect(context.usage.first { $0.key == "csv_imports" }?.limit == nil, sourceLocation: sourceLocation)
+        #expect(context.usage.first { $0.key == "report_generations" }?.limit == nil, sourceLocation: sourceLocation)
+    }
+
+    private func paidFeatureGateResults(
+        token: String,
+        on app: Application
+    ) async throws -> [(feature: String, result: (HTTPStatus, String))] {
+        let valuation = StockValuationRequest(
+            symbol: "AAPL",
+            bearCase: PriceRange(low: 10, high: 12),
+            baseCase: PriceRange(low: 13, high: 15),
+            bullCase: PriceRange(low: 16, high: 20),
+            rationale: nil,
+            targetDate: nil
+        )
+        let target = TargetRequest(
+            symbol: "AAPL",
+            scenario: "bull",
+            targetPrice: 200,
+            targetDate: nil,
+            rationale: nil
+        )
+
+        return try await [
+            (
+                "broker_sync",
+                request(.POST, "v1/brokers/ibkr/sync", token: token, on: app)
+            ),
+            (
+                "valuation_cases",
+                request(.POST, "v1/stocks/symbol/AAPL/valuation", token: token, body: valuation, on: app)
+            ),
+            (
+                "target_alerts",
+                request(.POST, "v1/targets", token: token, body: target, on: app)
+            ),
+            (
+                "reports",
+                get("v1/reports/overview", token: token, on: app)
+            ),
+            (
+                "statistics",
+                get("v1/statistics/overview", token: token, on: app)
+            ),
+            (
+                "market_fundamentals",
+                get("v1/market/basic-financials/AAPL", token: token, on: app)
+            ),
+            (
+                "advanced_research",
+                get("v1/stocks/AAPL/insights", token: token, on: app)
+            ),
+            (
+                "peer_comparison",
+                get("v1/market/compare?symbols=AAPL,MSFT", token: token, on: app)
+            ),
+            (
+                "earnings_text",
+                get("v1/market/earnings/AAPL", token: token, on: app)
+            ),
+            (
+                "household_partner",
+                get("v1/expenses/partner", token: token, on: app)
+            ),
+            (
+                "recurring_templates",
+                get("v1/expenses/recurring", token: token, on: app)
+            ),
+        ]
     }
 
     // MARK: - Auth tests
@@ -517,8 +635,8 @@ struct BillingTests {
         }
     }
 
-    @Test("Free users are blocked from broker sync and expense planner routes")
-    func freeUsersAreBlockedFromBrokerAndExpenseRoutes() async throws {
+    @Test("Free users can use core expenses but are blocked from broker and advanced expense routes")
+    func freeUsersCanUseCoreExpensesButAreBlockedFromBrokerAndAdvancedExpenseRoutes() async throws {
         try await withApp { app in
             let auth = try await registerUser(on: app, identifier: "free-expense-routes")
 
@@ -529,14 +647,24 @@ struct BillingTests {
                 #expect(res.body.string.contains("feature=broker_sync"))
             })
 
-            let checks: [(String, String)] = [
-                ("v1/expenses", "expense_planner"),
-                ("v1/budget/snapshots", "expense_planner"),
+            let freeCoreExpenseRoutes = [
+                "v1/expenses",
+                "v1/budget/snapshots",
+            ]
+
+            for path in freeCoreExpenseRoutes {
+                let (status, _) = try await get(path, token: auth.token, on: app)
+                #expect(status == .ok)
+            }
+
+            let gatedChecks: [(String, String)] = [
+                ("v1/expenses/partner", "household_partner"),
+                ("v1/expenses/recurring", "recurring_templates"),
                 ("v1/reports/overview", "reports"),
                 ("v1/statistics/overview", "statistics"),
             ]
 
-            for (path, feature) in checks {
+            for (path, feature) in gatedChecks {
                 let (status, body) = try await get(path, token: auth.token, on: app)
                 #expect(status == .forbidden)
                 #expect(body.contains("feature=\(feature)"))
@@ -584,6 +712,53 @@ struct BillingTests {
                 #expect(res.status == .forbidden)
                 #expect(res.body.string.contains("feature=target_alerts"))
             })
+        }
+    }
+
+    @Test("Free users are blocked from every current Pro-only backend feature")
+    func freeUsersAreBlockedFromCurrentProOnlyFeatureMatrix() async throws {
+        try await withApp { app in
+            let auth = try await registerUser(on: app, identifier: "free-paid-matrix")
+            for check in try await paidFeatureGateResults(token: auth.token, on: app) {
+                assertUpgradeRequired(check.result, feature: check.feature)
+            }
+        }
+    }
+
+    @Test("Trial users can pass every current Pro-only backend feature gate")
+    func trialUsersCanPassCurrentProOnlyFeatureMatrix() async throws {
+        try await withApp { app in
+            let auth = try await registerUser(on: app, identifier: "trial-paid-matrix", keepDefaultTrial: true)
+            for check in try await paidFeatureGateResults(token: auth.token, on: app) {
+                assertNotUpgradeRequired(check.result)
+            }
+        }
+    }
+
+    @Test("Pro users can pass every current Pro-only backend feature gate")
+    func proUsersCanPassCurrentProOnlyFeatureMatrix() async throws {
+        try await withApp { app in
+            let auth = try await registerUser(on: app, identifier: "pro-paid-matrix")
+            try await grantPremium(userId: auth.userId, on: app)
+            for check in try await paidFeatureGateResults(token: auth.token, on: app) {
+                assertNotUpgradeRequired(check.result)
+            }
+        }
+    }
+
+    @Test("Billing context exposes full access for trial users")
+    func billingContextForTrialUserShowsFullAccess() async throws {
+        try await withApp { app in
+            let auth = try await registerUser(on: app, identifier: "context-trial", keepDefaultTrial: true)
+
+            let (status, context, _) = try await getBillingContext(token: auth.token, on: app)
+            #expect(status == .ok)
+            let body = try #require(context)
+            #expect(body.plan == "temporary")
+            #expect(body.entitlementLevel == "temporary")
+            #expect(body.isTrialActive == true)
+            #expect(body.trialDaysRemaining != nil)
+            assertAllFeaturesAvailable(body)
         }
     }
 
