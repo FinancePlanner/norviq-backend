@@ -4,7 +4,7 @@ A personal stock portfolio tracker backend built with Vapor (Swift). This server
 
 ## Overview
 
-StockPlanBackend enables you to:
+Norviq enables you to:
 - Track holdings and watchlists with buy/sell prices, dates, and notes
 - Draft due diligence notes (thesis, risks, catalysts, links)
 - Set base, bear, and bull targets with timeframes and rationale
