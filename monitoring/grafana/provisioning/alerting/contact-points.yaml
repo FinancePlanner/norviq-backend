@@ -1,5 +1,11 @@
 apiVersion: 1
 
+# IMPORTANT: Grafana provisioning does NOT expand env vars.
+# Before deploying, replace the placeholder URLs on the server:
+#
+#   sed -i 's|SLACK_WEBHOOK_PLACEHOLDER|https://hooks.slack.com/services/...|' contact-points.yaml
+#   sed -i 's|DISCORD_WEBHOOK_PLACEHOLDER|https://discord.com/api/webhooks/.../slack|' contact-points.yaml
+
 contactPoints:
   - orgId: 1
     name: stockplan-slack
@@ -8,9 +14,19 @@ contactPoints:
         type: slack
         disableResolveMessage: false
         settings:
-          url: ${GRAFANA_SLACK_WEBHOOK_URL:-}
+          url: SLACK_WEBHOOK_PLACEHOLDER
           recipient: "#alerts"
           mentionChannel: here
+
+  - orgId: 1
+    name: stockplan-discord
+    receivers:
+      - uid: stockplan-discord
+        type: slack
+        disableResolveMessage: false
+        settings:
+          url: DISCORD_WEBHOOK_PLACEHOLDER
+          recipient: "#alerts"
 
 policies:
   - orgId: 1

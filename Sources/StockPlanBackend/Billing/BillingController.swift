@@ -43,7 +43,9 @@ struct BillingController: RouteCollection {
         guard let user = try await User.find(session.userId, on: req.db) else {
             throw Abort(.notFound, reason: "User not found.")
         }
-        return try await req.application.couponService.redeemCoupon(code: payload.code, user: user, db: req.db)
+        let redemption = try await req.application.couponService.redeemCoupon(code: payload.code, user: user, db: req.db)
+        let context = try await req.billingContextService.context(userId: session.userId, on: req.db)
+        return redemption.withBillingContext(context)
     }
 }
 

@@ -93,6 +93,9 @@ enum BillingFeature: String {
     case csvImports = "csv_imports"
     case targetAlerts = "target_alerts"
     case reportGenerations = "report_generations"
+    /// Core expense budgeting (record spend, snapshots, plan items, categories).
+    /// Free users have access to this — the planner itself is free, only advanced
+    /// features (partner, recurring, year overview, suggestions, reports) are Pro.
     case expensePlanner = "expense_planner"
     case reports
     case statistics
@@ -100,6 +103,14 @@ enum BillingFeature: String {
     case advancedResearch = "advanced_research"
     case peerComparison = "peer_comparison"
     case earningsText = "earnings_text"
+    /// Household partner split view — Pro only.
+    case householdPartner = "household_partner"
+    /// Recurring expense templates — Pro only.
+    case recurringTemplates = "recurring_templates"
+    /// Year-over-year expense history card — Pro only.
+    case yearOverview = "year_overview"
+    /// AI/rule-based smart spending suggestions — Pro only.
+    case smartSuggestions = "smart_suggestions"
 }
 
 struct BillingPlanLimits {
@@ -150,7 +161,8 @@ struct BillingPlanLimits {
         case .reportGenerations:
             reportGenerationCount
         case .brokerSync, .expensePlanner, .reports, .statistics, .marketFundamentals,
-             .advancedResearch, .peerComparison, .earningsText:
+             .advancedResearch, .peerComparison, .earningsText,
+             .householdPartner, .recurringTemplates, .yearOverview, .smartSuggestions:
             nil
         }
     }
@@ -251,7 +263,8 @@ struct DefaultUsageCounterService: UsageCounterService {
         case .reportGenerations:
             usage.reportGenerationCount
         case .brokerSync, .portfolioLists, .valuationCases, .expensePlanner, .reports,
-             .statistics, .marketFundamentals, .advancedResearch, .peerComparison, .earningsText:
+             .statistics, .marketFundamentals, .advancedResearch, .peerComparison, .earningsText,
+             .householdPartner, .recurringTemplates, .yearOverview, .smartSuggestions:
             0
         }
     }
@@ -269,7 +282,8 @@ struct DefaultUsageCounterService: UsageCounterService {
         case .reportGenerations:
             usage.reportGenerationCount = value
         case .brokerSync, .portfolioLists, .valuationCases, .expensePlanner, .reports,
-             .statistics, .marketFundamentals, .advancedResearch, .peerComparison, .earningsText:
+             .statistics, .marketFundamentals, .advancedResearch, .peerComparison, .earningsText,
+             .householdPartner, .recurringTemplates, .yearOverview, .smartSuggestions:
             break
         }
     }

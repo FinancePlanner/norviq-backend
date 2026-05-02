@@ -1,5 +1,6 @@
 import Fluent
 import Foundation
+import StockPlanShared
 import Vapor
 
 struct CouponCodeRequest: Content {
@@ -14,6 +15,7 @@ struct CouponDiscountDTO: Content, Equatable {
 
 struct CouponResponse: Content, Equatable {
     let code: String
+    let grantType: String
     let trialDays: Int
     let discount: CouponDiscountDTO
     let expiresAt: Date?
@@ -23,6 +25,28 @@ struct CouponRedemptionResponse: Content, Equatable {
     let coupon: CouponResponse
     let trialDaysRemaining: Int?
     let isTrialActive: Bool
+    let billingContext: BillingContextResponse?
+
+    init(
+        coupon: CouponResponse,
+        trialDaysRemaining: Int?,
+        isTrialActive: Bool,
+        billingContext: BillingContextResponse? = nil
+    ) {
+        self.coupon = coupon
+        self.trialDaysRemaining = trialDaysRemaining
+        self.isTrialActive = isTrialActive
+        self.billingContext = billingContext
+    }
+
+    func withBillingContext(_ context: BillingContextResponse) -> CouponRedemptionResponse {
+        CouponRedemptionResponse(
+            coupon: coupon,
+            trialDaysRemaining: trialDaysRemaining,
+            isTrialActive: isTrialActive,
+            billingContext: context
+        )
+    }
 }
 
 protocol CouponServicing: Sendable {
@@ -31,6 +55,11 @@ protocol CouponServicing: Sendable {
 }
 
 struct CouponService: CouponServicing {
+    private enum GrantType {
+        static let trial = "trial"
+        static let lifetimePro = "lifetime_pro"
+    }
+
     private let trialService: any TrialServicing
 
     init(trialService: any TrialServicing) {
@@ -57,12 +86,19 @@ struct CouponService: CouponServicing {
                 throw Abort(.conflict, reason: "Coupon has already been redeemed.")
             }
 
-            try await trialService.initializeTrial(
-                user: user,
-                trialDays: coupon.trialDays,
-                tierName: "temporary",
-                db: tx
-            )
+            switch coupon.grantType {
+            case GrantType.trial:
+                try await trialService.initializeTrial(
+                    user: user,
+                    trialDays: coupon.trialDays,
+                    tierName: "temporary",
+                    db: tx
+                )
+            case GrantType.lifetimePro:
+                try await upsertLifetimeProEntitlement(userID: userID, db: tx)
+            default:
+                throw Abort(.badRequest, reason: "Coupon grant type is invalid.")
+            }
 
             let redemption = CouponRedemption(
                 userID: userID,
@@ -78,7 +114,9 @@ struct CouponService: CouponServicing {
             coupon.currentUses += 1
             try await coupon.save(on: tx)
 
-            let trialStatus = trialService.checkTrialStatus(user: user)
+            let trialStatus = coupon.grantType == GrantType.trial
+                ? trialService.checkTrialStatus(user: user)
+                : .notOnTrial
             let daysRemaining: Int?
             let isTrialActive: Bool
             switch trialStatus {
@@ -123,16 +161,29 @@ struct CouponService: CouponServicing {
             throw Abort(.badRequest, reason: "This coupon has reached its maximum usage limit.")
         }
 
+        if coupon.grantType == GrantType.lifetimePro {
+            guard coupon.maxUses == 1 else {
+                throw Abort(.badRequest, reason: "Lifetime coupons must be configured for one use.")
+            }
+            guard coupon.trialDays == 0 else {
+                throw Abort(.badRequest, reason: "Lifetime coupons cannot grant trial days.")
+            }
+        }
+
         return coupon
     }
 
     private func makeCouponResponse(from coupon: Coupon) throws -> CouponResponse {
         let trialDays = coupon.trialDays
-        guard trialDays > 0 else {
+        if coupon.grantType == GrantType.trial, trialDays <= 0 {
             throw Abort(.badRequest, reason: "Coupon trial duration is invalid.")
+        }
+        guard coupon.grantType == GrantType.trial || coupon.grantType == GrantType.lifetimePro else {
+            throw Abort(.badRequest, reason: "Coupon grant type is invalid.")
         }
         return CouponResponse(
             code: coupon.code,
+            grantType: coupon.grantType,
             trialDays: trialDays,
             discount: CouponDiscountDTO(
                 percentage: coupon.discountPercentage,
@@ -141,6 +192,16 @@ struct CouponService: CouponServicing {
             ),
             expiresAt: coupon.expiresAt
         )
+    }
+
+    private func upsertLifetimeProEntitlement(userID: UUID, db: any Database) async throws {
+        let entitlement = try await Entitlement.query(on: db)
+            .filter(\.$userId == userID)
+            .first()
+            ?? Entitlement(userId: userID, level: "pro", subscriptionId: nil)
+        entitlement.level = "pro"
+        entitlement.subscriptionId = nil
+        try await entitlement.save(on: db)
     }
 }
 

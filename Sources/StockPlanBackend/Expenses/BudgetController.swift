@@ -120,7 +120,7 @@ struct BudgetController: RouteCollection {
     @Sendable
     func getSnapshots(req: Request) async throws -> [BudgetSnapshotResponse] {
         let session = try req.auth.require(SessionToken.self)
-        try await requireExpensePlannerAccess(session: session, req: req)
+        // Monthly budget snapshots (salary, pillar targets) are free — no Pro gate required.
         let year = req.query[Int.self, at: "year"]
         let month = req.query[Int.self, at: "month"]
 
@@ -135,7 +135,7 @@ struct BudgetController: RouteCollection {
     @Sendable
     func createSnapshot(req: Request) async throws -> Response {
         let session = try req.auth.require(SessionToken.self)
-        try await requireExpensePlannerAccess(session: session, req: req)
+        // Monthly budget snapshot creation is free — no Pro gate required.
         let payload = try req.content.decode(BudgetSnapshotPayload.self).asRequest()
 
         let created = try await req.expensesService.createBudgetSnapshot(
@@ -151,7 +151,7 @@ struct BudgetController: RouteCollection {
     @Sendable
     func updateSnapshot(req: Request) async throws -> BudgetSnapshotResponse {
         let session = try req.auth.require(SessionToken.self)
-        try await requireExpensePlannerAccess(session: session, req: req)
+        // Snapshot update is free — no Pro gate required.
         let snapshotId = try requireUUIDParameter(req, name: "snapshotId")
         let payload = try req.content.decode(BudgetSnapshotPayload.self).asRequest()
 
@@ -166,7 +166,7 @@ struct BudgetController: RouteCollection {
     @Sendable
     func deleteSnapshot(req: Request) async throws -> HTTPStatus {
         let session = try req.auth.require(SessionToken.self)
-        try await requireExpensePlannerAccess(session: session, req: req)
+        // Snapshot deletion is free — no Pro gate required.
         let snapshotId = try requireUUIDParameter(req, name: "snapshotId")
 
         try await req.expensesService.deleteSnapshot(
@@ -182,7 +182,7 @@ struct BudgetController: RouteCollection {
     @Sendable
     func getAllPlanItems(req: Request) async throws -> [BudgetPlanItemResponse] {
         let session = try req.auth.require(SessionToken.self)
-        try await requireExpensePlannerAccess(session: session, req: req)
+        // Plan items are free — no Pro gate required.
         return try await req.expensesService.getAllPlanItems(
             userId: session.userId,
             on: req.db
@@ -192,7 +192,7 @@ struct BudgetController: RouteCollection {
     @Sendable
     func getSnapshotItems(req: Request) async throws -> [BudgetPlanItemResponse] {
         let session = try req.auth.require(SessionToken.self)
-        try await requireExpensePlannerAccess(session: session, req: req)
+        // Plan items are free — no Pro gate required.
         let snapshotId = try requireUUIDParameter(req, name: "snapshotId")
 
         return try await req.expensesService.getPlanItems(
@@ -205,7 +205,7 @@ struct BudgetController: RouteCollection {
     @Sendable
     func createPlanItem(req: Request) async throws -> Response {
         let session = try req.auth.require(SessionToken.self)
-        try await requireExpensePlannerAccess(session: session, req: req)
+        // Plan item creation is free — no Pro gate required.
         let payload = try req.content.decode(BudgetPlanItemPayload.self).asRequest()
 
         let created = try await req.expensesService.createPlanItem(
@@ -221,7 +221,7 @@ struct BudgetController: RouteCollection {
     @Sendable
     func updatePlanItem(req: Request) async throws -> BudgetPlanItemResponse {
         let session = try req.auth.require(SessionToken.self)
-        try await requireExpensePlannerAccess(session: session, req: req)
+        // Plan item update is free — no Pro gate required.
         let itemId = try requireUUIDParameter(req, name: "itemId")
         let payload = try req.content.decode(BudgetPlanItemPayload.self).asRequest()
 
@@ -236,7 +236,7 @@ struct BudgetController: RouteCollection {
     @Sendable
     func deletePlanItem(req: Request) async throws -> HTTPStatus {
         let session = try req.auth.require(SessionToken.self)
-        try await requireExpensePlannerAccess(session: session, req: req)
+        // Plan item deletion is free — no Pro gate required.
         let itemId = try requireUUIDParameter(req, name: "itemId")
 
         try await req.expensesService.deletePlanItem(
@@ -256,11 +256,15 @@ struct BudgetController: RouteCollection {
         return value
     }
 
-    private func requireExpensePlannerAccess(session: SessionToken, req: Request) async throws {
-        try await req.usageCounterService.requirePremium(
-            .expensePlanner,
-            userId: session.userId,
-            on: req.db
-        )
-    }
+    // MARK: - Future Free-User Limits
+
+    //
+    // Core budget features (snapshots, plan items) are currently ungated for all authenticated users.
+    // If you later decide to restrict free users, add quota enforcement in each endpoint above.
+    // For example:
+    //   - Limit free users to 1 active snapshot (current month only).
+    //   - Cap plan items to a fixed number per snapshot.
+    //   - Use `req.usageCounterService.enforceResourceLimit(.expensePlanner, ...)` for count-based limits.
+    //   - Or use `req.usageCounterService.requirePremium(.expensePlanner, ...)` to block completely.
+    // Backend feature key: `.expensePlanner` (currently `proOnly: false` in BillingContextService).
 }

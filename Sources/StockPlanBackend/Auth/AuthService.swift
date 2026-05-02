@@ -147,6 +147,10 @@ struct DefaultAuthService: AuthService {
             )
         }
 
+        Task {
+            try? await req.discord.send("🎉 New user registered: \(normalizedEmail)", on: req)
+        }
+
         return try await makeAuthResponse(for: user, on: req)
     }
 
@@ -460,6 +464,10 @@ struct DefaultAuthService: AuthService {
             dateOfBirth: defaultDateOfBirth(),
             on: req.db
         )
+
+        Task {
+            try? await req.discord.send("🎉 New user registered via OAuth: \(resolvedUserEmail)", on: req)
+        }
 
         _ = try await createOAuthIdentity(
             for: user,

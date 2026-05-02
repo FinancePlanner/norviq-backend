@@ -3,9 +3,13 @@ APP_IMAGE ?=
 APP_IMAGE_TAG ?= local-dev
 BACKEND_TEST_ENV ?= testing
 
+PROD_SERVER ?= root@168.119.156.43
+GRAFANA_LOCAL_PORT ?= 3001
+
 .PHONY: help build services migrate start logs stop lint dev build-dev \
 	container-local health production-preflight rollback-app prune-images \
-	backup-db restore-drill export-user-data backend-test backend-openapi-check
+	backup-db restore-drill export-user-data backend-test backend-openapi-check \
+	grafana-tunnel
 
 help:
 	@printf "Targets:\n"
@@ -24,7 +28,7 @@ help:
 	@printf "  make prune-images [UNTIL=168h]\n"
 	@printf "  make backup-db [BACKUP_DIR=./backups]\n"
 	@printf "  make restore-drill BACKUP_FILE=<backup.sql.gpg> RESTORE_DATABASE_URL=<postgres-url>\n"
-	@printf "  make export-user-data EXPORT_USER=<email-or-uuid> DATABASE_URL=<postgres-url>\n"
+	@printf "  make grafana-tunnel [PROD_SERVER=root@168.119.156.43] [GRAFANA_LOCAL_PORT=3001]\n"
 
 dev: build-dev
 	docker compose -f docker-compose.dev.yml up app
@@ -98,6 +102,10 @@ restore-drill:
 	@test -n "$(BACKUP_FILE)" || (echo "BACKUP_FILE is required. Example: make restore-drill BACKUP_FILE=backups/stockplan.sql.gpg RESTORE_DATABASE_URL=postgres://..." && exit 1)
 	@test -n "$(RESTORE_DATABASE_URL)" || (echo "RESTORE_DATABASE_URL is required." && exit 1)
 	./scripts/ops/restore_drill_postgres.sh "$(BACKUP_FILE)"
+
+grafana-tunnel:
+	@echo "Opening Grafana at http://localhost:$(GRAFANA_LOCAL_PORT)"
+	ssh -L $(GRAFANA_LOCAL_PORT):127.0.0.1:3000 $(PROD_SERVER)
 
 export-user-data:
 	@test -n "$(EXPORT_USER)" || (echo "EXPORT_USER is required. Example: make export-user-data EXPORT_USER=user@example.com DATABASE_URL=postgres://..." && exit 1)

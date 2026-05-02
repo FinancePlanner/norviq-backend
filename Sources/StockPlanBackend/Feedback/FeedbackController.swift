@@ -32,6 +32,16 @@ struct FeedbackController: RouteCollection {
 
         try await feedback.save(on: req.db)
 
+        Task {
+            do {
+                if let user = try await User.find(session.userId, on: req.db) {
+                    try await req.discord.send("📝 New feedback from \(user.email) (Topic: \(topic)):\n```\(message)```", on: req)
+                }
+            } catch {
+                req.logger.debug("Failed to send discord feedback notification")
+            }
+        }
+
         return FeedbackResponse(success: true, message: "Feedback submitted successfully.")
     }
 }

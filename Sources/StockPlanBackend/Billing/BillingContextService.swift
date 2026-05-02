@@ -189,7 +189,12 @@ private struct BillingFeatureDescriptor {
         .init(feature: .csvImports, title: "CSV imports", proOnly: false),
         .init(feature: .targetAlerts, title: "Price, dividend, and earnings alerts", proOnly: true),
         .init(feature: .reportGenerations, title: "Report generations", proOnly: false),
-        .init(feature: .expensePlanner, title: "Cloud sync for expenses and reports", proOnly: true),
+        // Core expense planner is free; advanced expense features are gated individually below.
+        .init(feature: .expensePlanner, title: "Expense planner (core budgeting)", proOnly: false),
+        .init(feature: .householdPartner, title: "Household partner split view", proOnly: true),
+        .init(feature: .recurringTemplates, title: "Recurring expense templates", proOnly: true),
+        .init(feature: .yearOverview, title: "Year-over-year expense history", proOnly: true),
+        .init(feature: .smartSuggestions, title: "Smart spending suggestions", proOnly: true),
         .init(feature: .reports, title: "Reports with charts", proOnly: true),
         .init(feature: .statistics, title: "Advanced statistics", proOnly: true),
         .init(feature: .marketFundamentals, title: "Real stock fundamentals", proOnly: true),

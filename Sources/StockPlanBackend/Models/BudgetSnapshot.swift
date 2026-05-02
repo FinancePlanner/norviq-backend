@@ -20,6 +20,9 @@ final class BudgetSnapshot: Model, @unchecked Sendable {
     @Field(key: "target_shares")
     var targetShares: [String: Double] // Dictionary mapping pillar names to shares (e.g., ["fundamentals": 0.5])
 
+    @OptionalField(key: "last_budget_alert_threshold")
+    var lastBudgetAlertThreshold: Int?
+
     @Timestamp(key: "created_at", on: .create)
     var createdAt: Date?
 

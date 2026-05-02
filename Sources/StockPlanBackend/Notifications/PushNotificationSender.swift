@@ -16,6 +16,14 @@ protocol PushNotificationSending: Sendable {
         devices: [PushDevice],
         req: Request
     ) async -> TargetPushSendSummary
+
+    func sendBudgetAlert(
+        snapshot: BudgetSnapshot,
+        threshold: Int,
+        remainingAmount: Double,
+        devices: [PushDevice],
+        req: Request
+    ) async -> TargetPushSendSummary
 }
 
 struct NoopPushNotificationSender: PushNotificationSending {
@@ -27,6 +35,19 @@ struct NoopPushNotificationSender: PushNotificationSending {
     ) async -> TargetPushSendSummary {
         req.logger.debug(
             "push.notifications disabled symbol=\(target.symbol) scenario=\(target.scenario) devices=\(devices.count)"
+        )
+        return .init(delivered: 0, failed: devices.count)
+    }
+
+    func sendBudgetAlert(
+        snapshot _: BudgetSnapshot,
+        threshold: Int,
+        remainingAmount _: Double,
+        devices: [PushDevice],
+        req: Request
+    ) async -> TargetPushSendSummary {
+        req.logger.debug(
+            "push.notifications disabled budget_alert threshold=\(threshold) devices=\(devices.count)"
         )
         return .init(delivered: 0, failed: devices.count)
     }
@@ -46,7 +67,79 @@ struct APNSPushNotificationSender: PushNotificationSending {
         let currentPrice: Double
     }
 
+    struct BudgetAlertPayload: Codable {
+        let schemaVersion: Int
+        let type: String
+        let threshold: Int
+        let snapshotId: String?
+        let deepLink: String?
+        let remainingAmount: Double
+    }
+
     let topic: String
+
+    func sendBudgetAlert(
+        snapshot: BudgetSnapshot,
+        threshold: Int,
+        remainingAmount: Double,
+        devices: [PushDevice],
+        req: Request
+    ) async -> TargetPushSendSummary {
+        guard !devices.isEmpty else {
+            return .init(delivered: 0, failed: 0)
+        }
+
+        let title = "Budget Alert"
+        let body = "You have reached \(threshold)% of your monthly budget. Remaining: \(formatPrice(remainingAmount))."
+        let payload = BudgetAlertPayload(
+            schemaVersion: 1,
+            type: "budget_alert",
+            threshold: threshold,
+            snapshotId: snapshot.id?.uuidString,
+            deepLink: "financeplan://budget",
+            remainingAmount: remainingAmount
+        )
+        let notification = APNSAlertNotification(
+            alert: .init(
+                title: .raw(title),
+                body: .raw(body)
+            ),
+            expiration: .immediately,
+            priority: .immediately,
+            topic: topic,
+            payload: payload,
+            threadID: "budget-\(snapshot.id?.uuidString ?? "general")",
+            category: "BUDGET_ALERT"
+        )
+
+        var delivered = 0
+        var failed = 0
+
+        for device in devices {
+            do {
+                let client = client(for: device, req: req)
+                _ = try await client.sendAlertNotification(
+                    notification,
+                    deviceToken: device.deviceToken
+                )
+                delivered += 1
+            } catch {
+                failed += 1
+                req.logger.warning(
+                    "push.notifications send failed budget_alert threshold=\(threshold) error_type=\(String(reflecting: type(of: error)))"
+                )
+                if isInvalidTokenError(error) {
+                    try? await req.pushDeviceService.deactivate(deviceToken: device.deviceToken, on: req.db)
+                }
+            }
+        }
+
+        req.logger.info(
+            "push.analytics delivered_summary budget_alert threshold=\(threshold) delivered=\(delivered) failed=\(failed)"
+        )
+
+        return .init(delivered: delivered, failed: failed)
+    }
 
     func sendTargetHit(
         target: Target,

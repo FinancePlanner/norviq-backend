@@ -11,6 +11,9 @@ final class Coupon: Model, Content, @unchecked Sendable {
     @Field(key: "code")
     var code: String
 
+    @Field(key: "grant_type")
+    var grantType: String
+
     @Field(key: "trial_days")
     var trialDays: Int
 
@@ -46,6 +49,7 @@ final class Coupon: Model, Content, @unchecked Sendable {
     init(
         id: UUID? = nil,
         code: String,
+        grantType: String = "trial",
         trialDays: Int,
         discountPercentage: Int? = nil,
         discountAmount: Int? = nil,
@@ -56,7 +60,8 @@ final class Coupon: Model, Content, @unchecked Sendable {
         isActive: Bool = true
     ) {
         self.id = id
-        self.code = code.uppercased()
+        self.code = code.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
+        self.grantType = grantType.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         self.trialDays = trialDays
         self.discountPercentage = discountPercentage
         self.discountAmount = discountAmount

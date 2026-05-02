@@ -3335,6 +3335,17 @@ struct StockPlanBackendTests {
         ) async -> TargetPushSendSummary {
             await state.recordSend(symbol: target.symbol, scenario: target.scenario)
         }
+
+        func sendBudgetAlert(
+            snapshot _: BudgetSnapshot,
+            threshold _: Int,
+            remainingAmount _: Double,
+            devices: [PushDevice],
+            req _: Request
+        ) async -> TargetPushSendSummary {
+            // For now, no-op or record if needed in tests
+            .init(delivered: devices.count, failed: 0)
+        }
     }
 
     actor TestTargetAlertEvaluatorState {
