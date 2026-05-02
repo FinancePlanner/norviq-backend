@@ -404,6 +404,7 @@ private func registerMigrations(_ app: Application) {
     app.migrations.add(CreateFeedback())
     app.migrations.add(CreateCryptoPortfolioItem())
     app.migrations.add(CreateExpensesTables())
+    app.migrations.add(AddBudgetAlertThreshold())
     app.migrations.add(AddExpenseSharingFields())
     app.migrations.add(ConvertBudgetPillarEnumToString())
     app.migrations.add(CreateExpenseCategoryTable())
@@ -420,6 +421,7 @@ private func registerMigrations(_ app: Application) {
     app.migrations.add(CreateBillingTables())
     app.migrations.add(CreateTrialWarning())
     app.migrations.add(CreateCoupons())
+    app.migrations.add(AddCouponGrantType())
     app.migrations.add(CreateCouponRedemptions())
     app.migrations.add(CreateDataExport())
 }

@@ -429,6 +429,14 @@ final class DefaultExpensesService: ExpensesService {
             on: db
         )
 
+        Task {
+            do {
+                try await evaluateBudgetAlerts(userId: userId, monthStart: monthStart, db: db)
+            } catch {
+                req.logger.error("Failed to evaluate budget alerts: \(error)")
+            }
+        }
+
         return mapExpense(expense)
     }
 
@@ -1053,6 +1061,77 @@ private extension DefaultExpensesService {
                 newItem.$category.id = item.$category.id
                 try await newItem.create(on: db)
             }
+        }
+    }
+
+    private func evaluateBudgetAlerts(userId: UUID, monthStart: Date, db: any Database) async throws {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+        let nextMonthStart = calendar.date(byAdding: .month, value: 1, to: monthStart)
+
+        var snapshotQuery = BudgetSnapshot.query(on: db)
+            .filter(\.$user.$id == userId)
+            .filter(\.$monthStart >= monthStart)
+        if let nextMonthStart {
+            snapshotQuery = snapshotQuery.filter(\.$monthStart < nextMonthStart)
+        }
+
+        guard let snapshot = try await snapshotQuery.first() else {
+            return
+        }
+
+        guard snapshot.netSalary > 0 else {
+            return
+        }
+
+        var expenseQuery = Expense.query(on: db)
+            .filter(\.$user.$id == userId)
+            .filter(\.$occurredOn >= monthStart)
+        if let nextMonthStart {
+            expenseQuery = expenseQuery.filter(\.$occurredOn < nextMonthStart)
+        }
+        let expenses = try await expenseQuery.all()
+
+        let totalExpenses = expenses.reduce(0) { sum, expense in
+            let effectiveAmount = expense.splitMode == .shared ? (expense.amount * expense.userSharePercent / 100) : expense.amount
+            return sum + effectiveAmount
+        }
+
+        let remainingPercentage = ((snapshot.netSalary - totalExpenses) / snapshot.netSalary) * 100
+
+        var newThreshold: Int? = nil
+        if remainingPercentage <= 10 {
+            newThreshold = 10
+        } else if remainingPercentage <= 15 {
+            newThreshold = 15
+        } else if remainingPercentage <= 20 {
+            newThreshold = 20
+        }
+
+        guard let threshold = newThreshold else {
+            return
+        }
+
+        let lastThreshold = snapshot.lastBudgetAlertThreshold ?? 100
+
+        if threshold < lastThreshold {
+            snapshot.lastBudgetAlertThreshold = threshold
+            try await snapshot.update(on: db)
+
+            let devices = try await PushDevice.query(on: db)
+                .filter(\.$userId == userId)
+                .filter(\.$isActive == true)
+                .all()
+
+            let remainingAmount = snapshot.netSalary - totalExpenses
+
+            _ = await req.application.pushNotificationSender.sendBudgetAlert(
+                snapshot: snapshot,
+                threshold: threshold,
+                remainingAmount: remainingAmount,
+                devices: devices,
+                req: req
+            )
         }
     }
 }

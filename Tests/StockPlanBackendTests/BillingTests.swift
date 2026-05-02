@@ -807,6 +807,32 @@ struct BillingTests {
         }
     }
 
+    @Test("Lifetime coupon validation returns metadata without consuming usage")
+    func lifetimeCouponValidationDoesNotConsumeUsage() async throws {
+        try await withApp { app in
+            let auth = try await registerUser(on: app, identifier: "coupon-lifetime-validate")
+            let coupon = Coupon(
+                code: "LIFE123",
+                grantType: "lifetime_pro",
+                trialDays: 0,
+                maxUses: 1
+            )
+            try await coupon.save(on: app.db)
+
+            let (status, response, _) = try await validateCoupon(code: " life123 ", token: auth.token, on: app)
+            #expect(status == .ok)
+            let body = try #require(response)
+            #expect(body.code == "LIFE123")
+            #expect(body.grantType == "lifetime_pro")
+            #expect(body.trialDays == 0)
+
+            let stored = try await Coupon.query(on: app.db)
+                .filter(\.$code == "LIFE123")
+                .first()
+            #expect(stored?.currentUses == 0)
+        }
+    }
+
     @Test("Coupon redemption grants trial metadata once")
     func couponRedemptionGrantsTrialOnce() async throws {
         try await withApp { app in
@@ -835,6 +861,50 @@ struct BillingTests {
 
             let duplicate = try await redeemCoupon(code: "TRIAL14", token: auth.token, on: app)
             #expect(duplicate.0 == .badRequest || duplicate.0 == .conflict)
+        }
+    }
+
+    @Test("Lifetime coupon redemption grants Pro and cannot be reused")
+    func lifetimeCouponRedemptionGrantsProOnceGlobally() async throws {
+        try await withApp { app in
+            let first = try await registerUser(on: app, identifier: "coupon-lifetime-first")
+            let second = try await registerUser(on: app, identifier: "coupon-lifetime-second")
+            let coupon = Coupon(
+                code: "FOREVER",
+                grantType: "lifetime_pro",
+                trialDays: 0,
+                maxUses: 1
+            )
+            try await coupon.save(on: app.db)
+
+            let (status, response, _) = try await redeemCoupon(code: " forever ", token: first.token, on: app)
+            #expect(status == .ok)
+            let body = try #require(response)
+            #expect(body.coupon.code == "FOREVER")
+            #expect(body.coupon.grantType == "lifetime_pro")
+            #expect(body.isTrialActive == false)
+            #expect(body.trialDaysRemaining == nil)
+            #expect(body.billingContext?.entitlementLevel == "pro")
+            #expect(body.billingContext?.isPremium == true)
+
+            let entitlement = try await Entitlement.query(on: app.db)
+                .filter(\.$userId == first.userId)
+                .first()
+            #expect(entitlement?.level == "pro")
+            #expect(entitlement?.subscriptionId == nil)
+
+            let redemptionCount = try await CouponRedemption.query(on: app.db).count()
+            #expect(redemptionCount == 1)
+            let stored = try await Coupon.query(on: app.db)
+                .filter(\.$code == "FOREVER")
+                .first()
+            #expect(stored?.currentUses == 1)
+
+            let sameUserDuplicate = try await redeemCoupon(code: "FOREVER", token: first.token, on: app)
+            #expect(sameUserDuplicate.0 == .badRequest || sameUserDuplicate.0 == .conflict)
+
+            let otherUserDuplicate = try await redeemCoupon(code: "FOREVER", token: second.token, on: app)
+            #expect(otherUserDuplicate.0 == .badRequest || otherUserDuplicate.0 == .conflict)
         }
     }
 
