@@ -61,6 +61,8 @@ x-shared_environment: &shared_environment
   BILLING_PREMIUM_EMAILS: ${BILLING_PREMIUM_EMAILS:-}
   REVENUECAT_API_KEY: ${REVENUECAT_API_KEY:-}
   REVENUECAT_WEBHOOK_SECRET: ${REVENUECAT_WEBHOOK_SECRET:-}
+  # Observability - disabled in dev (no otel-collector running)
+  OBS_TRACES_ENABLED: "false"
   # Enable faster debug configuration
   SWIFT_BUILD_CONFIGURATION: debug
 
