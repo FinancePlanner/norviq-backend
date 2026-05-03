@@ -958,7 +958,7 @@ struct BillingTests {
             #expect(body.subscription?.status == "active")
             #expect(body.subscription?.plan == "pro_annual")
             #expect(body.subscription?.renewsOrExpiresAt != nil)
-            #expect(try body.features.allSatisfy { try $0.available })
+            #expect(body.features.allSatisfy(\.available))
             #expect(body.usage.first { $0.key == "holdings" }?.limit == nil)
         }
     }
