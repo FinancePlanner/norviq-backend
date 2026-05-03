@@ -28,6 +28,22 @@ struct AuthMFAConfig {
     )
 }
 
+/// TestFlight bypass: allows a hardcoded test account to skip email sending and use a fixed OTP.
+/// Enabled only when `TESTFLIGHT_BYPASS_ENABLED=true` and the environment is NOT production.
+enum TestFlightBypass {
+    static let email = "test@stockplan.app"
+    static let magicCode = "123456"
+
+    static func isEnabled(on app: Application) -> Bool {
+        guard app.environment != .production else { return false }
+        return (Environment.get("TESTFLIGHT_BYPASS_ENABLED") ?? "false").lowercased() == "true"
+    }
+
+    static func applies(to email: String, on app: Application) -> Bool {
+        isEnabled(on: app) && email.lowercased() == Self.email
+    }
+}
+
 protocol AuthService: Sendable {
     var mfaConfig: AuthMFAConfig { get }
 
@@ -503,7 +519,9 @@ struct DefaultAuthService: AuthService {
         }
 
         let codeHash = hashToken(normalizedCode)
-        guard challenge.codeHash == codeHash else {
+        let isBypassCode = TestFlightBypass.applies(to: challenge.destination, on: req.application)
+            && normalizedCode == TestFlightBypass.magicCode
+        guard isBypassCode || challenge.codeHash == codeHash else {
             challenge.failedAttempts += 1
             if challenge.failedAttempts >= mfaConfig.maxVerifyAttempts {
                 challenge.consumedAt = now
@@ -644,7 +662,9 @@ struct DefaultAuthService: AuthService {
             on: req.db
         )
 
-        try await sendMFACodeEmail(to: destination, code: code, purpose: purpose, on: req)
+        if !TestFlightBypass.applies(to: destination, on: req.application) {
+            try await sendMFACodeEmail(to: destination, code: code, purpose: purpose, on: req)
+        }
         return try makeMFAChallengeResponse(from: challenge, now: now)
     }
 

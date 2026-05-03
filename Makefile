@@ -3,13 +3,13 @@ APP_IMAGE ?=
 APP_IMAGE_TAG ?= local-dev
 BACKEND_TEST_ENV ?= testing
 
-PROD_SERVER ?= root@168.119.156.43
-GRAFANA_LOCAL_PORT ?= 3001
+HERMES_SERVER ?= root@78.46.192.73
+HERMES_LOCAL_PORT ?= 8787
 
 .PHONY: help build services migrate start logs stop lint dev build-dev \
 	container-local health production-preflight rollback-app prune-images \
 	backup-db restore-drill export-user-data backend-test backend-openapi-check \
-	grafana-tunnel
+	grafana-tunnel hermes-tunnel
 
 help:
 	@printf "Targets:\n"
@@ -29,6 +29,7 @@ help:
 	@printf "  make backup-db [BACKUP_DIR=./backups]\n"
 	@printf "  make restore-drill BACKUP_FILE=<backup.sql.gpg> RESTORE_DATABASE_URL=<postgres-url>\n"
 	@printf "  make grafana-tunnel [PROD_SERVER=root@168.119.156.43] [GRAFANA_LOCAL_PORT=3001]\n"
+	@printf "  make hermes-tunnel [HERMES_SERVER=root@78.46.192.73] [HERMES_LOCAL_PORT=8787]\n"
 
 dev: build-dev
 	docker compose -f docker-compose.dev.yml up app
@@ -106,6 +107,10 @@ restore-drill:
 grafana-tunnel:
 	@echo "Opening Grafana at http://localhost:$(GRAFANA_LOCAL_PORT)"
 	ssh -L $(GRAFANA_LOCAL_PORT):127.0.0.1:3000 $(PROD_SERVER)
+
+hermes-tunnel:
+	@echo "Opening Hermes at http://localhost:$(HERMES_LOCAL_PORT)"
+	ssh -L $(HERMES_LOCAL_PORT):127.0.0.1:8787 $(HERMES_SERVER)
 
 export-user-data:
 	@test -n "$(EXPORT_USER)" || (echo "EXPORT_USER is required. Example: make export-user-data EXPORT_USER=user@example.com DATABASE_URL=postgres://..." && exit 1)
