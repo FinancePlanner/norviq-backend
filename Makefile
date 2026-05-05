@@ -9,7 +9,7 @@ HERMES_LOCAL_PORT ?= 8787
 .PHONY: help build services migrate start logs stop lint dev build-dev \
 	container-local health production-preflight rollback-app prune-images \
 	backup-db restore-drill export-user-data backend-test backend-openapi-check \
-	grafana-tunnel hermes-tunnel
+	apns-production-check grafana-tunnel hermes-tunnel
 
 help:
 	@printf "Targets:\n"
@@ -24,6 +24,7 @@ help:
 	@printf "  make container-local APP_IMAGE=ghcr.io/<owner>/<repo> [APP_IMAGE_TAG=local-dev]\n"
 	@printf "  make health DOMAIN=<domain> [ATTEMPTS=30] [SLEEP_SECONDS=2]\n"
 	@printf "  make production-preflight DOMAIN=<domain> ORIGIN=<allowed-origin>\n"
+	@printf "  make apns-production-check DOMAIN=<domain> [BASE_URL=http://127.0.0.1:8080]\n"
 	@printf "  make rollback-app APP_IMAGE=ghcr.io/<owner>/<repo>:<sha>\n"
 	@printf "  make prune-images [UNTIL=168h]\n"
 	@printf "  make backup-db [BACKUP_DIR=./backups]\n"
@@ -88,6 +89,10 @@ health:
 production-preflight:
 	@test -n "$(DOMAIN)" || (echo "DOMAIN is required. Example: make production-preflight DOMAIN=api.stockplan.app ORIGIN=https://www.norviqaapp.com" && exit 1)
 	./scripts/ops/production_preflight.sh "$(DOMAIN)" "$(ORIGIN)"
+
+apns-production-check:
+	@test -n "$(DOMAIN)" || (echo "DOMAIN is required. Example: make apns-production-check DOMAIN=api.stockplan.app" && exit 1)
+	./scripts/ops/check_apns_production.sh "$(DOMAIN)"
 
 rollback-app:
 	@test -n "$(APP_IMAGE)" || (echo "APP_IMAGE is required. Example: make rollback-app APP_IMAGE=ghcr.io/owner/StockPlanBackend:<sha>" && exit 1)

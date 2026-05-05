@@ -9,6 +9,22 @@ typealias PushDeviceRegistrationRequest = StockPlanShared.PushDeviceRegistration
 typealias PushDeviceRegistrationResponse = StockPlanShared.PushDeviceRegistrationResponse
 typealias PushDeviceDeactivateRequest = StockPlanShared.PushDeviceDeactivateRequest
 
+struct EarningsNotificationPreferencesResponse: Content, Equatable {
+    let enabled: Bool
+    let leadDays: [Int]
+    let scope: String
+
+    init(enabled: Bool, leadDays: [Int] = [7, 1], scope: String = "portfolio_and_watchlist") {
+        self.enabled = enabled
+        self.leadDays = leadDays
+        self.scope = scope
+    }
+}
+
+struct UpdateEarningsNotificationPreferencesRequest: Content, Equatable {
+    let enabled: Bool
+}
+
 extension PushAuthorizationStatus: @retroactive Content {}
 extension PushAPNSEnvironment: @retroactive Content {}
 extension PushPlatform: @retroactive Content {}

@@ -146,10 +146,17 @@ private func mailerHealthCheck(_ req: Request) -> HealthCheck {
 }
 
 private func apnsHealthCheck(_ req: Request) -> HealthCheck {
-    if APNSBootstrapConfiguration.fromEnvironment(app: req.application) != nil {
-        return HealthCheck(status: "healthy", message: nil, latencyMs: nil)
+    guard let config = APNSBootstrapConfiguration.fromEnvironment(app: req.application) else {
+        return HealthCheck(status: "skipped", message: "APNS is not configured; push delivery is disabled.", latencyMs: nil)
     }
-    return HealthCheck(status: "skipped", message: "APNS is not configured; push delivery is disabled.", latencyMs: nil)
+
+    do {
+        try config.validatePrivateKey()
+        return HealthCheck(status: "healthy", message: nil, latencyMs: nil)
+    } catch {
+        req.logger.error("health.ready apns failed error_type=\(String(reflecting: type(of: error)))")
+        return HealthCheck(status: "unhealthy", message: "APNS private key could not be parsed.", latencyMs: nil)
+    }
 }
 
 private func marketDataHealthCheck(_: Request) -> HealthCheck {

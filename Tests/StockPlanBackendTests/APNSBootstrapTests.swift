@@ -4,6 +4,19 @@ import Vapor
 
 @Suite("APNS Bootstrap Tests", .serialized)
 struct APNSBootstrapTests {
+    @Test("Configured APNS validates malformed private key")
+    func configuredAPNSValidatesMalformedPrivateKey() async throws {
+        try await withAPNSEnvironment(privateKey: "not-a-valid-pem") {
+            let app = try await Application.make(.development)
+
+            let config = try #require(APNSBootstrapConfiguration.fromEnvironment(app: app))
+            #expect(throws: (any Error).self) {
+                try config.validatePrivateKey()
+            }
+            try await app.asyncShutdown()
+        }
+    }
+
     @Test("Development ignores malformed APNS private key")
     func developmentIgnoresMalformedAPNSPrivateKey() async throws {
         try await withAPNSEnvironment(privateKey: "not-a-valid-pem") {

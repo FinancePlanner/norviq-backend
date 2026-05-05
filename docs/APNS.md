@@ -43,6 +43,19 @@ Notes:
 
 - `APNS_PRIVATE_KEY_P8` supports escaped newlines (`\n`) and is normalized on startup.
 - If APNS vars are missing, backend remains operational and uses a no-op sender.
+- `/health/ready` validates that configured APNS credentials include a parseable private key.
+
+## Production validation
+
+Run the production APNS check after setting `APP_IMAGE`, `DOMAIN`, and the production `.env`:
+
+```bash
+make apns-production-check DOMAIN=api.example.com
+```
+
+The check verifies APNS env injection without printing secrets, runs the production migration command to exercise startup parsing, starts the app, checks `/health/ready` for `apns=healthy`, and scans recent app logs for APNS parse/disabled warnings.
+
+This validates configuration and key parsing. A real delivery test still requires registering a production APNS device token and triggering a target or budget alert.
 
 ## API endpoints
 

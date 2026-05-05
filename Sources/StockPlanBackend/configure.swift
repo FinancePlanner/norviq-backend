@@ -287,6 +287,8 @@ public func configure(_ app: Application) async throws {
     app.userProfileRepository = DatabaseUserProfileRepository(encryptionService: app.userPIIEncryptionService)
     app.userProfileService = DefaultUserProfileService(repo: app.userProfileRepository)
     app.pushDeviceService = DatabasePushDeviceService()
+    app.earningsNotificationPreferenceService = DatabaseEarningsNotificationPreferenceService()
+    app.earningsNotificationEvaluator = DefaultEarningsNotificationEvaluator()
     // Data Export service setup
     app.dataExportRepository = DatabaseDataExportRepository()
     app.exportService = ExportService(repository: app.dataExportRepository, application: app)
@@ -328,6 +330,8 @@ public func configure(_ app: Application) async throws {
     app.lifecycle.use(IBKRSyncJob())
     let apnsAlertPollSeconds = Environment.get("APNS_ALERT_POLL_SECONDS").flatMap(Int64.init(_:)) ?? 300
     app.lifecycle.use(TargetAlertPoller(intervalSeconds: apnsAlertPollSeconds))
+    let earningsAlertPollSeconds = Environment.get("EARNINGS_ALERT_POLL_SECONDS").flatMap(Int64.init(_:)) ?? 86400
+    app.lifecycle.use(EarningsNotificationPoller(intervalSeconds: earningsAlertPollSeconds))
     app.lifecycle.use(TrialExpirationJob())
     // Data Export cleanup (expire files after 7 days)
     app.lifecycle.use(DataExportCleanupJob(repository: app.dataExportRepository, interval: 86400))
@@ -345,6 +349,7 @@ func configureAPNS(_ app: Application) throws {
     }
 
     do {
+        try apnsConfig.validatePrivateKey()
         try app.apns.configure(
             .jwt(
                 privateKey: .loadFrom(string: apnsConfig.privateKeyP8),
@@ -398,6 +403,8 @@ private func registerMigrations(_ app: Application) {
     app.migrations.add(CreateTarget())
     app.migrations.add(AddTargetAlertFields())
     app.migrations.add(CreatePushDevice())
+    app.migrations.add(CreateEarningsNotificationPreference())
+    app.migrations.add(CreateEarningsNotificationDelivery())
     app.migrations.add(CreatePriceHistory())
     app.migrations.add(CreateQuoteCache())
     app.migrations.add(AddQuoteFields())

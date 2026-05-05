@@ -3346,6 +3346,16 @@ struct StockPlanBackendTests {
             // For now, no-op or record if needed in tests
             .init(delivered: devices.count, failed: 0)
         }
+
+        func sendEarningsReminder(
+            symbol _: String,
+            earningsDate _: String,
+            leadDays _: Int,
+            devices: [PushDevice],
+            req _: Request
+        ) async -> TargetPushSendSummary {
+            .init(delivered: devices.count, failed: 0)
+        }
     }
 
     actor TestTargetAlertEvaluatorState {
