@@ -3,181 +3,181 @@ import Vapor
 
 // MARK: - Common
 
-extension APISuccess: @retroactive Content, @unchecked Sendable {}
-extension APIMessageResponse: @retroactive Content, @unchecked Sendable {}
-extension APIErrorResponse: @retroactive Content, @unchecked Sendable {}
-extension APIEnvelope: @retroactive Content, @unchecked Sendable {}
-extension EmptyAPIResponse: @retroactive Content, @unchecked Sendable {}
+extension APISuccess: @retroactive Content {}
+extension APIMessageResponse: @retroactive Content {}
+extension APIErrorResponse: @retroactive Content {}
+extension APIEnvelope: @retroactive Content {}
+extension EmptyAPIResponse: @retroactive Content {}
 
 // MARK: - Auth
 
-extension AuthLoginRequest: @retroactive Content, @unchecked Sendable {}
-extension AuthResponse: @retroactive Content, @unchecked Sendable {}
-extension AuthUserResponse: @retroactive Content, @unchecked Sendable {}
-extension AuthForgotPasswordRequest: @retroactive Content, @unchecked Sendable {}
-extension AuthForgotPasswordResponse: @retroactive Content, @unchecked Sendable {}
-extension AuthResetPasswordRequest: @retroactive Content, @unchecked Sendable {}
-extension AuthRefreshRequest: @retroactive Content, @unchecked Sendable {}
-extension OAuthStartRequest: Content, @unchecked Sendable {}
-extension OAuthStartResponse: Content, @unchecked Sendable {}
-extension OAuthExchangeRequest: Content, @unchecked Sendable {}
+extension AuthLoginRequest: @retroactive Content {}
+extension AuthResponse: @retroactive Content {}
+extension AuthUserResponse: @retroactive Content {}
+extension AuthForgotPasswordRequest: @retroactive Content {}
+extension AuthForgotPasswordResponse: @retroactive Content {}
+extension AuthResetPasswordRequest: @retroactive Content {}
+extension AuthRefreshRequest: @retroactive Content {}
+extension OAuthStartRequest: Content {}
+extension OAuthStartResponse: Content {}
+extension OAuthExchangeRequest: Content {}
 
 // MARK: - Stocks
 
-extension StockRequest: @retroactive Content, @unchecked Sendable {}
-extension SellStockRequest: @retroactive Content, @unchecked Sendable {}
-extension StockResponse: @retroactive Content, @unchecked Sendable {}
-extension PortfolioListRequest: @retroactive Content, @unchecked Sendable {}
-extension PortfolioListResponse: @retroactive Content, @unchecked Sendable {}
-extension WatchlistItemRequest: @retroactive Content, @unchecked Sendable {}
-extension WatchlistItemUpdateRequest: @retroactive Content, @unchecked Sendable {}
-extension WatchlistItemResponse: @retroactive Content, @unchecked Sendable {}
-extension WatchlistListRequest: @retroactive Content, @unchecked Sendable {}
-extension WatchlistListResponse: @retroactive Content, @unchecked Sendable {}
-extension WatchlistStatus: @retroactive Content, @unchecked Sendable {}
-extension ResearchNoteRequest: @retroactive Content, @unchecked Sendable {}
-extension ResearchNoteResponse: @retroactive Content, @unchecked Sendable {}
-extension PriceRange: @retroactive Content, @unchecked Sendable {}
-extension StockValuationRequest: @retroactive Content, @unchecked Sendable {}
-extension StockValuationDraft: @retroactive Content, @unchecked Sendable {}
-extension StockHistory: @retroactive Content, @unchecked Sendable {}
-extension StockNews: @retroactive Content, @unchecked Sendable {}
-extension BulkStockRequest: @retroactive Content, @unchecked Sendable {}
-extension BulkStockResultItem: @retroactive Content, @unchecked Sendable {}
-extension BulkStockResponse: @retroactive Content, @unchecked Sendable {}
-extension TargetRequest: @retroactive Content, @unchecked Sendable {}
-extension TargetResponse: @retroactive Content, @unchecked Sendable {}
+extension StockRequest: @retroactive Content {}
+extension SellStockRequest: @retroactive Content {}
+extension StockResponse: @retroactive Content {}
+extension PortfolioListRequest: @retroactive Content {}
+extension PortfolioListResponse: @retroactive Content {}
+extension WatchlistItemRequest: @retroactive Content {}
+extension WatchlistItemUpdateRequest: @retroactive Content {}
+extension WatchlistItemResponse: @retroactive Content {}
+extension WatchlistListRequest: @retroactive Content {}
+extension WatchlistListResponse: @retroactive Content {}
+extension WatchlistStatus: @retroactive Content {}
+extension ResearchNoteRequest: @retroactive Content {}
+extension ResearchNoteResponse: @retroactive Content {}
+extension PriceRange: @retroactive Content {}
+extension StockValuationRequest: @retroactive Content {}
+extension StockValuationDraft: @retroactive Content {}
+extension StockHistory: @retroactive Content {}
+extension StockNews: @retroactive Content {}
+extension BulkStockRequest: @retroactive Content {}
+extension BulkStockResultItem: @retroactive Content {}
+extension BulkStockResponse: @retroactive Content {}
+extension TargetRequest: @retroactive Content {}
+extension TargetResponse: @retroactive Content {}
 
 // Price Chart
-extension PriceChartPoint: @retroactive Content, @unchecked Sendable {}
-extension PriceChartSeries: @retroactive Content, @unchecked Sendable {}
-extension PriceChartComparisonResponse: @retroactive Content, @unchecked Sendable {}
+extension PriceChartPoint: @retroactive Content {}
+extension PriceChartSeries: @retroactive Content {}
+extension PriceChartComparisonResponse: @retroactive Content {}
 
 // MARK: - Dashboard
 
-extension DashboardResponse: @retroactive Content, @unchecked Sendable {}
-extension DashboardPerformerDTO: @retroactive Content, @unchecked Sendable {}
-extension DashboardAllocationDTO: @retroactive Content, @unchecked Sendable {}
+extension DashboardResponse: @retroactive Content {}
+extension DashboardPerformerDTO: @retroactive Content {}
+extension DashboardAllocationDTO: @retroactive Content {}
 
 // MARK: - Portfolio
 
-extension PortfolioSummaryResponse: @retroactive Content, @unchecked Sendable {}
-extension PortfolioPerformanceResponse: @retroactive Content, @unchecked Sendable {}
-extension TransactionResponse: @retroactive Content, @unchecked Sendable {}
-extension LotResponse: @retroactive Content, @unchecked Sendable {}
-extension PnlResponse: @retroactive Content, @unchecked Sendable {}
+extension PortfolioSummaryResponse: @retroactive Content {}
+extension PortfolioPerformanceResponse: @retroactive Content {}
+extension TransactionResponse: @retroactive Content {}
+extension LotResponse: @retroactive Content {}
+extension PnlResponse: @retroactive Content {}
 
 // MARK: - User Profile
 
-extension GetUserProfileRequest: @retroactive Content, @unchecked Sendable {}
-extension GetUserProfileResponse: @retroactive Content, @unchecked Sendable {}
-extension UpdateUserProfileRequest: @retroactive Content, @unchecked Sendable {}
-extension UpdateUserProfileResponse: @retroactive Content, @unchecked Sendable {}
-extension UpdateUsernameRequest: @retroactive Content, @unchecked Sendable {}
-extension UpdateEmailRequest: @retroactive Content, @unchecked Sendable {}
-extension UpdatePasswordRequest: @retroactive Content, @unchecked Sendable {}
-extension DeleteUserProfileRequest: @retroactive Content, @unchecked Sendable {}
-extension DeleteUserProfileResponse: @retroactive Content, @unchecked Sendable {}
+extension GetUserProfileRequest: @retroactive Content {}
+extension GetUserProfileResponse: @retroactive Content {}
+extension UpdateUserProfileRequest: @retroactive Content {}
+extension UpdateUserProfileResponse: @retroactive Content {}
+extension UpdateUsernameRequest: @retroactive Content {}
+extension UpdateEmailRequest: @retroactive Content {}
+extension UpdatePasswordRequest: @retroactive Content {}
+extension DeleteUserProfileRequest: @retroactive Content {}
+extension DeleteUserProfileResponse: @retroactive Content {}
 
 // MARK: - News & Earnings
 
-extension NewsItemResponse: @retroactive Content, @unchecked Sendable {}
-extension NewsSyncResponse: @retroactive Content, @unchecked Sendable {}
-extension FinnhubNewsWebhookResponse: @retroactive Content, @unchecked Sendable {}
-extension EarningsItemResponse: @retroactive Content, @unchecked Sendable {}
-extension EarningsQueryRequest: @retroactive Content, @unchecked Sendable {}
+extension NewsItemResponse: @retroactive Content {}
+extension NewsSyncResponse: @retroactive Content {}
+extension FinnhubNewsWebhookResponse: @retroactive Content {}
+extension EarningsItemResponse: @retroactive Content {}
+extension EarningsQueryRequest: @retroactive Content {}
 
 // MARK: - Broker / CSV
 
-extension CsvImportPreviewItem: @retroactive Content, @unchecked Sendable {}
-extension CsvImportPreviewError: @retroactive Content, @unchecked Sendable {}
-extension CsvImportPreviewResponse: @retroactive Content, @unchecked Sendable {}
-extension CsvImportCommitResponse: @retroactive Content, @unchecked Sendable {}
-extension BrokerConnectionResponse: @retroactive Content, @unchecked Sendable {}
-extension BrokerHoldingResponse: @retroactive Content, @unchecked Sendable {}
-extension BrokerSyncResponse: @retroactive Content, @unchecked Sendable {}
-extension BrokerConnectStartRequest: @retroactive Content, @unchecked Sendable {}
-extension BrokerConnectStartResponse: @retroactive Content, @unchecked Sendable {}
-extension BrokerSyncStatusResponse: @retroactive Content, @unchecked Sendable {}
+extension CsvImportPreviewItem: @retroactive Content {}
+extension CsvImportPreviewError: @retroactive Content {}
+extension CsvImportPreviewResponse: @retroactive Content {}
+extension CsvImportCommitResponse: @retroactive Content {}
+extension BrokerConnectionResponse: @retroactive Content {}
+extension BrokerHoldingResponse: @retroactive Content {}
+extension BrokerSyncResponse: @retroactive Content {}
+extension BrokerConnectStartRequest: @retroactive Content {}
+extension BrokerConnectStartResponse: @retroactive Content {}
+extension BrokerSyncStatusResponse: @retroactive Content {}
 
 // MARK: - Statistics
 
-extension StatisticsDTO: @retroactive Content, @unchecked Sendable {}
-extension ImportedStocksStatisticsDTO: @retroactive Content, @unchecked Sendable {}
-extension StockStatisticsSummaryDTO: @retroactive Content, @unchecked Sendable {}
-extension StockAllocationDTO: @retroactive Content, @unchecked Sendable {}
-extension SectorAllocationDTO: @retroactive Content, @unchecked Sendable {}
-extension CalendarPerformanceDTO: @retroactive Content, @unchecked Sendable {}
-extension WatchlistStatisticsDTO: @retroactive Content, @unchecked Sendable {}
-extension WatchlistSymbolDTO: @retroactive Content, @unchecked Sendable {}
-extension LooklistStatisticsDTO: @retroactive Content, @unchecked Sendable {}
-extension LooklistConvictionDTO: @retroactive Content, @unchecked Sendable {}
-extension MarketStatisticsDTO: @retroactive Content, @unchecked Sendable {}
-extension MarketHeatmapDTO: @retroactive Content, @unchecked Sendable {}
+extension StatisticsDTO: @retroactive Content {}
+extension ImportedStocksStatisticsDTO: @retroactive Content {}
+extension StockStatisticsSummaryDTO: @retroactive Content {}
+extension StockAllocationDTO: @retroactive Content {}
+extension SectorAllocationDTO: @retroactive Content {}
+extension CalendarPerformanceDTO: @retroactive Content {}
+extension WatchlistStatisticsDTO: @retroactive Content {}
+extension WatchlistSymbolDTO: @retroactive Content {}
+extension LooklistStatisticsDTO: @retroactive Content {}
+extension LooklistConvictionDTO: @retroactive Content {}
+extension MarketStatisticsDTO: @retroactive Content {}
+extension MarketHeatmapDTO: @retroactive Content {}
 
 // MARK: - Crypto
 
-extension CryptoAssetResponse: @retroactive Content, @unchecked Sendable {}
-extension CryptoQuoteResponse: @retroactive Content, @unchecked Sendable {}
-extension CryptoQuoteShortResponse: @retroactive Content, @unchecked Sendable {}
-extension CryptoHistoricalLightPoint: @retroactive Content, @unchecked Sendable {}
-extension CryptoHistoricalFullPoint: @retroactive Content, @unchecked Sendable {}
-extension CryptoHistoricalPoint: @retroactive Content, @unchecked Sendable {}
-extension CryptoPortfolioItemRequest: @retroactive Content, @unchecked Sendable {}
-extension CryptoPortfolioItemResponse: @retroactive Content, @unchecked Sendable {}
+extension CryptoAssetResponse: @retroactive Content {}
+extension CryptoQuoteResponse: @retroactive Content {}
+extension CryptoQuoteShortResponse: @retroactive Content {}
+extension CryptoHistoricalLightPoint: @retroactive Content {}
+extension CryptoHistoricalFullPoint: @retroactive Content {}
+extension CryptoHistoricalPoint: @retroactive Content {}
+extension CryptoPortfolioItemRequest: @retroactive Content {}
+extension CryptoPortfolioItemResponse: @retroactive Content {}
 
 // MARK: - Expenses
 
-extension BudgetSnapshotRequest: @retroactive Content, @unchecked Sendable {}
-extension BudgetSnapshotResponse: @retroactive Content, @unchecked Sendable {}
-extension HouseholdPartnerProfileRequest: @retroactive Content, @unchecked Sendable {}
-extension HouseholdPartnerProfileResponse: @retroactive Content, @unchecked Sendable {}
-extension BudgetPlanItemRequest: @retroactive Content, @unchecked Sendable {}
-extension BudgetPlanItemResponse: @retroactive Content, @unchecked Sendable {}
-extension ExpenseRequest: @retroactive Content, @unchecked Sendable {}
-extension ExpenseResponse: @retroactive Content, @unchecked Sendable {}
-extension PillarPlanningSummaryResponse: @retroactive Content, @unchecked Sendable {}
-extension BudgetMonthSummaryResponse: @retroactive Content, @unchecked Sendable {}
-extension BudgetYearSummaryResponse: @retroactive Content, @unchecked Sendable {}
-extension ReportsCashFlowPointResponse: @retroactive Content, @unchecked Sendable {}
-extension ExpenseCategoryResponse: @retroactive Content, @unchecked Sendable {}
-extension RecurringTemplateResponse: @retroactive Content, @unchecked Sendable {}
-extension ReportsOverviewResponse: @retroactive Content, @unchecked Sendable {}
-extension ReportSuggestionSeverity: @retroactive Content, @unchecked Sendable {}
-extension ReportSuggestionCategory: @retroactive Content, @unchecked Sendable {}
-extension ReportSuggestionResponse: @retroactive Content, @unchecked Sendable {}
-extension ReportSuggestionsResponse: @retroactive Content, @unchecked Sendable {}
+extension BudgetSnapshotRequest: @retroactive Content {}
+extension BudgetSnapshotResponse: @retroactive Content {}
+extension HouseholdPartnerProfileRequest: @retroactive Content {}
+extension HouseholdPartnerProfileResponse: @retroactive Content {}
+extension BudgetPlanItemRequest: @retroactive Content {}
+extension BudgetPlanItemResponse: @retroactive Content {}
+extension ExpenseRequest: @retroactive Content {}
+extension ExpenseResponse: @retroactive Content {}
+extension PillarPlanningSummaryResponse: @retroactive Content {}
+extension BudgetMonthSummaryResponse: @retroactive Content {}
+extension BudgetYearSummaryResponse: @retroactive Content {}
+extension ReportsCashFlowPointResponse: @retroactive Content {}
+extension ExpenseCategoryResponse: @retroactive Content {}
+extension RecurringTemplateResponse: @retroactive Content {}
+extension ReportsOverviewResponse: @retroactive Content {}
+extension ReportSuggestionSeverity: @retroactive Content {}
+extension ReportSuggestionCategory: @retroactive Content {}
+extension ReportSuggestionResponse: @retroactive Content {}
+extension ReportSuggestionsResponse: @retroactive Content {}
 
 // MARK: - Goals & Dashboard Insights
 
-extension GoalRequest: @retroactive Content, @unchecked Sendable {}
-extension GoalStatus: @retroactive Content, @unchecked Sendable {}
-extension GoalStatusSource: @retroactive Content, @unchecked Sendable {}
-extension GoalStatusUpdateRequest: @retroactive Content, @unchecked Sendable {}
-extension GoalResponse: @retroactive Content, @unchecked Sendable {}
-extension DashboardInsightsResponse: @retroactive Content, @unchecked Sendable {}
-extension DashboardFinancialHealthDTO: @retroactive Content, @unchecked Sendable {}
-extension FinancialHealthStatus: @retroactive Content, @unchecked Sendable {}
+extension GoalRequest: @retroactive Content {}
+extension GoalStatus: @retroactive Content {}
+extension GoalStatusSource: @retroactive Content {}
+extension GoalStatusUpdateRequest: @retroactive Content {}
+extension GoalResponse: @retroactive Content {}
+extension DashboardInsightsResponse: @retroactive Content {}
+extension DashboardFinancialHealthDTO: @retroactive Content {}
+extension FinancialHealthStatus: @retroactive Content {}
 
 // MARK: - Activity
 
-extension UserActivityResponse: @retroactive Content, @unchecked Sendable {}
+extension UserActivityResponse: @retroactive Content {}
 
 // MARK: - Market (FinanceShared types used as Vapor responses)
 
-extension StockDetailsResponse: @retroactive Content, @unchecked Sendable {}
-extension QuoteResponse: @retroactive Content, @unchecked Sendable {}
-extension CompanyProfileResponse: @retroactive Content, @unchecked Sendable {}
-extension PriceBarResponse: @retroactive Content, @unchecked Sendable {}
-extension HistoryResponse: @retroactive Content, @unchecked Sendable {}
-extension SearchResultResponse: @retroactive Content, @unchecked Sendable {}
-extension FxRateResponse: @retroactive Content, @unchecked Sendable {}
-extension QuoteBatchResponse: @retroactive Content, @unchecked Sendable {}
-extension BasicFinancialSeriesPoint: @retroactive Content, @unchecked Sendable {}
-extension BasicFinancialsResponse: @retroactive Content, @unchecked Sendable {}
-extension RatiosTTMResponse: @retroactive Content, @unchecked Sendable {}
-extension BalanceSheetStatementResponse: @retroactive Content, @unchecked Sendable {}
-extension CashFlowStatementResponse: @retroactive Content, @unchecked Sendable {}
-extension FinancialGrowthResponse: @retroactive Content, @unchecked Sendable {}
-extension AnalystEstimatesResponse: @retroactive Content, @unchecked Sendable {}
-extension RatiosResponse: @retroactive Content, @unchecked Sendable {}
+extension StockDetailsResponse: @retroactive Content {}
+extension QuoteResponse: @retroactive Content {}
+extension CompanyProfileResponse: @retroactive Content {}
+extension PriceBarResponse: @retroactive Content {}
+extension HistoryResponse: @retroactive Content {}
+extension SearchResultResponse: @retroactive Content {}
+extension FxRateResponse: @retroactive Content {}
+extension QuoteBatchResponse: @retroactive Content {}
+extension BasicFinancialSeriesPoint: @retroactive Content {}
+extension BasicFinancialsResponse: @retroactive Content {}
+extension RatiosTTMResponse: @retroactive Content {}
+extension BalanceSheetStatementResponse: @retroactive Content {}
+extension CashFlowStatementResponse: @retroactive Content {}
+extension FinancialGrowthResponse: @retroactive Content {}
+extension AnalystEstimatesResponse: @retroactive Content {}
+extension RatiosResponse: @retroactive Content {}
