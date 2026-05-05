@@ -49,10 +49,6 @@ public func configure(_ app: Application) async throws {
     // Add custom error handling middleware first.
     app.middleware.use(TracingMiddleware())
 
-    // Idempotency for mutations — clients set Idempotency-Key header.
-    // Caches POST/PUT/DELETE responses in Redis (24h TTL). No-op for other methods or missing header.
-    app.middleware.use(IdempotencyMiddleware(ttl: 86400))
-
     // Configure global JSON decoder and encoder
     ContentConfiguration.global.use(decoder: JSONDecoder.backendAPI, for: .json)
     ContentConfiguration.global.use(encoder: JSONEncoder.backendAPI, for: .json)
@@ -145,7 +141,16 @@ public func configure(_ app: Application) async throws {
     }
 
     if let redisURL = Environment.get("REDIS_URL"), !redisURL.isEmpty {
-        app.redis.configuration = try RedisConfiguration(url: redisURL)
+        do {
+            app.redis.configuration = try RedisConfiguration(url: redisURL)
+            // Idempotency for mutations — clients set Idempotency-Key header.
+            // Caches POST/PUT/DELETE responses in Redis (24h TTL). No-op for other methods or missing header.
+            app.middleware.use(IdempotencyMiddleware(ttl: 86400))
+        } catch {
+            app.logger.warning("Redis disabled: could not parse/configure REDIS_URL. error=\(error)")
+        }
+    } else {
+        app.logger.warning("Redis disabled: REDIS_URL not set. IdempotencyMiddleware disabled")
     }
 
     let jwtSecret = Environment.get("JWT_SECRET") ?? "dev-secret"
