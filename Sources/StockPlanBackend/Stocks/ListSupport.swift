@@ -2,6 +2,67 @@ import Fluent
 import Foundation
 import Vapor
 
+struct StockListCursor {
+    let createdAt: Date
+    let id: UUID?
+
+    static func parse(_ raw: String?) -> StockListCursor? {
+        guard let raw = raw?.trimmingCharacters(in: .whitespacesAndNewlines), !raw.isEmpty else {
+            return nil
+        }
+
+        if let decoded = decodeOpaqueCursor(raw) {
+            return decoded
+        }
+
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        guard let date = formatter.date(from: raw) else {
+            return nil
+        }
+        return StockListCursor(createdAt: date, id: nil)
+    }
+
+    static func encode(createdAt: Date, id: UUID) -> String {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        let payload = "\(formatter.string(from: createdAt))|\(id.uuidString)"
+        return Data(payload.utf8)
+            .base64EncodedString()
+            .replacingOccurrences(of: "+", with: "-")
+            .replacingOccurrences(of: "/", with: "_")
+            .replacingOccurrences(of: "=", with: "")
+    }
+
+    private static func decodeOpaqueCursor(_ raw: String) -> StockListCursor? {
+        var base64 = raw
+            .replacingOccurrences(of: "-", with: "+")
+            .replacingOccurrences(of: "_", with: "/")
+        let padding = base64.count % 4
+        if padding > 0 {
+            base64.append(String(repeating: "=", count: 4 - padding))
+        }
+
+        guard let data = Data(base64Encoded: base64),
+              let payload = String(data: data, encoding: .utf8)
+        else {
+            return nil
+        }
+
+        let parts = payload.split(separator: "|", maxSplits: 1).map(String.init)
+        guard parts.count == 2 else { return nil }
+
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        guard let createdAt = formatter.date(from: parts[0]),
+              let id = UUID(uuidString: parts[1])
+        else {
+            return nil
+        }
+        return StockListCursor(createdAt: createdAt, id: id)
+    }
+}
+
 func ensureDefaultPortfolioListId(userId: UUID, on db: any Database) async throws -> UUID {
     if let existing = try await PortfolioList.query(on: db)
         .filter(\.$userId == userId)

@@ -108,6 +108,7 @@ struct StockPlanBackendTests {
                 let app = try await Application.make(.testing)
                 do {
                     try await configure(app)
+                    try await flushRedisIfConfigured(app)
                     try await app.autoMigrate()
                     try await test(app)
                     try await app.autoRevert()
@@ -128,6 +129,15 @@ struct StockPlanBackendTests {
                     throw error
                 }
             }
+        }
+    }
+
+    private func flushRedisIfConfigured(_ app: Application) async throws {
+        guard app.redis.configuration != nil else { return }
+        do {
+            _ = try await app.redis.send(command: "FLUSHDB", with: [])
+        } catch {
+            app.logger.warning("test.redis.flush skipped error=\(error)")
         }
     }
 

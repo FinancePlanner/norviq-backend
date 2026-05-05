@@ -38,7 +38,7 @@ extension StockServiceError: AbortError {
 }
 
 protocol StockService: Sendable {
-    func list(userId: UUID, portfolioListId: UUID?, limit: Int, cursor: Date?, on db: any Database) async throws -> (items: [StockResponse], nextCursor: String?)
+    func list(userId: UUID, portfolioListId: UUID?, limit: Int, cursor: StockListCursor?, on db: any Database) async throws -> (items: [StockResponse], nextCursor: String?)
     func get(id: UUID, userId: UUID, on db: any Database) async throws -> StockResponse
     func get(symbol: String, userId: UUID, on db: any Database) async throws -> StockResponse
     func getInsights(symbol: String, userId: UUID, on db: any Database) async throws -> StockInsightsResponse
@@ -70,19 +70,20 @@ struct StockServiceImpl: StockService {
     let repo: any StocksRepository
     let req: Request
 
-    func list(userId: UUID, portfolioListId: UUID?, limit: Int, cursor: Date?, on db: any Database) async throws -> (items: [StockResponse], nextCursor: String?) {
+    func list(userId: UUID, portfolioListId: UUID?, limit: Int, cursor: StockListCursor?, on db: any Database) async throws -> (items: [StockResponse], nextCursor: String?) {
         let maxLimit = 200
         let fetchLimit = limit + 1
         let stocks = try await repo.list(userId: userId, portfolioListId: portfolioListId, limit: fetchLimit, cursor: cursor, on: db)
         if stocks.count > limit, limit < maxLimit {
             let pageStocks = Array(stocks.prefix(limit))
             let items = try pageStocks.map { try StockResponse(from: $0) }
-            guard let lastStock = pageStocks.last, let createdAt = lastStock.createdAt else {
+            guard let lastStock = pageStocks.last,
+                  let createdAt = lastStock.createdAt,
+                  let id = lastStock.id
+            else {
                 return (items, nil)
             }
-            let formatter = ISO8601DateFormatter()
-            formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-            let nextCursor = formatter.string(from: createdAt)
+            let nextCursor = StockListCursor.encode(createdAt: createdAt, id: id)
             return (items, nextCursor)
         } else {
             let items = try Array(stocks.prefix(limit)).map { try StockResponse(from: $0) }
