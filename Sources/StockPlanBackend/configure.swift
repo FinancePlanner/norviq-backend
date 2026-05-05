@@ -307,18 +307,7 @@ public func configure(_ app: Application) async throws {
     app.billingService = DefaultBillingService()
     app.targetAlertEvaluator = DefaultTargetAlertEvaluator()
 
-    if let apnsConfig = APNSBootstrapConfiguration.fromEnvironment(app: app) {
-        try app.apns.configure(
-            .jwt(
-                privateKey: .loadFrom(string: apnsConfig.privateKeyP8),
-                keyIdentifier: apnsConfig.keyID,
-                teamIdentifier: apnsConfig.teamID
-            )
-        )
-        app.pushNotificationSender = APNSPushNotificationSender(topic: apnsConfig.topic)
-    } else {
-        app.pushNotificationSender = NoopPushNotificationSender()
-    }
+    try configureAPNS(app)
 
     let earningsProvider: any EarningsProvider = if let finnhubAPIKey, !finnhubAPIKey.isEmpty {
         FinnhubEarningsProvider(apiKey: finnhubAPIKey)
@@ -347,6 +336,33 @@ public func configure(_ app: Application) async throws {
 
     // register routes
     try routes(app)
+}
+
+func configureAPNS(_ app: Application) throws {
+    guard let apnsConfig = APNSBootstrapConfiguration.fromEnvironment(app: app) else {
+        app.pushNotificationSender = NoopPushNotificationSender()
+        return
+    }
+
+    do {
+        try app.apns.configure(
+            .jwt(
+                privateKey: .loadFrom(string: apnsConfig.privateKeyP8),
+                keyIdentifier: apnsConfig.keyID,
+                teamIdentifier: apnsConfig.teamID
+            )
+        )
+        app.pushNotificationSender = APNSPushNotificationSender(topic: apnsConfig.topic)
+    } catch {
+        guard app.environment != .production else {
+            throw error
+        }
+
+        app.logger.warning(
+            "APNS is disabled because APNS_PRIVATE_KEY_P8 could not be parsed in \(app.environment.name): \(String(describing: error))"
+        )
+        app.pushNotificationSender = NoopPushNotificationSender()
+    }
 }
 
 private func registerMigrations(_ app: Application) {
