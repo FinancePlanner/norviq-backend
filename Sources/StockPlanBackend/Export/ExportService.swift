@@ -77,17 +77,21 @@ struct ExportService: @unchecked Sendable {
                 fileSize = try await generateJSON(dataType: type, filePath: filePath, userId: userId, startDate: startDate, endDate: endDate, portfolioListId: portfolioListID, on: db)
             }
 
-            if var existingExport = try await repository.find(id: exportId, userId: userId, on: db) {
+            if let existingExport = try await repository.find(id: exportId, userId: userId, on: db) {
                 existingExport.status = ExportStatus.ready.rawValue
                 existingExport.filePath = filePath
                 existingExport.fileSizeBytes = fileSize
                 existingExport.expiresAt = Calendar.current.date(byAdding: .day, value: 7, to: Date())
-                try await repository.update(existingExport, on: db)
+                _ = try await repository.update(existingExport, on: db)
             }
         } catch {
-            if var existingExport = try? await repository.find(id: exportId, userId: userId, on: db) {
+            if let existingExport = try? await repository.find(id: exportId, userId: userId, on: db) {
                 existingExport.status = ExportStatus.failed.rawValue
-                try? await repository.update(existingExport, on: db)
+                do {
+                    _ = try await repository.update(existingExport, on: db)
+                } catch {
+                    application.logger.warning("export.generation.failed-to-update-status exportId=\(exportId) error=\(error)")
+                }
             }
             application.logger.error("export.generation.failed exportId=\(exportId) error=\(error)")
         }
