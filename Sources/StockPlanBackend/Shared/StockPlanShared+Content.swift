@@ -18,9 +18,9 @@ extension AuthForgotPasswordRequest: @retroactive Content {}
 extension AuthForgotPasswordResponse: @retroactive Content {}
 extension AuthResetPasswordRequest: @retroactive Content {}
 extension AuthRefreshRequest: @retroactive Content {}
-extension OAuthStartRequest: Content {}
-extension OAuthStartResponse: Content {}
-extension OAuthExchangeRequest: Content {}
+extension OAuthStartRequest: @retroactive Content {}
+extension OAuthStartResponse: @retroactive Content {}
+extension OAuthExchangeRequest: @retroactive Content {}
 
 // MARK: - Stocks
 
