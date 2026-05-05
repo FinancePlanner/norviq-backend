@@ -1513,10 +1513,18 @@ struct DefaultMarketDataService: MarketDataService {
             }
 
             if let limitDate, fromDate < startOfDay(limitDate) {
+                let rangeDescription = switch fmpAccessTier {
+                case .free:
+                    "limited to 1 month"
+                case .starter:
+                    "limited to 1 year"
+                case .premium:
+                    "limited to 5 years"
+                }
                 throw Abort(
                     .paymentRequired,
                     reason:
-                    "This historical earnings range is not available on the current market data coverage. Try a shorter range."
+                    "This historical earnings range is \(rangeDescription) on the current market data coverage."
                 )
             }
         }

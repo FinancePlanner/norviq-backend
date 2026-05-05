@@ -24,9 +24,7 @@ struct StockListCursor {
     }
 
     static func encode(createdAt: Date, id: UUID) -> String {
-        let formatter = ISO8601DateFormatter()
-        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        let payload = "\(formatter.string(from: createdAt))|\(id.uuidString)"
+        let payload = "v1|\(createdAt.timeIntervalSinceReferenceDate.bitPattern)|\(id.uuidString)"
         return Data(payload.utf8)
             .base64EncodedString()
             .replacingOccurrences(of: "+", with: "-")
@@ -49,17 +47,30 @@ struct StockListCursor {
             return nil
         }
 
-        let parts = payload.split(separator: "|", maxSplits: 1).map(String.init)
-        guard parts.count == 2 else { return nil }
+        let parts = payload.split(separator: "|").map(String.init)
 
-        let formatter = ISO8601DateFormatter()
-        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        guard let createdAt = formatter.date(from: parts[0]),
-              let id = UUID(uuidString: parts[1])
-        else {
-            return nil
+        if parts.count == 3, parts[0] == "v1",
+           let bitPattern = UInt64(parts[1]),
+           let id = UUID(uuidString: parts[2])
+        {
+            return StockListCursor(
+                createdAt: Date(timeIntervalSinceReferenceDate: Double(bitPattern: bitPattern)),
+                id: id
+            )
         }
-        return StockListCursor(createdAt: createdAt, id: id)
+
+        if parts.count == 2 {
+            let formatter = ISO8601DateFormatter()
+            formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+            guard let createdAt = formatter.date(from: parts[0]),
+                  let id = UUID(uuidString: parts[1])
+            else {
+                return nil
+            }
+            return StockListCursor(createdAt: createdAt, id: id)
+        }
+
+        return nil
     }
 }
 

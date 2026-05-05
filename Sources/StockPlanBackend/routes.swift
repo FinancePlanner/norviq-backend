@@ -146,6 +146,10 @@ private func mailerHealthCheck(_ req: Request) -> HealthCheck {
 }
 
 private func apnsHealthCheck(_ req: Request) -> HealthCheck {
+    if req.application.pushNotificationSender is NoopPushNotificationSender {
+        return HealthCheck(status: "skipped", message: "APNS is disabled; push delivery is unavailable.", latencyMs: nil)
+    }
+
     guard let config = APNSBootstrapConfiguration.fromEnvironment(app: req.application) else {
         return HealthCheck(status: "skipped", message: "APNS is not configured; push delivery is disabled.", latencyMs: nil)
     }

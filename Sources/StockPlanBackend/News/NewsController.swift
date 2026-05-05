@@ -22,15 +22,9 @@ struct NewsController: RouteCollection {
         let symbol = req.query[String.self, at: "symbol"]
         let limit = clampedLimit(req.query[Int.self, at: "limit"])
 
-        // Cursor: ISO8601 string -> Date
-        let cursorDate: Date? = {
-            guard let cursor = req.query[String.self, at: "cursor"] else { return nil }
-            let formatter = ISO8601DateFormatter()
-            formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-            return formatter.date(from: cursor)
-        }()
+        let cursor = NewsListCursor.parse(req.query[String.self, at: "cursor"])
 
-        let result = try await req.application.newsService.list(userId: session.userId, symbol: symbol, limit: limit, cursor: cursorDate, on: req.db)
+        let result = try await req.application.newsService.list(userId: session.userId, symbol: symbol, limit: limit, cursor: cursor, on: req.db)
 
         var response = Response(status: .ok)
         try response.content.encode(result.items)
