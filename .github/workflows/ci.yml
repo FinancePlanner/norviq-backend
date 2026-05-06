@@ -78,4 +78,4 @@ jobs:
           DATABASE_PASSWORD: stockplan_password
           REDIS_URL: redis://redis:6379
           LOG_LEVEL: error
-        run: swift test --parallel
+        run: swift test

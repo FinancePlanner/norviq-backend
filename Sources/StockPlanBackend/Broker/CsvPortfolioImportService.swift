@@ -84,39 +84,57 @@ struct CsvPortfolioImportService {
             on: req.db
         )
 
+        var errors = preview.errors
+        var resolvedImports: [(symbol: String, rows: [CsvImportPreviewItem], instrument: Instrument)] = []
+        resolvedImports.reserveCapacity(groupedItems.count)
+
+        for (symbol, rows) in groupedItems.sorted(by: { $0.key < $1.key }) {
+            do {
+                let instrument = try await resolveImportInstrument(symbol: symbol, on: req, db: req.db)
+                resolvedImports.append((symbol: symbol, rows: rows, instrument: instrument))
+            } catch {
+                let message: String = if let abortError = error as? any AbortError {
+                    abortError.reason
+                } else {
+                    "Failed to import row."
+                }
+                let line = rows.map(\.line).min() ?? 0
+                errors.append(.init(line: line, message: message))
+            }
+        }
+
         let broker = try await req.application.brokersService.recordCsvImport(
             provider: provider,
             userId: userId,
             on: req.db
         )
 
-        if !groupedItems.isEmpty {
+        if !resolvedImports.isEmpty {
             try await req.usageCounterService.incrementUsage(.csvImports, userId: userId, by: 1, on: req.db)
         }
 
         var inserted: [StockResponse] = []
         var updated: [StockResponse] = []
-        var errors = preview.errors
         var replacedSymbols = Set<String>()
         var importedLotsCount = 0
 
-        for (symbol, rows) in groupedItems.sorted(by: { $0.key < $1.key }) {
+        for importItem in resolvedImports {
             do {
                 let result = try await req.db.transaction { tx in
                     try await importSymbolRows(
-                        rows,
-                        symbol: symbol,
+                        importItem.rows,
+                        symbol: importItem.symbol,
+                        instrument: importItem.instrument,
                         provider: provider,
                         portfolioListId: targetListId,
                         userId: userId,
-                        on: req,
                         db: tx
                     )
                 }
 
                 importedLotsCount += result.lotsInserted
                 if result.replacedExisting {
-                    replacedSymbols.insert(symbol)
+                    replacedSymbols.insert(importItem.symbol)
                     updated.append(result.stock)
                 } else {
                     inserted.append(result.stock)
@@ -127,7 +145,7 @@ struct CsvPortfolioImportService {
                 } else {
                     "Failed to import row."
                 }
-                let line = rows.map(\.line).min() ?? 0
+                let line = importItem.rows.map(\.line).min() ?? 0
                 errors.append(.init(line: line, message: message))
             }
         }
@@ -175,10 +193,10 @@ private extension CsvPortfolioImportService {
     func importSymbolRows(
         _ rows: [CsvImportPreviewItem],
         symbol: String,
+        instrument: Instrument,
         provider: String,
         portfolioListId: UUID,
         userId: UUID,
-        on req: Request,
         db: any Database
     ) async throws -> ImportResult {
         let sourceAccount = try await requireImportAccount(
@@ -187,7 +205,6 @@ private extension CsvPortfolioImportService {
             userId: userId,
             on: db
         )
-        let instrument = try await requireInstrument(symbol: symbol, on: req, db: db)
 
         let existingImportedStocks = try await Stock.query(on: db)
             .filter(\.$userId == userId)
@@ -404,7 +421,7 @@ private extension CsvPortfolioImportService {
         return account
     }
 
-    func requireInstrument(symbol: String, on req: Request, db: any Database) async throws -> Instrument {
+    func resolveImportInstrument(symbol: String, on req: Request, db: any Database) async throws -> Instrument {
         if let existing = try await Instrument.query(on: db)
             .filter(\.$symbol == symbol)
             .first()
@@ -412,21 +429,35 @@ private extension CsvPortfolioImportService {
             return existing
         }
 
-        let candidate = try await resolveInstrumentCandidate(symbol: symbol, on: req)
+        if let candidate = try await resolveInstrumentCandidate(symbol: symbol, on: req, db: db) {
+            let instrument = Instrument(
+                conid: candidate.conid,
+                symbol: candidate.symbol,
+                exchange: candidate.exchange,
+                currency: candidate.currency,
+                name: candidate.name
+            )
+            try await instrument.save(on: db)
+            return instrument
+        }
+
+        guard FMPSymbolPlanAccess.freeTierSupportedSymbols.contains(symbol) else {
+            throw Abort(.badRequest, reason: "Unknown symbol \(symbol).")
+        }
 
         let instrument = Instrument(
-            conid: candidate?.conid ?? "csv-\(symbol.lowercased())",
-            symbol: candidate?.symbol ?? symbol.uppercased(),
-            exchange: candidate?.exchange ?? "UNKNOWN",
-            currency: candidate?.currency ?? "USD",
-            name: candidate?.name ?? symbol.uppercased()
+            conid: "csv-\(symbol.lowercased())",
+            symbol: symbol.uppercased(),
+            exchange: "UNKNOWN",
+            currency: "USD",
+            name: symbol.uppercased()
         )
         try await instrument.save(on: db)
         return instrument
     }
 
-    func resolveInstrumentCandidate(symbol: String, on req: Request) async throws -> SearchResultResponse? {
-        if let local = try await Instrument.query(on: req.db)
+    func resolveInstrumentCandidate(symbol: String, on req: Request, db: any Database) async throws -> SearchResultResponse? {
+        if let local = try await Instrument.query(on: db)
             .filter(\.$symbol == symbol)
             .first()
         {

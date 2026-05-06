@@ -1,8 +1,80 @@
 import Fluent
 import Foundation
 
+struct NewsListCursor {
+    let publishedAt: Date
+    let id: UUID?
+
+    static func parse(_ raw: String?) -> NewsListCursor? {
+        guard let raw = raw?.trimmingCharacters(in: .whitespacesAndNewlines), !raw.isEmpty else {
+            return nil
+        }
+
+        if let decoded = decodeOpaqueCursor(raw) {
+            return decoded
+        }
+
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        guard let date = formatter.date(from: raw) else {
+            return nil
+        }
+        return .init(publishedAt: date, id: nil)
+    }
+
+    static func encode(publishedAt: Date, id: UUID) -> String {
+        let payload = "v1|\(publishedAt.timeIntervalSinceReferenceDate.bitPattern)|\(id.uuidString)"
+        return Data(payload.utf8)
+            .base64EncodedString()
+            .replacingOccurrences(of: "+", with: "-")
+            .replacingOccurrences(of: "/", with: "_")
+            .replacingOccurrences(of: "=", with: "")
+    }
+
+    private static func decodeOpaqueCursor(_ raw: String) -> NewsListCursor? {
+        var base64 = raw
+            .replacingOccurrences(of: "-", with: "+")
+            .replacingOccurrences(of: "_", with: "/")
+        let padding = base64.count % 4
+        if padding > 0 {
+            base64.append(String(repeating: "=", count: 4 - padding))
+        }
+
+        guard let data = Data(base64Encoded: base64),
+              let payload = String(data: data, encoding: .utf8)
+        else {
+            return nil
+        }
+
+        let parts = payload.split(separator: "|").map(String.init)
+
+        if parts.count == 3, parts[0] == "v1",
+           let bitPattern = UInt64(parts[1]),
+           let id = UUID(uuidString: parts[2])
+        {
+            return NewsListCursor(
+                publishedAt: Date(timeIntervalSinceReferenceDate: Double(bitPattern: bitPattern)),
+                id: id
+            )
+        }
+
+        if parts.count == 2 {
+            let formatter = ISO8601DateFormatter()
+            formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+            guard let publishedAt = formatter.date(from: parts[0]),
+                  let id = UUID(uuidString: parts[1])
+            else {
+                return nil
+            }
+            return NewsListCursor(publishedAt: publishedAt, id: id)
+        }
+
+        return nil
+    }
+}
+
 protocol NewsRepository: Sendable {
-    func list(userId: UUID, symbol: String?, limit: Int, cursor: Date?, on db: any Database) async throws -> [NewsItem]
+    func list(userId: UUID, symbol: String?, limit: Int, cursor: NewsListCursor?, on db: any Database) async throws -> [NewsItem]
     func listFeed(userId: UUID, trackedSymbols: [String], limit: Int, on db: any Database) async throws -> [NewsItem]
     func find(id: UUID, userId: UUID, on db: any Database) async throws -> NewsItem?
     func trackedUserIDs(symbols: [String], on db: any Database) async throws -> [String: Set<UUID>]
@@ -13,17 +85,27 @@ protocol NewsRepository: Sendable {
 }
 
 struct DatabaseNewsRepository: NewsRepository {
-    func list(userId: UUID, symbol: String?, limit: Int, cursor: Date?, on db: any Database) async throws -> [NewsItem] {
+    func list(userId: UUID, symbol: String?, limit: Int, cursor: NewsListCursor?, on db: any Database) async throws -> [NewsItem] {
         var query = NewsItem.query(on: db)
             .filter(\.$userId == userId)
             .sort(\.$publishedAt, .descending)
-            .sort(\.$createdAt, .descending)
+            .sort(\.$id, .descending)
 
         if let symbol, !symbol.isEmpty {
             query.filter(\.$symbol == symbol)
         }
         if let cursor {
-            query.filter(\.$publishedAt < cursor)
+            if let cursorId = cursor.id {
+                query.group(.or) { group in
+                    group.filter(\.$publishedAt < cursor.publishedAt)
+                    group.group(.and) { tie in
+                        tie.filter(\.$publishedAt == cursor.publishedAt)
+                        tie.filter(\.$id < cursorId)
+                    }
+                }
+            } else {
+                query.filter(\.$publishedAt < cursor.publishedAt)
+            }
         }
 
         query.limit(limit)

@@ -266,7 +266,7 @@ struct BillingTests {
         sourceLocation: SourceLocation = #_sourceLocation
     ) {
         #expect(context.isPremium == true, sourceLocation: sourceLocation)
-        #expect(context.features.allSatisfy(\.available), sourceLocation: sourceLocation)
+        #expect(!context.features.contains(where: { !$0.available }), sourceLocation: sourceLocation)
         #expect(context.usage.first { $0.key == "holdings" }?.limit == nil, sourceLocation: sourceLocation)
         #expect(context.usage.first { $0.key == "csv_imports" }?.limit == nil, sourceLocation: sourceLocation)
         #expect(context.usage.first { $0.key == "report_generations" }?.limit == nil, sourceLocation: sourceLocation)
@@ -958,7 +958,7 @@ struct BillingTests {
             #expect(body.subscription?.status == "active")
             #expect(body.subscription?.plan == "pro_annual")
             #expect(body.subscription?.renewsOrExpiresAt != nil)
-            #expect(body.features.allSatisfy(\.available))
+            #expect(!body.features.contains(where: { !$0.available }))
             #expect(body.usage.first { $0.key == "holdings" }?.limit == nil)
         }
     }

@@ -37,7 +37,7 @@ extension NewsServiceError: AbortError {
 }
 
 protocol NewsService: Sendable {
-    func list(userId: UUID, symbol: String?, limit: Int, cursor: Date?, on db: any Database) async throws -> (items: [NewsItemResponse], nextCursor: String?)
+    func list(userId: UUID, symbol: String?, limit: Int, cursor: NewsListCursor?, on db: any Database) async throws -> (items: [NewsItemResponse], nextCursor: String?)
     func feed(userId: UUID, limit: Int?, on db: any Database) async throws -> [NewsItemResponse]
     func get(id: UUID, userId: UUID, on db: any Database) async throws -> NewsItemResponse
     func create(payload: NewsItemRequest, userId: UUID, on db: any Database) async throws -> NewsItemResponse
@@ -56,7 +56,7 @@ struct DefaultNewsService: NewsService {
         self.provider = provider
     }
 
-    func list(userId: UUID, symbol: String?, limit: Int, cursor: Date?, on db: any Database) async throws -> (items: [NewsItemResponse], nextCursor: String?) {
+    func list(userId: UUID, symbol: String?, limit: Int, cursor: NewsListCursor?, on db: any Database) async throws -> (items: [NewsItemResponse], nextCursor: String?) {
         let normalized = normalizedSymbolValue(symbol)
         let maxLimit = 200
         let fetchLimit = limit + 1
@@ -64,10 +64,10 @@ struct DefaultNewsService: NewsService {
         if newsItems.count > limit, limit < maxLimit {
             let pageItems = Array(newsItems.prefix(limit))
             let items = try pageItems.map(makeResponse)
-            guard let last = pageItems.last else {
+            guard let last = pageItems.last, let id = last.id else {
                 return (items, nil)
             }
-            let nextCursor = formatISODateTime(last.publishedAt)
+            let nextCursor = NewsListCursor.encode(publishedAt: last.publishedAt, id: id)
             return (items, nextCursor)
         } else {
             let items = try Array(newsItems.prefix(limit)).map(makeResponse)

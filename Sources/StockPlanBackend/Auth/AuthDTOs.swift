@@ -102,7 +102,7 @@ extension AuthMFAChallengeResponse: @retroactive Content {}
 extension AuthMFAVerifyRequest: @retroactive Content {}
 extension AuthMFAResendRequest: @retroactive Content {}
 
-struct OAuthStartRequest: Codable, Equatable {
+struct OAuthStartRequest: Codable, Equatable, Content {
     let redirectURI: String
 
     init(redirectURI: String) {
@@ -137,7 +137,7 @@ struct OAuthStartRequest: Codable, Equatable {
     }
 }
 
-struct OAuthStartResponse: Codable, Equatable {
+struct OAuthStartResponse: Codable, Equatable, Content {
     let flowId: UUID
     let authorizationURL: String
     let expiresIn: Int
@@ -202,7 +202,7 @@ struct OAuthStartResponse: Codable, Equatable {
     }
 }
 
-struct OAuthExchangeRequest: Codable, Equatable {
+struct OAuthExchangeRequest: Codable, Equatable, Content {
     let flowId: UUID
     let code: String
     let state: String

@@ -49,10 +49,6 @@ public func configure(_ app: Application) async throws {
     // Add custom error handling middleware first.
     app.middleware.use(TracingMiddleware())
 
-    // Idempotency for mutations — clients set Idempotency-Key header.
-    // Caches POST/PUT/DELETE responses in Redis (24h TTL). No-op for other methods or missing header.
-    app.middleware.use(IdempotencyMiddleware(ttl: 86400))
-
     // Configure global JSON decoder and encoder
     ContentConfiguration.global.use(decoder: JSONDecoder.backendAPI, for: .json)
     ContentConfiguration.global.use(encoder: JSONEncoder.backendAPI, for: .json)
@@ -144,8 +140,19 @@ public func configure(_ app: Application) async throws {
         try await sqlDatabase.raw("CREATE SCHEMA IF NOT EXISTS \(unsafeRaw: testDatabaseSchema)").run()
     }
 
-    if let redisURL = Environment.get("REDIS_URL"), !redisURL.isEmpty {
-        app.redis.configuration = try RedisConfiguration(url: redisURL)
+    if isTesting {
+        app.logger.info("Redis disabled in testing environment.")
+    } else if let redisURL = Environment.get("REDIS_URL"), !redisURL.isEmpty {
+        do {
+            app.redis.configuration = try RedisConfiguration(url: redisURL)
+            // Idempotency for mutations — clients set Idempotency-Key header.
+            // Caches POST/PUT/DELETE responses in Redis (24h TTL). No-op for other methods or missing header.
+            app.middleware.use(IdempotencyMiddleware(ttl: 86400))
+        } catch {
+            app.logger.warning("Redis disabled: could not parse/configure REDIS_URL. error=\(error)")
+        }
+    } else {
+        app.logger.warning("Redis disabled: REDIS_URL not set. IdempotencyMiddleware disabled")
     }
 
     let jwtSecret = Environment.get("JWT_SECRET") ?? "dev-secret"
@@ -287,6 +294,8 @@ public func configure(_ app: Application) async throws {
     app.userProfileRepository = DatabaseUserProfileRepository(encryptionService: app.userPIIEncryptionService)
     app.userProfileService = DefaultUserProfileService(repo: app.userProfileRepository)
     app.pushDeviceService = DatabasePushDeviceService()
+    app.earningsNotificationPreferenceService = DatabaseEarningsNotificationPreferenceService()
+    app.earningsNotificationEvaluator = DefaultEarningsNotificationEvaluator()
     // Data Export service setup
     app.dataExportRepository = DatabaseDataExportRepository()
     app.exportService = ExportService(repository: app.dataExportRepository, application: app)
@@ -307,18 +316,7 @@ public func configure(_ app: Application) async throws {
     app.billingService = DefaultBillingService()
     app.targetAlertEvaluator = DefaultTargetAlertEvaluator()
 
-    if let apnsConfig = APNSBootstrapConfiguration.fromEnvironment(app: app) {
-        try app.apns.configure(
-            .jwt(
-                privateKey: .loadFrom(string: apnsConfig.privateKeyP8),
-                keyIdentifier: apnsConfig.keyID,
-                teamIdentifier: apnsConfig.teamID
-            )
-        )
-        app.pushNotificationSender = APNSPushNotificationSender(topic: apnsConfig.topic)
-    } else {
-        app.pushNotificationSender = NoopPushNotificationSender()
-    }
+    try configureAPNS(app)
 
     let earningsProvider: any EarningsProvider = if let finnhubAPIKey, !finnhubAPIKey.isEmpty {
         FinnhubEarningsProvider(apiKey: finnhubAPIKey)
@@ -339,6 +337,8 @@ public func configure(_ app: Application) async throws {
     app.lifecycle.use(IBKRSyncJob())
     let apnsAlertPollSeconds = Environment.get("APNS_ALERT_POLL_SECONDS").flatMap(Int64.init(_:)) ?? 300
     app.lifecycle.use(TargetAlertPoller(intervalSeconds: apnsAlertPollSeconds))
+    let earningsAlertPollSeconds = Environment.get("EARNINGS_ALERT_POLL_SECONDS").flatMap(Int64.init(_:)) ?? 86400
+    app.lifecycle.use(EarningsNotificationPoller(intervalSeconds: earningsAlertPollSeconds))
     app.lifecycle.use(TrialExpirationJob())
     // Data Export cleanup (expire files after 7 days)
     app.lifecycle.use(DataExportCleanupJob(repository: app.dataExportRepository, interval: 86400))
@@ -347,6 +347,34 @@ public func configure(_ app: Application) async throws {
 
     // register routes
     try routes(app)
+}
+
+func configureAPNS(_ app: Application) throws {
+    guard let apnsConfig = APNSBootstrapConfiguration.fromEnvironment(app: app) else {
+        app.pushNotificationSender = NoopPushNotificationSender()
+        return
+    }
+
+    do {
+        try apnsConfig.validatePrivateKey()
+        try app.apns.configure(
+            .jwt(
+                privateKey: .loadFrom(string: apnsConfig.privateKeyP8),
+                keyIdentifier: apnsConfig.keyID,
+                teamIdentifier: apnsConfig.teamID
+            )
+        )
+        app.pushNotificationSender = APNSPushNotificationSender(topic: apnsConfig.topic)
+    } catch {
+        guard app.environment != .production else {
+            throw error
+        }
+
+        app.logger.warning(
+            "APNS is disabled because APNS_PRIVATE_KEY_P8 could not be parsed in \(app.environment.name): \(String(describing: error))"
+        )
+        app.pushNotificationSender = NoopPushNotificationSender()
+    }
 }
 
 private func registerMigrations(_ app: Application) {
@@ -382,6 +410,8 @@ private func registerMigrations(_ app: Application) {
     app.migrations.add(CreateTarget())
     app.migrations.add(AddTargetAlertFields())
     app.migrations.add(CreatePushDevice())
+    app.migrations.add(CreateEarningsNotificationPreference())
+    app.migrations.add(CreateEarningsNotificationDelivery())
     app.migrations.add(CreatePriceHistory())
     app.migrations.add(CreateQuoteCache())
     app.migrations.add(AddQuoteFields())

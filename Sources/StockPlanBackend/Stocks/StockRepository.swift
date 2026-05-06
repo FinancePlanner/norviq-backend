@@ -3,7 +3,7 @@ import Foundation
 import Vapor
 
 protocol StocksRepository: Sendable {
-    func list(userId: UUID, portfolioListId: UUID?, limit: Int, cursor: Date?, on db: any Database) async throws -> [Stock]
+    func list(userId: UUID, portfolioListId: UUID?, limit: Int, cursor: StockListCursor?, on db: any Database) async throws -> [Stock]
     func find(id: UUID, userId: UUID, on db: any Database) async throws -> Stock?
     func find(symbol: String, userId: UUID, on db: any Database) async throws -> Stock?
     func findValuation(symbol: String, userId: UUID, on db: any Database) async throws
@@ -35,16 +35,26 @@ extension StocksRepository {
 }
 
 struct DatabaseStocksRepository: StocksRepository {
-    func list(userId: UUID, portfolioListId: UUID? = nil, limit: Int, cursor: Date?, on db: any Database) async throws -> [Stock] {
+    func list(userId: UUID, portfolioListId: UUID? = nil, limit: Int, cursor: StockListCursor?, on db: any Database) async throws -> [Stock] {
         var query = Stock.query(on: db)
             .filter(\.$userId == userId)
             .sort(\.$createdAt, .descending)
+            .sort(\.$id, .descending)
         if let portfolioListId {
             query.filter(\.$portfolioListId == portfolioListId)
         }
         if let cursor {
-            // Keyset: fetch records created before cursor
-            query.filter(\.$createdAt < cursor)
+            if let cursorId = cursor.id {
+                query.group(.or) { group in
+                    group.filter(\.$createdAt < cursor.createdAt)
+                    group.group(.and) { tie in
+                        tie.filter(\.$createdAt == cursor.createdAt)
+                        tie.filter(\.$id < cursorId)
+                    }
+                }
+            } else {
+                query.filter(\.$createdAt < cursor.createdAt)
+            }
         }
         query.limit(limit)
         return try await query.all()

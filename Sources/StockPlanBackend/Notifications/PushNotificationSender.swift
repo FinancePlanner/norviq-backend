@@ -24,6 +24,14 @@ protocol PushNotificationSending: Sendable {
         devices: [PushDevice],
         req: Request
     ) async -> TargetPushSendSummary
+
+    func sendEarningsReminder(
+        symbol: String,
+        earningsDate: String,
+        leadDays: Int,
+        devices: [PushDevice],
+        req: Request
+    ) async -> TargetPushSendSummary
 }
 
 struct NoopPushNotificationSender: PushNotificationSending {
@@ -51,10 +59,24 @@ struct NoopPushNotificationSender: PushNotificationSending {
         )
         return .init(delivered: 0, failed: devices.count)
     }
+
+    func sendEarningsReminder(
+        symbol: String,
+        earningsDate: String,
+        leadDays: Int,
+        devices: [PushDevice],
+        req: Request
+    ) async -> TargetPushSendSummary {
+        req.logger.debug(
+            "push.notifications disabled earnings_reminder symbol=\(symbol) earningsDate=\(earningsDate) leadDays=\(leadDays) devices=\(devices.count)"
+        )
+        return .init(delivered: 0, failed: devices.count)
+    }
 }
 
 struct APNSPushNotificationSender: PushNotificationSending {
     private static let targetAlertCategoryID = "TARGET_ALERT"
+    private static let earningsReminderCategoryID = "EARNINGS_REMINDER"
 
     struct Payload: Codable {
         let schemaVersion: Int
@@ -74,6 +96,15 @@ struct APNSPushNotificationSender: PushNotificationSending {
         let snapshotId: String?
         let deepLink: String?
         let remainingAmount: Double
+    }
+
+    struct EarningsReminderPayload: Codable {
+        let schemaVersion: Int
+        let type: String
+        let symbol: String
+        let earningsDate: String
+        let leadDays: Int
+        let deepLink: String?
     }
 
     let topic: String
@@ -200,6 +231,71 @@ struct APNSPushNotificationSender: PushNotificationSending {
 
         req.logger.info(
             "push.analytics delivered_summary symbol=\(target.symbol) scenario=\(target.scenario) delivered=\(delivered) failed=\(failed)"
+        )
+
+        return .init(delivered: delivered, failed: failed)
+    }
+
+    func sendEarningsReminder(
+        symbol: String,
+        earningsDate: String,
+        leadDays: Int,
+        devices: [PushDevice],
+        req: Request
+    ) async -> TargetPushSendSummary {
+        guard !devices.isEmpty else {
+            return .init(delivered: 0, failed: 0)
+        }
+
+        let normalizedSymbol = symbol.uppercased()
+        let when = leadDays == 1 ? "tomorrow" : "in \(leadDays) days"
+        let title = "Earnings soon: \(normalizedSymbol)"
+        let body = "\(normalizedSymbol) reports earnings \(when) (\(earningsDate))."
+        let payload = EarningsReminderPayload(
+            schemaVersion: 1,
+            type: "earnings_reminder",
+            symbol: normalizedSymbol,
+            earningsDate: earningsDate,
+            leadDays: leadDays,
+            deepLink: "financeplan://stocks/\(normalizedSymbol)"
+        )
+        let notification = APNSAlertNotification(
+            alert: .init(
+                title: .raw(title),
+                body: .raw(body)
+            ),
+            expiration: .immediately,
+            priority: .immediately,
+            topic: topic,
+            payload: payload,
+            threadID: "earnings-\(normalizedSymbol)-\(earningsDate)-\(leadDays)",
+            category: Self.earningsReminderCategoryID
+        )
+
+        var delivered = 0
+        var failed = 0
+
+        for device in devices {
+            do {
+                let client = client(for: device, req: req)
+                _ = try await client.sendAlertNotification(
+                    notification,
+                    deviceToken: device.deviceToken
+                )
+                delivered += 1
+            } catch {
+                failed += 1
+                req.logger.warning(
+                    "push.notifications send failed earnings_reminder symbol=\(normalizedSymbol) earningsDate=\(earningsDate) leadDays=\(leadDays) error_type=\(String(reflecting: type(of: error)))"
+                )
+                if isInvalidTokenError(error) {
+                    try? await req.pushDeviceService.deactivate(deviceToken: device.deviceToken, on: req.db)
+                }
+            }
+        }
+
+        req.logger.info(
+            "push.analytics delivered_summary earnings_reminder symbol=\(normalizedSymbol) earningsDate=\(earningsDate) leadDays=\(leadDays) delivered=\(delivered) failed=\(failed)"
         )
 
         return .init(delivered: delivered, failed: failed)

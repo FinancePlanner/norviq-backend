@@ -7,6 +7,10 @@ struct PushNotificationsController: RouteCollection {
 
         push.put("device", use: registerDevice)
         push.post("device", "deactivate", use: deactivateDevice)
+
+        let earnings = protected.grouped("notifications", "earnings")
+        earnings.get("preferences", use: getEarningsPreferences)
+        earnings.put("preferences", use: updateEarningsPreferences)
     }
 
     @Sendable
@@ -23,5 +27,20 @@ struct PushNotificationsController: RouteCollection {
         let payload = try req.content.decode(PushDeviceDeactivateRequest.self)
         try await req.pushDeviceService.deactivate(userId: session.userId, deviceToken: payload.deviceToken, on: req.db)
         return .ok
+    }
+
+    @Sendable
+    func getEarningsPreferences(req: Request) async throws -> EarningsNotificationPreferencesResponse {
+        let session = try req.auth.require(SessionToken.self)
+        try await req.usageCounterService.requirePremium(.targetAlerts, userId: session.userId, on: req.db)
+        return try await req.earningsNotificationPreferenceService.get(userId: session.userId, on: req.db)
+    }
+
+    @Sendable
+    func updateEarningsPreferences(req: Request) async throws -> EarningsNotificationPreferencesResponse {
+        let session = try req.auth.require(SessionToken.self)
+        try await req.usageCounterService.requirePremium(.targetAlerts, userId: session.userId, on: req.db)
+        let payload = try req.content.decode(UpdateEarningsNotificationPreferencesRequest.self)
+        return try await req.earningsNotificationPreferenceService.update(userId: session.userId, payload: payload, on: req.db)
     }
 }

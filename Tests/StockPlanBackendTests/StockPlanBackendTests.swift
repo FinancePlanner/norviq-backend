@@ -108,6 +108,7 @@ struct StockPlanBackendTests {
                 let app = try await Application.make(.testing)
                 do {
                     try await configure(app)
+                    try await flushRedisIfConfigured(app)
                     try await app.autoMigrate()
                     try await test(app)
                     try await app.autoRevert()
@@ -128,6 +129,15 @@ struct StockPlanBackendTests {
                     throw error
                 }
             }
+        }
+    }
+
+    private func flushRedisIfConfigured(_ app: Application) async throws {
+        guard app.redis.configuration != nil else { return }
+        do {
+            _ = try await app.redis.send(command: "FLUSHDB", with: [])
+        } catch {
+            app.logger.warning("test.redis.flush skipped error=\(error)")
         }
     }
 
@@ -362,6 +372,7 @@ struct StockPlanBackendTests {
     @Test("Readiness endpoint reports dependency checks")
     func readinessEndpoint() async throws {
         try await withApp { app in
+            #expect(app.redis.configuration == nil)
             try await app.testing().test(.GET, "health/ready", afterResponse: { res async throws in
                 #expect(res.status == .ok)
                 let body = try res.content.decode(TestReadinessResponse.self)
@@ -3344,6 +3355,16 @@ struct StockPlanBackendTests {
             req _: Request
         ) async -> TargetPushSendSummary {
             // For now, no-op or record if needed in tests
+            .init(delivered: devices.count, failed: 0)
+        }
+
+        func sendEarningsReminder(
+            symbol _: String,
+            earningsDate _: String,
+            leadDays _: Int,
+            devices: [PushDevice],
+            req _: Request
+        ) async -> TargetPushSendSummary {
             .init(delivered: devices.count, failed: 0)
         }
     }

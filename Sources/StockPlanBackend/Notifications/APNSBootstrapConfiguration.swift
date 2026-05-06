@@ -1,3 +1,4 @@
+import APNSCore
 import Foundation
 import Vapor
 
@@ -29,5 +30,9 @@ struct APNSBootstrapConfiguration {
             privateKeyP8: normalizedPrivateKey,
             topic: topic
         )
+    }
+
+    func validatePrivateKey() throws {
+        _ = try P256.Signing.PrivateKey.loadFrom(string: privateKeyP8)
     }
 }

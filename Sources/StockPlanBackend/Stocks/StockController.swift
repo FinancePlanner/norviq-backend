@@ -79,20 +79,14 @@ struct StockController: RouteCollection {
             on: req.db,
             defaultWhenMissing: true
         )
-        // Parse cursor: ISO8601 string -> Date
-        let cursorDate: Date? = {
-            guard let cursor = query.cursor else { return nil }
-            let formatter = ISO8601DateFormatter()
-            formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-            return formatter.date(from: cursor)
-        }()
+        let cursor = StockListCursor.parse(query.cursor)
 
         let limit = clampedLimit(query.limit)
         let result = try await req.stocksService.list(
             userId: session.userId,
             portfolioListId: portfolioListId,
             limit: limit,
-            cursor: cursorDate,
+            cursor: cursor,
             on: req.db
         )
 
