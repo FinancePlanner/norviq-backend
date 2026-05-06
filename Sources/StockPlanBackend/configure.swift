@@ -140,14 +140,14 @@ public func configure(_ app: Application) async throws {
         try await sqlDatabase.raw("CREATE SCHEMA IF NOT EXISTS \(unsafeRaw: testDatabaseSchema)").run()
     }
 
-    if let redisURL = Environment.get("REDIS_URL"), !redisURL.isEmpty {
+    if isTesting {
+        app.logger.info("Redis disabled in testing environment.")
+    } else if let redisURL = Environment.get("REDIS_URL"), !redisURL.isEmpty {
         do {
             app.redis.configuration = try RedisConfiguration(url: redisURL)
             // Idempotency for mutations — clients set Idempotency-Key header.
             // Caches POST/PUT/DELETE responses in Redis (24h TTL). No-op for other methods or missing header.
-            if app.environment != .testing {
-                app.middleware.use(IdempotencyMiddleware(ttl: 86400))
-            }
+            app.middleware.use(IdempotencyMiddleware(ttl: 86400))
         } catch {
             app.logger.warning("Redis disabled: could not parse/configure REDIS_URL. error=\(error)")
         }

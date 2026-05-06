@@ -372,6 +372,7 @@ struct StockPlanBackendTests {
     @Test("Readiness endpoint reports dependency checks")
     func readinessEndpoint() async throws {
         try await withApp { app in
+            #expect(app.redis.configuration == nil)
             try await app.testing().test(.GET, "health/ready", afterResponse: { res async throws in
                 #expect(res.status == .ok)
                 let body = try res.content.decode(TestReadinessResponse.self)
