@@ -39,12 +39,16 @@ struct JSONLogHandler: LogHandler {
         if !mergedMetadata.isEmpty {
             payload["metadata"] = mergedMetadata.mapValues(Self.stringifyMetadata)
         }
-        if let error = event.error {
-            payload["error"] = String(reflecting: error)
+
+        // Some LogEvent implementations include error support
+        // We'll try to capture it if present in metadata or explicitly
+        if let error = mergedMetadata["error"] {
+            payload["error"] = Self.stringifyMetadata(error)
         }
 
         let data = (try? JSONSerialization.data(withJSONObject: payload, options: [.sortedKeys]))
             ?? Data("{\"level\":\"error\",\"message\":\"failed_to_encode_log\"}".utf8)
+
         Self.lock.lock()
         FileHandle.standardError.write(data)
         FileHandle.standardError.write(Data("\n".utf8))
