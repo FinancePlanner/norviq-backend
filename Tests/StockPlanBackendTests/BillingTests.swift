@@ -3,6 +3,7 @@ import Foundation
 @testable import StockPlanBackend
 import struct StockPlanShared.BillingContextResponse
 import struct StockPlanShared.BillingUpgradeRequiredResponse
+import struct StockPlanShared.CryptoPortfolioItemRequest
 import Testing
 import VaporTesting
 
@@ -336,6 +337,10 @@ struct BillingTests {
             (
                 "recurring_templates",
                 get("v1/expenses/recurring", token: token, on: app)
+            ),
+            (
+                "crypto",
+                get("v1/crypto/list", token: token, on: app)
             ),
         ]
     }
@@ -996,6 +1001,96 @@ struct BillingTests {
             #expect(body.subscription?.status == "cancelled")
             #expect(body.subscription?.isCancelledButActive == true)
             #expect(body.subscription?.periodEndsAt != nil)
+        }
+    }
+
+    // MARK: - Crypto entitlement tests
+
+    @Test("Free users are blocked from every Crypto endpoint")
+    func freeCryptoEndpointsAreBlocked() async throws {
+        try await withApp { app in
+            let auth = try await registerUser(on: app, identifier: "free-crypto")
+
+            let cryptoChecks: [(method: HTTPMethod, path: String)] = [
+                (.GET, "v1/crypto/list"),
+                (.GET, "v1/crypto/quote/BTC"),
+                (.GET, "v1/crypto/quote-short/BTC"),
+                (.GET, "v1/crypto/batch-quotes"),
+                (.GET, "v1/crypto/history/1hour/BTC"),
+                (.GET, "v1/crypto/news"),
+                (.GET, "v1/crypto/news/BTC"),
+                (.GET, "v1/crypto/portfolio"),
+            ]
+
+            for check in cryptoChecks {
+                let result = try await request(check.method, check.path, token: auth.token, on: app)
+                assertUpgradeRequired(result, feature: "crypto")
+            }
+        }
+    }
+
+    @Test("Trial users can access Crypto endpoints")
+    func trialCryptoEndpointsAllowed() async throws {
+        try await withApp { app in
+            let auth = try await registerUser(on: app, identifier: "trial-crypto", keepDefaultTrial: true)
+
+            let result = try await get("v1/crypto/list", token: auth.token, on: app)
+            #expect(result.0 != .forbidden)
+            #expect(!result.1.contains("upgrade_required"))
+        }
+    }
+
+    @Test("Pro users can access Crypto endpoints")
+    func proCryptoEndpointsAllowed() async throws {
+        try await withApp { app in
+            let auth = try await registerUser(on: app, identifier: "pro-crypto")
+            try await grantPremium(userId: auth.userId, on: app)
+
+            let result = try await get("v1/crypto/list", token: auth.token, on: app)
+            #expect(result.0 != .forbidden)
+            #expect(!result.1.contains("upgrade_required"))
+        }
+    }
+
+    @Test("Crypto portfolio mutations require Pro/trial entitlement")
+    func freeCryptoPortfolioMutationBlocked() async throws {
+        try await withApp { app in
+            let auth = try await registerUser(on: app, identifier: "free-crypto-add")
+            let payload = CryptoPortfolioItemRequest(
+                symbol: "BTC",
+                name: "Bitcoin",
+                quantity: 1,
+                averageBuyPrice: 50000
+            )
+            let result = try await request(.POST, "v1/crypto/portfolio", token: auth.token, body: payload, on: app)
+            assertUpgradeRequired(result, feature: "crypto")
+        }
+    }
+
+    @Test("Billing context lists crypto as a Pro-only feature for free users")
+    func billingContextExposesCryptoAsProOnly() async throws {
+        try await withApp { app in
+            let auth = try await registerUser(on: app, identifier: "context-crypto-free")
+
+            let (status, context, _) = try await getBillingContext(token: auth.token, on: app)
+            #expect(status == .ok)
+            let body = try #require(context)
+            let crypto = try #require(body.features.first { $0.key == "crypto" })
+            #expect(crypto.available == false)
+            #expect(crypto.requiredPlan == "pro")
+        }
+    }
+
+    @Test("Billing context marks crypto available for trial users")
+    func billingContextExposesCryptoAvailableForTrial() async throws {
+        try await withApp { app in
+            let auth = try await registerUser(on: app, identifier: "context-crypto-trial", keepDefaultTrial: true)
+
+            let (status, context, _) = try await getBillingContext(token: auth.token, on: app)
+            #expect(status == .ok)
+            let body = try #require(context)
+            let crypto = try #require(body.features.first { $0.key == "crypto" })
+            #expect(crypto.available == true)
         }
     }
 

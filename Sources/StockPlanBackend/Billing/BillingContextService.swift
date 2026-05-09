@@ -201,5 +201,6 @@ private struct BillingFeatureDescriptor {
         .init(feature: .advancedResearch, title: "Advanced stock research", proOnly: true),
         .init(feature: .peerComparison, title: "Peer comparison", proOnly: true),
         .init(feature: .earningsText, title: "Earnings detail", proOnly: true),
+        .init(feature: .crypto, title: "Cryptocurrency", proOnly: true),
     ]
 }
