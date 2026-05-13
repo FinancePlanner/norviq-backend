@@ -72,7 +72,8 @@ let package = Package(
             ],
             swiftSettings: swiftSettings
         ),
-    ]
+    ],
+    swiftLanguageVersions: [.v6]
 )
 
 var swiftSettings: [SwiftSetting] {

@@ -111,6 +111,8 @@ enum BillingFeature: String {
     case yearOverview = "year_overview"
     /// AI/rule-based smart spending suggestions — Pro only.
     case smartSuggestions = "smart_suggestions"
+    /// Cryptocurrency endpoints (market data, news, portfolio) — Pro/trial only.
+    case crypto
 }
 
 struct BillingPlanLimits {
@@ -162,7 +164,8 @@ struct BillingPlanLimits {
             reportGenerationCount
         case .brokerSync, .expensePlanner, .reports, .statistics, .marketFundamentals,
              .advancedResearch, .peerComparison, .earningsText,
-             .householdPartner, .recurringTemplates, .yearOverview, .smartSuggestions:
+             .householdPartner, .recurringTemplates, .yearOverview, .smartSuggestions,
+             .crypto:
             nil
         }
     }
@@ -264,7 +267,8 @@ struct DefaultUsageCounterService: UsageCounterService {
             usage.reportGenerationCount
         case .brokerSync, .portfolioLists, .valuationCases, .expensePlanner, .reports,
              .statistics, .marketFundamentals, .advancedResearch, .peerComparison, .earningsText,
-             .householdPartner, .recurringTemplates, .yearOverview, .smartSuggestions:
+             .householdPartner, .recurringTemplates, .yearOverview, .smartSuggestions,
+             .crypto:
             0
         }
     }
@@ -283,7 +287,8 @@ struct DefaultUsageCounterService: UsageCounterService {
             usage.reportGenerationCount = value
         case .brokerSync, .portfolioLists, .valuationCases, .expensePlanner, .reports,
              .statistics, .marketFundamentals, .advancedResearch, .peerComparison, .earningsText,
-             .householdPartner, .recurringTemplates, .yearOverview, .smartSuggestions:
+             .householdPartner, .recurringTemplates, .yearOverview, .smartSuggestions,
+             .crypto:
             break
         }
     }

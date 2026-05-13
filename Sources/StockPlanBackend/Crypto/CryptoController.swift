@@ -30,29 +30,34 @@ struct CryptoController: RouteCollection {
 
     @Sendable
     func cryptocurrencyList(req: Request) async throws -> [CryptoAssetResponse] {
-        try await req.application.cryptoService.cryptocurrencyList(on: req)
+        _ = try await requireCryptoEntitlement(req)
+        return try await req.application.cryptoService.cryptocurrencyList(on: req)
     }
 
     @Sendable
     func quote(req: Request) async throws -> [CryptoQuoteResponse] {
+        _ = try await requireCryptoEntitlement(req)
         let symbol = try requireSymbol(req)
         return try await req.application.cryptoService.quote(symbols: symbol, on: req)
     }
 
     @Sendable
     func quoteShort(req: Request) async throws -> [CryptoQuoteShortResponse] {
+        _ = try await requireCryptoEntitlement(req)
         let symbol = try requireSymbol(req)
         return try await req.application.cryptoService.quoteShort(symbol: symbol, on: req)
     }
 
     @Sendable
     func batchQuotes(req: Request) async throws -> [CryptoQuoteShortResponse] {
+        _ = try await requireCryptoEntitlement(req)
         let short = req.query[Bool.self, at: "short"] ?? false
         return try await req.application.cryptoService.batchQuotes(short: short, on: req)
     }
 
     @Sendable
     func history(req: Request) async throws -> [CryptoHistoricalPoint] {
+        _ = try await requireCryptoEntitlement(req)
         let symbol = try requireSymbol(req)
         let resolution = try req.parameters.require("resolution")
         let from = req.query[String.self, at: "from"]
@@ -78,6 +83,7 @@ struct CryptoController: RouteCollection {
 
     @Sendable
     func generalNews(req: Request) async throws -> [StockNews] {
+        _ = try await requireCryptoEntitlement(req)
         let page = req.query[Int.self, at: "page"]
         let limit = req.query[Int.self, at: "limit"]
         let from = req.query[String.self, at: "from"]
@@ -106,6 +112,7 @@ struct CryptoController: RouteCollection {
 
     @Sendable
     func news(req: Request) async throws -> [StockNews] {
+        _ = try await requireCryptoEntitlement(req)
         let symbol = try requireSymbol(req)
         let page = req.query[Int.self, at: "page"]
         let limit = req.query[Int.self, at: "limit"]
@@ -137,7 +144,7 @@ struct CryptoController: RouteCollection {
 
     @Sendable
     func listPortfolio(req: Request) async throws -> [CryptoPortfolioItemResponse] {
-        let session = try req.auth.require(SessionToken.self)
+        let session = try await requireCryptoEntitlement(req)
         return try await req.application.cryptoService.listPortfolio(
             userId: session.userId, on: req.db
         )
@@ -145,7 +152,7 @@ struct CryptoController: RouteCollection {
 
     @Sendable
     func addToPortfolio(req: Request) async throws -> Response {
-        let session = try req.auth.require(SessionToken.self)
+        let session = try await requireCryptoEntitlement(req)
         let payload = try req.content.decode(CryptoPortfolioItemRequest.self)
         let created = try await req.application.cryptoService.addToPortfolio(
             payload: payload, userId: session.userId, on: req.db
@@ -157,7 +164,7 @@ struct CryptoController: RouteCollection {
 
     @Sendable
     func updatePortfolioItem(req: Request) async throws -> CryptoPortfolioItemResponse {
-        let session = try req.auth.require(SessionToken.self)
+        let session = try await requireCryptoEntitlement(req)
         let itemId = try requireUUIDParameter(req, name: "itemId")
         let payload = try req.content.decode(CryptoPortfolioItemRequest.self)
         return try await req.application.cryptoService.updatePortfolioItem(
@@ -167,7 +174,7 @@ struct CryptoController: RouteCollection {
 
     @Sendable
     func removeFromPortfolio(req: Request) async throws -> HTTPStatus {
-        let session = try req.auth.require(SessionToken.self)
+        let session = try await requireCryptoEntitlement(req)
         let itemId = try requireUUIDParameter(req, name: "itemId")
         try await req.application.cryptoService.removeFromPortfolio(
             id: itemId, userId: session.userId, on: req.db
@@ -176,6 +183,12 @@ struct CryptoController: RouteCollection {
     }
 
     // MARK: - Helpers
+
+    private func requireCryptoEntitlement(_ req: Request) async throws -> SessionToken {
+        let session = try req.auth.require(SessionToken.self)
+        try await req.usageCounterService.requirePremium(.crypto, userId: session.userId, on: req.db)
+        return session
+    }
 
     private func requireSymbol(_ req: Request) throws -> String {
         if let querySymbol = req.query[String.self, at: "symbol"] {

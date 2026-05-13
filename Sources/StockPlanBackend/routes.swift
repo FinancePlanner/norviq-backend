@@ -51,6 +51,7 @@ func routes(_ app: Application) throws {
     try registerOpenAPIDocsRoutes(app)
     try app.register(collection: FinnhubWebhookController())
     try app.register(collection: RevenueCatWebhookController())
+    try app.register(collection: SharingController())
 
     try api.register(collection: AuthController(environment: app.environment))
     try api.register(collection: BillingController())
