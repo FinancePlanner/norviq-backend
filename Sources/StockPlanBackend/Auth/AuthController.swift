@@ -168,27 +168,39 @@ struct AuthController: RouteCollection {
 
     /// HTTPS bridge for OAuth providers that disallow custom-scheme redirect URIs
     /// (e.g. X requires HTTPS, Apple Services IDs prefer HTTPS).
-    /// Receives the provider's authorization-code redirect at
-    /// `GET /v1/auth/oauth/{provider}/callback?code=...&state=...` and 302s to the
-    /// app's custom-scheme deep link `norviqa://oauth/callback?<all-original-query>`
-    /// so ASWebAuthenticationSession on iOS can catch it.
+    ///
+    /// Returns HTTP 200 HTML with an inline JS redirect so that:
+    ///   - X's portal CRC validation (which probes the URL and rejects non-200)
+    ///     accepts it.
+    ///   - Real callbacks (`?code=...&state=...`) trigger a client-side navigation
+    ///     to `norviqa://oauth/callback?<query>`, which ASWebAuthenticationSession
+    ///     on iOS (callbackURLScheme="norviqa") intercepts.
     @Sendable
-    func oauthCallbackBridge(req: Request) async throws -> Response {
-        let appScheme = (Environment.get("OAUTH_APP_CALLBACK_SCHEME")?.trimmingCharacters(in: .whitespacesAndNewlines))
+    func oauthCallbackBridge(req _: Request) async throws -> Response {
+        let appScheme = (Environment.get("OAUTH_APP_CALLBACK_SCHEME")?
+            .trimmingCharacters(in: .whitespacesAndNewlines))
             .flatMap { $0.isEmpty ? nil : $0 } ?? "norviqa"
 
-        var components = URLComponents()
-        components.scheme = appScheme
-        components.host = "oauth"
-        components.path = "/callback"
-        components.queryItems = req.url.query.flatMap { rawQuery in
-            URLComponents(string: "?" + rawQuery)?.queryItems
-        } ?? []
+        let html = """
+        <!DOCTYPE html>
+        <html><head><meta charset="utf-8"><title>OAuth callback</title></head>
+        <body>
+        <script>
+        (function () {
+          var search = window.location.search || "";
+          if (search.length > 0) {
+            window.location.replace("\(appScheme)://oauth/callback" + search);
+          }
+        })();
+        </script>
+        </body></html>
+        """
 
-        guard let target = components.url?.absoluteString else {
-            throw Abort(.internalServerError, reason: "Failed to build OAuth callback URI")
-        }
-        return req.redirect(to: target, redirectType: .temporary)
+        let response = Response(status: .ok)
+        response.headers.replaceOrAdd(name: .contentType, value: "text/html; charset=utf-8")
+        response.headers.replaceOrAdd(name: .cacheControl, value: "no-store")
+        response.body = .init(string: html)
+        return response
     }
 
     @Sendable
