@@ -808,8 +808,8 @@ struct DefaultAuthService: AuthService {
     private func normalizeRedirectURI(_ redirectURI: String) throws -> String {
         let trimmed = redirectURI.trimmingCharacters(in: .whitespacesAndNewlines)
         guard let components = URLComponents(string: trimmed),
-              components.scheme != nil,
-              components.host != nil || trimmed.contains("://"),
+              let scheme = components.scheme,
+              !scheme.isEmpty,
               let normalized = components.url?.absoluteString
         else {
             throw Abort(.badRequest, reason: "Invalid OAuth redirect URI")
