@@ -129,7 +129,8 @@ jobs:
               echo "APP_IMAGE=${APP_IMAGE}" >> .env.production
             fi
 
-            ln -sf /opt/stockplan/.env.production /opt/stockplan/.env
+            # No symlink — compose env_file resolves via ENV_FILE substitution
+            # (defaults to .env.production). Dev deploys override ENV_FILE.
 
             export APP_IMAGE
             export APP_PORT=8080

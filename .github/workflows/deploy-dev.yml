@@ -88,14 +88,16 @@ jobs:
             else
               echo "APP_IMAGE=${APP_IMAGE}" >> .env.development
             fi
-            ln -sf /opt/stockplan/.env.development /opt/stockplan/.env
+            # No symlink — pass ENV_FILE so compose's env_file directive
+            # (defaults to .env.production) loads dev env at runtime.
             export APP_IMAGE
             export APP_PORT=8081
-            APP_PORT=8081 APP_IMAGE="${APP_IMAGE}" docker compose -p dev \
+            export ENV_FILE=.env.development
+            APP_PORT=8081 APP_IMAGE="${APP_IMAGE}" ENV_FILE=.env.development docker compose -p dev \
               -f docker-compose.production.yml \
               --env-file .env.development \
               run --rm migrate
-            APP_PORT=8081 APP_IMAGE="${APP_IMAGE}" docker compose -p dev \
+            APP_PORT=8081 APP_IMAGE="${APP_IMAGE}" ENV_FILE=.env.development docker compose -p dev \
               -f docker-compose.production.yml \
               --env-file .env.development \
               up -d --no-deps app
