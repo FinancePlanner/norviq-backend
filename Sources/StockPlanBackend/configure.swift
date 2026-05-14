@@ -168,7 +168,7 @@ public func configure(_ app: Application) async throws {
     if let googleConfig = GoogleOAuthProviderClient.Config.fromEnvironment() {
         oauthProviders[.google] = GoogleOAuthProviderClient(config: googleConfig)
     } else {
-        app.logger.warning("Google OAuth is disabled. Configure OAUTH_GOOGLE_CLIENT_ID and OAUTH_GOOGLE_CLIENT_SECRET.")
+        app.logger.warning("Google OAuth is disabled. Configure OAUTH_GOOGLE_CLIENT_ID (and optionally OAUTH_GOOGLE_CLIENT_SECRET for Web/confidential clients).")
     }
     if let xConfig = XOAuthProviderClient.Config.fromEnvironment() {
         oauthProviders[.x] = XOAuthProviderClient(config: xConfig)
