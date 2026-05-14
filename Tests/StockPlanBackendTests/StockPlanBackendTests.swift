@@ -1288,6 +1288,148 @@ struct StockPlanBackendTests {
         }
     }
 
+    @Test("Earnings transcript endpoint returns transcript for an earnings date")
+    func earningsTranscriptEndpoint() async throws {
+        try await withApp { app in
+            let state = TestMarketProviderState()
+            let fmpState = TestFMPProviderState()
+            app.marketDataService = makeTestMarketService(state: state, fmpState: fmpState)
+            let (token, userId) = try await registerTestUser(app: app, identifier: "earningstranscriptuser")
+            try await grantPremium(userId: userId, on: app)
+
+            try await app.testing().test(.GET, "v1/market/earnings/AAPL/transcript?date=2024-10-29", beforeRequest: { req in
+                req.headers.bearerAuthorization = .init(token: token)
+            }, afterResponse: { res async throws in
+                #expect(res.status == .ok)
+                let body = try res.content.decode(EarningsTranscriptResponse.self)
+                #expect(body.symbol == "AAPL")
+                #expect(body.date == "2024-10-29")
+                #expect(body.year == 2024)
+                #expect(body.quarter == 4)
+                #expect(body.provider == "fmp")
+                #expect(body.content.contains("Prepared remarks for Apple earnings."))
+            })
+
+            #expect(await fmpState.earningsTranscriptCalls() == 1)
+            #expect(await fmpState.lastEarningsTranscriptRequest() == .init(symbol: "AAPL", year: 2024, quarter: 4))
+        }
+    }
+
+    @Test("Earnings transcript endpoint supports year+quarter without date")
+    func earningsTranscriptEndpoint_yearQuarterVariant() async throws {
+        try await withApp { app in
+            let state = TestMarketProviderState()
+            let fmpState = TestFMPProviderState()
+            app.marketDataService = makeTestMarketService(state: state, fmpState: fmpState)
+            let (token, userId) = try await registerTestUser(app: app, identifier: "earningstranscriptyq")
+            try await grantPremium(userId: userId, on: app)
+
+            try await app.testing().test(.GET, "v1/market/earnings/AAPL/transcript?year=2023&quarter=2", beforeRequest: { req in
+                req.headers.bearerAuthorization = .init(token: token)
+            }, afterResponse: { res async throws in
+                #expect(res.status == .ok)
+                let body = try res.content.decode(EarningsTranscriptResponse.self)
+                #expect(body.symbol == "AAPL")
+                #expect(body.year == 2023)
+                #expect(body.quarter == 2)
+                #expect(body.provider == "fmp")
+            })
+
+            #expect(await fmpState.earningsTranscriptCalls() == 1)
+            #expect(await fmpState.lastEarningsTranscriptRequest() == .init(symbol: "AAPL", year: 2023, quarter: 2))
+        }
+    }
+
+    @Test("Earnings transcript endpoint rejects missing date/year/quarter with 400")
+    func earningsTranscriptEndpoint_missingParamsReturns400() async throws {
+        try await withApp { app in
+            let state = TestMarketProviderState()
+            let fmpState = TestFMPProviderState()
+            app.marketDataService = makeTestMarketService(state: state, fmpState: fmpState)
+            let (token, userId) = try await registerTestUser(app: app, identifier: "earningstranscriptmissing")
+            try await grantPremium(userId: userId, on: app)
+
+            try await app.testing().test(.GET, "v1/market/earnings/AAPL/transcript", beforeRequest: { req in
+                req.headers.bearerAuthorization = .init(token: token)
+            }, afterResponse: { res async throws in
+                #expect(res.status == .badRequest)
+                #expect(res.body.string.contains("`date` is required"))
+            })
+
+            #expect(await fmpState.earningsTranscriptCalls() == 0)
+        }
+    }
+
+    @Test("Earnings transcript endpoint rejects invalid quarter with 400")
+    func earningsTranscriptEndpoint_invalidQuarterReturns400() async throws {
+        try await withApp { app in
+            let state = TestMarketProviderState()
+            let fmpState = TestFMPProviderState()
+            app.marketDataService = makeTestMarketService(state: state, fmpState: fmpState)
+            let (token, userId) = try await registerTestUser(app: app, identifier: "earningstranscriptbadq")
+            try await grantPremium(userId: userId, on: app)
+
+            try await app.testing().test(.GET, "v1/market/earnings/AAPL/transcript?year=2024&quarter=7", beforeRequest: { req in
+                req.headers.bearerAuthorization = .init(token: token)
+            }, afterResponse: { res async throws in
+                #expect(res.status == .badRequest)
+                #expect(res.body.string.contains("`quarter` must be between 1 and 4"))
+            })
+
+            #expect(await fmpState.earningsTranscriptCalls() == 0)
+        }
+    }
+
+    @Test("Earnings transcript endpoint blocks free users with billing-upgrade 403")
+    func earningsTranscriptEndpoint_nonPremiumReturns403() async throws {
+        setenv("BYPASS_BILLING", "false", 1)
+        defer { unsetenv("BYPASS_BILLING") }
+        try await withApp { app in
+            let state = TestMarketProviderState()
+            let fmpState = TestFMPProviderState()
+            app.marketDataService = makeTestMarketService(state: state, fmpState: fmpState)
+            let (token, userId) = try await registerTestUser(app: app, identifier: "earningstranscriptfree")
+            // Auth-service register grants a default trial (level "temporary" = isPro).
+            // Clear the trial fields so the user resolves to plain "free" for this test.
+            if let user = try await User.find(userId, on: app.db) {
+                user.trialTier = nil
+                user.trialStartedAt = nil
+                user.trialDays = nil
+                try await user.save(on: app.db)
+            }
+
+            try await app.testing().test(.GET, "v1/market/earnings/AAPL/transcript?date=2024-10-29", beforeRequest: { req in
+                req.headers.bearerAuthorization = .init(token: token)
+            }, afterResponse: { res async throws in
+                #expect(res.status == .forbidden)
+                #expect(res.body.string.contains("earnings_text"))
+            })
+
+            #expect(await fmpState.earningsTranscriptCalls() == 0)
+        }
+    }
+
+    @Test("Earnings transcript endpoint surfaces 404 when FMP has no transcript")
+    func earningsTranscriptEndpoint_fmpNotFoundReturns404() async throws {
+        try await withApp { app in
+            let state = TestMarketProviderState()
+            let fmpState = TestFMPProviderState()
+            await fmpState.setEarningsTranscriptShouldThrowNotFound(true)
+            app.marketDataService = makeTestMarketService(state: state, fmpState: fmpState)
+            let (token, userId) = try await registerTestUser(app: app, identifier: "earningstranscriptnf")
+            try await grantPremium(userId: userId, on: app)
+
+            try await app.testing().test(.GET, "v1/market/earnings/AAPL/transcript?date=2024-10-29", beforeRequest: { req in
+                req.headers.bearerAuthorization = .init(token: token)
+            }, afterResponse: { res async throws in
+                #expect(res.status == .notFound)
+                #expect(res.body.string.contains("not found"))
+            })
+
+            #expect(await fmpState.earningsTranscriptCalls() == 1)
+        }
+    }
+
     @Test("Analysis endpoint returns server-computed metrics for the analysis tab")
     func analysisEndpoint() async throws {
         try await withApp { app in
@@ -3491,6 +3633,12 @@ struct StockPlanBackendTests {
         let to: String?
     }
 
+    struct EarningsTranscriptRequestCapture: Equatable {
+        let symbol: String
+        let year: Int
+        let quarter: Int
+    }
+
     actor TestFMPProviderState {
         private var balanceSheetRequests: [FinancialGrowthRequestCapture] = []
         private var cashFlowRequests: [FinancialGrowthRequestCapture] = []
@@ -3501,6 +3649,8 @@ struct StockPlanBackendTests {
         private var ratiosRequests: [FinancialGrowthRequestCapture] = []
         private var earningsRequests: [EarningsRequestCapture] = []
         private var earningsCalendarRequests: [EarningsCalendarRequestCapture] = []
+        private var earningsTranscriptRequests: [EarningsTranscriptRequestCapture] = []
+        private var earningsTranscriptShouldThrowNotFound: Bool = false
         private var sectorPerformanceRequests: [SectorPerformanceRequestCapture] = []
 
         func nextRatiosTTMCall() -> Int {
@@ -3531,6 +3681,18 @@ struct StockPlanBackendTests {
 
         func recordEarningsCalendar(from: String?, to: String?) {
             earningsCalendarRequests.append(.init(from: from, to: to))
+        }
+
+        func recordEarningsTranscript(symbol: String, year: Int, quarter: Int) {
+            earningsTranscriptRequests.append(.init(symbol: symbol, year: year, quarter: quarter))
+        }
+
+        func setEarningsTranscriptShouldThrowNotFound(_ value: Bool) {
+            earningsTranscriptShouldThrowNotFound = value
+        }
+
+        func shouldEarningsTranscriptThrowNotFound() -> Bool {
+            earningsTranscriptShouldThrowNotFound
         }
 
         func recordBalanceSheet(symbol: String, limit: Int?, period: String?) {
@@ -3579,6 +3741,14 @@ struct StockPlanBackendTests {
 
         func earningsCalendarCalls() -> Int {
             earningsCalendarRequests.count
+        }
+
+        func earningsTranscriptCalls() -> Int {
+            earningsTranscriptRequests.count
+        }
+
+        func lastEarningsTranscriptRequest() -> EarningsTranscriptRequestCapture? {
+            earningsTranscriptRequests.last
         }
 
         func lastSectorPerformanceRequest() -> SectorPerformanceRequestCapture? {
@@ -4170,6 +4340,30 @@ struct StockPlanBackendTests {
             ]
         }
 
+        func earningsTranscript(
+            symbol: String,
+            date _: String?,
+            year: Int?,
+            quarter: Int?,
+            on _: Request
+        ) async throws -> EarningsTranscriptResponse {
+            let year = year ?? 2024
+            let quarter = quarter ?? 4
+            await state.recordEarningsTranscript(symbol: symbol, year: year, quarter: quarter)
+            if await state.shouldEarningsTranscriptThrowNotFound() {
+                throw Abort(.notFound, reason: "Earnings transcript not found for \(symbol).")
+            }
+            return EarningsTranscriptResponse(
+                symbol: symbol,
+                date: "2024-10-29",
+                year: year,
+                quarter: quarter,
+                period: "Q4",
+                content: "Prepared remarks for Apple earnings. Analyst Q&A followed.",
+                provider: "fmp"
+            )
+        }
+
         func historicalSectorPerformance(
             sector: String,
             exchange: String?,
@@ -4315,6 +4509,16 @@ struct StockPlanBackendTests {
 
         func earningsCalendar(from _: Date?, to _: Date?, on _: Request) async throws -> [EarningsResponse] {
             []
+        }
+
+        func earningsTranscript(
+            symbol _: String,
+            date _: String?,
+            year _: Int?,
+            quarter _: Int?,
+            on _: Request
+        ) async throws -> EarningsTranscriptResponse {
+            throw Abort(.paymentRequired, reason: "FMP plan upgrade required.")
         }
 
         func historicalSectorPerformance(

@@ -16,6 +16,12 @@ watch_paths=(
 ignore_regex='(^|/)\.build/|(^|/)\.git/|(^|/)\.swiftpm/|(^|/)DerivedData/|\.swp$|\.tmp$'
 
 run_server() {
+  echo "Waiting for database to be ready on host '${DATABASE_HOST:-db}:${DATABASE_PORT:-5432}'..."
+  until (echo > "/dev/tcp/${DATABASE_HOST:-db}/${DATABASE_PORT:-5432}") 2>/dev/null; do
+    sleep 1
+  done
+  echo "Database is ready!"
+
   # Run migrations before starting the server
   echo "Running migrations..."
   swift run -c "$build_config" StockPlanBackend migrate --yes

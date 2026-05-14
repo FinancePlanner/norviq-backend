@@ -1956,6 +1956,62 @@ paths:
         '503':
           description: FMP provider unavailable or misconfigured
 
+  /v1/market/earnings/{symbol}/transcript:
+    parameters:
+      - name: symbol
+        in: path
+        required: true
+        schema:
+          type: string
+    get:
+      operationId: getMarketEarningsTranscript
+      tags: [MarketData]
+      summary: Get an earnings call transcript for a symbol
+      description: Returns the FMP-backed full earnings call transcript for a specific earnings date, or for an explicit fiscal year and quarter.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: date
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date
+          description: Earnings date from the earnings history row (YYYY-MM-DD). Required unless year and quarter are provided.
+        - name: year
+          in: query
+          required: false
+          schema:
+            type: integer
+          description: Fiscal year. Must be provided with quarter when date is omitted.
+        - name: quarter
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 4
+          description: Fiscal quarter from 1 to 4. Must be provided with year when date is omitted.
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EarningsTranscriptResponse'
+        '400':
+          description: Invalid date, year, or quarter parameters
+        '401':
+          description: Unauthorized
+        '402':
+          description: Premium or paid FMP plan required for this symbol
+        '404':
+          description: Transcript not found
+        '502':
+          description: Bad Gateway for FMP provider
+        '503':
+          description: FMP provider unavailable or misconfigured
+
   /v1/market/earnings-calendar:
     get:
       operationId: getMarketEarningsCalendar
@@ -6565,6 +6621,20 @@ components:
         surprisePercent: { type: number, format: double, nullable: true }
         hasTranscript: { type: boolean }
       required: [symbol, date, hasTranscript]
+    EarningsTranscriptResponse:
+      type: object
+      properties:
+        symbol: { type: string }
+        date: { type: string, format: date }
+        year: { type: integer }
+        quarter:
+          type: integer
+          minimum: 1
+          maximum: 4
+        period: { type: string, nullable: true }
+        content: { type: string }
+        provider: { type: string }
+      required: [symbol, date, year, quarter, content, provider]
     FinancialGrowthResponse:
       type: object
       properties:

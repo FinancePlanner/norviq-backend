@@ -166,6 +166,7 @@ All data endpoints require authentication. Get a token from auth endpoints and s
 - `GET /v1/market/details?symbol=:symbol` - Stock detail summary used by the iOS stock detail screen
 - `GET /v1/market/history?symbol=:symbol` - Stock history list used by the iOS stock detail screen
 - `GET /v1/market/news?symbol=:symbol` - Recent stock news used by the iOS stock detail screen
+- `GET /v1/market/earnings/:symbol/transcript?date=YYYY-MM-DD` - Earnings call transcript for a specific earnings event. The endpoint also accepts `year` and `quarter` together when the client already knows the fiscal period.
 - `GET /v1/history/:symbol` - Fetch historical prices (5/10 year time-series)
 - `GET /v1/quote/:symbol` - Get current price for a stock symbol
 - `GET /v1/quote/batch?symbols=AAPL,MSFT,...` - Fetch multiple quotes in one call
@@ -175,6 +176,7 @@ Market data configuration:
 - `IBKR_API_BASE_URL` is optional for now.
 - If it is unset, the backend will not call IBKR. `/v1/market/history` returns an empty list and `/v1/market/details` falls back to the symbol with zeroed pricing fields.
 - If you do enable IBKR later, set `IBKR_API_BASE_URL` to the reachable Client Portal API base URL, for example `http://localhost:5000/v1/api` when running the backend on your host.
+- Earnings transcripts use the configured FMP provider, are gated by the `earningsText` premium feature, and are cached through the market data cache using the resolved symbol/date or fiscal year/quarter.
 
 ### News
 - `GET /news` - List saved news items (`?symbol=` supported)

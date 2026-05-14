@@ -77,6 +77,34 @@ public struct EarningsResponse: Content, Sendable, Equatable {
     }
 }
 
+public struct EarningsTranscriptResponse: Content, Sendable, Equatable {
+    public let symbol: String
+    public let date: String
+    public let year: Int
+    public let quarter: Int
+    public let period: String?
+    public let content: String
+    public let provider: String
+
+    public init(
+        symbol: String,
+        date: String,
+        year: Int,
+        quarter: Int,
+        period: String?,
+        content: String,
+        provider: String
+    ) {
+        self.symbol = symbol
+        self.date = date
+        self.year = year
+        self.quarter = quarter
+        self.period = period
+        self.content = content
+        self.provider = provider
+    }
+}
+
 public struct YearlyProjectionResponse: Content, Sendable, Equatable {
     public let year: Int
     public let revenue: Double
