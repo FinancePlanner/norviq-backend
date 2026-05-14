@@ -33,18 +33,16 @@ protocol OAuthProviderClient: Sendable {
 struct GoogleOAuthProviderClient: OAuthProviderClient {
     struct Config {
         let clientID: String
-        let clientSecret: String
+        let clientSecret: String?
         let authURL: URL
         let tokenURL: URI
         let userInfoURL: URI
 
         static func fromEnvironment() -> Config? {
-            guard
-                let clientID = Environment.get("OAUTH_GOOGLE_CLIENT_ID")?.trimmedNonEmpty,
-                let clientSecret = Environment.get("OAUTH_GOOGLE_CLIENT_SECRET")?.trimmedNonEmpty
-            else {
+            guard let clientID = Environment.get("OAUTH_GOOGLE_CLIENT_ID")?.trimmedNonEmpty else {
                 return nil
             }
+            let clientSecret = Environment.get("OAUTH_GOOGLE_CLIENT_SECRET")?.trimmedNonEmpty
 
             let authURL = URL(string: "https://accounts.google.com/o/oauth2/v2/auth")!
             let tokenURL = URI(string: "https://oauth2.googleapis.com/token")
@@ -107,14 +105,17 @@ struct GoogleOAuthProviderClient: OAuthProviderClient {
         nonce: String,
         on req: Request
     ) async throws -> OAuthIdentityInfo {
-        let tokenPayload = try oauthURLFormEncoded([
-            "client_id": config.clientID,
-            "client_secret": config.clientSecret,
-            "grant_type": "authorization_code",
-            "code": code,
-            "redirect_uri": redirectURI,
-            "code_verifier": codeVerifier,
-        ])
+        var payloadFields: [(String, String)] = [
+            ("client_id", config.clientID),
+            ("grant_type", "authorization_code"),
+            ("code", code),
+            ("redirect_uri", redirectURI),
+            ("code_verifier", codeVerifier),
+        ]
+        if let clientSecret = config.clientSecret {
+            payloadFields.insert(("client_secret", clientSecret), at: 1)
+        }
+        let tokenPayload = try oauthURLFormEncoded(Dictionary(uniqueKeysWithValues: payloadFields))
 
         let tokenResponse = try await req.client.post(config.tokenURL) { clientRequest in
             clientRequest.headers.replaceOrAdd(name: .contentType, value: "application/x-www-form-urlencoded")
