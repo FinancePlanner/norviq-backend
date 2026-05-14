@@ -46,6 +46,7 @@ struct AuthController: RouteCollection {
         auth.group("oauth", ":provider") { oauth in
             oauth.post("start", use: oauthStart)
             oauth.post("exchange", use: oauthExchange)
+            oauth.get("callback", use: oauthCallbackBridge)
         }
         auth.group("brokers", "ibkr") { brokers in
             brokers.get("callback", use: brokerIBKRCallback)
@@ -163,6 +164,31 @@ struct AuthController: RouteCollection {
             on: req
         )
         return try loginResponse(for: outcome, req: req)
+    }
+
+    /// HTTPS bridge for OAuth providers that disallow custom-scheme redirect URIs
+    /// (e.g. X requires HTTPS, Apple Services IDs prefer HTTPS).
+    /// Receives the provider's authorization-code redirect at
+    /// `GET /v1/auth/oauth/{provider}/callback?code=...&state=...` and 302s to the
+    /// app's custom-scheme deep link `norviqa://oauth/callback?<all-original-query>`
+    /// so ASWebAuthenticationSession on iOS can catch it.
+    @Sendable
+    func oauthCallbackBridge(req: Request) async throws -> Response {
+        let appScheme = (Environment.get("OAUTH_APP_CALLBACK_SCHEME")?.trimmingCharacters(in: .whitespacesAndNewlines))
+            .flatMap { $0.isEmpty ? nil : $0 } ?? "norviqa"
+
+        var components = URLComponents()
+        components.scheme = appScheme
+        components.host = "oauth"
+        components.path = "/callback"
+        components.queryItems = req.url.query.flatMap { rawQuery in
+            URLComponents(string: "?" + rawQuery)?.queryItems
+        } ?? []
+
+        guard let target = components.url?.absoluteString else {
+            throw Abort(.internalServerError, reason: "Failed to build OAuth callback URI")
+        }
+        return req.redirect(to: target, redirectType: .temporary)
     }
 
     @Sendable
