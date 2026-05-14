@@ -28,6 +28,7 @@ struct MarketDataController: RouteCollection {
         rateLimited.get("grades-consensus", ":symbol", use: gradesConsensus)
         rateLimited.get("financial-growth", ":symbol", use: financialGrowth)
         rateLimited.get("earnings", ":symbol", use: earnings)
+        rateLimited.get("earnings", ":symbol", "transcript", use: earningsTranscript)
         rateLimited.get("earnings-calendar", use: earningsCalendar)
         rateLimited.get("analyst-estimates", ":symbol", use: analystEstimates)
         rateLimited.get("ratios", ":symbol", use: ratios)
@@ -381,6 +382,30 @@ struct MarketDataController: RouteCollection {
         return try await req.application.marketDataService.earningsCalendar(
             from: from,
             to: to,
+            on: req
+        )
+    }
+
+    @Sendable
+    func earningsTranscript(req: Request) async throws -> EarningsTranscriptResponse {
+        let session = try req.auth.require(SessionToken.self)
+        try await req.usageCounterService.requirePremium(
+            .earningsText,
+            userId: session.userId,
+            on: req.db
+        )
+        guard let symbol = req.parameters.get("symbol") else {
+            throw Abort(.badRequest, reason: "Missing symbol.")
+        }
+
+        let date = req.query[String.self, at: "date"]
+        let year = req.query[Int.self, at: "year"]
+        let quarter = req.query[Int.self, at: "quarter"]
+        return try await req.application.marketDataService.earningsTranscript(
+            symbol: symbol,
+            date: date,
+            year: year,
+            quarter: quarter,
             on: req
         )
     }

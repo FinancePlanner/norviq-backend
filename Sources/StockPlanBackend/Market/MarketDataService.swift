@@ -53,6 +53,13 @@ protocol MarketDataService: Sendable {
         to: String?,
         on req: Request
     ) async throws -> [EarningsResponse]
+    func earningsTranscript(
+        symbol: String,
+        date: String?,
+        year: Int?,
+        quarter: Int?,
+        on req: Request
+    ) async throws -> EarningsTranscriptResponse
     func historicalSectorPerformance(
         sector: String,
         exchange: String?,
@@ -1543,6 +1550,58 @@ struct DefaultMarketDataService: MarketDataService {
             return fresh
         } catch {
             throw mapFMPProviderError(error, operation: "earnings-calendar")
+        }
+    }
+
+    func earningsTranscript(
+        symbol rawSymbol: String,
+        date rawDate: String?,
+        year rawYear: Int?,
+        quarter rawQuarter: Int?,
+        on req: Request
+    ) async throws -> EarningsTranscriptResponse {
+        let symbol = try normalizeSymbol(rawSymbol)
+        let date = try parseOptionalDateOnly(rawDate, field: "date").map(formatISODateOnly)
+
+        if (rawYear == nil) != (rawQuarter == nil) {
+            throw Abort(.badRequest, reason: "`year` and `quarter` must be provided together.")
+        }
+        if let quarter = rawQuarter, !(1 ... 4).contains(quarter) {
+            throw Abort(.badRequest, reason: "`quarter` must be between 1 and 4.")
+        }
+        if date == nil, rawYear == nil {
+            throw Abort(.badRequest, reason: "Query parameter `date` is required unless `year` and `quarter` are provided.")
+        }
+
+        let providerName = "fmp"
+        let keyDate = date ?? "none"
+        let keyYear = rawYear.map(String.init) ?? "none"
+        let keyQuarter = rawQuarter.map(String.init) ?? "none"
+        let redisKey = "market:earnings-transcript:\(providerName):\(symbol):\(keyDate):\(keyYear):\(keyQuarter)"
+
+        if let hotCached: EarningsTranscriptResponse = await redisGetValue(
+            redisKey, as: EarningsTranscriptResponse.self, on: req
+        ) {
+            return hotCached
+        }
+
+        try validateFMPSymbolAccess(symbol: symbol, operation: "earnings-transcript")
+        let fmpProvider = try requireFMPProvider()
+
+        do {
+            let fresh = try await fmpProvider.earningsTranscript(
+                symbol: symbol,
+                date: date,
+                year: rawYear,
+                quarter: rawQuarter,
+                on: req
+            )
+            await redisSetValue(
+                redisKey, value: fresh, ttlSeconds: cacheConfig.fmpTTLSeconds, on: req
+            )
+            return fresh
+        } catch {
+            throw mapFMPProviderError(error, operation: "earnings-transcript")
         }
     }
 

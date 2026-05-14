@@ -48,6 +48,13 @@ protocol FMPMarketDataProvider: Sendable {
         to: Date?,
         on req: Request
     ) async throws -> [EarningsResponse]
+    func earningsTranscript(
+        symbol: String,
+        date: String?,
+        year: Int?,
+        quarter: Int?,
+        on req: Request
+    ) async throws -> EarningsTranscriptResponse
     func historicalSectorPerformance(
         sector: String,
         exchange: String?,
@@ -116,6 +123,47 @@ private struct FMPTranscriptDateItem: Decodable {
         date = try container.decodeIfPresent(String.self, forKey: .date)
         quarter = try Self.decodeIntIfPresent(from: container, key: .quarter)
         year = try Self.decodeIntIfPresent(from: container, key: .year)
+    }
+
+    private static func decodeIntIfPresent(
+        from container: KeyedDecodingContainer<CodingKeys>,
+        key: CodingKeys
+    ) throws -> Int? {
+        if let value = try container.decodeIfPresent(Int.self, forKey: key) {
+            return value
+        }
+        if let stringValue = try container.decodeIfPresent(String.self, forKey: key) {
+            return Int(stringValue)
+        }
+        return nil
+    }
+}
+
+private struct FMPEarningsTranscriptItem: Decodable {
+    let symbol: String?
+    let date: String?
+    let period: String?
+    let year: Int?
+    let quarter: Int?
+    let content: String?
+
+    enum CodingKeys: String, CodingKey {
+        case symbol
+        case date
+        case period
+        case year
+        case quarter
+        case content
+    }
+
+    init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        symbol = try container.decodeIfPresent(String.self, forKey: .symbol)
+        date = try container.decodeIfPresent(String.self, forKey: .date)
+        period = try container.decodeIfPresent(String.self, forKey: .period)
+        content = try container.decodeIfPresent(String.self, forKey: .content)
+        year = try Self.decodeIntIfPresent(from: container, key: .year)
+        quarter = try Self.decodeIntIfPresent(from: container, key: .quarter)
     }
 
     private static func decodeIntIfPresent(
@@ -505,6 +553,52 @@ struct LiveFMPMarketDataProvider: FMPMarketDataProvider, CryptoDataProvider {
         }
     }
 
+    func earningsTranscript(
+        symbol rawSymbol: String,
+        date rawDate: String?,
+        year rawYear: Int?,
+        quarter rawQuarter: Int?,
+        on req: Request
+    ) async throws -> EarningsTranscriptResponse {
+        let symbol = try normalizeSymbol(rawSymbol)
+        let resolved = try await resolveTranscriptPeriod(
+            symbol: symbol,
+            date: rawDate,
+            year: rawYear,
+            quarter: rawQuarter,
+            on: req
+        )
+
+        let items: [FMPEarningsTranscriptItem] = try await fetchJSON(
+            path: "/stable/earning-call-transcript",
+            query: [
+                ("symbol", symbol),
+                ("year", String(resolved.year)),
+                ("quarter", String(resolved.quarter)),
+            ],
+            on: req
+        )
+
+        guard let item = items.first else {
+            throw Abort(.notFound, reason: "No earnings transcript found for \(symbol) \(resolved.year) Q\(resolved.quarter).")
+        }
+
+        let content = item.content?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard !content.isEmpty else {
+            throw Abort(.notFound, reason: "No earnings transcript content found for \(symbol) \(resolved.year) Q\(resolved.quarter).")
+        }
+
+        return EarningsTranscriptResponse(
+            symbol: (item.symbol ?? symbol).uppercased(),
+            date: normalizedDateOnly(item.date) ?? resolved.date ?? "",
+            year: item.year ?? resolved.year,
+            quarter: item.quarter ?? resolved.quarter,
+            period: item.period,
+            content: content,
+            provider: name
+        )
+    }
+
     func historicalSectorPerformance(
         sector rawSector: String,
         exchange rawExchange: String?,
@@ -715,6 +809,43 @@ private extension LiveFMPMarketDataProvider {
                 quarter: item.quarter
             )
         })
+    }
+
+    func resolveTranscriptPeriod(
+        symbol: String,
+        date rawDate: String?,
+        year rawYear: Int?,
+        quarter rawQuarter: Int?,
+        on req: Request
+    ) async throws -> (date: String?, year: Int, quarter: Int) {
+        if let rawYear, let rawQuarter {
+            try validateTranscriptQuarter(rawQuarter)
+            return (normalizedDateOnly(rawDate), rawYear, rawQuarter)
+        }
+
+        guard let date = normalizedDateOnly(rawDate) else {
+            throw Abort(.badRequest, reason: "Query parameter `date` is required unless `year` and `quarter` are provided.")
+        }
+
+        let availability = try await fetchTranscriptAvailability(symbol: symbol, on: req)
+        let exact = availability.first { $0.date == date && $0.year != nil && $0.quarter != nil }
+        if let exact, let year = exact.year, let quarter = exact.quarter {
+            try validateTranscriptQuarter(quarter)
+            return (date, year, quarter)
+        }
+
+        let fallback = transcriptAvailabilityKey(for: date)
+        guard let year = fallback.year, let quarter = fallback.quarter else {
+            throw Abort(.badRequest, reason: "Invalid date. Expected YYYY-MM-DD.")
+        }
+        try validateTranscriptQuarter(quarter)
+        return (date, year, quarter)
+    }
+
+    func validateTranscriptQuarter(_ quarter: Int) throws {
+        guard (1 ... 4).contains(quarter) else {
+            throw Abort(.badRequest, reason: "Query parameter `quarter` must be between 1 and 4.")
+        }
     }
 
     func transcriptAvailabilityKey(for rawDate: String) -> TranscriptAvailabilityKey {
