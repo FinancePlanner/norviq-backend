@@ -268,7 +268,7 @@ struct AppleOAuthProviderClient: OAuthProviderClient {
             URLQueryItem(name: "client_id", value: config.clientID),
             URLQueryItem(name: "redirect_uri", value: context.redirectURI),
             URLQueryItem(name: "response_type", value: "code"),
-            URLQueryItem(name: "response_mode", value: "query"),
+            URLQueryItem(name: "response_mode", value: "form_post"),
             URLQueryItem(name: "scope", value: "name email"),
             URLQueryItem(name: "state", value: context.state),
             URLQueryItem(name: "nonce", value: context.nonce),
