@@ -47,6 +47,7 @@ struct AuthController: RouteCollection {
             oauth.post("start", use: oauthStart)
             oauth.post("exchange", use: oauthExchange)
             oauth.get("callback", use: oauthCallbackBridge)
+            oauth.post("callback", use: oauthCallbackBridgePost)
         }
         auth.group("brokers", "ibkr") { brokers in
             brokers.get("callback", use: brokerIBKRCallback)
@@ -177,9 +178,7 @@ struct AuthController: RouteCollection {
     ///     on iOS (callbackURLScheme="norviqa") intercepts.
     @Sendable
     func oauthCallbackBridge(req _: Request) async throws -> Response {
-        let appScheme = (Environment.get("OAUTH_APP_CALLBACK_SCHEME")?
-            .trimmingCharacters(in: .whitespacesAndNewlines))
-            .flatMap { $0.isEmpty ? nil : $0 } ?? "norviqa"
+        let appScheme = Self.oauthCallbackScheme()
 
         let html = """
         <!DOCTYPE html>
@@ -196,6 +195,63 @@ struct AuthController: RouteCollection {
         </body></html>
         """
 
+        return Self.htmlBridgeResponse(html: html)
+    }
+
+    /// POST variant of the callback bridge for Apple Sign-In.
+    ///
+    /// Apple requires `response_mode=form_post` whenever the requested scope
+    /// includes `name` or `email`, so Apple POSTs the OAuth result as
+    /// `application/x-www-form-urlencoded` to the configured redirect URI.
+    /// We translate that POST body into a query string and bounce it to the
+    /// custom scheme via an inline JS redirect, so ASWebAuthenticationSession
+    /// can intercept it the same way it does for the GET bridge.
+    @Sendable
+    func oauthCallbackBridgePost(req: Request) async throws -> Response {
+        let payload = try req.content.decode(AppleFormPostCallback.self)
+        let appScheme = Self.oauthCallbackScheme()
+
+        var components = URLComponents()
+        var items: [URLQueryItem] = []
+        if let code = payload.code?.trimmedNonEmpty {
+            items.append(URLQueryItem(name: "code", value: code))
+        }
+        if let state = payload.state?.trimmedNonEmpty {
+            items.append(URLQueryItem(name: "state", value: state))
+        }
+        if let user = payload.user?.trimmedNonEmpty {
+            items.append(URLQueryItem(name: "user", value: user))
+        }
+        if let error = payload.error?.trimmedNonEmpty {
+            items.append(URLQueryItem(name: "error", value: error))
+        }
+        components.queryItems = items.isEmpty ? nil : items
+        let query = components.percentEncodedQuery.map { "?\($0)" } ?? ""
+
+        let escapedRedirect = "\(appScheme)://oauth/callback\(query)"
+            .replacingOccurrences(of: "\\", with: "\\\\")
+            .replacingOccurrences(of: "\"", with: "\\\"")
+
+        let html = """
+        <!DOCTYPE html>
+        <html><head><meta charset="utf-8"><title>OAuth callback</title></head>
+        <body>
+        <script>
+        window.location.replace("\(escapedRedirect)");
+        </script>
+        </body></html>
+        """
+
+        return Self.htmlBridgeResponse(html: html)
+    }
+
+    private static func oauthCallbackScheme() -> String {
+        (Environment.get("OAUTH_APP_CALLBACK_SCHEME")?
+            .trimmingCharacters(in: .whitespacesAndNewlines))
+            .flatMap { $0.isEmpty ? nil : $0 } ?? "norviqa"
+    }
+
+    private static func htmlBridgeResponse(html: String) -> Response {
         let response = Response(status: .ok)
         response.headers.replaceOrAdd(name: .contentType, value: "text/html; charset=utf-8")
         response.headers.replaceOrAdd(name: .cacheControl, value: "no-store")
@@ -267,5 +323,19 @@ struct AuthController: RouteCollection {
         var headers = HTTPHeaders()
         headers.replaceOrAdd(name: .contentType, value: "application/json; charset=utf-8")
         return Response(status: .ok, headers: headers, body: .init(data: data))
+    }
+}
+
+private struct AppleFormPostCallback: Content {
+    var code: String?
+    var state: String?
+    var user: String?
+    var error: String?
+}
+
+private extension String {
+    var trimmedNonEmpty: String? {
+        let trimmed = trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
     }
 }
