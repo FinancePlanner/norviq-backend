@@ -136,7 +136,7 @@ struct GoogleOAuthProviderClient: OAuthProviderClient {
             throw providerError
         }
 
-        let token = try tokenResponse.content.decode(TokenResponse.self)
+        let token: TokenResponse = try oauthDecodeProviderJSON(TokenResponse.self, from: tokenResponse, provider: "Google")
         guard let idToken = token.idToken?.trimmedNonEmpty else {
             req.logger.warning("Google token exchange 200 but missing id_token. Body: \(rawBody)")
             throw Abort(.badGateway, reason: "Google token exchange did not return id_token")
@@ -325,7 +325,7 @@ struct AppleOAuthProviderClient: OAuthProviderClient {
             throw providerError
         }
 
-        let token = try tokenResponse.content.decode(TokenResponse.self)
+        let token: TokenResponse = try oauthDecodeProviderJSON(TokenResponse.self, from: tokenResponse, provider: "Apple")
         guard let idToken = token.idToken?.trimmedNonEmpty else {
             req.logger.warning("Apple token exchange 200 but missing id_token. Body: \(rawBody)")
             throw Abort(.badGateway, reason: "Apple token exchange did not return id_token")
@@ -754,7 +754,7 @@ private func oauthExtractBody(from response: ClientResponse) -> String {
         .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
 }
 
-private struct OAuthErrorBody: Content {
+private struct OAuthErrorBody: Decodable {
     let error: String?
     let errorDescription: String?
 
@@ -764,9 +764,37 @@ private struct OAuthErrorBody: Content {
     }
 }
 
+/// Bypass the global `JSONDecoder.backendAPI` custom keyDecodingStrategy that
+/// converts every snake_case JSON key to camelCase before CodingKey lookup —
+/// it silently breaks structs that declare explicit `case xxx = "snake_case"`
+/// mappings against external OAuth provider payloads (e.g. Apple/Google
+/// `id_token`, `access_token`, `error_description`).
+private func oauthDecodeProviderJSON<T: Decodable>(
+    _ type: T.Type,
+    from response: ClientResponse,
+    provider: String
+) throws -> T {
+    guard
+        let buffer = response.body,
+        let data = buffer.getData(at: buffer.readerIndex, length: buffer.readableBytes)
+    else {
+        throw Abort(.badGateway, reason: "\(provider) token exchange returned empty body")
+    }
+    do {
+        return try JSONDecoder().decode(type, from: data)
+    } catch {
+        throw Abort(
+            .badGateway,
+            reason: "\(provider) token exchange response could not be parsed: \(error)"
+        )
+    }
+}
+
 private func oauthDetectProviderError(in response: ClientResponse, provider: String) -> Abort? {
     guard
-        let body = try? response.content.decode(OAuthErrorBody.self),
+        let buffer = response.body,
+        let data = buffer.getData(at: buffer.readerIndex, length: buffer.readableBytes),
+        let body = try? JSONDecoder().decode(OAuthErrorBody.self, from: data),
         let code = body.error?.trimmedNonEmpty
     else {
         return nil
