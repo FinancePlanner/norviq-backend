@@ -183,7 +183,8 @@ public func configure(_ app: Application) async throws {
         codeTTLSeconds: Environment.get("AUTH_MFA_CODE_TTL_SECONDS").flatMap(Int.init(_:)) ?? 300,
         maxVerifyAttempts: Environment.get("AUTH_MFA_MAX_VERIFY_ATTEMPTS").flatMap(Int.init(_:)) ?? 5,
         resendCooldownSeconds: Environment.get("AUTH_MFA_RESEND_COOLDOWN_SECONDS").flatMap(Int.init(_:)) ?? 30,
-        maxResends: Environment.get("AUTH_MFA_MAX_RESENDS").flatMap(Int.init(_:)) ?? 3
+        maxResends: Environment.get("AUTH_MFA_MAX_RESENDS").flatMap(Int.init(_:)) ?? 3,
+        bypassEmails: envEmailSet("AUTH_MFA_BYPASS_EMAILS")
     )
     app.authService = DefaultAuthService(
         repo: app.authRepository,
@@ -472,4 +473,17 @@ private func envBool(_ key: String, default defaultValue: Bool) -> Bool {
     default:
         return defaultValue
     }
+}
+
+private func envEmailSet(_ key: String) -> Set<String> {
+    guard let rawValue = Environment.get(key) else {
+        return []
+    }
+
+    return Set(
+        rawValue
+            .split(separator: ",")
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() }
+            .filter { !$0.isEmpty }
+    )
 }

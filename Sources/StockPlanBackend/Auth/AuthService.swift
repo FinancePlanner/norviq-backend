@@ -17,6 +17,7 @@ struct AuthMFAConfig {
     let maxVerifyAttempts: Int
     let resendCooldownSeconds: Int
     let maxResends: Int
+    let bypassEmails: Set<String>
 
     static let `default` = AuthMFAConfig(
         enabled: false,
@@ -24,7 +25,8 @@ struct AuthMFAConfig {
         codeTTLSeconds: 300,
         maxVerifyAttempts: 5,
         resendCooldownSeconds: 30,
-        maxResends: 3
+        maxResends: 3,
+        bypassEmails: []
     )
 }
 
@@ -229,7 +231,7 @@ struct DefaultAuthService: AuthService {
             // throw Abort(.forbidden, reason: "Please verify your email address before logging in.")
         }
 
-        if requireMFA {
+        if requiresMFA(requireMFA, for: user) {
             let challenge = try await issueMFAChallenge(user: user, purpose: .login, channel: .email, on: req)
             req.logger.info("auth.mfa challenge_issued purpose=login user_id=\(user.id?.uuidString ?? "unknown")")
             return .mfaRequired(challenge)
@@ -423,7 +425,7 @@ struct DefaultAuthService: AuthService {
             guard let user = try await repo.findUser(id: userId, on: req.db) else {
                 throw Abort(.unauthorized, reason: "OAuth identity user not found")
             }
-            if requireMFA {
+            if requiresMFA(requireMFA, for: user) {
                 let challenge = try await issueMFAChallenge(user: user, purpose: .oauth, channel: .email, on: req)
                 req.logger.info("auth.mfa challenge_issued purpose=oauth user_id=\(user.id?.uuidString ?? "unknown")")
                 return .mfaRequired(challenge)
@@ -452,7 +454,7 @@ struct DefaultAuthService: AuthService {
                 "auth.oauth linked_existing_user provider=\(provider.rawValue) user_id=\(existingUser.id?.uuidString ?? "unknown")"
             )
 
-            if requireMFA {
+            if requiresMFA(requireMFA, for: existingUser) {
                 let challenge = try await issueMFAChallenge(user: existingUser, purpose: .oauth, channel: .email, on: req)
                 req.logger.info("auth.mfa challenge_issued purpose=oauth user_id=\(existingUser.id?.uuidString ?? "unknown")")
                 return .mfaRequired(challenge)
@@ -493,7 +495,7 @@ struct DefaultAuthService: AuthService {
             on: req
         )
 
-        if requireMFA {
+        if requiresMFA(requireMFA, for: user) {
             let challenge = try await issueMFAChallenge(user: user, purpose: .oauth, channel: .email, on: req)
             req.logger.info("auth.mfa challenge_issued purpose=oauth user_id=\(user.id?.uuidString ?? "unknown")")
             return .mfaRequired(challenge)
@@ -598,6 +600,10 @@ struct DefaultAuthService: AuthService {
             emailVerified: identityInfo.emailVerified,
             on: req.db
         )
+    }
+
+    private func requiresMFA(_ requested: Bool, for user: User) -> Bool {
+        requested && !mfaConfig.bypassEmails.contains(normalizeEmail(user.email))
     }
 
     private func makeAuthResponse(for user: User, on req: Request) async throws -> AuthResponse {

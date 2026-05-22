@@ -51,12 +51,13 @@ struct AuthTests {
     private func configureFakeOAuthProvider(
         _ app: Application,
         provider: OAuthProvider,
-        identity: OAuthIdentityInfo
+        identity: OAuthIdentityInfo,
+        mfaConfig: AuthMFAConfig = .default
     ) {
         app.authService = DefaultAuthService(
             repo: app.authRepository,
             oauthProviders: [provider: FakeOAuthProviderClient(provider: provider, identity: identity)],
-            mfaConfig: .default,
+            mfaConfig: mfaConfig,
             trialService: app.trialService
         )
     }
@@ -369,6 +370,43 @@ struct AuthTests {
         }
     }
 
+    @Test("MFA bypass email authenticates without challenge")
+    func loginBypassesMFAForConfiguredEmail() async throws {
+        setenv("AUTH_MFA_ENABLED", "true", 1)
+        setenv("AUTH_MFA_BYPASS_EMAILS", " review-bypass@example.com ", 1)
+        defer {
+            unsetenv("AUTH_MFA_ENABLED")
+            unsetenv("AUTH_MFA_BYPASS_EMAILS")
+        }
+
+        try await withApp { app in
+            let registerReq = makeRegisterRequest(
+                email: "review-bypass@example.com",
+                username: "review_bypass_user"
+            )
+            try await app.testing().test(.POST, "v1/auth/register", beforeRequest: { req in
+                try req.content.encode(registerReq)
+            }, afterResponse: { res async in
+                #expect(res.status == .ok)
+            })
+
+            let loginReq = AuthLoginRequest(email: "review-bypass@example.com", password: "Password123!")
+            try await app.testing().test(.POST, "v1/auth/login", beforeRequest: { req in
+                req.headers.replaceOrAdd(name: "X-StockPlan-Client-Capabilities", value: "mfa-auth-v1")
+                try req.content.encode(loginReq)
+            }, afterResponse: { res async throws in
+                #expect(res.status == .ok)
+                let outcome = try res.content.decode(AuthLoginOutcome.self)
+                #expect(outcome.status == .authenticated)
+                #expect(outcome.auth?.email == "review-bypass@example.com")
+                #expect(outcome.mfa == nil)
+            })
+
+            let challengeCount = try await MFAChallenge.query(on: app.db).count()
+            #expect(challengeCount == 0)
+        }
+    }
+
     @Test("MFA verify issues tokens for valid challenge")
     func mfaVerifyIssuesTokens() async throws {
         setenv("AUTH_MFA_ENABLED", "true", 1)
@@ -670,6 +708,57 @@ struct AuthTests {
                 .filter(\.$providerUserID == "google-new-user")
                 .first()
             #expect(identity != nil)
+        }
+    }
+
+    @Test("OAuth exchange bypasses MFA for configured email")
+    func oauthExchangeBypassesMFAForConfiguredEmail() async throws {
+        try await withApp { app in
+            let email = "oauth-bypass@example.com"
+            let registerReq = makeRegisterRequest(
+                email: email,
+                username: "oauth_bypass_user"
+            )
+            try await app.testing().test(.POST, "v1/auth/register", beforeRequest: { req in
+                try req.content.encode(registerReq)
+            }, afterResponse: { res async in
+                #expect(res.status == .ok)
+            })
+
+            configureFakeOAuthProvider(
+                app,
+                provider: .apple,
+                identity: OAuthIdentityInfo(
+                    providerUserID: "apple-bypass-user",
+                    email: email,
+                    emailVerified: true,
+                    suggestedUsername: "oauth_bypass_user"
+                ),
+                mfaConfig: AuthMFAConfig(
+                    enabled: true,
+                    allowLegacyBypass: true,
+                    codeTTLSeconds: 300,
+                    maxVerifyAttempts: 5,
+                    resendCooldownSeconds: 30,
+                    maxResends: 3,
+                    bypassEmails: [email]
+                )
+            )
+
+            let exchangeReq = try await makeOAuthExchangeRequest(app: app, provider: .apple)
+            try await app.testing().test(.POST, "v1/auth/oauth/apple/exchange", beforeRequest: { req in
+                req.headers.replaceOrAdd(name: "X-StockPlan-Client-Capabilities", value: "mfa-auth-v1")
+                try req.content.encode(exchangeReq)
+            }, afterResponse: { res async throws in
+                #expect(res.status == .ok)
+                let outcome = try res.content.decode(AuthLoginOutcome.self)
+                #expect(outcome.status == .authenticated)
+                #expect(outcome.auth?.email == email)
+                #expect(outcome.mfa == nil)
+            })
+
+            let challengeCount = try await MFAChallenge.query(on: app.db).count()
+            #expect(challengeCount == 0)
         }
     }
 
