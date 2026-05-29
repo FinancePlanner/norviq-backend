@@ -1,0 +1,23 @@
+version: 2
+updates:
+  # Swift package dependencies (Vapor, Fluent, NIO, etc.)
+  - package-ecosystem: swift
+    directory: "/"
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    labels: ["dependencies", "security"]
+
+  # GitHub Actions used in the workflows above.
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+    labels: ["dependencies", "ci"]
+
+  # Base image in the Dockerfile.
+  - package-ecosystem: docker
+    directory: "/"
+    schedule:
+      interval: weekly
+    labels: ["dependencies", "docker"]

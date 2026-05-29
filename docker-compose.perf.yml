@@ -1,0 +1,34 @@
+# Overlay for performance auditing: adds slow-query + plan visibility to the
+# local Postgres so k6 runs produce N+1 / missing-index evidence.
+#
+# Usage:
+#   docker compose -f docker-compose.yml -f docker-compose.perf.yml up -d --build
+#   docker compose -f docker-compose.yml -f docker-compose.perf.yml \
+#     exec db psql -U stockplan_user -d stockplan_dev \
+#     -c "CREATE EXTENSION IF NOT EXISTS pg_stat_statements;"
+#
+# After a load run, read pg_stat_statements (see scripts/perf/README.md);
+# auto_explain plans appear in `docker compose logs db`.
+
+services:
+  db:
+    command:
+      - "postgres"
+      - "-c"
+      - "shared_preload_libraries=pg_stat_statements,auto_explain"
+      - "-c"
+      - "pg_stat_statements.track=all"
+      - "-c"
+      - "pg_stat_statements.max=10000"
+      # Log any statement slower than 50ms (tune as needed).
+      - "-c"
+      - "log_min_duration_statement=50"
+      # Auto-EXPLAIN slow statements so plans land in the container logs.
+      - "-c"
+      - "auto_explain.log_min_duration=50"
+      - "-c"
+      - "auto_explain.log_analyze=on"
+      - "-c"
+      - "auto_explain.log_buffers=on"
+      - "-c"
+      - "auto_explain.log_nested_statements=on"
