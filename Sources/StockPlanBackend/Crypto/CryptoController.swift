@@ -24,6 +24,15 @@ struct CryptoController: RouteCollection {
             item.put(use: updatePortfolioItem)
             item.delete(use: removeFromPortfolio)
         }
+
+        // Watchlist CRUD
+        let watchlist = crypto.grouped("watchlist")
+        watchlist.get(use: listWatchlist)
+        watchlist.post(use: addToWatchlist)
+        watchlist.group(":itemId") { item in
+            item.put(use: updateWatchlistItem)
+            item.delete(use: removeFromWatchlist)
+        }
     }
 
     // MARK: - Market Data
@@ -177,6 +186,48 @@ struct CryptoController: RouteCollection {
         let session = try await requireCryptoEntitlement(req)
         let itemId = try requireUUIDParameter(req, name: "itemId")
         try await req.application.cryptoService.removeFromPortfolio(
+            id: itemId, userId: session.userId, on: req.db
+        )
+        return .noContent
+    }
+
+    // MARK: - Watchlist
+
+    @Sendable
+    func listWatchlist(req: Request) async throws -> [CryptoWatchlistItemResponse] {
+        let session = try await requireCryptoEntitlement(req)
+        return try await req.application.cryptoService.listWatchlist(
+            userId: session.userId, on: req.db
+        )
+    }
+
+    @Sendable
+    func addToWatchlist(req: Request) async throws -> Response {
+        let session = try await requireCryptoEntitlement(req)
+        let payload = try req.content.decode(CryptoWatchlistItemRequest.self)
+        let created = try await req.application.cryptoService.addToWatchlist(
+            payload: payload, userId: session.userId, on: req.db
+        )
+        let res = Response(status: .created)
+        try res.content.encode(created)
+        return res
+    }
+
+    @Sendable
+    func updateWatchlistItem(req: Request) async throws -> CryptoWatchlistItemResponse {
+        let session = try await requireCryptoEntitlement(req)
+        let itemId = try requireUUIDParameter(req, name: "itemId")
+        let payload = try req.content.decode(CryptoWatchlistItemRequest.self)
+        return try await req.application.cryptoService.updateWatchlistItem(
+            id: itemId, payload: payload, userId: session.userId, on: req.db
+        )
+    }
+
+    @Sendable
+    func removeFromWatchlist(req: Request) async throws -> HTTPStatus {
+        let session = try await requireCryptoEntitlement(req)
+        let itemId = try requireUUIDParameter(req, name: "itemId")
+        try await req.application.cryptoService.removeFromWatchlist(
             id: itemId, userId: session.userId, on: req.db
         )
         return .noContent

@@ -122,6 +122,8 @@ extension CryptoHistoricalFullPoint: @retroactive Content {}
 extension CryptoHistoricalPoint: @retroactive Content {}
 extension CryptoPortfolioItemRequest: @retroactive Content {}
 extension CryptoPortfolioItemResponse: @retroactive Content {}
+extension CryptoWatchlistItemRequest: @retroactive Content {}
+extension CryptoWatchlistItemResponse: @retroactive Content {}
 
 // MARK: - Expenses
 

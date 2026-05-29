@@ -461,6 +461,7 @@ private func registerMigrations(_ app: Application) {
     app.migrations.add(AddDatabaseOptimizations())
     app.migrations.add(CreateFeedback())
     app.migrations.add(CreateCryptoPortfolioItem())
+    app.migrations.add(CreateCryptoWatchlistItem())
     app.migrations.add(CreateExpensesTables())
     app.migrations.add(AddBudgetAlertThreshold())
     app.migrations.add(AddExpenseSharingFields())

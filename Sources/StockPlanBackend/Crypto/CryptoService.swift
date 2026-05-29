@@ -9,6 +9,12 @@ protocol CryptoService: Sendable {
     func updatePortfolioItem(id: UUID, payload: CryptoPortfolioItemRequest, userId: UUID, on db: any Database) async throws -> CryptoPortfolioItemResponse
     func removeFromPortfolio(id: UUID, userId: UUID, on db: any Database) async throws
 
+    // Watchlist CRUD
+    func listWatchlist(userId: UUID, on db: any Database) async throws -> [CryptoWatchlistItemResponse]
+    func addToWatchlist(payload: CryptoWatchlistItemRequest, userId: UUID, on db: any Database) async throws -> CryptoWatchlistItemResponse
+    func updateWatchlistItem(id: UUID, payload: CryptoWatchlistItemRequest, userId: UUID, on db: any Database) async throws -> CryptoWatchlistItemResponse
+    func removeFromWatchlist(id: UUID, userId: UUID, on db: any Database) async throws
+
     // Market data
     func cryptocurrencyList(on req: Request) async throws -> [CryptoAssetResponse]
     func quote(symbols: String, on req: Request) async throws -> [CryptoQuoteResponse]
@@ -107,6 +113,84 @@ final class DefaultCryptoService: CryptoService {
         try await item.delete(on: db)
     }
 
+    // MARK: - Watchlist CRUD
+
+    func listWatchlist(userId: UUID, on db: any Database) async throws -> [CryptoWatchlistItemResponse] {
+        let items = try await CryptoWatchlistItem.query(on: db)
+            .filter(\.$userId == userId)
+            .sort(\.$createdAt, .descending)
+            .all()
+        return try items.map { try makeWatchlistResponse(from: $0) }
+    }
+
+    func addToWatchlist(
+        payload: CryptoWatchlistItemRequest,
+        userId: UUID,
+        on db: any Database
+    ) async throws -> CryptoWatchlistItemResponse {
+        let symbol = normalizeSymbol(payload.symbol)
+
+        // Idempotent on (user, symbol): update the existing row instead of duplicating.
+        if let existing = try await CryptoWatchlistItem.query(on: db)
+            .filter(\.$userId == userId)
+            .filter(\.$symbol == symbol)
+            .first()
+        {
+            existing.name = payload.name.trimmingCharacters(in: .whitespacesAndNewlines)
+            existing.note = payload.note
+            if let status = payload.status {
+                existing.status = status.rawValue
+            }
+            try await existing.save(on: db)
+            return try makeWatchlistResponse(from: existing)
+        }
+
+        let item = CryptoWatchlistItem(
+            userId: userId,
+            symbol: symbol,
+            name: payload.name.trimmingCharacters(in: .whitespacesAndNewlines),
+            note: payload.note,
+            status: payload.status ?? .active
+        )
+        try await item.save(on: db)
+        return try makeWatchlistResponse(from: item)
+    }
+
+    func updateWatchlistItem(
+        id: UUID,
+        payload: CryptoWatchlistItemRequest,
+        userId: UUID,
+        on db: any Database
+    ) async throws -> CryptoWatchlistItemResponse {
+        guard let item = try await CryptoWatchlistItem.query(on: db)
+            .filter(\.$id == id)
+            .filter(\.$userId == userId)
+            .first()
+        else {
+            throw Abort(.notFound, reason: "Crypto watchlist item not found.")
+        }
+
+        item.symbol = normalizeSymbol(payload.symbol)
+        item.name = payload.name.trimmingCharacters(in: .whitespacesAndNewlines)
+        item.note = payload.note
+        if let status = payload.status {
+            item.status = status.rawValue
+        }
+        try await item.save(on: db)
+        return try makeWatchlistResponse(from: item)
+    }
+
+    func removeFromWatchlist(id: UUID, userId: UUID, on db: any Database) async throws {
+        guard let item = try await CryptoWatchlistItem.query(on: db)
+            .filter(\.$id == id)
+            .filter(\.$userId == userId)
+            .first()
+        else {
+            throw Abort(.notFound, reason: "Crypto watchlist item not found.")
+        }
+        try await item.delete(on: db)
+    }
+
     // MARK: - Market Data Pass-through
 
     func cryptocurrencyList(on req: Request) async throws -> [CryptoAssetResponse] {
@@ -165,6 +249,21 @@ final class DefaultCryptoService: CryptoService {
             name: model.name,
             quantity: model.quantity,
             averageBuyPrice: model.averageBuyPrice,
+            createdAt: formatISODateTime(model.createdAt),
+            updatedAt: formatISODateTime(model.updatedAt)
+        )
+    }
+
+    private func makeWatchlistResponse(from model: CryptoWatchlistItem) throws -> CryptoWatchlistItemResponse {
+        guard let id = model.id else {
+            throw Abort(.internalServerError, reason: "Crypto watchlist item id missing.")
+        }
+        return CryptoWatchlistItemResponse(
+            id: id.uuidString,
+            symbol: model.symbol,
+            name: model.name,
+            note: model.note,
+            status: WatchlistStatus(rawValue: model.status) ?? .active,
             createdAt: formatISODateTime(model.createdAt),
             updatedAt: formatISODateTime(model.updatedAt)
         )

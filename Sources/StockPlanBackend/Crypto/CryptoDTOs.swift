@@ -8,3 +8,5 @@ typealias CryptoHistoricalFullPoint = StockPlanShared.CryptoHistoricalFullPoint
 typealias CryptoHistoricalPoint = StockPlanShared.CryptoHistoricalPoint
 typealias CryptoPortfolioItemRequest = StockPlanShared.CryptoPortfolioItemRequest
 typealias CryptoPortfolioItemResponse = StockPlanShared.CryptoPortfolioItemResponse
+typealias CryptoWatchlistItemRequest = StockPlanShared.CryptoWatchlistItemRequest
+typealias CryptoWatchlistItemResponse = StockPlanShared.CryptoWatchlistItemResponse
