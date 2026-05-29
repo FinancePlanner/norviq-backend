@@ -711,28 +711,22 @@ struct AuthTests {
         }
     }
 
-    @Test("OAuth exchange bypasses MFA for configured email")
-    func oauthExchangeBypassesMFAForConfiguredEmail() async throws {
+    @Test("OAuth exchange never triggers MFA, even for a new user with MFA enabled")
+    func oauthExchangeSkipsMFAForNewUser() async throws {
+        // Reviewer scenario: Sign in with Apple using a fresh Apple ID (not in the
+        // bypass list) while MFA is enabled. Federated sign-in must authenticate
+        // directly and must never issue an email MFA challenge.
         try await withApp { app in
-            let email = "oauth-bypass@example.com"
-            let registerReq = makeRegisterRequest(
-                email: email,
-                username: "oauth_bypass_user"
-            )
-            try await app.testing().test(.POST, "v1/auth/register", beforeRequest: { req in
-                try req.content.encode(registerReq)
-            }, afterResponse: { res async in
-                #expect(res.status == .ok)
-            })
+            let email = "oauth-reviewer@example.com"
 
             configureFakeOAuthProvider(
                 app,
                 provider: .apple,
                 identity: OAuthIdentityInfo(
-                    providerUserID: "apple-bypass-user",
+                    providerUserID: "apple-reviewer-user",
                     email: email,
                     emailVerified: true,
-                    suggestedUsername: "oauth_bypass_user"
+                    suggestedUsername: "oauth_reviewer_user"
                 ),
                 mfaConfig: AuthMFAConfig(
                     enabled: true,
@@ -741,7 +735,7 @@ struct AuthTests {
                     maxVerifyAttempts: 5,
                     resendCooldownSeconds: 30,
                     maxResends: 3,
-                    bypassEmails: [email]
+                    bypassEmails: []
                 )
             )
 

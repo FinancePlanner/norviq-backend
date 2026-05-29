@@ -154,14 +154,12 @@ struct AuthController: RouteCollection {
     func oauthExchange(req: Request) async throws -> Response {
         let provider = try oauthProvider(from: req)
         let payload = try req.content.decode(OAuthExchangeRequest.self)
-        let requiresMFA = try requireMFA(for: req)
         let outcome = try await req.application.authService.oauthExchange(
             provider: provider,
             flowId: payload.flowId,
             code: payload.code,
             state: payload.state,
             redirectURI: payload.redirectURI,
-            requireMFA: requiresMFA,
             on: req
         )
         return try loginResponse(for: outcome, req: req)

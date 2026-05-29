@@ -74,7 +74,6 @@ protocol AuthService: Sendable {
         code: String,
         state: String,
         redirectURI: String,
-        requireMFA: Bool,
         on req: Request
     ) async throws -> AuthLoginOutcome
     func verifyMFA(challengeId: UUID, code: String, on req: Request) async throws -> AuthResponse
@@ -371,7 +370,6 @@ struct DefaultAuthService: AuthService {
         code: String,
         state: String,
         redirectURI: String,
-        requireMFA: Bool,
         on req: Request
     ) async throws -> AuthLoginOutcome {
         let oauthProvider = try oauthProviderClient(for: provider)
@@ -425,11 +423,6 @@ struct DefaultAuthService: AuthService {
             guard let user = try await repo.findUser(id: userId, on: req.db) else {
                 throw Abort(.unauthorized, reason: "OAuth identity user not found")
             }
-            if requiresMFA(requireMFA, for: user) {
-                let challenge = try await issueMFAChallenge(user: user, purpose: .oauth, channel: .email, on: req)
-                req.logger.info("auth.mfa challenge_issued purpose=oauth user_id=\(user.id?.uuidString ?? "unknown")")
-                return .mfaRequired(challenge)
-            }
             return try await .authenticated(makeAuthResponse(for: user, on: req))
         }
 
@@ -454,11 +447,6 @@ struct DefaultAuthService: AuthService {
                 "auth.oauth linked_existing_user provider=\(provider.rawValue) user_id=\(existingUser.id?.uuidString ?? "unknown")"
             )
 
-            if requiresMFA(requireMFA, for: existingUser) {
-                let challenge = try await issueMFAChallenge(user: existingUser, purpose: .oauth, channel: .email, on: req)
-                req.logger.info("auth.mfa challenge_issued purpose=oauth user_id=\(existingUser.id?.uuidString ?? "unknown")")
-                return .mfaRequired(challenge)
-            }
             return try await .authenticated(makeAuthResponse(for: existingUser, on: req))
         } else if normalizedIdentityEmail != nil, !identityInfo.emailVerified {
             throw Abort(.conflict, reason: "ACCOUNT_EXISTS_LINK_REQUIRED")
@@ -495,11 +483,6 @@ struct DefaultAuthService: AuthService {
             on: req
         )
 
-        if requiresMFA(requireMFA, for: user) {
-            let challenge = try await issueMFAChallenge(user: user, purpose: .oauth, channel: .email, on: req)
-            req.logger.info("auth.mfa challenge_issued purpose=oauth user_id=\(user.id?.uuidString ?? "unknown")")
-            return .mfaRequired(challenge)
-        }
         return try await .authenticated(makeAuthResponse(for: user, on: req))
     }
 
