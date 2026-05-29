@@ -315,6 +315,7 @@ public func configure(_ app: Application) async throws {
         trialService: app.trialService
     )
     app.billingService = DefaultBillingService()
+    try validateBillingSecrets(app)
     app.targetAlertEvaluator = DefaultTargetAlertEvaluator()
 
     try configureAPNS(app)
@@ -348,6 +349,32 @@ public func configure(_ app: Application) async throws {
 
     // register routes
     try routes(app)
+}
+
+/// Fail-fast validation of billing secrets at boot.
+///
+/// A missing `REVENUECAT_WEBHOOK_SECRET` makes `/webhooks/revenuecat` return 503 for every
+/// delivery, silently dropping purchase events so paying users are never granted pro. A missing
+/// `REVENUECAT_API_KEY` breaks the `/billing/restore` recovery path. In production we refuse to
+/// boot so the misconfiguration surfaces at deploy time instead of as lost revenue; elsewhere we
+/// log a loud warning.
+func validateBillingSecrets(_ app: Application) throws {
+    let required = [
+        "REVENUECAT_WEBHOOK_SECRET",
+        "REVENUECAT_API_KEY",
+    ]
+    let missing = required.filter { name in
+        (Environment.get(name)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "").isEmpty
+    }
+    guard !missing.isEmpty else { return }
+
+    let list = missing.joined(separator: ", ")
+    if app.environment == .production {
+        app.logger.critical("Missing required billing secrets: \(list). Refusing to boot.")
+        throw Abort(.internalServerError, reason: "Missing required billing secrets: \(list).")
+    } else {
+        app.logger.warning("Billing secrets not configured: \(list). RevenueCat webhooks and restore will not work.")
+    }
 }
 
 func configureAPNS(_ app: Application) throws {
