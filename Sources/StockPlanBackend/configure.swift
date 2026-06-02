@@ -334,6 +334,10 @@ public func configure(_ app: Application) async throws {
         app.cryptoService = DefaultCryptoService(provider: MockCryptoDataProvider())
     }
 
+    // AI insights (educational, Pro-gated). Backend proxy to OpenAI; key never
+    // leaves the server. Boots disabled when no key is configured.
+    app.aiInsightsService = DefaultAIInsightsService(client: makeOpenAIChatClient(app))
+
     let cleanupIntervalMinutes = Environment.get("AUTH_TOKEN_CLEANUP_INTERVAL_MINUTES").flatMap(Int.init(_:)) ?? 60
     app.lifecycle.use(AuthTokenCleanup(interval: TimeInterval(cleanupIntervalMinutes * 60)))
     app.lifecycle.use(IBKRSyncJob())
