@@ -113,6 +113,8 @@ enum BillingFeature: String {
     case smartSuggestions = "smart_suggestions"
     /// Cryptocurrency endpoints (market data, news, portfolio) — Pro/trial only.
     case crypto
+    /// AI financial insight cards (educational, reads user's own data) — Pro/trial only.
+    case aiInsights = "ai_insights"
 }
 
 struct BillingPlanLimits {
@@ -165,7 +167,7 @@ struct BillingPlanLimits {
         case .brokerSync, .expensePlanner, .reports, .statistics, .marketFundamentals,
              .advancedResearch, .peerComparison, .earningsText,
              .householdPartner, .recurringTemplates, .yearOverview, .smartSuggestions,
-             .crypto:
+             .crypto, .aiInsights:
             nil
         }
     }
@@ -268,7 +270,7 @@ struct DefaultUsageCounterService: UsageCounterService {
         case .brokerSync, .portfolioLists, .valuationCases, .expensePlanner, .reports,
              .statistics, .marketFundamentals, .advancedResearch, .peerComparison, .earningsText,
              .householdPartner, .recurringTemplates, .yearOverview, .smartSuggestions,
-             .crypto:
+             .crypto, .aiInsights:
             0
         }
     }
@@ -288,7 +290,7 @@ struct DefaultUsageCounterService: UsageCounterService {
         case .brokerSync, .portfolioLists, .valuationCases, .expensePlanner, .reports,
              .statistics, .marketFundamentals, .advancedResearch, .peerComparison, .earningsText,
              .householdPartner, .recurringTemplates, .yearOverview, .smartSuggestions,
-             .crypto:
+             .crypto, .aiInsights:
             break
         }
     }
