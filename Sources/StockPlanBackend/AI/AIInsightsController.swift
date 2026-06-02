@@ -2,6 +2,7 @@ import Foundation
 import NIOCore
 import Redis
 import RediStack
+import StockPlanShared
 import Vapor
 
 struct AIInsightsController: RouteCollection {

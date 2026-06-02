@@ -1,4 +1,5 @@
 import Foundation
+import StockPlanShared
 import Vapor
 
 protocol AIInsightsService: Sendable {

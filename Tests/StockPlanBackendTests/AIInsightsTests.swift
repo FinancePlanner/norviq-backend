@@ -1,6 +1,7 @@
 import Fluent
 import Foundation
 @testable import StockPlanBackend
+import StockPlanShared
 import Testing
 import VaporTesting
 
