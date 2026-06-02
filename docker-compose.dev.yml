@@ -14,7 +14,7 @@ volumes:
 x-shared_environment: &shared_environment
   LOG_LEVEL: ${LOG_LEVEL:-debug}
   DATABASE_HOST: db
-  DATABASE_PORT: ${DATABASE_PORT:-5432}
+  DATABASE_PORT: 5432
   DATABASE_NAME: stockplan_dev
   DATABASE_USERNAME: stockplan_user
   DATABASE_PASSWORD: stockplan_password
@@ -78,8 +78,7 @@ services:
       - db
       - redis
     ports:
-      - "127.0.0.1:8080:8080"
-      - "[::1]:8080:8080"
+      - "${APP_HOST_PORT:-8080}:8080"
     volumes:
       # Mount current directory to /workspace for hot-reloading
       - .:/workspace
@@ -97,11 +96,11 @@ services:
       POSTGRES_PASSWORD: stockplan_password
       POSTGRES_DB: stockplan_dev
     ports:
-      - "5432:5432"
+      - "${DB_HOST_PORT:-5432}:5432"
 
   redis:
     image: redis:7-alpine
     volumes:
       - redis_data:/data
     ports:
-      - "6379:6379"
+      - "${REDIS_HOST_PORT:-6379}:6379"
