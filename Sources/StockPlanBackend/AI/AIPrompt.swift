@@ -1,4 +1,5 @@
 import Foundation
+import StockPlanShared
 
 /// Static prompt text. Kept as a constant prefix so OpenAI prompt-caching can
 /// discount the system prompt on repeat calls.
