@@ -14,7 +14,8 @@ volumes:
 x-shared_environment: &shared_environment
   LOG_LEVEL: ${LOG_LEVEL:-debug}
   DATABASE_HOST: db
-  DATABASE_PORT: ${DATABASE_PORT:-5432}
+  # Pinned to container port; compose network ignores host port mapping and any .env DATABASE_PORT override
+  DATABASE_PORT: 5432
   DATABASE_NAME: stockplan_dev
   DATABASE_USERNAME: stockplan_user
   DATABASE_PASSWORD: stockplan_password
