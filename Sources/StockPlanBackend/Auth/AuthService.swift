@@ -78,6 +78,7 @@ protocol AuthService: Sendable {
     ) async throws -> AuthLoginOutcome
     func verifyMFA(challengeId: UUID, code: String, on req: Request) async throws -> AuthResponse
     func resendMFA(challengeId: UUID, on req: Request) async throws -> AuthMFAChallengeResponse
+    func authResponse(for user: User, on req: Request) async throws -> AuthResponse
 }
 
 // swiftlint:disable type_body_length
@@ -525,6 +526,10 @@ struct DefaultAuthService: AuthService {
         }
 
         return try await makeAuthResponse(for: user, on: req)
+    }
+
+    func authResponse(for user: User, on req: Request) async throws -> AuthResponse {
+        try await makeAuthResponse(for: user, on: req)
     }
 
     func resendMFA(challengeId: UUID, on req: Request) async throws -> AuthMFAChallengeResponse {

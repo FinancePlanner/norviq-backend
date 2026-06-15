@@ -24,6 +24,10 @@ struct AuthController: RouteCollection {
             auth.post("refresh", use: refresh)
             auth.post("mfa", "verify", use: mfaVerify)
             auth.post("mfa", "resend", use: mfaResend)
+            auth.group("webauthn", "login") { webauthn in
+                webauthn.post("options", use: webAuthnLoginOptions)
+                webauthn.post("verify", use: webAuthnLoginVerify)
+            }
         } else {
             let registerRateLimit = RateLimitMiddleware(limit: 5, interval: 60, keyPrefix: "ratelimit:register")
             let loginRateLimit = RateLimitMiddleware(limit: 10, interval: 60, keyPrefix: "ratelimit:login")
@@ -51,6 +55,12 @@ struct AuthController: RouteCollection {
         }
         auth.group("brokers", "ibkr") { brokers in
             brokers.get("callback", use: brokerIBKRCallback)
+        }
+
+        let webAuthnLoginRateLimit = RateLimitMiddleware(limit: 20, interval: 60, keyPrefix: "ratelimit:webauthn-login")
+        auth.group("webauthn", "login") { webauthn in
+            webauthn.grouped(webAuthnLoginRateLimit).post("options", use: webAuthnLoginOptions)
+            webauthn.grouped(webAuthnLoginRateLimit).post("verify", use: webAuthnLoginVerify)
         }
 
         let protected = auth.grouped(SessionToken.authenticator(), SessionToken.guardMiddleware())
@@ -255,6 +265,16 @@ struct AuthController: RouteCollection {
         response.headers.replaceOrAdd(name: .cacheControl, value: "no-store")
         response.body = .init(string: html)
         return response
+    }
+
+    @Sendable
+    func webAuthnLoginOptions(req: Request) async throws -> WebAuthnPublicKeyOptionsResponse {
+        try await req.application.webAuthnService.beginLogin(on: req)
+    }
+
+    @Sendable
+    func webAuthnLoginVerify(req: Request) async throws -> AuthResponse {
+        try await req.application.webAuthnService.finishLogin(on: req)
     }
 
     @Sendable

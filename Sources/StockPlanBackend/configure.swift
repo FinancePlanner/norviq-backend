@@ -192,6 +192,14 @@ public func configure(_ app: Application) async throws {
         mfaConfig: mfaConfig,
         trialService: app.trialService
     )
+    let webAuthnConfig = WebAuthnConfig.fromEnvironment(logger: app.logger)
+    if webAuthnConfig == nil {
+        app.logger.warning("WebAuthn is disabled. Configure WEBAUTHN_RP_ID and WEBAUTHN_ORIGINS.")
+    }
+    app.webAuthnService = DefaultWebAuthnService(
+        config: webAuthnConfig,
+        authService: app.authService
+    )
     let resendAPIKey = Environment.get("RESEND_API_KEY")?
         .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
     let resendFromEmail = Environment.get("RESEND_FROM_EMAIL")?
@@ -427,6 +435,7 @@ private func registerMigrations(_ app: Application) {
     app.migrations.add(CreateRefreshToken())
     app.migrations.add(CreateMFAChallenge())
     app.migrations.add(CreateOAuthTables())
+    app.migrations.add(CreateWebAuthnTables())
     app.migrations.add(CreateStock())
     app.migrations.add(AddAssetCategoryToStocks())
     app.migrations.add(AddImportSourceFieldsToStocks())

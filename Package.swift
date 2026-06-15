@@ -23,6 +23,7 @@ let package = Package(
         .package(url: "https://github.com/apple/swift-openapi-runtime", from: "1.0.0"),
         .package(url: "https://github.com/swift-server/swift-openapi-vapor.git", from: "1.0.0"),
         .package(url: "https://github.com/apple/swift-log.git", from: "1.5.0"),
+        .package(url: "https://github.com/swift-server/swift-webauthn.git", from: "1.0.0-beta.1"),
         .package(url: "https://github.com/swift-otel/swift-otel.git", from: "1.0.0"),
         // Prometheus metrics exporter for Swift Metrics
         .package(url: "https://github.com/vapor/redis.git", from: "4.8.0"),
@@ -48,6 +49,7 @@ let package = Package(
                 .product(name: "OpenAPIVapor", package: "swift-openapi-vapor"),
                 // Telemetry
                 .product(name: "Logging", package: "swift-log"),
+                .product(name: "WebAuthn", package: "swift-webauthn"),
                 .product(name: "OTel", package: "swift-otel"),
                 // Optional Redis cache integration.
                 .product(name: "Redis", package: "redis"),

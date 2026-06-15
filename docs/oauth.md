@@ -1,6 +1,6 @@
 # OAuth Setup (Backend)
 
-This document lists the minimum required configuration for OAuth to work end-to-end with the current backend implementation.
+This document lists the minimum required configuration for OAuth to work end-to-end with the current backend implementation, including **StockPlanWeb** browser callbacks.
 
 ## Supported providers (current state)
 
@@ -10,7 +10,7 @@ This document lists the minimum required configuration for OAuth to work end-to-
 
 ## Required environment variables
 
-Set these variables on the backend runtime:
+Set these variables on the backend runtime (see [`.env.example`](../.env.example)):
 
 ```env
 OAUTH_APPLE_CLIENT_ID=your-apple-services-id
@@ -27,16 +27,35 @@ OAUTH_X_CLIENT_SECRET=your-x-client-secret
 # optional; defaults to: tweet.read users.read offline.access
 OAUTH_X_SCOPES=tweet.read users.read offline.access
 
-OAUTH_ALLOWED_REDIRECT_URIS=norviqa://oauth/callback
+OAUTH_ALLOWED_REDIRECT_URIS=norviqa://oauth/callback,http://localhost:6969/auth/oauth/google/callback,http://localhost:6969/auth/oauth/apple/callback
 ```
 
 Notes:
 
 - Apple requires all 4 vars: `OAUTH_APPLE_CLIENT_ID`, `OAUTH_APPLE_TEAM_ID`, `OAUTH_APPLE_KEY_ID`, `OAUTH_APPLE_PRIVATE_KEY`.
-- Google requires `OAUTH_GOOGLE_CLIENT_ID` and `OAUTH_GOOGLE_CLIENT_SECRET`.
+- Google requires `OAUTH_GOOGLE_CLIENT_ID` and `OAUTH_GOOGLE_CLIENT_SECRET` for web/confidential clients.
 - X requires `OAUTH_X_CLIENT_ID` (`OAUTH_X_CLIENT_SECRET` optional depending on app type).
 - `OAUTH_ALLOWED_REDIRECT_URIS` is a comma-separated allowlist. The redirect URI sent by the client must match one of these values exactly.
 - X may not return user email depending on app permissions. In that case backend creates a synthetic internal email for the OAuth account.
+
+## StockPlanWeb (browser) redirect URIs
+
+StockPlanWeb builds callbacks from `PUBLIC_BASE_URL`:
+
+| Provider | Callback path |
+|----------|---------------|
+| Google | `{PUBLIC_BASE_URL}/auth/oauth/google/callback` |
+| Apple | `{PUBLIC_BASE_URL}/auth/oauth/apple/callback` |
+
+Local examples:
+
+- `http://localhost:6969/auth/oauth/google/callback`
+- `http://localhost:6969/auth/oauth/apple/callback`
+- `http://localhost:7000/...` if using StockPlanWeb docker-compose (port 7000)
+
+Add every callback URL to **both** `OAUTH_ALLOWED_REDIRECT_URIS` and the provider console (below).
+
+StockPlanWeb itself does **not** need Google/Apple secrets — only `BACKEND_URL`, `PUBLIC_BASE_URL`, `SESSION_SECRET`, and `COOKIE_SECURE` (see StockPlanWeb `.env.example`).
 
 ## Security hardening now enforced
 
@@ -56,25 +75,32 @@ Operational requirement:
 
 ## Provider console configuration (Apple)
 
-In Apple Developer (Certificates, IDs & Profiles):
+In [Apple Developer](https://developer.apple.com/account/resources/identifiers/list/serviceId) (Certificates, IDs & Profiles):
 
-1. Create/use a **Services ID** as your `OAUTH_APPLE_CLIENT_ID`.
+1. Create/use a **Services ID** as your `OAUTH_APPLE_CLIENT_ID` (e.g. `facorreia.financeplan.signin`).
 2. Enable **Sign in with Apple** for that Services ID.
-3. Register redirect URI:
-   - `norviqa://oauth/callback`
+3. Register **Return URLs** (exact match):
+   - iOS bridge: `https://api.yourdomain.com/v1/auth/oauth/apple/callback`
+   - Web local: `http://localhost:6969/auth/oauth/apple/callback` (and `:7000` if using docker-compose)
+   - Web prod: `https://app.yourdomain.com/auth/oauth/apple/callback`
 4. Create a Sign in with Apple key and store:
-   - Team ID (`OAUTH_APPLE_TEAM_ID`)
-   - Key ID (`OAUTH_APPLE_KEY_ID`)
-   - Private key PEM (`OAUTH_APPLE_PRIVATE_KEY`)
+   - Team ID → `OAUTH_APPLE_TEAM_ID`
+   - Key ID → `OAUTH_APPLE_KEY_ID`
+   - Private key PEM → `OAUTH_APPLE_PRIVATE_KEY` (single-line with `\n` or properly quoted multiline)
+
+Apple POSTs results with `response_mode=form_post`. StockPlanWeb handles this via `POST /auth/oauth/apple/callback`.
 
 ## Provider console configuration (Google)
 
-In Google Cloud Console (OAuth client settings):
+In [Google Cloud Console](https://console.cloud.google.com/apis/credentials) → OAuth 2.0 Client IDs:
 
-1. Configure the app redirect URI exactly as:
-   - `norviqa://oauth/callback`
-2. Use the generated client ID/secret in backend env variables above.
-3. Ensure scopes support OpenID profile/email (backend requests `openid email profile`).
+1. Create or reuse a **Web application** client for browser sign-in.
+2. Add **Authorized redirect URIs**:
+   - Web local: `http://localhost:6969/auth/oauth/google/callback`
+   - Web prod: `https://app.yourdomain.com/auth/oauth/google/callback`
+3. iOS uses a separate redirect: `com.googleusercontent.apps.<client-id-prefix>:/oauth2redirect` — add to the same or an iOS OAuth client and include in `OAUTH_ALLOWED_REDIRECT_URIS`.
+4. Copy Client ID → `OAUTH_GOOGLE_CLIENT_ID`, Client secret → `OAUTH_GOOGLE_CLIENT_SECRET`.
+5. Ensure scopes support OpenID profile/email (backend requests `openid email profile`).
 
 ## Provider console configuration (X)
 
@@ -82,7 +108,8 @@ In X Developer Portal:
 
 1. Configure OAuth 2.0 (Authorization Code with PKCE).
 2. Register callback URI:
-   - `norviqa://oauth/callback`
+   - `norviqa://oauth/callback` (iOS)
+   - Or HTTPS bridge: `https://api.yourdomain.com/v1/auth/oauth/x/callback`
 3. Set client ID (`OAUTH_X_CLIENT_ID`), and client secret if confidential client (`OAUTH_X_CLIENT_SECRET`).
 4. Ensure scopes include at least:
    - `tweet.read`
@@ -91,13 +118,36 @@ In X Developer Portal:
 
 ## Client/backend alignment requirements
 
-- The iOS callback scheme must match the redirect URI scheme (`norviqa`).
-- The redirect URI used by the client must be exactly the same value configured in:
-  - Google OAuth client settings
+- The iOS callback scheme must match the redirect URI scheme (`norviqa`) or Google reversed client ID.
+- The redirect URI used by each client must be exactly the same value configured in:
+  - Google OAuth client **Authorized redirect URIs**
+  - Apple Services ID **Return URLs**
   - `OAUTH_ALLOWED_REDIRECT_URIS` on backend
+
+## WebAuthn / Passkeys
+
+**Full runbook (local + production, troubleshooting, registration gap):** [`StockPlanWeb/docs/passkeys.md`](../../StockPlanWeb/docs/passkeys.md)
+
+Optional backend env (see `.env.example`):
+
+```env
+WEBAUTHN_RP_ID=localhost
+WEBAUTHN_RP_NAME=Norviq
+WEBAUTHN_ORIGINS=http://localhost:6969,http://localhost:7000
+```
+
+- `WEBAUTHN_RP_ID`: registrable domain (`localhost` for local dev; `yourdomain.com` in prod — no `www` prefix if using apex).
+- `WEBAUTHN_ORIGINS`: comma-separated origins that may initiate ceremonies (must match browser URL, including scheme and port).
+- When unset, passkey login endpoints return 503 and StockPlanWeb shows “not enabled”.
+
+Endpoints (proxied by StockPlanWeb BFF):
+
+- `POST /v1/auth/webauthn/login/options`
+- `POST /v1/auth/webauthn/login/verify`
 
 ## Startup behavior
 
 - If Google OAuth env variables are missing, backend startup continues, but Google OAuth is disabled and the server logs a warning.
 - If Apple or X env variables are missing, backend startup continues, but that provider is disabled and logged.
 - OAuth routes still exist, but disabled provider start/exchange requests fail with provider-not-configured.
+- If WebAuthn env is incomplete, passkey routes return 503.

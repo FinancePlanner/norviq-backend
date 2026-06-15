@@ -238,7 +238,14 @@ struct DefaultBillingService: BillingService {
         if product.contains("year") || product.contains("annual") {
             return "pro_annual"
         }
-        return "pro_monthly"
+        if product.contains("week") {
+            return "pro_weekly"
+        }
+        if product.contains("month") {
+            return "pro_monthly"
+        }
+        let id = productId(for: event)
+        return id.hasPrefix("pro_") ? id : "pro_monthly"
     }
 
     private func dateFromMilliseconds(_ milliseconds: Int64) -> Date {

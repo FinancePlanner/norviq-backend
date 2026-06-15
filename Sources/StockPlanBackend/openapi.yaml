@@ -284,6 +284,50 @@ paths:
           description: OAuth flow invalid/expired or provider verification failed
         '409':
           description: Account with this email already exists and requires linking
+  /v1/auth/webauthn/login/options:
+    post:
+      operationId: authWebAuthnLoginOptions
+      tags: [Auth]
+      summary: Begin WebAuthn passkey login
+      responses:
+        '200':
+          description: Public key credential request options
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [publicKey]
+                properties:
+                  publicKey:
+                    type: object
+                    description: WebAuthn PublicKeyCredentialRequestOptions
+        '400':
+          description: Missing or disallowed Origin header
+        '503':
+          description: WebAuthn is not configured on the backend
+  /v1/auth/webauthn/login/verify:
+    post:
+      operationId: authWebAuthnLoginVerify
+      tags: [Auth]
+      summary: Verify WebAuthn passkey assertion and issue tokens
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              description: WebAuthn AuthenticationCredential (PublicKeyCredential)
+      responses:
+        '200':
+          description: Passkey login successful
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+        '401':
+          description: Unknown passkey or invalid challenge
+        '503':
+          description: WebAuthn is not configured on the backend
   /v1/auth/me:
     get:
       operationId: authMe
