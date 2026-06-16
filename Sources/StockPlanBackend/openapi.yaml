@@ -34,9 +34,12 @@ tags:
   - name: Crypto
   - name: Dashboard
   - name: UserProfile
+  - name: Badges
+  - name: Feedback
   - name: Assets
   - name: Notifications
   - name: Billing
+  - name: Export
   - name: Payments
 paths:
   /health:
@@ -498,6 +501,127 @@ paths:
           description: Missing or invalid bearer token, or the authenticated user could not be resolved.
         '403':
           description: The authenticated user is not allowed to delete another user's profile.
+
+  /v1/users/username:
+    patch:
+      operationId: updateUsername
+      tags: [UserProfile]
+      summary: Update the authenticated user's username
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateUsernameRequest'
+      responses:
+        '200':
+          description: The updated user profile.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UpdateUserProfileResponse'
+        '400':
+          description: Invalid username.
+        '401':
+          description: Unauthorized
+        '409':
+          description: Username already taken.
+
+  /v1/users/email:
+    patch:
+      operationId: updateEmail
+      tags: [UserProfile]
+      summary: Update the authenticated user's email
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateEmailRequest'
+      responses:
+        '200':
+          description: The updated user profile.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UpdateUserProfileResponse'
+        '400':
+          description: Invalid email.
+        '401':
+          description: Unauthorized
+        '409':
+          description: Email already registered.
+
+  /v1/users/password:
+    patch:
+      operationId: updatePassword
+      tags: [UserProfile]
+      summary: Update the authenticated user's password
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdatePasswordRequest'
+      responses:
+        '200':
+          description: Password updated.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIMessageResponse'
+        '400':
+          description: Invalid password payload.
+        '401':
+          description: Unauthorized or current password incorrect.
+
+  /v1/badges:
+    get:
+      operationId: listBadges
+      tags: [Badges]
+      summary: List badge progress for the authenticated user
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Badge progress list.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BadgesListResponse'
+        '401':
+          description: Unauthorized
+
+  /v1/feedback:
+    post:
+      operationId: submitFeedback
+      tags: [Feedback]
+      summary: Submit product feedback
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/FeedbackRequest'
+      responses:
+        '200':
+          description: Feedback accepted.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FeedbackResponse'
+        '400':
+          description: Invalid feedback payload.
+        '401':
+          description: Unauthorized
 
   /v1/stocks:
     get:
@@ -3405,6 +3529,172 @@ paths:
         '401':
           description: Unauthorized
 
+  /v1/expenses/categories:
+    get:
+      operationId: listExpenseCategories
+      tags: [Expenses]
+      summary: List expense categories for the authenticated user
+      description: Seeds default categories on first access.
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ExpenseCategoryResponse'
+        '401':
+          description: Unauthorized
+    post:
+      operationId: createExpenseCategory
+      tags: [Expenses]
+      summary: Create a custom expense category
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ExpenseCategoryRequest'
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ExpenseCategoryResponse'
+        '400':
+          description: Invalid payload
+        '401':
+          description: Unauthorized
+
+  /v1/expenses/categories/{categoryId}:
+    parameters:
+      - name: categoryId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    delete:
+      operationId: deleteExpenseCategory
+      tags: [Expenses]
+      summary: Delete a custom expense category
+      description: Default categories cannot be deleted.
+      security:
+        - bearerAuth: []
+      responses:
+        '204':
+          description: No Content
+        '400':
+          description: Cannot delete default categories
+        '401':
+          description: Unauthorized
+        '404':
+          description: Not Found
+
+  /v1/expenses/recurring:
+    get:
+      operationId: listRecurringTemplates
+      tags: [Expenses]
+      summary: List recurring expense templates
+      description: Pro feature — requires recurring_templates entitlement.
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/RecurringTemplateResponse'
+        '401':
+          description: Unauthorized
+        '403':
+          description: Pro required
+    post:
+      operationId: createRecurringTemplate
+      tags: [Expenses]
+      summary: Create a recurring expense template
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RecurringTemplateRequest'
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RecurringTemplateResponse'
+        '400':
+          description: Invalid payload
+        '401':
+          description: Unauthorized
+        '403':
+          description: Pro required
+
+  /v1/expenses/recurring/{templateId}:
+    parameters:
+      - name: templateId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    patch:
+      operationId: updateRecurringTemplate
+      tags: [Expenses]
+      summary: Update a recurring expense template
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RecurringTemplateRequest'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RecurringTemplateResponse'
+        '400':
+          description: Invalid payload
+        '401':
+          description: Unauthorized
+        '403':
+          description: Pro required
+        '404':
+          description: Not Found
+    delete:
+      operationId: deleteRecurringTemplate
+      tags: [Expenses]
+      summary: Delete a recurring expense template
+      security:
+        - bearerAuth: []
+      responses:
+        '204':
+          description: No Content
+        '401':
+          description: Unauthorized
+        '403':
+          description: Pro required
+        '404':
+          description: Not Found
+
   /v1/expenses/partner:
     get:
       operationId: getHouseholdPartner
@@ -3501,6 +3791,167 @@ paths:
                 $ref: '#/components/schemas/BillingContextResponse'
         '401':
           description: Unauthorized
+
+  /v1/billing/restore:
+    post:
+      operationId: restoreBillingPurchases
+      tags: [Billing]
+      summary: Restore billing purchases from RevenueCat
+      description: Fetches the subscriber from RevenueCat, syncs entitlements server-side, and returns the updated billing context.
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BillingContextResponse'
+        '401':
+          description: Unauthorized
+        '502':
+          description: RevenueCat lookup failed
+
+  /v1/billing/coupons/redeem:
+    post:
+      operationId: redeemBillingCoupon
+      tags: [Billing]
+      summary: Redeem a billing coupon code
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CouponCodeRequest'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CouponRedemptionResponse'
+        '401':
+          description: Unauthorized
+
+  /v1/api/v3/export:
+    post:
+      operationId: createExport
+      tags: [Export]
+      summary: Create a data export job
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ExportCreateRequest'
+      responses:
+        '200':
+          description: Export job created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ExportCreateResponse'
+        '401':
+          description: Unauthorized
+    get:
+      operationId: listExports
+      tags: [Export]
+      summary: List data exports for the authenticated user
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 20
+        - name: offset
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 0
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ExportListResponse'
+        '401':
+          description: Unauthorized
+
+  /v1/api/v3/export/{exportId}:
+    parameters:
+      - name: exportId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    get:
+      operationId: getExport
+      tags: [Export]
+      summary: Get export status and metadata
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ExportDetailResponse'
+        '401':
+          description: Unauthorized
+        '404':
+          description: Not Found
+
+  /v1/api/v3/export/file/{userId}/{filename}:
+    get:
+      operationId: downloadExportFile
+      tags: [Export]
+      summary: Download a ready export file
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: userId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: filename
+          in: path
+          required: true
+          schema:
+            type: string
+            description: Export filename in the form "{exportId}.{format}"
+      responses:
+        '200':
+          description: Export file bytes
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+            text/csv:
+              schema:
+                type: string
+                format: binary
+            application/json:
+              schema:
+                type: string
+                format: binary
+        '400':
+          description: Export not ready
+        '404':
+          description: Not Found
 
   /webhooks/revenuecat:
     post:
@@ -4190,11 +4641,53 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/CsvImportCommitResponse'
+  /v1/brokers/ibkr/connect/start:
+    post:
+      operationId: startIbkrConnect
+      tags: [Brokers]
+      summary: Start IBKR broker connection flow
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BrokerConnectStartRequest'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BrokerConnectStartResponse'
+        '401':
+          description: Unauthorized
+  /v1/brokers/ibkr/connection:
+    delete:
+      operationId: disconnectIbkr
+      tags: [Brokers]
+      summary: Disconnect IBKR broker connection
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BrokerConnectionResponse'
+        '401':
+          description: Unauthorized
+        '404':
+          description: Not Found
   /v1/brokers/ibkr/sync:
     post:
       operationId: syncIbkr
       tags: [Brokers]
       summary: Trigger an IBKR sync run
+      security:
+        - bearerAuth: []
       responses:
         '200':
           description: OK
@@ -4202,6 +4695,10 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/BrokerSyncResponse'
+        '401':
+          description: Unauthorized
+        '404':
+          description: Not Found
 
   /v1/notifications/apns/device:
     put:
@@ -4621,6 +5118,54 @@ components:
           type: string
           format: date-time
       required: [plan, entitlementLevel, isPremium, features, usage, generatedAt]
+    CouponCodeRequest:
+      type: object
+      required: [code]
+      properties:
+        code:
+          type: string
+    CouponDiscountDTO:
+      type: object
+      properties:
+        percentage:
+          type: integer
+          nullable: true
+        amount:
+          type: integer
+          nullable: true
+        currency:
+          type: string
+          nullable: true
+    CouponResponse:
+      type: object
+      required: [code, grantType, trialDays, discount]
+      properties:
+        code:
+          type: string
+        grantType:
+          type: string
+        trialDays:
+          type: integer
+        discount:
+          $ref: '#/components/schemas/CouponDiscountDTO'
+        expiresAt:
+          type: string
+          format: date-time
+          nullable: true
+    CouponRedemptionResponse:
+      type: object
+      required: [coupon, isTrialActive]
+      properties:
+        coupon:
+          $ref: '#/components/schemas/CouponResponse'
+        trialDaysRemaining:
+          type: integer
+          nullable: true
+        isTrialActive:
+          type: boolean
+        billingContext:
+          nullable: true
+          $ref: '#/components/schemas/BillingContextResponse'
     BillingSubscriptionDTO:
       type: object
       properties:
@@ -5058,6 +5603,122 @@ components:
           example: User account deleted
       required: [success]
 
+    UpdateUsernameRequest:
+      type: object
+      properties:
+        username:
+          type: string
+          minLength: 4
+          maxLength: 30
+          pattern: '^[a-zA-Z0-9_]{4,30}$'
+      required: [username]
+    UpdateEmailRequest:
+      type: object
+      properties:
+        email:
+          type: string
+          format: email
+      required: [email]
+    UpdatePasswordRequest:
+      type: object
+      properties:
+        currentPassword:
+          type: string
+        newPassword:
+          type: string
+      required: [currentPassword, newPassword]
+    APIMessageResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        message:
+          type: string
+      required: [success]
+    FeedbackRequest:
+      type: object
+      properties:
+        topic:
+          type: string
+          maxLength: 80
+        message:
+          type: string
+          maxLength: 5000
+      required: [topic, message]
+    FeedbackResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        message:
+          type: string
+      required: [success]
+    BadgeType:
+      type: string
+      enum:
+        - first_purchase
+        - news_reader
+        - investor
+        - saver
+        - frugal_fun
+        - spending_detox
+        - growth_mindset
+    BadgeTier:
+      type: string
+      enum: [bronze, silver, gold]
+    EarnedTierInfo:
+      type: object
+      properties:
+        tier:
+          $ref: '#/components/schemas/BadgeTier'
+        earnedAt:
+          type: string
+          format: date-time
+      required: [tier, earnedAt]
+    BadgeProgressResponse:
+      type: object
+      properties:
+        type:
+          $ref: '#/components/schemas/BadgeType'
+        title:
+          type: string
+        description:
+          type: string
+        iconName:
+          type: string
+        currentTier:
+          allOf:
+            - $ref: '#/components/schemas/BadgeTier'
+          nullable: true
+        nextTier:
+          allOf:
+            - $ref: '#/components/schemas/BadgeTier'
+          nullable: true
+        progress:
+          type: number
+          format: double
+        currentCount:
+          type: integer
+        targetCount:
+          type: integer
+        earnedTiers:
+          type: array
+          items:
+            $ref: '#/components/schemas/EarnedTierInfo'
+      required: [type, title, description, iconName, progress, currentCount, targetCount, earnedTiers]
+    BadgesListResponse:
+      type: object
+      properties:
+        badges:
+          type: array
+          items:
+            $ref: '#/components/schemas/BadgeProgressResponse'
+        totalEarnedTiers:
+          type: integer
+        totalAvailableTiers:
+          type: integer
+      required: [badges, totalEarnedTiers, totalAvailableTiers]
+
     CryptoAssetResponse:
       type: object
       properties:
@@ -5332,6 +5993,94 @@ components:
           nullable: true
       required: [id, snapshotId, title, plannedAmount, pillar, splitMode, userSharePercent]
 
+    ExpenseCategoryRequest:
+      type: object
+      properties:
+        name:
+          type: string
+        pillar:
+          type: string
+          nullable: true
+          description: "Optional pillar scope (fundamentals, futureYou, fun)."
+      required: [name]
+
+    ExpenseCategoryResponse:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        pillar:
+          type: string
+          nullable: true
+          description: "Pillar scope when set; null means all pillars."
+        isDefault:
+          type: boolean
+      required: [id, name, isDefault]
+
+    RecurringFrequency:
+      type: string
+      enum: [weekly, monthly]
+
+    RecurringTemplateRequest:
+      type: object
+      properties:
+        title:
+          type: string
+        amount:
+          type: number
+          format: double
+        pillar:
+          type: string
+          description: "Pillar key (fundamentals, futureYou, fun)."
+          example: fundamentals
+        categoryId:
+          type: string
+          format: uuid
+          nullable: true
+        frequency:
+          $ref: '#/components/schemas/RecurringFrequency'
+        splitMode:
+          $ref: '#/components/schemas/ExpenseSplitMode'
+        userSharePercent:
+          type: number
+          format: double
+          minimum: 0
+          maximum: 100
+      required: [title, amount, pillar, frequency, splitMode, userSharePercent]
+
+    RecurringTemplateResponse:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        title:
+          type: string
+        amount:
+          type: number
+          format: double
+        pillar:
+          type: string
+        categoryId:
+          type: string
+          format: uuid
+          nullable: true
+        frequency:
+          $ref: '#/components/schemas/RecurringFrequency'
+        splitMode:
+          $ref: '#/components/schemas/ExpenseSplitMode'
+        userSharePercent:
+          type: number
+          format: double
+        createdAt:
+          type: string
+          format: date-time
+          nullable: true
+      required: [id, title, amount, pillar, frequency, splitMode, userSharePercent]
+
     ExpenseRequest:
       type: object
       properties:
@@ -5348,6 +6097,10 @@ components:
           type: string
           format: date
         linkedPlanItemId:
+          type: string
+          format: uuid
+          nullable: true
+        categoryId:
           type: string
           format: uuid
           nullable: true
@@ -5379,6 +6132,10 @@ components:
           type: string
           format: date
         linkedPlanItemId:
+          type: string
+          format: uuid
+          nullable: true
+        categoryId:
           type: string
           format: uuid
           nullable: true
@@ -6041,6 +6798,132 @@ components:
           items:
             type: string
       required: [id, symbol, thesis]
+
+    ExportType:
+      type: string
+      enum: [portfolio, transactions, watchlist, insights, all]
+
+    ExportFormat:
+      type: string
+      enum: [csv, json]
+
+    ExportStatus:
+      type: string
+      enum: [pending, ready, failed]
+
+    ExportFilters:
+      type: object
+      properties:
+        portfolioListId:
+          type: string
+          nullable: true
+        dateFrom:
+          type: string
+          nullable: true
+          description: ISO8601 timestamp
+        dateTo:
+          type: string
+          nullable: true
+          description: ISO8601 timestamp
+
+    ExportCreateRequest:
+      type: object
+      properties:
+        type:
+          $ref: '#/components/schemas/ExportType'
+        format:
+          $ref: '#/components/schemas/ExportFormat'
+        filters:
+          $ref: '#/components/schemas/ExportFilters'
+      required: [type, format]
+
+    ExportCreateResponse:
+      type: object
+      properties:
+        exportId:
+          type: string
+          format: uuid
+        status:
+          $ref: '#/components/schemas/ExportStatus'
+      required: [exportId, status]
+
+    ExportListItem:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        type:
+          $ref: '#/components/schemas/ExportType'
+        format:
+          $ref: '#/components/schemas/ExportFormat'
+        status:
+          $ref: '#/components/schemas/ExportStatus'
+        createdAt:
+          type: string
+          format: date-time
+        filePath:
+          type: string
+          nullable: true
+        fileSizeBytes:
+          type: integer
+          format: int64
+          nullable: true
+        expiresAt:
+          type: string
+          format: date-time
+          nullable: true
+      required: [id, type, format, status, createdAt]
+
+    ExportListResponse:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/ExportListItem'
+      required: [items]
+
+    ExportDetailResponse:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        type:
+          $ref: '#/components/schemas/ExportType'
+        format:
+          $ref: '#/components/schemas/ExportFormat'
+        status:
+          $ref: '#/components/schemas/ExportStatus'
+        filters:
+          type: object
+          additionalProperties:
+            type: string
+          nullable: true
+        filePath:
+          type: string
+          nullable: true
+        fileSizeBytes:
+          type: integer
+          format: int64
+          nullable: true
+        downloadURL:
+          type: string
+          nullable: true
+        expiresAt:
+          type: string
+          format: date-time
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+          nullable: true
+        updatedAt:
+          type: string
+          format: date-time
+          nullable: true
+      required: [id, type, format, status]
 
     ScenarioTargetRequest:
       type: object
@@ -7354,7 +8237,47 @@ components:
           type: string
         status:
           type: string
+        displayName:
+          type: string
+          nullable: true
+        statusDetail:
+          type: string
+          nullable: true
+        connectedAt:
+          type: string
+          format: date-time
+          nullable: true
+        lastSyncedAt:
+          type: string
+          format: date-time
+          nullable: true
+        portfolioListId:
+          type: string
+          format: uuid
+          nullable: true
       required: [id, provider, status]
+    BrokerConnectStartRequest:
+      type: object
+      properties:
+        redirectURI:
+          type: string
+        portfolioListId:
+          type: string
+          format: uuid
+          nullable: true
+      required: [redirectURI]
+    BrokerConnectStartResponse:
+      type: object
+      properties:
+        flowId:
+          type: string
+          format: uuid
+        authorizationURL:
+          type: string
+        expiresIn:
+          type: integer
+          format: int32
+      required: [flowId, authorizationURL, expiresIn]
     BrokerHoldingResponse:
       type: object
       properties:
@@ -7373,6 +8296,15 @@ components:
           type: string
         status:
           type: string
+        inserted:
+          type: integer
+          format: int32
+        updated:
+          type: integer
+          format: int32
+        removed:
+          type: integer
+          format: int32
       required: [runId, status]
     CsvImportPreviewItem:
       type: object

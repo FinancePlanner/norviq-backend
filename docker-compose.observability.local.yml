@@ -1,0 +1,13 @@
+# Local override when running StockPlanBackend on the host (swift run) while
+# observability services run in Docker.
+#
+# Usage:
+#   docker compose -f docker-compose.production.yml \
+#     -f docker-compose.observability.yml \
+#     -f docker-compose.observability.local.yml up -d otel-collector jaeger prometheus grafana
+
+services:
+  otel-collector:
+    ports:
+      - "127.0.0.1:4317:4317"
+      - "127.0.0.1:4318:4318"

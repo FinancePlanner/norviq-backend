@@ -26,7 +26,9 @@ struct APIErrorMiddleware: AsyncMiddleware {
         do {
             return try await next.respond(to: request)
         } catch {
-            return makeErrorResponse(for: error, request: request)
+            let response = makeErrorResponse(for: error, request: request)
+            SentryReporter.capture(error: error, request: request, status: response.status)
+            return response
         }
     }
 

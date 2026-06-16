@@ -22,6 +22,7 @@ The backend now has a first-pass OpenTelemetry-based observability stack for a D
 - `docker-compose.observability.yml` adds:
   - `otel-collector`
   - `jaeger`
+  - `prometheus` (30-day TSDB retention)
   - `grafana`
 - Grafana is bound to `127.0.0.1:3000:3000`, so it is not publicly exposed by Compose.
 - Grafana provisioning exists for:
@@ -43,7 +44,7 @@ The backend now has a first-pass OpenTelemetry-based observability stack for a D
 The current stack is enough for launch smoke testing and incident triage, but it is not a full long-retention observability platform yet.
 
 - Traces are stored in Jaeger all-in-one. That is simple, but not the best long-term production trace store.
-- Metrics are exposed by the Collector Prometheus exporter and queried by Grafana. There is no durable Prometheus, Mimir, VictoriaMetrics, or ClickHouse metrics store yet.
+- Metrics are scraped by Prometheus from the Collector exporter (`monitoring/prometheus.yml`) with **30-day TSDB retention** when `docker-compose.observability.yml` is enabled. Grafana dashboards expect OTel semantic metric names (`http_server_duration_milliseconds_*`), not the optional in-app `/metrics` endpoint behind `PROMETHEUS_ENABLED`.
 - App logs are structured JSON in container logs, but they are not centralized in Loki, OpenObserve, SigNoz, Uptrace, or ClickStack yet.
 - Alert expressions are baseline expressions and must be validated against real metric names emitted by the deployed app and collector.
 - The stack runs on the same node as the app in the default Compose setup. That is acceptable for MVP, but move it to another node if CPU, memory, or disk pressure affects API latency.
@@ -95,7 +96,7 @@ docker build -t stockplanbackend:observability-local .
 3. Start the production-shaped stack plus observability:
 
 ```bash
-docker compose -f docker-compose.production.yml -f docker-compose.observability.yml up -d db redis otel-collector jaeger grafana
+docker compose -f docker-compose.production.yml -f docker-compose.observability.yml up -d db redis otel-collector jaeger prometheus grafana
 docker compose -f docker-compose.production.yml -f docker-compose.observability.yml --profile tools run --rm migrate
 docker compose -f docker-compose.production.yml -f docker-compose.observability.yml up -d app
 ```
@@ -380,7 +381,7 @@ GRAFANA_SLACK_WEBHOOK_URL=<slack webhook>
 2. Deploy the stack:
 
 ```bash
-docker compose -f docker-compose.production.yml -f docker-compose.observability.yml up -d db redis otel-collector jaeger grafana
+docker compose -f docker-compose.production.yml -f docker-compose.observability.yml up -d db redis otel-collector jaeger prometheus grafana
 docker compose -f docker-compose.production.yml -f docker-compose.observability.yml --profile tools run --rm migrate
 docker compose -f docker-compose.production.yml -f docker-compose.observability.yml up -d app
 ```
@@ -435,7 +436,8 @@ http://127.0.0.1:3000
 - [ ] Collector receives app telemetry without connection errors.
 - [ ] Jaeger contains recent API traces.
 - [ ] Grafana can query Jaeger.
-- [ ] Grafana can query Collector metrics.
+- [ ] Prometheus target `otel-collector:9464` is UP (`http://prometheus:9090/targets` via SSH tunnel).
+- [ ] StockPlan Grafana dashboard shows HTTP duration and host metrics after traffic.
 - [ ] Email alert contact point can send a test alert.
 - [ ] Slack alert contact point can send a test alert.
 - [ ] CPU and memory overhead are acceptable during smoke/load testing.
@@ -459,7 +461,6 @@ Pros:
 
 Cons:
 
-- No durable metrics store yet.
 - No centralized log search.
 - Jaeger all-in-one is not the long-term trace backend I would choose for higher traffic.
 
@@ -600,6 +601,90 @@ Recommendation: consider if centralized logs become the main requirement and the
 Source checked:
 
 - https://openobserve.ai/
+
+## CI Deploy and Production Runbook
+
+The GitHub Actions deploy workflow (`.github/workflows/deploy.yml`) now:
+
+1. Injects Slack/Discord webhook URLs into Grafana contact points.
+2. SCPs the full `monitoring/` tree (`otel-collector.yaml`, `prometheus.yml`, Grafana provisioning) to `/opt/stockplan/`.
+3. Starts the observability overlay after each app deploy:
+
+```bash
+docker compose -p prod \
+  -f docker-compose.production.yml \
+  -f docker-compose.observability.yml \
+  --env-file .env.production \
+  up -d otel-collector jaeger prometheus grafana
+```
+
+### Required GitHub secrets
+
+| Secret | Purpose |
+|--------|---------|
+| `SERVER_HOST`, `SERVER_USER`, `SERVER_SSH_KEY` | SSH deploy |
+| `GRAFANA_SLACK_WEBHOOK_URL` | Grafana alert contact point (optional but recommended) |
+| `GRAFANA_DISCORD_WEBHOOK_URL` | Grafana alert contact point (optional) |
+
+### Ops access (SSH tunnel)
+
+Grafana binds to `127.0.0.1:3000` on the server:
+
+```bash
+ssh -L 3000:127.0.0.1:3000 <user>@<server>
+```
+
+Open `http://127.0.0.1:3000`. Jaeger and Prometheus are internal-only (no public ports).
+
+### Post-deploy smoke checklist
+
+Run after each production deploy:
+
+1. `docker compose -p prod -f docker-compose.production.yml -f docker-compose.observability.yml ps` — all observability services `running`.
+2. `curl -fsS http://127.0.0.1:8080/health/ready` — app healthy.
+3. Generate traffic (`curl` health + one authenticated API call).
+4. Grafana → Explore → Jaeger → service `StockPlanBackend` — recent traces visible.
+5. Grafana → Explore → Prometheus → query `up{job="otel-collector"}` — value `1`.
+6. Open provisioned **StockPlan Production** dashboard — HTTP duration panels non-empty.
+7. Confirm Grafana alerting contact points are not using placeholder webhooks.
+
+### Metrics path (important)
+
+Grafana dashboards use **OTel semantic metrics** scraped from the collector (`http_server_duration_milliseconds_*`). The optional in-app `/metrics` endpoint behind `PROMETHEUS_ENABLED` uses different metric names and is **not** wired into Grafana.
+
+### Host-run backend (local)
+
+When running `swift run` on the host while observability runs in Docker, use `docker-compose.observability.local.yml` to publish OTLP ports `4317`/`4318` to localhost.
+
+## Sentry (error tracking)
+
+Single Sentry project for all surfaces. Distinguish with tags:
+
+| Surface | Tag | Implementation |
+|---------|-----|----------------|
+| Backend (Vapor/Linux) | `platform=backend` | `SentryReporter` in `APIErrorMiddleware` (5xx → Sentry store API) |
+| Web BFF (Go) | `platform=web` | `sentry-go` + Chi middleware |
+| Browser (HTMX/Alpine) | `platform=javascript` | `@sentry/browser` via Parcel (`sentry.js`) |
+| iOS | `platform=cocoa` | `sentry-cocoa` in `NorviqaApp.swift` |
+
+### Backend env vars
+
+```text
+SENTRY_DSN=https://<key>@o<org>.ingest.sentry.io/<project>
+SENTRY_ENVIRONMENT=production
+SENTRY_TRACES_SAMPLE_RATE=0.2
+```
+
+When `SENTRY_DSN` is set, the OTel collector also exports traces to Sentry Performance (`monitoring/otel-collector.yaml`). **Set a valid DSN before starting the collector** — an empty DSN may prevent the collector from starting.
+
+### iOS
+
+- `SENTRY_DSN` and optional `SENTRY_ENVIRONMENT` in release `Info.plist` / xcconfig (never commit real DSN).
+- CI uploads dSYMs on main archive (`.github/workflows/ci.yml`).
+
+## PostHog (web — deferred)
+
+When adding product analytics to StockPlanWeb, use **`bun add posthog-js`** and manual init in `scripts.js` — not `npx @posthog/wizard` (that targets Next/React SPAs). Mirror iOS event names and extend CSP `connect-src` for your PostHog host.
 
 ## Recommendation For StockPlanBackend
 

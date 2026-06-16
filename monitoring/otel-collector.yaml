@@ -31,13 +31,15 @@ exporters:
     verbosity: basic
   prometheus:
     endpoint: 0.0.0.0:9464
+  sentry:
+    dsn: ${env:SENTRY_DSN}
 
 service:
   pipelines:
     traces:
       receivers: [otlp]
       processors: [memory_limiter, batch]
-      exporters: [otlp/jaeger, debug]
+      exporters: [otlp/jaeger, sentry, debug]
     metrics:
       receivers: [otlp, hostmetrics]
       processors: [memory_limiter, batch]

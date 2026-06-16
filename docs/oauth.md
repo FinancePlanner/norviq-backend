@@ -46,11 +46,13 @@ StockPlanWeb builds callbacks from `PUBLIC_BASE_URL`:
 |----------|---------------|
 | Google | `{PUBLIC_BASE_URL}/auth/oauth/google/callback` |
 | Apple | `{PUBLIC_BASE_URL}/auth/oauth/apple/callback` |
+| IBKR broker connect | `{PUBLIC_BASE_URL}/settings/integrations/ibkr/callback` |
 
 Local examples:
 
 - `http://localhost:6969/auth/oauth/google/callback`
 - `http://localhost:6969/auth/oauth/apple/callback`
+- `http://localhost:6969/settings/integrations/ibkr/callback`
 - `http://localhost:7000/...` if using StockPlanWeb docker-compose (port 7000)
 
 Add every callback URL to **both** `OAUTH_ALLOWED_REDIRECT_URIS` and the provider console (below).
