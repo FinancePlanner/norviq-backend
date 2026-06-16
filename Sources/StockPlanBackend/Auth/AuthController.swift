@@ -28,6 +28,12 @@ struct AuthController: RouteCollection {
                 webauthn.post("options", use: webAuthnLoginOptions)
                 webauthn.post("verify", use: webAuthnLoginVerify)
             }
+            let protected = auth.grouped(SessionToken.authenticator(), SessionToken.guardMiddleware())
+            protected.get("me", use: me)
+            protected.group("webauthn", "register") { webauthn in
+                webauthn.post("options", use: webAuthnRegisterOptions)
+                webauthn.post("verify", use: webAuthnRegisterVerify)
+            }
         } else {
             let registerRateLimit = RateLimitMiddleware(limit: 5, interval: 60, keyPrefix: "ratelimit:register")
             let loginRateLimit = RateLimitMiddleware(limit: 10, interval: 60, keyPrefix: "ratelimit:login")
@@ -65,6 +71,12 @@ struct AuthController: RouteCollection {
 
         let protected = auth.grouped(SessionToken.authenticator(), SessionToken.guardMiddleware())
         protected.get("me", use: me)
+
+        let webAuthnRegisterRateLimit = RateLimitMiddleware(limit: 20, interval: 60, keyPrefix: "ratelimit:webauthn-register")
+        protected.group("webauthn", "register") { webauthn in
+            webauthn.grouped(webAuthnRegisterRateLimit).post("options", use: webAuthnRegisterOptions)
+            webauthn.grouped(webAuthnRegisterRateLimit).post("verify", use: webAuthnRegisterVerify)
+        }
     }
 
     @Sendable
@@ -275,6 +287,24 @@ struct AuthController: RouteCollection {
     @Sendable
     func webAuthnLoginVerify(req: Request) async throws -> AuthResponse {
         try await req.application.webAuthnService.finishLogin(on: req)
+    }
+
+    @Sendable
+    func webAuthnRegisterOptions(req: Request) async throws -> WebAuthnPublicKeyCreationOptionsResponse {
+        let token = try req.auth.require(SessionToken.self)
+        guard let user = try await User.find(token.userId, on: req.db) else {
+            throw Abort(.unauthorized)
+        }
+        return try await req.application.webAuthnService.beginRegistration(on: req, user: user)
+    }
+
+    @Sendable
+    func webAuthnRegisterVerify(req: Request) async throws -> HTTPStatus {
+        let token = try req.auth.require(SessionToken.self)
+        guard let user = try await User.find(token.userId, on: req.db) else {
+            throw Abort(.unauthorized)
+        }
+        return try await req.application.webAuthnService.finishRegistration(on: req, user: user)
     }
 
     @Sendable
