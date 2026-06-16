@@ -31,15 +31,21 @@ exporters:
     verbosity: basic
   prometheus:
     endpoint: 0.0.0.0:9464
-  sentry:
-    dsn: ${env:SENTRY_DSN}
+  otlphttp/sentry:
+    traces_endpoint: ${env:SENTRY_OTLP_TRACES_ENDPOINT}
+    logs_endpoint: ${env:SENTRY_OTLP_LOGS_ENDPOINT}
+    headers:
+      x-sentry-auth: ${env:SENTRY_OTLP_AUTH_HEADER}
+    compression: gzip
+    encoding: proto
+    timeout: 30s
 
 service:
   pipelines:
     traces:
       receivers: [otlp]
       processors: [memory_limiter, batch]
-      exporters: [otlp/jaeger, sentry, debug]
+      exporters: [otlp/jaeger, otlphttp/sentry, debug]
     metrics:
       receivers: [otlp, hostmetrics]
       processors: [memory_limiter, batch]

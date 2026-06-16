@@ -675,7 +675,17 @@ SENTRY_ENVIRONMENT=production
 SENTRY_TRACES_SAMPLE_RATE=0.2
 ```
 
-When `SENTRY_DSN` is set, the OTel collector also exports traces to Sentry Performance (`monitoring/otel-collector.yaml`). **Set a valid DSN before starting the collector** — an empty DSN may prevent the collector from starting.
+When `SENTRY_OTLP_*` vars are set, the OTel collector exports **traces** to Sentry via OTLP HTTP (`monitoring/otel-collector.yaml`). Set all three before starting the collector:
+
+```text
+SENTRY_OTLP_TRACES_ENDPOINT=https://o<org>.ingest.de.sentry.io/api/<project>/integration/otlp/v1/traces
+SENTRY_OTLP_LOGS_ENDPOINT=https://o<org>.ingest.de.sentry.io/api/<project>/integration/otlp/v1/logs
+SENTRY_OTLP_AUTH_HEADER=sentry sentry_key=<public_key>
+```
+
+`SENTRY_DSN` is still required for `SentryReporter` (5xx error events) and for web/iOS/browser SDKs. The OTLP exporter covers backend **performance traces**, not client crashes or the BFF error SDK.
+
+**Logs pipeline:** a `logs_endpoint` is configured, but the backend currently disables OTel log export (`entrypoint.swift`). Traces are the active path today.
 
 ### iOS
 
