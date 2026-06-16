@@ -53,11 +53,17 @@ struct WebAuthnPublicKeyOptionsResponse: Content {
     let publicKey: PublicKeyCredentialRequestOptions
 }
 
+struct WebAuthnPublicKeyCreationOptionsResponse: Content {
+    let publicKey: PublicKeyCredentialCreationOptions
+}
+
 protocol WebAuthnServicing: Sendable {
     var config: WebAuthnConfig? { get }
 
     func beginLogin(on req: Request) async throws -> WebAuthnPublicKeyOptionsResponse
     func finishLogin(on req: Request) async throws -> AuthResponse
+    func beginRegistration(on req: Request, user: User) async throws -> WebAuthnPublicKeyCreationOptionsResponse
+    func finishRegistration(on req: Request, user: User) async throws -> HTTPStatus
 }
 
 struct DefaultWebAuthnService: WebAuthnServicing {
@@ -128,6 +134,77 @@ struct DefaultWebAuthnService: WebAuthnServicing {
         return try await authService.authResponse(for: user, on: req)
     }
 
+    func beginRegistration(on req: Request, user: User) async throws -> WebAuthnPublicKeyCreationOptionsResponse {
+        guard let config else {
+            throw Abort(.serviceUnavailable, reason: "Passkey registration is not enabled on the server.")
+        }
+        guard let userID = user.id else {
+            throw Abort(.internalServerError, reason: "User id missing.")
+        }
+
+        let origin = try resolveOrigin(on: req, config: config)
+        let manager = try config.manager(for: origin)
+        let userEntity = PublicKeyCredentialUserEntity(
+            id: [UInt8](userID.uuidString.utf8),
+            name: user.email,
+            displayName: user.username
+        )
+        let options = manager.beginRegistration(user: userEntity)
+
+        let expiresAt = Date().addingTimeInterval(5 * 60)
+        let challenge = WebAuthnRegisterChallenge(
+            userID: userID,
+            challenge: Data(options.challenge),
+            expiresAt: expiresAt
+        )
+        try await challenge.save(on: req.db)
+
+        return WebAuthnPublicKeyCreationOptionsResponse(publicKey: options)
+    }
+
+    func finishRegistration(on req: Request, user: User) async throws -> HTTPStatus {
+        guard let config else {
+            throw Abort(.serviceUnavailable, reason: "Passkey registration is not enabled on the server.")
+        }
+        guard let userID = user.id else {
+            throw Abort(.internalServerError, reason: "User id missing.")
+        }
+
+        let origin = try resolveOrigin(on: req, config: config)
+        let manager = try config.manager(for: origin)
+        let credential = try req.content.decode(RegistrationCredential.self)
+
+        let challengeBytes = try registrationChallengeBytes(from: credential.attestationResponse)
+        guard let storedChallenge = try await findValidRegisterChallenge(
+            challengeBytes,
+            userID: userID,
+            on: req.db
+        ) else {
+            throw Abort(.unauthorized, reason: "Passkey challenge expired or invalid.")
+        }
+
+        let verified = try await manager.finishRegistration(
+            challenge: challengeBytes,
+            credentialCreationData: credential,
+            confirmCredentialIDNotRegisteredYet: { credentialID in
+                let existing = try await WebAuthnCredential.query(on: req.db)
+                    .filter(\.$credentialID == credentialID)
+                    .first()
+                return existing == nil
+            }
+        )
+
+        let stored = WebAuthnCredential(
+            userID: userID,
+            credentialID: verified.id,
+            publicKey: Data(verified.publicKey),
+            signCount: verified.signCount
+        )
+        try await stored.save(on: req.db)
+        try await storedChallenge.delete(on: req.db)
+        return .ok
+    }
+
     private func resolveOrigin(on req: Request, config: WebAuthnConfig) throws -> String {
         if let origin = req.headers.first(name: .origin)?.trimmedNonEmpty, config.allowedOrigins.contains(origin) {
             return origin
@@ -154,6 +231,34 @@ struct DefaultWebAuthnService: WebAuthnServicing {
     }
 
     private func challengeBytes(from response: AuthenticatorAssertionResponse) throws -> [UInt8] {
+        let clientData = try JSONDecoder().decode(WebAuthnClientData.self, from: Data(response.clientDataJSON))
+        guard let decoded = URLEncodedBase64(clientData.challenge).urlDecoded.decoded else {
+            throw Abort(.badRequest, reason: "Invalid WebAuthn challenge encoding.")
+        }
+        return [UInt8](decoded)
+    }
+
+    private func findValidRegisterChallenge(
+        _ challenge: [UInt8],
+        userID: UUID,
+        on db: any Database
+    ) async throws -> WebAuthnRegisterChallenge? {
+        let data = Data(challenge)
+        guard let row = try await WebAuthnRegisterChallenge.query(on: db)
+            .filter(\.$challenge == data)
+            .filter(\.$user.$id == userID)
+            .first()
+        else {
+            return nil
+        }
+        guard row.expiresAt > Date() else {
+            try await row.delete(on: db)
+            return nil
+        }
+        return row
+    }
+
+    private func registrationChallengeBytes(from response: AuthenticatorAttestationResponse) throws -> [UInt8] {
         let clientData = try JSONDecoder().decode(WebAuthnClientData.self, from: Data(response.clientDataJSON))
         guard let decoded = URLEncodedBase64(clientData.challenge).urlDecoded.decoded else {
             throw Abort(.badRequest, reason: "Invalid WebAuthn challenge encoding.")

@@ -33,6 +33,7 @@ tags:
   - name: News
   - name: Crypto
   - name: Dashboard
+  - name: AI
   - name: UserProfile
   - name: Badges
   - name: Feedback
@@ -4183,6 +4184,78 @@ paths:
         '401':
           description: Unauthorized
 
+  /v1/ai/insights/expenses:
+    get:
+      operationId: aiInsightsExpenses
+      tags: [AI]
+      summary: AI-generated educational insight for expenses
+      description: Pro-gated. Returns a plain-language insight card based on the user's budget and spending data.
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AIInsightCardResponse'
+        '401':
+          description: Unauthorized
+        '402':
+          description: Pro subscription required
+        '429':
+          description: Daily AI insight limit reached
+        '503':
+          description: AI insights temporarily unavailable
+
+  /v1/ai/insights/portfolio:
+    get:
+      operationId: aiInsightsPortfolio
+      tags: [AI]
+      summary: AI-generated educational insight for portfolio
+      description: Pro-gated. Returns a plain-language insight card based on the user's holdings.
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AIInsightCardResponse'
+        '401':
+          description: Unauthorized
+        '402':
+          description: Pro subscription required
+        '429':
+          description: Daily AI insight limit reached
+        '503':
+          description: AI insights temporarily unavailable
+
+  /v1/ai/insights/summary:
+    get:
+      operationId: aiInsightsSummary
+      tags: [AI]
+      summary: AI-generated cross-cutting financial summary
+      description: Pro-gated. Returns a plain-language insight card combining portfolio and spending signals.
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AIInsightCardResponse'
+        '401':
+          description: Unauthorized
+        '402':
+          description: Pro subscription required
+        '429':
+          description: Daily AI insight limit reached
+        '503':
+          description: AI insights temporarily unavailable
+
   /v1/goals:
     get:
       operationId: listGoals
@@ -8130,6 +8203,45 @@ components:
         financialHealth:
           $ref: '#/components/schemas/DashboardFinancialHealthDTO'
       required: [savingsRate, budgetStreak, watchlistCount, cashBuffer, financialHealth]
+
+    AIInsightKind:
+      type: string
+      enum: [expenses, portfolio, summary]
+
+    AIInsightHighlight:
+      type: object
+      properties:
+        label:
+          type: string
+        value:
+          type: string
+        trend:
+          type: string
+          description: Optional direction indicator — up, down, or flat
+      required: [label, value]
+
+    AIInsightCardResponse:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        kind:
+          $ref: '#/components/schemas/AIInsightKind'
+        title:
+          type: string
+        body:
+          type: string
+        highlights:
+          type: array
+          items:
+            $ref: '#/components/schemas/AIInsightHighlight'
+        disclaimer:
+          type: string
+        generatedAt:
+          type: string
+          format: date-time
+      required: [id, kind, title, body, highlights, disclaimer, generatedAt]
 
     DashboardFinancialHealthDTO:
       type: object
