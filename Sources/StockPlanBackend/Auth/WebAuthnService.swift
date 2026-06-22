@@ -147,7 +147,7 @@ struct DefaultWebAuthnService: WebAuthnServicing {
         let userEntity = PublicKeyCredentialUserEntity(
             id: [UInt8](userID.uuidString.utf8),
             name: user.email,
-            displayName: user.username
+            displayName: user.username ?? user.email
         )
         let options = manager.beginRegistration(user: userEntity)
 
