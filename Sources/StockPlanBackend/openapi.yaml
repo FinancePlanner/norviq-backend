@@ -3941,14 +3941,6 @@ paths:
               schema:
                 type: string
                 format: binary
-            text/csv:
-              schema:
-                type: string
-                format: binary
-            application/json:
-              schema:
-                type: string
-                format: binary
         '400':
           description: Export not ready
         '404':
