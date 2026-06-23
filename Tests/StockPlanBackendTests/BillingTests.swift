@@ -67,7 +67,8 @@ struct BillingTests {
         appUserId: String,
         productId: String = "pro_annual",
         expirationAtMs: Int64? = nil,
-        gracePeriodMs: Int64? = nil
+        gracePeriodMs: Int64? = nil,
+        originalTransactionId: String? = nil
     ) -> String {
         var fields = """
         "id": "\(eventId)",
@@ -77,6 +78,7 @@ struct BillingTests {
         """
         if let ms = expirationAtMs { fields += ",\n\"expiration_at_ms\": \(ms)" }
         if let ms = gracePeriodMs { fields += ",\n\"grace_period_expires_date_ms\": \(ms)" }
+        if let originalTransactionId { fields += ",\n\"original_transaction_id\": \"\(originalTransactionId)\"" }
         return "{\"event\": {\(fields)}}"
     }
 
@@ -402,6 +404,50 @@ struct BillingTests {
 
             let ent = try await Entitlement.query(on: app.db).filter(\.$userId == userId).first()
             #expect(ent?.level == "pro")
+        }
+    }
+
+    @Test("Subscription transfer revokes prior owner's entitlement")
+    func subscriptionTransferRevokesPreviousOwnerEntitlement() async throws {
+        try await withApp { app in
+            let first = try await registerUser(on: app, identifier: "transfer-first")
+            let second = try await registerUser(on: app, identifier: "transfer-second")
+            let transactionId = "transfer-\(UUID().uuidString)"
+            let futureMs = Int64(Date().addingTimeInterval(2_592_000).timeIntervalSince1970 * 1000)
+
+            let firstPurchase = makePayload(
+                type: "INITIAL_PURCHASE",
+                eventId: UUID().uuidString,
+                appUserId: first.userId.uuidString,
+                expirationAtMs: futureMs,
+                originalTransactionId: transactionId
+            )
+            #expect(try await post(firstPurchase, authorization: secret, on: app) == .ok)
+
+            let transferredRenewal = makePayload(
+                type: "RENEWAL",
+                eventId: UUID().uuidString,
+                appUserId: second.userId.uuidString,
+                expirationAtMs: futureMs,
+                originalTransactionId: transactionId
+            )
+            #expect(try await post(transferredRenewal, authorization: secret, on: app) == .ok)
+
+            let subscription = try #require(try await Subscription.query(on: app.db)
+                .filter(\.$providerOriginalTransactionId == transactionId)
+                .first())
+            #expect(subscription.userId == second.userId)
+
+            let firstEntitlement = try await Entitlement.query(on: app.db)
+                .filter(\.$userId == first.userId)
+                .first()
+            let secondEntitlement = try await Entitlement.query(on: app.db)
+                .filter(\.$userId == second.userId)
+                .first()
+            #expect(firstEntitlement?.level == "free")
+            #expect(firstEntitlement?.subscriptionId == nil)
+            #expect(secondEntitlement?.level == "pro")
+            #expect(secondEntitlement?.subscriptionId == subscription.id)
         }
     }
 
