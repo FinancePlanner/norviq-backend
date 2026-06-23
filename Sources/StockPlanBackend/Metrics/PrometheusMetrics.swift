@@ -1,4 +1,5 @@
 import Atomics
+import Foundation
 
 /// Central singleton for Prometheus metric values.
 ///

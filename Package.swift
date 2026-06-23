@@ -25,6 +25,7 @@ let package = Package(
         .package(url: "https://github.com/apple/swift-log.git", from: "1.5.0"),
         .package(url: "https://github.com/swift-server/swift-webauthn.git", from: "1.0.0-beta.1"),
         .package(url: "https://github.com/swift-otel/swift-otel.git", from: "1.0.0"),
+        .package(url: "https://github.com/apple/swift-atomics.git", from: "1.3.0"),
         // Prometheus metrics exporter for Swift Metrics
         .package(url: "https://github.com/vapor/redis.git", from: "4.8.0"),
         // Shared API contracts used by backend and iOS app.
@@ -51,6 +52,7 @@ let package = Package(
                 .product(name: "Logging", package: "swift-log"),
                 .product(name: "WebAuthn", package: "swift-webauthn"),
                 .product(name: "OTel", package: "swift-otel"),
+                .product(name: "Atomics", package: "swift-atomics"),
                 // Optional Redis cache integration.
                 .product(name: "Redis", package: "redis"),
                 .product(name: "StockPlanShared", package: "FinanceShared"),

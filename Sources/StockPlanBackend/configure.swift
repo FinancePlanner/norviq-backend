@@ -5,7 +5,6 @@ import FluentPostgresDriver
 import FluentSQL
 import JWT
 import JWTKit
-import Metrics
 import NIOSSL
 import Redis
 import Vapor
