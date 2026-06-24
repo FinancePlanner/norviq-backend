@@ -371,12 +371,9 @@ struct MarketDataController: RouteCollection {
 
     @Sendable
     func earningsCalendar(req: Request) async throws -> [EarningsResponse] {
-        let session = try req.auth.require(SessionToken.self)
-        try await req.usageCounterService.requirePremium(
-            .earningsText,
-            userId: session.userId,
-            on: req.db
-        )
+        // Teaser model: calendar list is free to browse (to surface value).
+        // Transcripts + detailed earnings per symbol remain earningsText Pro-gated.
+        _ = try req.auth.require(SessionToken.self)
         let from = req.query[String.self, at: "from"]
         let to = req.query[String.self, at: "to"]
         return try await req.application.marketDataService.earningsCalendar(

@@ -101,3 +101,11 @@ Expected response: `200 OK`
 - [ ] `REVENUECAT_API_KEY` verified as the secret `sk_...` key
 - [ ] Test webhook event sent and returns `200 OK`
 - [ ] `POST /billing/restore` returns correct entitlement after a test purchase
+
+## Earnings calendar + transcripts (with audio on iOS)
+
+- Calendar list (`/v1/market/earnings-calendar`) is a free teaser (no `earningsText` gate).
+- Per-symbol earnings and transcript (`/transcript`) require Pro via `earningsText`.
+- `FMP_API_KEY` is mandatory for transcript content and `hasTranscript` flags.
+- iOS: audio is on-device TTS via `EarningsAudioPlayer` (background mode declared). "Listen" button appears in transcript sheets for Pro users (stock details + earnings calendar detail).
+- See iOS `Documentation/revenuecat-setup.md` for matching client checklist.
