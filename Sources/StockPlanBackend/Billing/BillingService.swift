@@ -112,47 +112,71 @@ struct DefaultBillingService: BillingService {
 
         switch event.type {
         case "INITIAL_PURCHASE", "RENEWAL", "UNCANCELLATION":
-            let subscription = try await upsertSubscription(
+            let update = try await upsertSubscription(
                 userId: userId,
                 event: event,
                 status: "active",
                 cancelledAt: nil,
                 on: db
             )
-            try await upsertEntitlement(userId: userId, level: "pro", subscriptionId: subscription.id, on: db)
+            try await revokeTransferredEntitlementIfNeeded(
+                previousUserId: update.previousUserId,
+                newUserId: userId,
+                subscriptionId: update.subscription.id,
+                on: db
+            )
+            try await upsertEntitlement(userId: userId, level: "pro", subscriptionId: update.subscription.id, on: db)
 
         case "CANCELLATION":
-            let subscription = try await upsertSubscription(
+            let update = try await upsertSubscription(
                 userId: userId,
                 event: event,
                 status: "cancelled",
                 cancelledAt: Date(),
                 on: db
             )
-            try await upsertEntitlement(userId: userId, level: "pro", subscriptionId: subscription.id, on: db)
+            try await revokeTransferredEntitlementIfNeeded(
+                previousUserId: update.previousUserId,
+                newUserId: userId,
+                subscriptionId: update.subscription.id,
+                on: db
+            )
+            try await upsertEntitlement(userId: userId, level: "pro", subscriptionId: update.subscription.id, on: db)
 
         case "EXPIRATION":
-            let subscription = try await upsertSubscription(
+            let update = try await upsertSubscription(
                 userId: userId,
                 event: event,
                 status: "expired",
                 cancelledAt: nil,
                 on: db
             )
-            try await upsertEntitlement(userId: userId, level: "free", subscriptionId: subscription.id, on: db)
+            try await revokeTransferredEntitlementIfNeeded(
+                previousUserId: update.previousUserId,
+                newUserId: userId,
+                subscriptionId: update.subscription.id,
+                on: db
+            )
+            try await upsertEntitlement(userId: userId, level: "free", subscriptionId: update.subscription.id, on: db)
 
         case "REFUND":
-            let subscription = try await upsertSubscription(
+            let update = try await upsertSubscription(
                 userId: userId,
                 event: event,
                 status: "refunded",
                 cancelledAt: nil,
                 on: db
             )
-            try await upsertEntitlement(userId: userId, level: "free", subscriptionId: subscription.id, on: db)
+            try await revokeTransferredEntitlementIfNeeded(
+                previousUserId: update.previousUserId,
+                newUserId: userId,
+                subscriptionId: update.subscription.id,
+                on: db
+            )
+            try await upsertEntitlement(userId: userId, level: "free", subscriptionId: update.subscription.id, on: db)
 
         case "BILLING_ISSUE":
-            let subscription = try await upsertSubscription(
+            let update = try await upsertSubscription(
                 userId: userId,
                 event: event,
                 status: "billing_issue",
@@ -161,7 +185,13 @@ struct DefaultBillingService: BillingService {
             )
             let graceEndsAt = event.gracePeriodExpiresDateMs.flatMap(dateFromMilliseconds)
             let level = graceEndsAt.map { $0 > Date() } == true ? "pro" : "free"
-            try await upsertEntitlement(userId: userId, level: level, subscriptionId: subscription.id, on: db)
+            try await revokeTransferredEntitlementIfNeeded(
+                previousUserId: update.previousUserId,
+                newUserId: userId,
+                subscriptionId: update.subscription.id,
+                on: db
+            )
+            try await upsertEntitlement(userId: userId, level: level, subscriptionId: update.subscription.id, on: db)
 
         default:
             return
@@ -174,7 +204,7 @@ struct DefaultBillingService: BillingService {
         status: String,
         cancelledAt: Date?,
         on db: any Database
-    ) async throws -> Subscription {
+    ) async throws -> (subscription: Subscription, previousUserId: UUID?) {
         let transactionId = transactionIdentifier(for: event)
         let subscription = try await Subscription.query(on: db)
             .filter(\.$provider == provider)
@@ -189,6 +219,7 @@ struct DefaultBillingService: BillingService {
                 plan: plan(for: event),
                 status: status
             )
+        let previousUserId = subscription.id == nil ? nil : subscription.userId
 
         subscription.userId = userId
         subscription.providerCustomerId = event.appUserId
@@ -203,7 +234,30 @@ struct DefaultBillingService: BillingService {
         subscription.gracePeriodEndsAt = event.gracePeriodExpiresDateMs.flatMap(dateFromMilliseconds)
         subscription.cancelledAt = cancelledAt ?? (status == "active" ? nil : subscription.cancelledAt)
         try await subscription.save(on: db)
-        return subscription
+        return (subscription, previousUserId)
+    }
+
+    private func revokeTransferredEntitlementIfNeeded(
+        previousUserId: UUID?,
+        newUserId: UUID,
+        subscriptionId: UUID?,
+        on db: any Database
+    ) async throws {
+        guard let previousUserId, previousUserId != newUserId, let subscriptionId else {
+            return
+        }
+        guard let entitlement = try await Entitlement.query(on: db)
+            .filter(\.$userId == previousUserId)
+            .first()
+        else {
+            return
+        }
+        guard entitlement.subscriptionId == subscriptionId else {
+            return
+        }
+        entitlement.level = "free"
+        entitlement.subscriptionId = nil
+        try await entitlement.save(on: db)
     }
 
     private func upsertEntitlement(
