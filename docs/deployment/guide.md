@@ -98,7 +98,7 @@ server {
     # (Optional) Generate dhparam: sudo openssl dhparam -out /etc/ssl/certs/dhparam.pem 2048
     ssl_dhparam /etc/ssl/certs/dhparam.pem;
     ssl_ciphers 'ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES128-GCM-SHA256...'; # See full list in best practices
-    ssl_session_timeout 1d;
+    ssl_session_timeout 1d;x
     ssl_session_cache shared:SSL:50m;
     ssl_stapling on;
     ssl_stapling_verify on;

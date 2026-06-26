@@ -43,6 +43,7 @@ protocol StatisticsRepository: Sendable {
     func stockLevelScorecard(userId: UUID, options: StatisticsQueryOptions, on db: any Database) async throws -> StatisticsViewModel
     func stockAllocation(userId: UUID, options: StatisticsQueryOptions, on db: any Database) async throws -> StatisticsViewModel
     func sectorAllocation(userId: UUID, options: StatisticsQueryOptions, on db: any Database) async throws -> StatisticsViewModel
+    func sectorGains(userId: UUID, options: StatisticsQueryOptions, on db: any Database) async throws -> SectorGainsResponse
     func calendarPerformance(userId: UUID, options: StatisticsQueryOptions, on db: any Database) async throws -> StatisticsViewModel
     func contributionAnalysis(userId: UUID, options: StatisticsQueryOptions, on db: any Database) async throws -> StatisticsViewModel
     func winnersVsLosers(userId: UUID, options: StatisticsQueryOptions, on db: any Database) async throws -> StatisticsViewModel
@@ -72,6 +73,10 @@ struct DatabaseStatisticsRepository: StatisticsRepository {
         var model = try await buildOverview(userId: userId, options: options, on: db)
         model = trimForSector(model)
         return model
+    }
+
+    func sectorGains(userId: UUID, options: StatisticsQueryOptions, on db: any Database) async throws -> SectorGainsResponse {
+        try await buildSectorGains(userId: userId, options: options, on: db)
     }
 
     func calendarPerformance(userId: UUID, options: StatisticsQueryOptions, on db: any Database) async throws -> StatisticsViewModel {
@@ -156,6 +161,12 @@ private extension DatabaseStatisticsRepository {
         let symbol: String
         let currency: String
         let price: Double
+    }
+
+    struct SectorGainAccumulator {
+        var marketValue: Double = 0
+        var costBasis: Double = 0
+        var unrealizedPnl: Double = 0
     }
 
     func buildOverview(
@@ -284,6 +295,84 @@ private extension DatabaseStatisticsRepository {
                 unrealizedPnl: marketValue - costBasis
             )
         }
+    }
+
+    func buildSectorGains(
+        userId: UUID,
+        options: StatisticsQueryOptions,
+        on db: any Database
+    ) async throws -> SectorGainsResponse {
+        let asOf = startOfDay(options.asOfDate ?? Date())
+        async let stocksTask: [Stock] = Stock.query(on: db)
+            .filter(\.$userId == userId)
+            .all()
+        async let notesTask: [ResearchNote] = ResearchNote.query(on: db)
+            .filter(\.$userId == userId)
+            .all()
+
+        let stocks = try await stocksTask
+        let notes = try await notesTask
+        let symbols = uniqueSymbols(from: stocks.map(\.symbol))
+
+        async let quoteBySymbolTask = loadLatestQuotes(symbols: symbols, on: db)
+        async let historyBySymbolTask = loadPriceHistoryBySymbol(
+            symbols: symbols,
+            period: options.period,
+            asOf: asOf,
+            on: db
+        )
+        async let profilesBySymbolTask = loadProfiles(symbols: symbols, on: db)
+
+        let snapshots = try await buildStockSnapshots(
+            stocks: stocks,
+            quoteBySymbol: quoteBySymbolTask,
+            historyBySymbol: historyBySymbolTask,
+            asOf: asOf
+        )
+        let profilesBySymbol = try await profilesBySymbolTask
+        let notesBySymbol = Dictionary(grouping: notes) { normalizeSymbol($0.symbol) }
+
+        let totalMarketValue = snapshots.reduce(0.0) { $0 + $1.marketValue }
+        let totalCostBasis = snapshots.reduce(0.0) { $0 + $1.costBasis }
+        let totalUnrealizedPnl = snapshots.reduce(0.0) { $0 + $1.unrealizedPnl }
+
+        var bySector: [String: SectorGainAccumulator] = [:]
+        for row in snapshots {
+            let sector = resolveSector(
+                symbol: row.symbol,
+                profile: profilesBySymbol[row.symbol],
+                notes: notesBySymbol[row.symbol] ?? []
+            )
+            bySector[sector, default: SectorGainAccumulator()].marketValue += row.marketValue
+            bySector[sector, default: SectorGainAccumulator()].costBasis += row.costBasis
+            bySector[sector, default: SectorGainAccumulator()].unrealizedPnl += row.unrealizedPnl
+        }
+
+        let sectors = bySector
+            .map { sector, values in
+                SectorGainItem(
+                    sector: sector,
+                    marketValue: round2(values.marketValue),
+                    costBasis: round2(values.costBasis),
+                    unrealizedPnl: round2(values.unrealizedPnl),
+                    unrealizedPnlPercent: percentage(values.unrealizedPnl, of: values.costBasis),
+                    weightPercent: percentage(values.marketValue, of: totalMarketValue)
+                )
+            }
+            .sorted(by: { lhs, rhs in
+                if lhs.unrealizedPnl == rhs.unrealizedPnl {
+                    return lhs.sector < rhs.sector
+                }
+                return lhs.unrealizedPnl > rhs.unrealizedPnl
+            })
+
+        return SectorGainsResponse(
+            baseCurrency: "USD",
+            totalMarketValue: round2(totalMarketValue),
+            totalCostBasis: round2(totalCostBasis),
+            totalUnrealizedPnl: round2(totalUnrealizedPnl),
+            sectors: sectors
+        )
     }
 
     func buildImportedStocksStatistics(
@@ -619,6 +708,26 @@ private extension DatabaseStatisticsRepository {
         return result
     }
 
+    func loadProfiles(symbols rawSymbols: [String], on db: any Database) async throws -> [String: ProfileCache] {
+        let symbols = uniqueSymbols(from: rawSymbols)
+        guard !symbols.isEmpty else { return [:] }
+
+        let profiles = try await ProfileCache.query(on: db)
+            .filter(\.$symbol ~~ symbols)
+            .sort(\.$updatedAt, .descending)
+            .all()
+
+        var result: [String: ProfileCache] = [:]
+        result.reserveCapacity(profiles.count)
+        for profile in profiles {
+            let symbol = normalizeSymbol(profile.symbol)
+            if result[symbol] == nil {
+                result[symbol] = profile
+            }
+        }
+        return result
+    }
+
     func loadPriceHistoryBySymbol(
         symbols: [String],
         period: StatisticsPeriod,
@@ -858,6 +967,91 @@ private extension DatabaseStatisticsRepository {
             result.append(symbol)
         }
         return result
+    }
+
+    func resolveSector(symbol: String, profile: ProfileCache?, notes: [ResearchNote]) -> String {
+        if let sector = profile?.finnhubIndustry.flatMap(sectorFromFinnhubIndustry) {
+            return sector
+        }
+        return inferSector(for: symbol, notes: notes)
+    }
+
+    func sectorFromFinnhubIndustry(_ raw: String) -> String? {
+        let industry = raw.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !industry.isEmpty else { return nil }
+
+        if industry.contains("technology")
+            || industry.contains("software")
+            || industry.contains("semiconductor")
+            || industry.contains("electronic")
+            || industry.contains("computer")
+        {
+            return "Technology"
+        }
+        if industry.contains("energy")
+            || industry.contains("oil")
+            || industry.contains("gas")
+            || industry.contains("coal")
+        {
+            return "Energy"
+        }
+        if industry.contains("financial")
+            || industry.contains("bank")
+            || industry.contains("insurance")
+            || industry.contains("capital markets")
+            || industry.contains("mortgage")
+        {
+            return "Financials"
+        }
+        if industry.contains("health")
+            || industry.contains("pharmaceutical")
+            || industry.contains("biotechnology")
+            || industry.contains("medical")
+        {
+            return "Healthcare"
+        }
+        if industry.contains("communication")
+            || industry.contains("telecom")
+            || industry.contains("media")
+            || industry.contains("entertainment")
+        {
+            return "Communication Services"
+        }
+        if industry.contains("consumer cyclical")
+            || industry.contains("consumer defensive")
+            || industry.contains("consumer staples")
+            || industry.contains("retail")
+            || industry.contains("apparel")
+            || industry.contains("auto")
+            || industry.contains("restaurant")
+        {
+            return "Consumer"
+        }
+        if industry.contains("industrial")
+            || industry.contains("aerospace")
+            || industry.contains("defense")
+            || industry.contains("machinery")
+            || industry.contains("transport")
+            || industry.contains("manufacturing")
+        {
+            return "Industrials"
+        }
+        if industry.contains("utility") {
+            return "Utilities"
+        }
+        if industry.contains("material")
+            || industry.contains("chemical")
+            || industry.contains("metal")
+            || industry.contains("mining")
+            || industry.contains("paper")
+        {
+            return "Materials"
+        }
+        if industry.contains("real estate") || industry.contains("reit") {
+            return "Real Estate"
+        }
+
+        return nil
     }
 
     func inferSector(for symbol: String, notes: [ResearchNote]) -> String {

@@ -98,7 +98,7 @@ extension WebhookDelivery {
     static func computeKey(url: String, method: String, payload: Data?) -> String {
         var payloadString = ""
         if let payload {
-            payloadString = String(decoding: payload, as: UTF8.self)
+            payloadString = String(bytes: payload, encoding: .utf8) ?? ""
         }
         let combined = "\(url)|\(method)|\(payloadString)"
         let hash = SHA256.hash(data: Data(combined.utf8))

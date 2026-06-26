@@ -195,7 +195,7 @@ private struct BillingFeatureDescriptor {
         .init(feature: .recurringTemplates, title: "Recurring expense templates", proOnly: true),
         .init(feature: .yearOverview, title: "Year-over-year expense history", proOnly: true),
         .init(feature: .smartSuggestions, title: "Smart spending suggestions", proOnly: true),
-        .init(feature: .reports, title: "Reports with charts", proOnly: true),
+        .init(feature: .reports, title: "Reports with charts", proOnly: false),
         .init(feature: .statistics, title: "Advanced statistics", proOnly: true),
         .init(feature: .marketFundamentals, title: "Real stock fundamentals", proOnly: true),
         .init(feature: .advancedResearch, title: "Advanced stock research", proOnly: true),

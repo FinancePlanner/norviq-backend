@@ -64,7 +64,7 @@ Not run:
 ## Implemented Billing MVP Slice (2026-04-23)
 
 - Backend: added pro plan compatibility, Pro gates, Pro limits, RevenueCat /v1/billing/restore, REVENUECAT_API_KEY production requirement.
-- iOS: added RevenueCat package, API-key plist hook, BillingHTTPClient, BillingManager, custom SwiftUI Pro paywall, Settings subscription rows, restore/manage actions, Pro gating in reports, stock detail premium tabs/actions, portfolio alert action.
+- iOS: added RevenueCat package, API-key plist hook, BillingHTTPClient, BillingManager, custom SwiftUI Pro paywall, Settings subscription rows, restore/manage actions, Pro gating (reports became free later), stock detail premium tabs/actions, portfolio alert action.
 - Shared DTOs: added isPro compatibility while preserving isPremium.
 
 Verified:

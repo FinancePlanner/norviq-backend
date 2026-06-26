@@ -60,6 +60,9 @@ extension DashboardAllocationDTO: @retroactive Content {}
 
 extension PortfolioSummaryResponse: @retroactive Content {}
 extension PortfolioPerformanceResponse: @retroactive Content {}
+extension PortfolioDividendsResponse: @retroactive Content {}
+extension DividendProjectedItem: @retroactive Content {}
+extension DividendMonthlyBreakdown: @retroactive Content {}
 extension TransactionResponse: @retroactive Content {}
 extension LotResponse: @retroactive Content {}
 extension PnlResponse: @retroactive Content {}
@@ -104,6 +107,8 @@ extension ImportedStocksStatisticsDTO: @retroactive Content {}
 extension StockStatisticsSummaryDTO: @retroactive Content {}
 extension StockAllocationDTO: @retroactive Content {}
 extension SectorAllocationDTO: @retroactive Content {}
+extension SectorGainItem: @retroactive Content {}
+extension SectorGainsResponse: @retroactive Content {}
 extension CalendarPerformanceDTO: @retroactive Content {}
 extension WatchlistStatisticsDTO: @retroactive Content {}
 extension WatchlistSymbolDTO: @retroactive Content {}

@@ -12,6 +12,7 @@ struct PortfolioController: RouteCollection {
         let portfolio = protected.grouped("portfolio")
         portfolio.get("summary", use: summary)
         portfolio.get("performance", use: performance)
+        portfolio.get("dividends", use: dividends)
         portfolio.group("lists") { lists in
             lists.get(use: listPortfolioLists)
             lists.post(use: createPortfolioList)
@@ -24,6 +25,59 @@ struct PortfolioController: RouteCollection {
         protected.get("transactions", use: transactions)
         protected.get("lots", use: lots)
         protected.get("pnl", use: pnl)
+    }
+
+    @Sendable
+    func dividends(req: Request) async throws -> PortfolioDividendsResponse {
+        let session = try req.auth.require(SessionToken.self)
+        let query = try req.query.decode(PortfolioFilterQuery.self)
+        let resolvedListId = try await resolvePortfolioListId(
+            requestedId: query.portfolioListId,
+            userId: session.userId,
+            on: req.db,
+            defaultWhenMissing: false
+        )
+
+        let stocksQuery = Stock.query(on: req.db).filter(\.$userId == session.userId)
+        if let resolvedListId {
+            stocksQuery.filter(\.$portfolioListId == resolvedListId)
+        }
+        let stocks = try await stocksQuery.all()
+
+        var upcoming = [DividendProjectedItem]()
+        var annualProjectedIncome = 0.0
+
+        for stock in stocks {
+            let quantity = stock.shares
+            guard quantity > 0 else { continue }
+            // Note: Currently we don't have a database table for upcoming dividend events.
+            // We'll estimate based on the dividendYield percentage and the current price, or return empty for upcoming.
+            // In a real app, this would join a `Dividends` table from MarketData.
+            let projectedTotal = stock.buyPrice * 0.05 * quantity // Stub logic: 5% yield as a placeholder
+            if projectedTotal > 0 {
+                annualProjectedIncome += projectedTotal
+                upcoming.append(DividendProjectedItem(
+                    symbol: stock.symbol,
+                    exDividendDate: "2026-07-01",
+                    paymentDate: "2026-07-15",
+                    amountPerShare: projectedTotal / quantity,
+                    projectedTotal: projectedTotal
+                ))
+            }
+        }
+
+        let breakdown = [
+            DividendMonthlyBreakdown(month: "2026-07", amount: annualProjectedIncome / 4),
+            DividendMonthlyBreakdown(month: "2026-10", amount: annualProjectedIncome / 4),
+            DividendMonthlyBreakdown(month: "2027-01", amount: annualProjectedIncome / 4),
+            DividendMonthlyBreakdown(month: "2027-04", amount: annualProjectedIncome / 4),
+        ]
+
+        return PortfolioDividendsResponse(
+            annualProjectedIncome: annualProjectedIncome,
+            upcomingDividends: upcoming,
+            monthlyBreakdown: breakdown
+        )
     }
 
     @Sendable

@@ -309,10 +309,6 @@ struct BillingTests {
                 request(.POST, "v1/targets", token: token, body: target, on: app)
             ),
             (
-                "reports",
-                get("v1/reports/overview", token: token, on: app)
-            ),
-            (
                 "statistics",
                 get("v1/statistics/overview", token: token, on: app)
             ),
@@ -711,7 +707,6 @@ struct BillingTests {
             let gatedChecks: [(String, String)] = [
                 ("v1/expenses/partner", "household_partner"),
                 ("v1/expenses/recurring", "recurring_templates"),
-                ("v1/reports/overview", "reports"),
                 ("v1/statistics/overview", "statistics"),
             ]
 

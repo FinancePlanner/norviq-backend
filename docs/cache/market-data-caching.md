@@ -43,9 +43,11 @@ Caching behavior is tuned via environment variables in `MarketDataCacheConfig`:
 | Variable | Description | Default |
 | :--- | :--- | :--- |
 | `MARKET_TTL_FMP_SECONDS` | TTL for FMP-backed analyst, growth, and ratio data. | `86400` (24h) |
-| `MARKET_TTL_QUOTE_SECONDS` | TTL for real-time stock quotes. | `20` |
+| `MARKET_TTL_QUOTE_SECONDS` | TTL for stock quotes (price + change/percentChange from Finnhub). Short TTL enables "live" polling UIs. | `20` |
 | `MARKET_TTL_HISTORY_SECONDS` | TTL for historical price bars. | `86400` (24h) |
 | `REDIS_URL` | Redis connection string (required for Hot Cache). | N/A |
+
+**Live prices note:** `QuoteResponse` (and `/v1/market/quote` + batch) already returns `currentPrice`, `change`, `percentChange`, and `timestamp`. Clients can poll the batch endpoint frequently (or use WS in future) to achieve updating ticker-style displays across portfolio lists, watchlists, and details. See iOS PortfolioViewModel + PortfolioRow for example enrichment.
 
 ## Data Integrity
 To ensure specific requests (e.g., Annual vs Quarterly ratios) do not collide, cache keys and database unique constraints incorporate query parameters:
