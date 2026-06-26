@@ -38,11 +38,14 @@ struct GoogleOAuthProviderClient: OAuthProviderClient {
         let tokenURL: URI
         let userInfoURL: URI
 
-        static func fromEnvironment() -> Config? {
-            guard let clientID = Environment.get("OAUTH_GOOGLE_CLIENT_ID")?.trimmedNonEmpty else {
+        static func fromEnvironment(
+            clientIDKey: String = "OAUTH_GOOGLE_CLIENT_ID",
+            clientSecretKey: String = "OAUTH_GOOGLE_CLIENT_SECRET"
+        ) -> Config? {
+            guard let clientID = Environment.get(clientIDKey)?.trimmedNonEmpty else {
                 return nil
             }
-            let clientSecret = Environment.get("OAUTH_GOOGLE_CLIENT_SECRET")?.trimmedNonEmpty
+            let clientSecret = Environment.get(clientSecretKey)?.trimmedNonEmpty
 
             let authURL = URL(string: "https://accounts.google.com/o/oauth2/v2/auth")!
             let tokenURL = URI(string: "https://oauth2.googleapis.com/token")

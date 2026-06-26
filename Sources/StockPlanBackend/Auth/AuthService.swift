@@ -90,17 +90,20 @@ struct DefaultAuthService: AuthService {
 
     let repo: any AuthRepository
     let oauthProviders: [OAuthProvider: any OAuthProviderClient]
+    let oauthWebProviders: [OAuthProvider: any OAuthProviderClient]
     let mfaConfig: AuthMFAConfig
     let trialService: any TrialServicing
 
     init(
         repo: any AuthRepository,
         oauthProviders: [OAuthProvider: any OAuthProviderClient] = [:],
+        oauthWebProviders: [OAuthProvider: any OAuthProviderClient] = [:],
         mfaConfig: AuthMFAConfig = .default,
         trialService: any TrialServicing = TrialService()
     ) {
         self.repo = repo
         self.oauthProviders = oauthProviders
+        self.oauthWebProviders = oauthWebProviders
         self.mfaConfig = mfaConfig
         self.trialService = trialService
     }
@@ -327,7 +330,7 @@ struct DefaultAuthService: AuthService {
         let normalizedRedirectURI = try normalizeRedirectURI(redirectURI)
         try validateRedirectURI(normalizedRedirectURI, app: req.application)
 
-        let oauthProvider = try oauthProviderClient(for: provider)
+        let oauthProvider = try oauthProviderClient(for: provider, redirectURI: normalizedRedirectURI)
         let state = randomURLSafeString(length: 32)
         let nonce = randomURLSafeString(length: 32)
         let codeVerifier = randomURLSafeString(length: 64)
@@ -373,10 +376,10 @@ struct DefaultAuthService: AuthService {
         redirectURI: String,
         on req: Request
     ) async throws -> AuthLoginOutcome {
-        let oauthProvider = try oauthProviderClient(for: provider)
         let normalizedCode = code.trimmingCharacters(in: .whitespacesAndNewlines)
         let normalizedState = state.trimmingCharacters(in: .whitespacesAndNewlines)
         let normalizedRedirectURI = try normalizeRedirectURI(redirectURI)
+        let oauthProvider = try oauthProviderClient(for: provider, redirectURI: normalizedRedirectURI)
 
         guard !normalizedCode.isEmpty else {
             throw Abort(.badRequest, reason: "OAuth authorization code is required")
@@ -797,6 +800,25 @@ struct DefaultAuthService: AuthService {
             )
         }
         return client
+    }
+
+    /// Selects the OAuth client for a given redirect URI. Web (http/https) redirects
+    /// use the dedicated web-application client when configured (required for Google,
+    /// whose iOS client type cannot register https redirect URIs); native custom-scheme
+    /// redirects fall back to the default (mobile) client.
+    private func oauthProviderClient(
+        for provider: OAuthProvider,
+        redirectURI: String
+    ) throws -> any OAuthProviderClient {
+        if isWebRedirectURI(redirectURI), let webClient = oauthWebProviders[provider] {
+            return webClient
+        }
+        return try oauthProviderClient(for: provider)
+    }
+
+    private func isWebRedirectURI(_ redirectURI: String) -> Bool {
+        let lowered = redirectURI.lowercased()
+        return lowered.hasPrefix("https://") || lowered.hasPrefix("http://")
     }
 
     private func normalizeRedirectURI(_ redirectURI: String) throws -> String {
