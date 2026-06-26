@@ -4958,6 +4958,25 @@ paths:
         '501':
           description: Not Implemented
 
+  /v1/statistics/stocks/sector-gains:
+    get:
+      operationId: statisticsSectorGains
+      tags: [Statistics]
+      summary: Sector gains statistics
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SectorGainsResponse'
+        '401':
+          description: Unauthorized
+        '501':
+          description: Not Implemented
+
   /v1/statistics/stocks/calendar-performance:
     get:
       operationId: statisticsCalendarPerformance
@@ -8614,6 +8633,46 @@ components:
           type: number
           format: double
       required: [sector, value, weightPercent]
+    SectorGainItem:
+      type: object
+      properties:
+        sector:
+          type: string
+        marketValue:
+          type: number
+          format: double
+        costBasis:
+          type: number
+          format: double
+        unrealizedPnl:
+          type: number
+          format: double
+        unrealizedPnlPercent:
+          type: number
+          format: double
+        weightPercent:
+          type: number
+          format: double
+      required: [sector, marketValue, costBasis, unrealizedPnl, unrealizedPnlPercent, weightPercent]
+    SectorGainsResponse:
+      type: object
+      properties:
+        baseCurrency:
+          type: string
+        totalMarketValue:
+          type: number
+          format: double
+        totalCostBasis:
+          type: number
+          format: double
+        totalUnrealizedPnl:
+          type: number
+          format: double
+        sectors:
+          type: array
+          items:
+            $ref: '#/components/schemas/SectorGainItem'
+      required: [baseCurrency, totalMarketValue, totalCostBasis, totalUnrealizedPnl, sectors]
     CalendarPerformanceDTO:
       type: object
       properties:

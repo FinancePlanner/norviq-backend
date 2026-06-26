@@ -16,6 +16,7 @@ struct StatisticsController: RouteCollection {
         stocks.get("scorecard", use: getStockLevelScorecard)
         stocks.get("allocation", use: getStockAllocation)
         stocks.get("sector-allocation", use: getSectorAllocation)
+        stocks.get("sector-gains", use: getSectorGains)
         stocks.get("calendar-performance", use: getCalendarPerformance)
         stocks.get("contribution-analysis", use: getContributionAnalysis)
         stocks.get("winners-losers", use: getWinnersVsLosers)
@@ -53,6 +54,14 @@ struct StatisticsController: RouteCollection {
         try await requireStatisticsAccess(session: session, req: req)
         let query = try parseQuery(req)
         return try await req.application.statisticsService.sectorAllocation(userId: session.userId, query: query, on: req.db)
+    }
+
+    @Sendable
+    func getSectorGains(req: Request) async throws -> SectorGainsResponse {
+        let session = try req.auth.require(SessionToken.self)
+        try await requireStatisticsAccess(session: session, req: req)
+        let query = try parseQuery(req)
+        return try await req.application.statisticsService.sectorGains(userId: session.userId, query: query, on: req.db)
     }
 
     @Sendable

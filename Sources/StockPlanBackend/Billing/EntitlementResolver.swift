@@ -95,7 +95,8 @@ enum BillingFeature: String {
     case reportGenerations = "report_generations"
     /// Core expense budgeting (record spend, snapshots, plan items, categories).
     /// Free users have access to this — the planner itself is free, only advanced
-    /// features (partner, recurring, year overview, suggestions, reports) are Pro.
+    /// features (partner, recurring, year overview, suggestions) are Pro.
+    /// Reports are now available to free users (with report generation limits).
     case expensePlanner = "expense_planner"
     case reports
     case statistics
@@ -133,7 +134,7 @@ struct BillingPlanLimits {
         valuationCaseCount: 1,
         csvImportCount: 1,
         targetAlertCount: 1,
-        reportGenerationCount: 10
+        reportGenerationCount: 50
     )
 
     static let premium = BillingPlanLimits(

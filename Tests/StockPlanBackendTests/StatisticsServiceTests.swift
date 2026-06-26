@@ -116,6 +116,24 @@ struct StatisticsServiceTests {
         }
     }
 
+    @Test("sectorGains delegates to repository with normalized options")
+    func sectorGainsDelegates() async throws {
+        let repo = StatisticsRepositorySpy(model: .fixture())
+        let service = DefaultStatisticsService(repo: repo)
+
+        let response = try await service.sectorGains(
+            userId: UUID(),
+            query: .init(period: "1m", top: nil, benchmark: nil, asOf: nil),
+            on: UnusedDatabase()
+        )
+
+        let options = await repo.lastOptions(for: "sectorGains")
+        #expect(options?.period == .oneMonth)
+        #expect(response.totalUnrealizedPnl == 300)
+        #expect(response.sectors.count == 1)
+        #expect(response.sectors.first?.sector == "Technology")
+    }
+
     @Test("future asOf returns badRequest")
     func futureAsOf() async throws {
         let repo = StatisticsRepositorySpy(model: .fixture())
@@ -247,6 +265,27 @@ private actor StatisticsRepositorySpy: StatisticsRepository {
 
     func sectorAllocation(userId _: UUID, options: StatisticsQueryOptions, on _: any Database) async throws -> StatisticsViewModel {
         record("sectorAllocation", options: options)
+    }
+
+    func sectorGains(userId _: UUID, options: StatisticsQueryOptions, on _: any Database) async throws -> SectorGainsResponse {
+        calledMethods.append("sectorGains")
+        lastOptionsByMethod["sectorGains"] = options
+        return SectorGainsResponse(
+            baseCurrency: "USD",
+            totalMarketValue: 2000,
+            totalCostBasis: 1700,
+            totalUnrealizedPnl: 300,
+            sectors: [
+                SectorGainItem(
+                    sector: "Technology",
+                    marketValue: 2000,
+                    costBasis: 1700,
+                    unrealizedPnl: 300,
+                    unrealizedPnlPercent: 17.65,
+                    weightPercent: 100
+                ),
+            ]
+        )
     }
 
     func calendarPerformance(userId _: UUID, options: StatisticsQueryOptions, on _: any Database) async throws -> StatisticsViewModel {

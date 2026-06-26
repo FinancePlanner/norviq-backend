@@ -104,6 +104,8 @@ extension ImportedStocksStatisticsDTO: @retroactive Content {}
 extension StockStatisticsSummaryDTO: @retroactive Content {}
 extension StockAllocationDTO: @retroactive Content {}
 extension SectorAllocationDTO: @retroactive Content {}
+extension SectorGainItem: @retroactive Content {}
+extension SectorGainsResponse: @retroactive Content {}
 extension CalendarPerformanceDTO: @retroactive Content {}
 extension WatchlistStatisticsDTO: @retroactive Content {}
 extension WatchlistSymbolDTO: @retroactive Content {}

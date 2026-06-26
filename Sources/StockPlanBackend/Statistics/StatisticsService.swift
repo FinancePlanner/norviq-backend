@@ -13,6 +13,7 @@ protocol StatisticsService: Sendable {
     func stockLevelScorecard(userId: UUID, query: StatisticsQueryInput, on db: any Database) async throws -> StatisticsDTO
     func stockAllocation(userId: UUID, query: StatisticsQueryInput, on db: any Database) async throws -> StatisticsDTO
     func sectorAllocation(userId: UUID, query: StatisticsQueryInput, on db: any Database) async throws -> StatisticsDTO
+    func sectorGains(userId: UUID, query: StatisticsQueryInput, on db: any Database) async throws -> SectorGainsResponse
     func calendarPerformance(userId: UUID, query: StatisticsQueryInput, on db: any Database) async throws -> StatisticsDTO
     func contributionAnalysis(userId: UUID, query: StatisticsQueryInput, on db: any Database) async throws -> StatisticsDTO
     func winnersVsLosers(userId: UUID, query: StatisticsQueryInput, on db: any Database) async throws -> StatisticsDTO
@@ -46,6 +47,11 @@ struct DefaultStatisticsService: StatisticsService {
         let options = try buildOptions(from: query)
         let model = try await repo.sectorAllocation(userId: userId, options: options, on: db)
         return StatisticsDTO(from: model)
+    }
+
+    func sectorGains(userId: UUID, query: StatisticsQueryInput, on db: any Database) async throws -> SectorGainsResponse {
+        let options = try buildOptions(from: query)
+        return try await repo.sectorGains(userId: userId, options: options, on: db)
     }
 
     func calendarPerformance(userId: UUID, query: StatisticsQueryInput, on db: any Database) async throws -> StatisticsDTO {
