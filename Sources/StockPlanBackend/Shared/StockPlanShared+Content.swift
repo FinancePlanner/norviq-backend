@@ -60,6 +60,9 @@ extension DashboardAllocationDTO: @retroactive Content {}
 
 extension PortfolioSummaryResponse: @retroactive Content {}
 extension PortfolioPerformanceResponse: @retroactive Content {}
+extension PortfolioDividendsResponse: @retroactive Content {}
+extension DividendProjectedItem: @retroactive Content {}
+extension DividendMonthlyBreakdown: @retroactive Content {}
 extension TransactionResponse: @retroactive Content {}
 extension LotResponse: @retroactive Content {}
 extension PnlResponse: @retroactive Content {}

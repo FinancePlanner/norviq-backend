@@ -4435,6 +4435,31 @@ paths:
                 $ref: '#/components/schemas/PortfolioSummaryResponse'
         '401':
           description: Unauthorized
+  /v1/portfolio/dividends:
+    get:
+      operationId: portfolioDividends
+      tags: [Portfolio]
+      summary: Portfolio projected dividends
+      description: Returns a list of upcoming dividends and projected income based on current holdings.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: portfolioListId
+          in: query
+          required: false
+          description: Optional portfolio list identifier. If omitted, returns aggregate dividends across all portfolio lists.
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PortfolioDividendsResponse'
+        '401':
+          description: Unauthorized
   /v1/portfolio/performance:
     get:
       operationId: portfolioPerformance
@@ -8026,6 +8051,34 @@ components:
           type: number
           format: double
       required: [date, value]
+    DividendProjectedItem:
+      type: object
+      properties:
+        symbol: { type: string }
+        exDividendDate: { type: string, format: date }
+        paymentDate: { type: string, format: date }
+        amountPerShare: { type: number, format: double }
+        projectedTotal: { type: number, format: double }
+      required: [symbol, exDividendDate, paymentDate, amountPerShare, projectedTotal]
+    DividendMonthlyBreakdown:
+      type: object
+      properties:
+        month: { type: string, description: "YYYY-MM format" }
+        amount: { type: number, format: double }
+      required: [month, amount]
+    PortfolioDividendsResponse:
+      type: object
+      properties:
+        annualProjectedIncome: { type: number, format: double }
+        upcomingDividends:
+          type: array
+          items:
+            $ref: '#/components/schemas/DividendProjectedItem'
+        monthlyBreakdown:
+          type: array
+          items:
+            $ref: '#/components/schemas/DividendMonthlyBreakdown'
+      required: [annualProjectedIncome, upcomingDividends, monthlyBreakdown]
     PortfolioPerformanceResponse:
       type: object
       properties:
