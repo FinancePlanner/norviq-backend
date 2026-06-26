@@ -94,6 +94,7 @@ func configureAuthStack(_ app: Application) async throws {
     app.userPIIEncryptionService = try UserPIIEncryptionBootstrap.fromEnvironment(app: app)
     app.authRepository = DatabaseAuthRepository(encryptionService: app.userPIIEncryptionService)
     var oauthProviders: [OAuthProvider: any OAuthProviderClient] = [:]
+    var oauthWebProviders: [OAuthProvider: any OAuthProviderClient] = [:]
     if let appleConfig = AppleOAuthProviderClient.Config.fromEnvironment() {
         oauthProviders[.apple] = AppleOAuthProviderClient(config: appleConfig)
     } else {
@@ -103,6 +104,17 @@ func configureAuthStack(_ app: Application) async throws {
         oauthProviders[.google] = GoogleOAuthProviderClient(config: googleConfig)
     } else {
         app.logger.warning("Google OAuth is disabled. Configure OAUTH_GOOGLE_CLIENT_ID (and optionally OAUTH_GOOGLE_CLIENT_SECRET for Web/confidential clients).")
+    }
+    // Web (browser) Google sign-in needs a "Web application" OAuth client, since iOS
+    // client types cannot register https redirect URIs. When configured, https redirects
+    // use this client; native iOS custom-scheme redirects keep using OAUTH_GOOGLE_CLIENT_ID.
+    if let googleWebConfig = GoogleOAuthProviderClient.Config.fromEnvironment(
+        clientIDKey: "OAUTH_GOOGLE_WEB_CLIENT_ID",
+        clientSecretKey: "OAUTH_GOOGLE_WEB_CLIENT_SECRET"
+    ) {
+        oauthWebProviders[.google] = GoogleOAuthProviderClient(config: googleWebConfig)
+    } else {
+        app.logger.warning("Google Web OAuth is not configured. Browser Google sign-in will reuse OAUTH_GOOGLE_CLIENT_ID, which fails for iOS-type clients. Set OAUTH_GOOGLE_WEB_CLIENT_ID and OAUTH_GOOGLE_WEB_CLIENT_SECRET.")
     }
     if let xConfig = XOAuthProviderClient.Config.fromEnvironment() {
         oauthProviders[.x] = XOAuthProviderClient(config: xConfig)
@@ -123,6 +135,7 @@ func configureAuthStack(_ app: Application) async throws {
     app.authService = DefaultAuthService(
         repo: app.authRepository,
         oauthProviders: oauthProviders,
+        oauthWebProviders: oauthWebProviders,
         mfaConfig: mfaConfig,
         trialService: app.trialService
     )
