@@ -827,8 +827,8 @@ struct BillingTests {
         }
     }
 
-    @Test("Coupon validation returns metadata without consuming usage")
-    func couponValidationDoesNotConsumeUsage() async throws {
+    @Test("Coupon validation route is not public")
+    func couponValidationRouteIsNotPublic() async throws {
         try await withApp { app in
             let auth = try await registerUser(on: app, identifier: "coupon-validate")
             let coupon = Coupon(
@@ -840,11 +840,8 @@ struct BillingTests {
             try await coupon.save(on: app.db)
 
             let (status, response, _) = try await validateCoupon(code: "save20", token: auth.token, on: app)
-            #expect(status == .ok)
-            let body = try #require(response)
-            #expect(body.code == "SAVE20")
-            #expect(body.trialDays == 14)
-            #expect(body.discount.percentage == 20)
+            #expect(status == .notFound)
+            #expect(response == nil)
 
             let stored = try await Coupon.query(on: app.db)
                 .filter(\.$code == "SAVE20")
@@ -853,68 +850,10 @@ struct BillingTests {
         }
     }
 
-    @Test("Lifetime coupon validation returns metadata without consuming usage")
-    func lifetimeCouponValidationDoesNotConsumeUsage() async throws {
-        try await withApp { app in
-            let auth = try await registerUser(on: app, identifier: "coupon-lifetime-validate")
-            let coupon = Coupon(
-                code: "LIFE123",
-                grantType: "lifetime_pro",
-                trialDays: 0,
-                maxUses: 1
-            )
-            try await coupon.save(on: app.db)
-
-            let (status, response, _) = try await validateCoupon(code: " life123 ", token: auth.token, on: app)
-            #expect(status == .ok)
-            let body = try #require(response)
-            #expect(body.code == "LIFE123")
-            #expect(body.grantType == "lifetime_pro")
-            #expect(body.trialDays == 0)
-
-            let stored = try await Coupon.query(on: app.db)
-                .filter(\.$code == "LIFE123")
-                .first()
-            #expect(stored?.currentUses == 0)
-        }
-    }
-
-    @Test("Coupon redemption grants trial metadata once")
-    func couponRedemptionGrantsTrialOnce() async throws {
+    @Test("Coupon redemption route is not public and does not grant access")
+    func couponRedemptionRouteIsNotPublic() async throws {
         try await withApp { app in
             let auth = try await registerUser(on: app, identifier: "coupon-redeem")
-            let coupon = Coupon(
-                code: "TRIAL14",
-                trialDays: 14,
-                discountPercentage: 25,
-                maxUses: 1
-            )
-            try await coupon.save(on: app.db)
-
-            let (status, response, _) = try await redeemCoupon(code: "trial14", token: auth.token, on: app)
-            #expect(status == .ok)
-            let body = try #require(response)
-            #expect(body.coupon.code == "TRIAL14")
-            #expect(body.isTrialActive == true)
-            #expect(body.trialDaysRemaining != nil)
-
-            let redemptionCount = try await CouponRedemption.query(on: app.db).count()
-            #expect(redemptionCount == 1)
-            let stored = try await Coupon.query(on: app.db)
-                .filter(\.$code == "TRIAL14")
-                .first()
-            #expect(stored?.currentUses == 1)
-
-            let duplicate = try await redeemCoupon(code: "TRIAL14", token: auth.token, on: app)
-            #expect(duplicate.0 == .badRequest || duplicate.0 == .conflict)
-        }
-    }
-
-    @Test("Lifetime coupon redemption grants Pro and cannot be reused")
-    func lifetimeCouponRedemptionGrantsProOnceGlobally() async throws {
-        try await withApp { app in
-            let first = try await registerUser(on: app, identifier: "coupon-lifetime-first")
-            let second = try await registerUser(on: app, identifier: "coupon-lifetime-second")
             let coupon = Coupon(
                 code: "FOREVER",
                 grantType: "lifetime_pro",
@@ -923,34 +862,65 @@ struct BillingTests {
             )
             try await coupon.save(on: app.db)
 
-            let (status, response, _) = try await redeemCoupon(code: " forever ", token: first.token, on: app)
-            #expect(status == .ok)
-            let body = try #require(response)
-            #expect(body.coupon.code == "FOREVER")
-            #expect(body.coupon.grantType == "lifetime_pro")
-            #expect(body.isTrialActive == false)
-            #expect(body.trialDaysRemaining == nil)
-            #expect(body.billingContext?.entitlementLevel == "pro")
-            #expect(body.billingContext?.isPremium == true)
+            let (status, response, _) = try await redeemCoupon(code: " forever ", token: auth.token, on: app)
+            #expect(status == .notFound)
+            #expect(response == nil)
 
-            let entitlement = try await Entitlement.query(on: app.db)
-                .filter(\.$userId == first.userId)
-                .first()
-            #expect(entitlement?.level == "pro")
-            #expect(entitlement?.subscriptionId == nil)
-
-            let redemptionCount = try await CouponRedemption.query(on: app.db).count()
-            #expect(redemptionCount == 1)
             let stored = try await Coupon.query(on: app.db)
                 .filter(\.$code == "FOREVER")
                 .first()
-            #expect(stored?.currentUses == 1)
+            #expect(stored?.currentUses == 0)
+            let redemptionCount = try await CouponRedemption.query(on: app.db).count()
+            #expect(redemptionCount == 0)
+            let entitlement = try await Entitlement.query(on: app.db)
+                .filter(\.$userId == auth.userId)
+                .first()
+            #expect(entitlement?.level != "pro")
+        }
+    }
 
-            let sameUserDuplicate = try await redeemCoupon(code: "FOREVER", token: first.token, on: app)
-            #expect(sameUserDuplicate.0 == .badRequest || sameUserDuplicate.0 == .conflict)
+    @Test("Registration ignores coupon code and starts normal default trial")
+    func registrationIgnoresCouponCode() async throws {
+        try await withApp { app in
+            let coupon = Coupon(
+                code: "FOREVER",
+                grantType: "lifetime_pro",
+                trialDays: 0,
+                maxUses: 1
+            )
+            try await coupon.save(on: app.db)
 
-            let otherUserDuplicate = try await redeemCoupon(code: "FOREVER", token: second.token, on: app)
-            #expect(otherUserDuplicate.0 == .badRequest || otherUserDuplicate.0 == .conflict)
+            let request = AuthRegisterRequest(
+                username: "billing_coupon_register",
+                password: "Password123!",
+                confirmPassword: "Password123!",
+                email: "billing+coupon-register@example.com",
+                dateOfBirth: Date(timeIntervalSince1970: 946_684_800),
+                couponCode: "FOREVER"
+            )
+            var auth: AuthResponse?
+            try await app.testing().test(.POST, "v1/auth/register", beforeRequest: { req in
+                try req.content.encode(request)
+            }, afterResponse: { res async throws in
+                #expect(res.status == .ok)
+                auth = try res.content.decode(AuthResponse.self)
+            })
+            let response = try #require(auth)
+            let user = try #require(try await User.find(response.userId, on: app.db))
+            #expect(user.trialTier == "temporary")
+            #expect(user.trialDays == 7)
+            #expect(user.trialStartedAt != nil)
+
+            let entitlement = try await Entitlement.query(on: app.db)
+                .filter(\.$userId == response.userId)
+                .first()
+            #expect(entitlement?.level != "pro")
+            let redemptionCount = try await CouponRedemption.query(on: app.db).count()
+            #expect(redemptionCount == 0)
+            let stored = try await Coupon.query(on: app.db)
+                .filter(\.$code == "FOREVER")
+                .first()
+            #expect(stored?.currentUses == 0)
         }
     }
 

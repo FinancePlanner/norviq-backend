@@ -494,15 +494,25 @@ struct XOAuthProviderClient: OAuthProviderClient {
             clientRequest.body = .init(string: tokenPayload)
         }
 
+        let rawTokenBody = oauthExtractBody(from: tokenResponse)
         guard tokenResponse.status == HTTPStatus.ok else {
+            req.logger.warning("X token exchange non-200 (\(tokenResponse.status.code)): \(rawTokenBody)")
             throw Abort(
                 .badGateway,
-                reason: "X token exchange failed (\(tokenResponse.status.code)): \(oauthExtractBody(from: tokenResponse))"
+                reason: "X token exchange failed (\(tokenResponse.status.code)): \(rawTokenBody)"
             )
         }
+        if let providerError = oauthDetectProviderError(in: tokenResponse, provider: "X") {
+            req.logger.warning("X token exchange returned 200 with error body: \(rawTokenBody)")
+            throw providerError
+        }
 
-        let token = try tokenResponse.content.decode(TokenResponse.self)
+        // Decode with a plain JSONDecoder to bypass the global snake_case→camelCase
+        // keyDecodingStrategy, which collides with the explicit `access_token` CodingKey
+        // and silently drops the token.
+        let token = try oauthDecodeProviderJSON(TokenResponse.self, from: tokenResponse, provider: "X")
         guard let accessToken = token.accessToken?.trimmedNonEmpty else {
+            req.logger.warning("X token exchange 200 but missing access_token. Body: \(rawTokenBody)")
             throw Abort(.badGateway, reason: "X token exchange did not return an access token")
         }
 
@@ -512,13 +522,15 @@ struct XOAuthProviderClient: OAuthProviderClient {
         }
 
         guard userResponse.status == HTTPStatus.ok else {
+            let rawUserBody = oauthExtractBody(from: userResponse)
+            req.logger.warning("X user profile non-200 (\(userResponse.status.code)): \(rawUserBody)")
             throw Abort(
                 .badGateway,
-                reason: "X user profile request failed (\(userResponse.status.code)): \(oauthExtractBody(from: userResponse))"
+                reason: "X user profile request failed (\(userResponse.status.code)): \(rawUserBody)"
             )
         }
 
-        let envelope = try userResponse.content.decode(UserEnvelope.self)
+        let envelope = try oauthDecodeProviderJSON(UserEnvelope.self, from: userResponse, provider: "X")
         let suggestedUsername = envelope.data.username?.trimmedNonEmpty
             ?? envelope.data.name?.trimmedNonEmpty
 
