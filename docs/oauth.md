@@ -33,7 +33,8 @@ OAUTH_ALLOWED_REDIRECT_URIS=norviqa://oauth/callback,http://localhost:6969/auth/
 Notes:
 
 - Apple requires all 4 vars: `OAUTH_APPLE_CLIENT_ID`, `OAUTH_APPLE_TEAM_ID`, `OAUTH_APPLE_KEY_ID`, `OAUTH_APPLE_PRIVATE_KEY`.
-- Google requires `OAUTH_GOOGLE_CLIENT_ID` and `OAUTH_GOOGLE_CLIENT_SECRET` for web/confidential clients.
+- Google native (iOS) sign-in uses `OAUTH_GOOGLE_CLIENT_ID` (iOS client, custom-scheme redirect, no secret).
+- Google **browser** sign-in requires a separate **Web application** client: `OAUTH_GOOGLE_WEB_CLIENT_ID` + `OAUTH_GOOGLE_WEB_CLIENT_SECRET`. iOS-type clients cannot register `https` redirect URIs, so the web flow fails if it reuses the iOS client. The backend automatically selects the web client for `http(s)` redirect URIs and the iOS client for custom-scheme redirects.
 - X requires `OAUTH_X_CLIENT_ID` (`OAUTH_X_CLIENT_SECRET` optional depending on app type).
 - `OAUTH_ALLOWED_REDIRECT_URIS` is a comma-separated allowlist. The redirect URI sent by the client must match one of these values exactly.
 - X may not return user email depending on app permissions. In that case backend creates a synthetic internal email for the OAuth account.
@@ -96,12 +97,14 @@ Apple POSTs results with `response_mode=form_post`. StockPlanWeb handles this vi
 
 In [Google Cloud Console](https://console.cloud.google.com/apis/credentials) → OAuth 2.0 Client IDs:
 
-1. Create or reuse a **Web application** client for browser sign-in.
-2. Add **Authorized redirect URIs**:
+1. Create a **Web application** client for browser sign-in (this is distinct from the iOS client).
+2. Add **Authorized redirect URIs** on the Web application client:
    - Web local: `http://localhost:6969/auth/oauth/google/callback`
-   - Web prod: `https://app.yourdomain.com/auth/oauth/google/callback`
-3. iOS uses a separate redirect: `com.googleusercontent.apps.<client-id-prefix>:/oauth2redirect` — add to the same or an iOS OAuth client and include in `OAUTH_ALLOWED_REDIRECT_URIS`.
-4. Copy Client ID → `OAUTH_GOOGLE_CLIENT_ID`, Client secret → `OAUTH_GOOGLE_CLIENT_SECRET`.
+   - Web prod: `https://www.norviq.org/auth/oauth/google/callback`
+3. iOS uses the separate **iOS** OAuth client with redirect `com.googleusercontent.apps.<ios-client-id-prefix>:/oauth2redirect`. Include it in `OAUTH_ALLOWED_REDIRECT_URIS`.
+4. Map env vars:
+   - iOS client → `OAUTH_GOOGLE_CLIENT_ID` (secret optional / empty)
+   - Web application client → `OAUTH_GOOGLE_WEB_CLIENT_ID` + `OAUTH_GOOGLE_WEB_CLIENT_SECRET`
 5. Ensure scopes support OpenID profile/email (backend requests `openid email profile`).
 
 ## Provider console configuration (X)
