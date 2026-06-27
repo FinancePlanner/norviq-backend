@@ -4,10 +4,13 @@
 
 ✅ **IMPLEMENTED** - Full IBKR Gateway Docker integration completed on 2026-04-24
 
+✅ **ADDED** - Optional IBKR Web API OAuth2 connect mode added on 2026-06-27
+
 The IBKR integration is now fully functional with:
 - IB Gateway Docker container running alongside the backend
 - Automated daily sync of positions, transactions, cash balances, and dividends
 - OAuth-like flow for user account connection
+- Optional IBKR Web API OAuth2 (`private_key_jwt`) flow for approved IBKR Web API apps
 - Read-only API access (no trading capability)
 - Comprehensive error handling and monitoring
 
@@ -149,9 +152,32 @@ It may be useful operationally, but it should stay behind an optional integratio
 Current decision
 - Keep IBKR optional.
 - Do not require `IBKR_API_BASE_URL` by default.
+- Use `IBKR_CONNECT_MODE=gateway` for the existing Client Portal Gateway setup.
+- Use `IBKR_CONNECT_MODE=oauth2` only after IBKR Web API OAuth2 approval and after setting `IBKR_OAUTH_*` env vars.
 - Use manual entry, CSV, and optional broker APIs for portfolio ingestion.
 - Use RSS for news only.
 - Keep market data provider integration abstract and replaceable.
+
+## OAuth2 connect mode
+
+Set these env vars to use IBKR Web API OAuth2:
+
+```env
+IBKR_CONNECT_MODE=oauth2
+IBKR_OAUTH_CLIENT_ID=your-ibkr-client-id
+IBKR_OAUTH_KEY_ID=your-ibkr-key-id
+IBKR_OAUTH_PRIVATE_KEY_PEM="-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----"
+IBKR_OAUTH_AUTHORIZATION_URL=https://...
+IBKR_OAUTH_TOKEN_URL=https://...
+IBKR_OAUTH_API_BASE_URL=https://...
+IBKR_OAUTH_SCOPE=portfolio.read
+```
+
+Callback requirements:
+
+- Add `norviqa://oauth/broker-callback` to backend `OAUTH_ALLOWED_REDIRECT_URIS` for iOS.
+- Add `{PUBLIC_BASE_URL}/settings/integrations/ibkr/callback` to backend `OAUTH_ALLOWED_REDIRECT_URIS` for StockPlanWeb.
+- Register `https://api.yourdomain.com/v1/auth/brokers/ibkr/callback` with IBKR as the OAuth redirect URI.
 
 ## References
 

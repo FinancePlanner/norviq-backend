@@ -5,17 +5,20 @@ import Vapor
 struct IBKRBrokerGatewayClient {
     let baseURL: String
     let defaultCurrency: String
+    let accessToken: String?
 
     init(
         baseURL: String = Environment.get("IBKR_API_BASE_URL") ?? "http://localhost:5000/v1/api",
-        defaultCurrency: String = Environment.get("MARKET_DEFAULT_CURRENCY") ?? "USD"
+        defaultCurrency: String = Environment.get("MARKET_DEFAULT_CURRENCY") ?? "USD",
+        accessToken: String? = nil
     ) {
         self.baseURL = baseURL
         self.defaultCurrency = defaultCurrency
+        self.accessToken = accessToken
     }
 
     func checkAuthStatus(on req: Request) async throws -> Bool {
-        let response = try await req.client.get(URI(string: makeURL(path: "/iserver/auth/status")))
+        let response = try await get(path: "/iserver/auth/status", on: req)
         guard response.status == .ok else { return false }
         if let status = try? response.content.decode(IBKRAuthStatus.self) {
             return status.authenticated == true
@@ -24,7 +27,7 @@ struct IBKRBrokerGatewayClient {
     }
 
     func reauthenticate(on req: Request) async throws {
-        let response = try await req.client.post(URI(string: makeURL(path: "/iserver/reauthenticate")))
+        let response = try await post(path: "/iserver/reauthenticate", on: req)
         guard response.status == .ok else {
             throw Abort(.badGateway, reason: "IBKR reauthentication failed with status \(response.status.code).")
         }
@@ -40,7 +43,7 @@ struct IBKRBrokerGatewayClient {
 
     func fetchPositions(accountID: String, on req: Request) async throws -> [IBKRBrokerPosition] {
         let response = try await withRetry(on: req) {
-            try await req.client.get(URI(string: makeURL(path: "/portfolio/\(accountID)/positions/0")))
+            try await get(path: "/portfolio/\(accountID)/positions/0", on: req)
         }
         guard response.status == .ok else {
             throw Abort(.badGateway, reason: "IBKR positions request failed with status \(response.status.code).")
@@ -64,7 +67,7 @@ struct IBKRBrokerGatewayClient {
         let toStr = formatter.string(from: to)
 
         let response = try await withRetry(on: req) {
-            try await req.client.get(URI(string: makeURL(path: "/pa/transactions?accountId=\(accountID)&from=\(fromStr)&to=\(toStr)")))
+            try await get(path: "/pa/transactions?accountId=\(accountID)&from=\(fromStr)&to=\(toStr)", on: req)
         }
         guard response.status == .ok else {
             throw Abort(.badGateway, reason: "IBKR transactions request failed with status \(response.status.code).")
@@ -83,7 +86,7 @@ struct IBKRBrokerGatewayClient {
 
     func fetchCashBalances(accountID: String, on req: Request) async throws -> [IBKRBrokerCashBalance] {
         let response = try await withRetry(on: req) {
-            try await req.client.get(URI(string: makeURL(path: "/portfolio/\(accountID)/ledger")))
+            try await get(path: "/portfolio/\(accountID)/ledger", on: req)
         }
         guard response.status == .ok else {
             throw Abort(.badGateway, reason: "IBKR cash balances request failed with status \(response.status.code).")
@@ -112,7 +115,7 @@ struct IBKRBrokerGatewayClient {
 
     private func fetchAccounts(on req: Request) async throws -> [IBKRBrokerAccount] {
         let response = try await withRetry(on: req) {
-            try await req.client.get(URI(string: makeURL(path: "/portfolio/accounts")))
+            try await get(path: "/portfolio/accounts", on: req)
         }
         guard response.status == .ok else {
             throw Abort(.badGateway, reason: "IBKR accounts request failed with status \(response.status.code).")
@@ -133,7 +136,7 @@ struct IBKRBrokerGatewayClient {
         var lastError: (any Error)?
         for attempt in 0 ..< maxRetries {
             do {
-                if attempt > 0 {
+                if attempt > 0, accessToken == nil {
                     let isAuthenticated = try await checkAuthStatus(on: req)
                     if !isAuthenticated {
                         try await reauthenticate(on: req)
@@ -149,6 +152,25 @@ struct IBKRBrokerGatewayClient {
             }
         }
         throw lastError ?? Abort(.badGateway, reason: "IBKR request failed after \(maxRetries) retries.")
+    }
+
+    private func get(path: String, on req: Request) async throws -> ClientResponse {
+        try await req.client.get(URI(string: makeURL(path: path))) { request in
+            addAuthorizationHeader(to: &request.headers)
+        }
+    }
+
+    private func post(path: String, on req: Request) async throws -> ClientResponse {
+        try await req.client.post(URI(string: makeURL(path: path))) { request in
+            addAuthorizationHeader(to: &request.headers)
+        }
+    }
+
+    private func addAuthorizationHeader(to headers: inout HTTPHeaders) {
+        guard let accessToken, !accessToken.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return
+        }
+        headers.bearerAuthorization = .init(token: accessToken)
     }
 
     private func makeURL(path: String) -> String {

@@ -1337,6 +1337,26 @@ paths:
                   $ref: '#/components/schemas/NewsItemResponse'
         '401':
           description: Unauthorized
+  /v1/news/view:
+    post:
+      operationId: recordNewsView
+      tags: [News]
+      summary: Record that the authenticated user viewed a news article
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/NewsViewRequest'
+      responses:
+        '204':
+          description: No Content
+        '400':
+          description: Bad Request
+        '401':
+          description: Unauthorized
   /v1/news/sync:
     post:
       operationId: syncNews
@@ -7019,6 +7039,19 @@ components:
           type: string
           description: ISO8601 datetime
       required: [symbol, headline]
+    NewsViewRequest:
+      type: object
+      properties:
+        newsId:
+          type: string
+          format: uuid
+        symbol:
+          type: string
+        headline:
+          type: string
+        url:
+          type: string
+      required: [headline]
     NewsItemResponse:
       type: object
       properties:

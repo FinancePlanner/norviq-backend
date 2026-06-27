@@ -243,6 +243,7 @@ func registerMigrations(_ app: Application) {
     app.migrations.add(BackfillEncryptedUserProfileFields())
     app.migrations.add(CreateUserActivity())
     app.migrations.add(AddNewsViewedActivityType())
+    app.migrations.add(AddReferenceKeyToUserActivity())
     app.migrations.add(CreateUserBadge())
     app.migrations.add(CreateBillingTables())
     app.migrations.add(CreateTrialWarning())

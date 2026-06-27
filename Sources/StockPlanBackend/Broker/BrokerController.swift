@@ -54,7 +54,9 @@ struct BrokerController: RouteCollection {
             userId: session.userId,
             on: req.db
         )
-        return try await req.application.brokersService.syncIBKR(userId: session.userId, on: req)
+        let response = try await req.application.brokersService.syncIBKR(userId: session.userId, on: req)
+        await req.reconcileBadges(userId: session.userId, on: req.db)
+        return response
     }
 
     @Sendable
@@ -114,13 +116,15 @@ struct BrokerController: RouteCollection {
     func importCsvCommit(req: Request) async throws -> CsvImportCommitResponse {
         let session = try req.auth.require(SessionToken.self)
         let upload = try await readCsvUpload(req)
-        return try await CsvPortfolioImportService().commit(
+        let response = try await CsvPortfolioImportService().commit(
             csv: upload.csv,
             provider: upload.provider,
             portfolioListId: req.query[String.self, at: "portfolioListId"],
             userId: session.userId,
             on: req
         )
+        await req.reconcileBadges(userId: session.userId, on: req.db)
+        return response
     }
 
     private struct CsvMultipartUpload: Content {

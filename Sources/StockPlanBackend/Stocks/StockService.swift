@@ -252,6 +252,8 @@ struct StockServiceImpl: StockService {
             on: db
         )
 
+        await req.reconcileBadges(userId: userId, on: db)
+
         return try StockResponse(from: stock)
     }
 
@@ -305,6 +307,7 @@ struct StockServiceImpl: StockService {
                 symbol: "arrow.down.doc.fill",
                 on: db
             )
+            await req.reconcileBadges(userId: userId, on: db)
         }
 
         return BulkStockResponse(created: created, failed: failed, results: results)

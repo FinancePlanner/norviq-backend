@@ -309,9 +309,18 @@ struct AuthController: RouteCollection {
 
     @Sendable
     func brokerIBKRCallback(req: Request) async throws -> Response {
-        guard let flowIdRaw = req.query[String.self, at: "flowId"],
-              let flowId = UUID(uuidString: flowIdRaw)
-        else {
+        let flowId: UUID?
+        if let flowIdRaw = req.query[String.self, at: "flowId"] {
+            guard let parsed = UUID(uuidString: flowIdRaw) else {
+                throw Abort(.badRequest, reason: "Invalid broker flow id.")
+            }
+            flowId = parsed
+        } else {
+            flowId = nil
+        }
+        let code = req.query[String.self, at: "code"]?.trimmedNonEmpty
+        let providerError = req.query[String.self, at: "error"]?.trimmedNonEmpty
+        guard flowId != nil || code != nil || providerError != nil else {
             throw Abort(.badRequest, reason: "Invalid broker flow id.")
         }
         guard let state = req.query[String.self, at: "state"],
@@ -319,7 +328,13 @@ struct AuthController: RouteCollection {
         else {
             throw Abort(.badRequest, reason: "Missing broker flow state.")
         }
-        return try await req.application.brokersService.handleIBKRCallback(flowId: flowId, state: state, on: req)
+        return try await req.application.brokersService.handleIBKRCallback(
+            flowId: flowId,
+            code: code,
+            error: providerError,
+            state: state,
+            on: req
+        )
     }
 
     private func oauthProvider(from req: Request) throws -> OAuthProvider {
