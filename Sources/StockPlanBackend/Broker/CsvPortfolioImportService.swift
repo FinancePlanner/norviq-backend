@@ -176,16 +176,17 @@ private extension CsvPortfolioImportService {
     }
 
     func validatePreviewItem(_ item: CsvImportPreviewItem, on _: Request) async throws -> String? {
-        guard let shares = item.shares, shares > 0 else {
-            return "Missing or invalid shares (quantity)."
+        if let shares = item.shares, shares < 0 {
+            return "Invalid shares (quantity)."
         }
-        guard let buyPrice = item.buyPrice, buyPrice > 0 else {
-            return "Missing or invalid buyPrice (average_cost)."
+        if let buyPrice = item.buyPrice, buyPrice < 0 {
+            return "Invalid buyPrice (average_cost)."
         }
-        guard let rawBuyDate = item.buyDate,
-              CsvImportService.normalizeDateOnlyString(rawBuyDate) != nil
-        else {
-            return "Missing or invalid buyDate. Expected YYYY-MM-DD."
+        if let rawBuyDate = item.buyDate,
+           !rawBuyDate.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+           CsvImportService.normalizeDateOnlyString(rawBuyDate) == nil
+        {
+            return "Invalid buyDate. Expected YYYY-MM-DD."
         }
         return nil
     }
@@ -287,29 +288,42 @@ private extension CsvPortfolioImportService {
     }
 
     func normalizeRequiredRow(_ row: CsvImportPreviewItem) throws -> NormalizedImportRow {
-        guard let shares = row.shares, shares > 0 else {
-            throw Abort(.badRequest, reason: "Missing or invalid shares (quantity).")
-        }
-        guard let buyPrice = row.buyPrice, buyPrice > 0 else {
-            throw Abort(.badRequest, reason: "Missing or invalid buyPrice (average_cost).")
-        }
-        guard let rawBuyDate = row.buyDate,
-              let normalized = CsvImportService.normalizeDateOnlyString(rawBuyDate)
-        else {
-            throw Abort(.badRequest, reason: "Missing or invalid buyDate. Expected YYYY-MM-DD.")
+        let shares = row.shares ?? 0
+        let buyPrice = row.buyPrice ?? 0
+
+        if let rawBuyDate = row.buyDate,
+           !rawBuyDate.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+           let normalized = CsvImportService.normalizeDateOnlyString(rawBuyDate)
+        {
+            let formatter = Self.isoDateOnlyFormatter()
+            guard let buyDate = formatter.date(from: normalized) else {
+                throw Abort(.badRequest, reason: "Invalid buyDate. Expected YYYY-MM-DD.")
+            }
+            return .init(shares: shares, buyPrice: buyPrice, buyDate: buyDate, notes: row.notes)
         }
 
+        return .init(
+            shares: shares,
+            buyPrice: buyPrice,
+            buyDate: Self.defaultImportBuyDate(),
+            notes: row.notes
+        )
+    }
+
+    static func defaultImportBuyDate() -> Date {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(secondsFromGMT: 0) ?? .gmt
+        let components = calendar.dateComponents([.year, .month, .day], from: Date())
+        return calendar.date(from: components) ?? Date()
+    }
+
+    static func isoDateOnlyFormatter() -> DateFormatter {
         let formatter = DateFormatter()
         formatter.calendar = Calendar(identifier: .gregorian)
         formatter.locale = Locale(identifier: "en_US_POSIX")
         formatter.timeZone = TimeZone(secondsFromGMT: 0)
         formatter.dateFormat = "yyyy-MM-dd"
-
-        guard let buyDate = formatter.date(from: normalized) else {
-            throw Abort(.badRequest, reason: "Missing or invalid buyDate. Expected YYYY-MM-DD.")
-        }
-
-        return .init(shares: shares, buyPrice: buyPrice, buyDate: buyDate, notes: row.notes)
+        return formatter
     }
 
     func existingStockKinds(userId: UUID, on db: any Database) async throws -> [String: CsvImportExistingPositionKind] {

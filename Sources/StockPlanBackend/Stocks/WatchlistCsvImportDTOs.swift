@@ -1,0 +1,6 @@
+import StockPlanShared
+import Vapor
+
+typealias WatchlistCsvImportPreviewItem = StockPlanShared.WatchlistCsvImportPreviewItem
+typealias WatchlistCsvImportPreviewResponse = StockPlanShared.WatchlistCsvImportPreviewResponse
+typealias WatchlistCsvImportCommitResponse = StockPlanShared.WatchlistCsvImportCommitResponse

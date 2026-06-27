@@ -3,28 +3,6 @@ import Foundation
 import StockPlanShared
 import Vapor
 
-struct WatchlistCsvImportPreviewItem: Content, Equatable {
-    let line: Int
-    let symbol: String
-    let note: String?
-    let status: WatchlistStatus?
-    let existingItemId: String?
-    let willUpdateExisting: Bool
-}
-
-struct WatchlistCsvImportPreviewResponse: Content, Equatable {
-    let watchlistListId: String
-    let items: [WatchlistCsvImportPreviewItem]
-    let errors: [CsvImportPreviewError]
-}
-
-struct WatchlistCsvImportCommitResponse: Content, Equatable {
-    let watchlistListId: String
-    let inserted: [WatchlistItemResponse]
-    let updated: [WatchlistItemResponse]
-    let errors: [CsvImportPreviewError]
-}
-
 struct WatchlistCsvImportService {
     func preview(
         csv: String,

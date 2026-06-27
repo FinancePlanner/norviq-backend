@@ -2781,11 +2781,10 @@ struct StockPlanBackendTests {
             }, afterResponse: { res async throws in
                 #expect(res.status == .ok)
                 let response = try res.content.decode(CsvImportCommitResponse.self)
-                #expect(response.inserted.count == 1)
-                #expect(response.importedLotsCount == 1)
-                #expect(response.errors.count == 2)
+                #expect(response.inserted.count == 2)
+                #expect(response.importedLotsCount == 2)
+                #expect(response.errors.count == 1)
                 #expect(response.errors.contains(where: { $0.line == 3 && $0.message.contains("Unknown symbol") }))
-                #expect(response.errors.contains(where: { $0.line == 4 && $0.message.contains("buyDate") }))
             })
 
             try await app.testing().test(.GET, "v1/stocks", beforeRequest: { req in
@@ -2793,9 +2792,11 @@ struct StockPlanBackendTests {
             }, afterResponse: { res async throws in
                 #expect(res.status == .ok)
                 let stocks = try res.content.decode([StockListItem].self)
-                #expect(stocks.count == 1)
-                #expect(stocks.first?.symbol == "AAPL")
-                #expect(stocks.first?.shares == 4)
+                #expect(stocks.count == 2)
+                let aapl = stocks.first(where: { $0.symbol == "AAPL" })
+                let msft = stocks.first(where: { $0.symbol == "MSFT" })
+                #expect(aapl?.shares == 4)
+                #expect(msft?.shares == 3)
             })
         }
     }
@@ -2844,19 +2845,20 @@ struct StockPlanBackendTests {
             })
 
             #expect(commitResponse?.provider == "ibkr")
-            #expect(commitResponse?.inserted.count == 1)
-            #expect(commitResponse?.inserted.first?.symbol == "AAPL")
+            #expect(commitResponse?.inserted.count == 2)
+            let insertedSymbols = Set(commitResponse?.inserted.map(\.symbol) ?? [])
+            #expect(insertedSymbols == Set(["AAPL", "MSFT"]))
             #expect(commitResponse?.updated.isEmpty == true)
-            #expect(commitResponse?.errors.count == 1)
-            #expect(commitResponse?.errors.first?.line == 3)
+            #expect(commitResponse?.errors.isEmpty == true)
 
             try await app.testing().test(.GET, "v1/stocks", beforeRequest: { req in
                 req.headers.bearerAuthorization = .init(token: token)
             }, afterResponse: { res async throws in
                 #expect(res.status == .ok)
                 let stocks = try res.content.decode([StockListItem].self)
-                #expect(stocks.contains(where: { $0.symbol == "AAPL" }))
-                #expect(!stocks.contains(where: { $0.symbol == "MSFT" }))
+                let symbols = Set(stocks.map(\.symbol))
+                #expect(symbols.contains("AAPL"))
+                #expect(symbols.contains("MSFT"))
             })
         }
     }
