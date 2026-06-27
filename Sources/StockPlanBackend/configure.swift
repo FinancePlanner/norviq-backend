@@ -97,32 +97,24 @@ public func configure(_ app: Application) async throws {
     let fmpAPIKey = Environment.get("FMP_API_KEY")?
         .trimmingCharacters(in: .whitespacesAndNewlines)
 
+    let marketProviderKind = MarketDataProviderKind.select(
+        configuredMarketProvider: configuredMarketProvider,
+        hasFinnhubAPIKey: finnhubAPIKey?.isEmpty == false,
+        hasIBKRBaseURL: ibkrBaseURL?.isEmpty == false
+    )
     let marketProvider: any MarketDataProvider
-    switch configuredMarketProvider {
-    case "finnhub":
-        if let finnhubAPIKey, !finnhubAPIKey.isEmpty {
-            marketProvider = FinnhubMarketDataProvider(apiKey: finnhubAPIKey)
-        } else {
+    switch marketProviderKind {
+    case .finnhub:
+        marketProvider = FinnhubMarketDataProvider(apiKey: finnhubAPIKey ?? "")
+    case .ibkr:
+        marketProvider = IBKRMarketDataProvider(baseURL: ibkrBaseURL ?? "")
+    case .disabled:
+        if configuredMarketProvider == "finnhub" {
             app.logger.warning("MARKET_PROVIDER=finnhub but FINNHUB_API_KEY is not configured; market data disabled.")
-            marketProvider = DisabledMarketDataProvider()
-        }
-
-    case "ibkr":
-        if let ibkrBaseURL, !ibkrBaseURL.isEmpty {
-            marketProvider = IBKRMarketDataProvider(baseURL: ibkrBaseURL)
-        } else {
+        } else if configuredMarketProvider == "ibkr" {
             app.logger.warning("MARKET_PROVIDER=ibkr but IBKR_API_BASE_URL is not configured; market data disabled.")
-            marketProvider = DisabledMarketDataProvider()
         }
-
-    default:
-        if let ibkrBaseURL, !ibkrBaseURL.isEmpty {
-            marketProvider = IBKRMarketDataProvider(baseURL: ibkrBaseURL)
-        } else if let finnhubAPIKey, !finnhubAPIKey.isEmpty {
-            marketProvider = FinnhubMarketDataProvider(apiKey: finnhubAPIKey)
-        } else {
-            marketProvider = DisabledMarketDataProvider()
-        }
+        marketProvider = DisabledMarketDataProvider()
     }
 
     let fmpProvider: (any FMPMarketDataProvider & CryptoDataProvider)? = if let fmpAPIKey, !fmpAPIKey.isEmpty {

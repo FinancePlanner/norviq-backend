@@ -115,7 +115,7 @@ struct DefaultAuthService: AuthService {
         confirmPassword: String,
         dateOfBirth: Date,
         trialDays _: Int?,
-        couponCode: String?,
+        couponCode _: String?,
         on req: Request
     ) async throws -> AuthResponse {
         let normalizedUsername = normalizeUsername(username)
@@ -129,10 +129,6 @@ struct DefaultAuthService: AuthService {
         try validateEmail(normalizedEmail)
         try validatePassword(password)
         try validateDateOfBirth(dateOfBirth)
-
-        if let code = couponCode {
-            _ = try await req.application.couponService.validateCoupon(code: code, db: req.db)
-        }
 
         if try await repo.findUser(username: normalizedUsername, on: req.db) != nil {
             throw Abort(.conflict, reason: "Username already registered")
@@ -157,9 +153,7 @@ struct DefaultAuthService: AuthService {
             throw error
         }
 
-        if let code = couponCode {
-            _ = try await req.application.couponService.redeemCoupon(code: code, user: user, db: req.db)
-        } else if !user.hadTrial {
+        if !user.hadTrial {
             try await trialService.initializeTrial(
                 user: user,
                 trialDays: defaultTrialDays(on: req),
