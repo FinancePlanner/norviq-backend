@@ -198,8 +198,10 @@ struct WatchlistCsvImportTests {
                 on: app
             )
             #expect(items.count == 2)
-            #expect(items.contains(where: { $0.symbol == "AAPL" && $0.note == "AI infrastructure" }))
-            #expect(items.contains(where: { $0.symbol == "MSFT" && $0.note == "Cloud platform" }))
+            let aapl = items.first(where: { $0.symbol == "AAPL" })
+            let msft = items.first(where: { $0.symbol == "MSFT" })
+            #expect(aapl?.note == "AI infrastructure")
+            #expect(msft?.note == "Cloud platform")
         }
     }
 
@@ -264,7 +266,7 @@ struct WatchlistCsvImportTests {
                 let lists = try res.content.decode([WatchlistListResponse].self)
                 defaultListId = lists.first(where: { $0.isDefault })?.id ?? lists.first?.id
             })
-            let defaultListId = try #require(defaultListId)
+            let resolvedDefaultListId = try #require(defaultListId)
 
             let techList = try await createWatchlistList(name: "Energy", token: auth.token, on: app)
 
@@ -291,7 +293,7 @@ struct WatchlistCsvImportTests {
 
             let defaultItems = try await listWatchlistItems(
                 token: auth.token,
-                watchlistListId: defaultListId,
+                watchlistListId: resolvedDefaultListId,
                 on: app
             )
             #expect(defaultItems.isEmpty)
