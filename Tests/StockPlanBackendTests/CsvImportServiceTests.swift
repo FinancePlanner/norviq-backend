@@ -71,6 +71,21 @@ struct CsvImportServiceTests {
         #expect(CsvImportService.normalizeDateOnlyString("2026-01-01T12:00:00Z") == "2026-01-01")
     }
 
+    @Test("Preview allows empty optional numeric and date fields")
+    func emptyOptionalFields() throws {
+        let csv = """
+        symbol,shares,buy_price,buy_date,notes
+        NVDA,2,,,
+        """
+        let response = try service.preview(csv: csv, provider: "test")
+        #expect(response.items.count == 1)
+        #expect(response.items[0].symbol == "NVDA")
+        #expect(response.items[0].shares == 2)
+        #expect(response.items[0].buyPrice == nil)
+        #expect(response.items[0].buyDate == nil)
+        #expect(response.errors.isEmpty)
+    }
+
     @Test("Preview reports errors for missing symbols")
     func missingSymbol() throws {
         let csv = """

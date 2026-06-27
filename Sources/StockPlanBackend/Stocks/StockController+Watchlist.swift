@@ -7,6 +7,15 @@ extension StockController {
         let watchlistListId: String?
     }
 
+    private struct WatchlistCsvQuery: Content {
+        let watchlistListId: String?
+    }
+
+    private struct WatchlistCsvMultipartUpload: Content {
+        var file: File?
+        var csv: File?
+    }
+
     @Sendable
     func listWatchlist(req: Request) async throws -> [WatchlistItemResponse] {
         let session = try req.auth.require(SessionToken.self)
@@ -28,6 +37,34 @@ extension StockController {
             .all()
 
         return items.map(makeWatchlistItemResponse)
+    }
+
+    @Sendable
+    func importWatchlistCsvPreview(req: Request) async throws -> WatchlistCsvImportPreviewResponse {
+        let session = try req.auth.require(SessionToken.self)
+        let query = try req.query.decode(WatchlistCsvQuery.self)
+        let csv = try await readWatchlistCsvUpload(req)
+        return try await WatchlistCsvImportService().preview(
+            csv: csv,
+            watchlistListId: query.watchlistListId,
+            userId: session.userId,
+            on: req
+        )
+    }
+
+    @Sendable
+    func importWatchlistCsvCommit(req: Request) async throws -> WatchlistCsvImportCommitResponse {
+        let session = try req.auth.require(SessionToken.self)
+        let query = try req.query.decode(WatchlistCsvQuery.self)
+        let csv = try await readWatchlistCsvUpload(req)
+        let response = try await WatchlistCsvImportService().commit(
+            csv: csv,
+            watchlistListId: query.watchlistListId,
+            userId: session.userId,
+            on: req
+        )
+        await req.reconcileBadges(userId: session.userId, on: req.db)
+        return response
     }
 
     @Sendable
@@ -404,5 +441,31 @@ extension StockController {
             createdAt: formatISODateTime(model.createdAt),
             updatedAt: formatISODateTime(model.updatedAt)
         )
+    }
+
+    private func readWatchlistCsvUpload(_ req: Request) async throws -> String {
+        let maxBytes = 5 * 1024 * 1024
+
+        if req.headers.contentType?.type.lowercased() == "multipart" {
+            let upload = try req.content.decode(WatchlistCsvMultipartUpload.self)
+            guard var buffer = (upload.file ?? upload.csv)?.data else {
+                throw Abort(.badRequest, reason: "Missing file field in multipart body.")
+            }
+            guard buffer.readableBytes <= maxBytes else {
+                throw Abort(.payloadTooLarge, reason: "CSV file must be 5 MB or smaller.")
+            }
+            guard let csv = buffer.readString(length: buffer.readableBytes) else {
+                throw Abort(.badRequest, reason: "CSV file must be UTF-8 text.")
+            }
+            return csv
+        }
+
+        guard var buffer = try await req.body.collect(max: maxBytes).get() else {
+            throw Abort(.badRequest, reason: "Missing CSV body.")
+        }
+        guard let csv = buffer.readString(length: buffer.readableBytes) else {
+            throw Abort(.badRequest, reason: "CSV body must be UTF-8 text.")
+        }
+        return csv
     }
 }

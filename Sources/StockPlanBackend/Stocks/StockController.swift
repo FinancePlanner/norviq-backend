@@ -38,6 +38,8 @@ struct StockController: RouteCollection {
         let watchlist = protected.grouped("watchlist")
         watchlist.get(use: listWatchlist)
         watchlist.post(use: createWatchlistItem)
+        watchlist.post("import", "csv", "preview", use: importWatchlistCsvPreview)
+        watchlist.post("import", "csv", "commit", use: importWatchlistCsvCommit)
         watchlist.group("lists") { lists in
             lists.get(use: listWatchlistLists)
             lists.post(use: createWatchlistList)

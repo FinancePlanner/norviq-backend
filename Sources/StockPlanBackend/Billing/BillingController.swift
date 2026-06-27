@@ -10,6 +10,7 @@ struct BillingController: RouteCollection {
 
         billing.get("me", use: me)
         billing.post("restore", use: restore)
+        billing.post("coupon", "redeem", use: redeemCoupon)
     }
 
     @Sendable
@@ -25,6 +26,22 @@ struct BillingController: RouteCollection {
         let subscriber = try await fetchRevenueCatSubscriber(userId: session.userId, apiKey: apiKey, req: req)
         try await syncRevenueCatSubscriber(subscriber, userId: session.userId, on: req.db)
         return try await req.billingContextService.context(userId: session.userId, on: req.db)
+    }
+
+    @Sendable
+    func redeemCoupon(req: Request) async throws -> CouponRedemptionResponse {
+        let session = try req.auth.require(SessionToken.self)
+        let payload = try req.content.decode(CouponCodeRequest.self)
+        guard let user = try await User.find(session.userId, on: req.db) else {
+            throw Abort(.notFound, reason: "User not found.")
+        }
+        let redemption = try await req.application.couponService.redeemCoupon(
+            code: payload.code,
+            user: user,
+            db: req.db
+        )
+        let context = try await req.billingContextService.context(userId: session.userId, on: req.db)
+        return redemption.withBillingContext(context)
     }
 }
 

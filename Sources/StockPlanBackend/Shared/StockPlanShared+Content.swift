@@ -93,6 +93,9 @@ extension CsvImportPreviewItem: @retroactive Content {}
 extension CsvImportPreviewError: @retroactive Content {}
 extension CsvImportPreviewResponse: @retroactive Content {}
 extension CsvImportCommitResponse: @retroactive Content {}
+extension WatchlistCsvImportPreviewItem: @retroactive Content {}
+extension WatchlistCsvImportPreviewResponse: @retroactive Content {}
+extension WatchlistCsvImportCommitResponse: @retroactive Content {}
 extension BrokerConnectionResponse: @retroactive Content {}
 extension BrokerHoldingResponse: @retroactive Content {}
 extension BrokerSyncResponse: @retroactive Content {}

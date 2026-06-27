@@ -138,6 +138,8 @@ struct OpenAPIDocsTests {
                 #expect(body.contains("/v1/portfolio/lists/{portfolioListId}:"))
                 #expect(body.contains("/v1/watchlist/lists:"))
                 #expect(body.contains("/v1/watchlist/lists/{watchlistListId}:"))
+                #expect(body.contains("/v1/watchlist/import/csv/preview:"))
+                #expect(body.contains("/v1/watchlist/import/csv/commit:"))
                 #expect(body.contains("operationId: getStockValuation"))
                 #expect(body.contains("operationId: createStockValuation"))
                 #expect(body.contains("operationId: updateStockValuation"))
