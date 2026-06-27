@@ -104,7 +104,19 @@ struct DefaultBadgeService: BadgeService {
         // Persist newly earned badges
         if !newlyEarned.isEmpty {
             for badge in newlyEarned {
-                try? await badge.save(on: db)
+                do {
+                    try await badge.save(on: db)
+                } catch {
+                    let reflected = String(reflecting: error)
+                    if reflected.contains("user_badges_user_id_badge_type_tier")
+                        || reflected.contains("duplicate key")
+                    {
+                        req.logger.debug("badge already persisted user=\(userId) type=\(badge.badgeType.rawValue) tier=\(badge.tier.rawValue)")
+                    } else {
+                        req.logger.error("failed to persist badge user=\(userId) type=\(badge.badgeType.rawValue) tier=\(badge.tier.rawValue) error=\(error)")
+                        throw error
+                    }
+                }
             }
         }
 
@@ -125,7 +137,15 @@ private extension DefaultBadgeService {
     func computeRawCounts(userId: UUID, req: Request, on db: any Database) async throws -> [BadgeType: Int] {
         var counts: [BadgeType: Int] = [:]
 
-        // --- First Purchase & Investor: count buy transactions ---
+        // --- First Purchase & Investor: count manual holdings plus broker/import buy activity ---
+        let stocks = try await Stock.query(on: db)
+            .filter(\.$userId == userId)
+            .all()
+        let manualHoldingCount = stocks.count(where: { stock in
+            stock.sourceProvider == nil && stock.sourceAccountId == nil
+        })
+        let importedHoldingCount = max(stocks.count - manualHoldingCount, 0)
+
         let accounts = try await Account.query(on: db).filter(\.$userId == userId).all()
         let accountIds = Set(accounts.compactMap(\.id))
 
@@ -136,8 +156,9 @@ private extension DefaultBadgeService {
                 .filter(\.$type == "buy")
                 .count()
         }
-        counts[.firstPurchase] = buyCount
-        counts[.investor] = buyCount
+        let investmentCount = manualHoldingCount + max(importedHoldingCount, buyCount)
+        counts[.firstPurchase] = investmentCount
+        counts[.investor] = investmentCount
 
         // --- News Reader: count newsViewed activities ---
         let newsViewCount = try await UserActivity.query(on: db)
@@ -254,5 +275,13 @@ extension Application {
 extension Request {
     var badgeService: any BadgeService {
         application.badgeService
+    }
+
+    func reconcileBadges(userId: UUID, on db: any Database) async {
+        do {
+            _ = try await badgeService.evaluateBadges(userId: userId, req: self, on: db)
+        } catch {
+            logger.warning("badge reconciliation failed user=\(userId) error=\(error)")
+        }
     }
 }

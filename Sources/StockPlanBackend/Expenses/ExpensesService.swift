@@ -437,6 +437,8 @@ final class DefaultExpensesService: ExpensesService {
             }
         }
 
+        await req.reconcileBadges(userId: userId, on: db)
+
         return mapExpense(expense)
     }
 
@@ -498,6 +500,8 @@ final class DefaultExpensesService: ExpensesService {
             on: db
         )
 
+        await req.reconcileBadges(userId: userId, on: db)
+
         return mapExpense(expense)
     }
 
@@ -509,6 +513,7 @@ final class DefaultExpensesService: ExpensesService {
             throw Abort(.forbidden)
         }
         try await expense.delete(on: db)
+        await req.reconcileBadges(userId: userId, on: db)
     }
 
     // MARK: - Categories

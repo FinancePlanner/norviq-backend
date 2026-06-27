@@ -79,6 +79,8 @@ public func configure(_ app: Application) async throws {
 
     let ibkrBaseURL = Environment.get("IBKR_API_BASE_URL")?
         .trimmingCharacters(in: .whitespacesAndNewlines)
+    let ibkrOAuthConfiguration = try IBKROAuthConfiguration.fromEnvironment()
+    let ibkrConnectMode = try IBKRConnectMode.fromEnvironment(hasOAuthConfiguration: ibkrOAuthConfiguration != nil)
     app.stocksRepository = DatabaseStocksRepository()
     app.brokersRepository = DatabaseBrokersRepository()
     app.brokersService = DefaultBrokersService(
@@ -86,7 +88,9 @@ public func configure(_ app: Application) async throws {
         ibkrGatewayClient: IBKRBrokerGatewayClient(
             baseURL: ibkrBaseURL ?? "http://localhost:5000/v1/api",
             defaultCurrency: Environment.get("MARKET_DEFAULT_CURRENCY") ?? "USD"
-        )
+        ),
+        ibkrOAuthClient: ibkrOAuthConfiguration.map(IBKROAuthClient.init(config:)),
+        ibkrConnectMode: ibkrConnectMode
     )
     app.marketDataRepository = DatabaseMarketDataRepository()
     let configuredMarketProvider = Environment.get("MARKET_PROVIDER")?

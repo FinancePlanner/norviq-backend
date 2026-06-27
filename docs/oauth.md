@@ -27,7 +27,7 @@ OAUTH_X_CLIENT_SECRET=your-x-client-secret
 # optional; defaults to: tweet.read users.read offline.access
 OAUTH_X_SCOPES=tweet.read users.read offline.access
 
-OAUTH_ALLOWED_REDIRECT_URIS=norviqa://oauth/callback,http://localhost:6969/auth/oauth/google/callback,http://localhost:6969/auth/oauth/apple/callback
+OAUTH_ALLOWED_REDIRECT_URIS=norviqa://oauth/callback,norviqa://oauth/broker-callback,http://localhost:6969/auth/oauth/google/callback,http://localhost:6969/auth/oauth/apple/callback,http://localhost:6969/settings/integrations/ibkr/callback
 ```
 
 Notes:
@@ -37,6 +37,7 @@ Notes:
 - Google **browser** sign-in requires a separate **Web application** client: `OAUTH_GOOGLE_WEB_CLIENT_ID` + `OAUTH_GOOGLE_WEB_CLIENT_SECRET`. iOS-type clients cannot register `https` redirect URIs, so the web flow fails if it reuses the iOS client. The backend automatically selects the web client for `http(s)` redirect URIs and the iOS client for custom-scheme redirects.
 - X requires `OAUTH_X_CLIENT_ID` (`OAUTH_X_CLIENT_SECRET` optional depending on app type).
 - `OAUTH_ALLOWED_REDIRECT_URIS` is a comma-separated allowlist. The redirect URI sent by the client must match one of these values exactly.
+- iOS IBKR broker connect sends `norviqa://oauth/broker-callback`; include it in `OAUTH_ALLOWED_REDIRECT_URIS` or connect/start returns `Broker redirect URI is not allowed.`
 - X may not return user email depending on app permissions. In that case backend creates a synthetic internal email for the OAuth account.
 
 ## StockPlanWeb (browser) redirect URIs
@@ -121,12 +122,39 @@ In X Developer Portal:
    - `users.read`
    - `offline.access` (if refresh support is needed later)
 
+## Provider console configuration (IBKR Web API OAuth2)
+
+IBKR broker connect supports two backend modes:
+
+- `IBKR_CONNECT_MODE=gateway`: existing Client Portal Gateway flow. The app callback URI still must be allowlisted.
+- `IBKR_CONNECT_MODE=oauth2`: IBKR Web API OAuth2 with `private_key_jwt`. The backend redirects users to IBKR and stores the returned access/refresh tokens on `broker_connections`.
+
+OAuth2 backend env:
+
+```env
+IBKR_CONNECT_MODE=oauth2
+IBKR_OAUTH_CLIENT_ID=your-ibkr-client-id
+IBKR_OAUTH_KEY_ID=your-ibkr-key-id
+IBKR_OAUTH_PRIVATE_KEY_PEM="-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----"
+IBKR_OAUTH_AUTHORIZATION_URL=https://...
+IBKR_OAUTH_TOKEN_URL=https://...
+IBKR_OAUTH_API_BASE_URL=https://...
+IBKR_OAUTH_SCOPE=portfolio.read
+```
+
+Register this backend callback with IBKR exactly:
+
+- `https://api.yourdomain.com/v1/auth/brokers/ibkr/callback`
+
+Do not register the iOS custom scheme with IBKR. iOS receives the final result through the backend redirect to `norviqa://oauth/broker-callback`.
+
 ## Client/backend alignment requirements
 
 - The iOS callback scheme must match the redirect URI scheme (`norviqa`) or Google reversed client ID.
 - The redirect URI used by each client must be exactly the same value configured in:
   - Google OAuth client **Authorized redirect URIs**
   - Apple Services ID **Return URLs**
+  - IBKR OAuth app callback URLs
   - `OAUTH_ALLOWED_REDIRECT_URIS` on backend
 
 ## WebAuthn / Passkeys

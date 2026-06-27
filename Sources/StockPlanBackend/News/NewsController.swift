@@ -1,3 +1,4 @@
+import StockPlanShared
 import Vapor
 
 struct NewsController: RouteCollection {
@@ -9,6 +10,7 @@ struct NewsController: RouteCollection {
         news.get("feed", use: feedNews)
         news.post(use: createNews)
         news.post("sync", use: syncNews)
+        news.post("view", use: recordNewsView)
         news.group(":newsId") { item in
             item.get(use: getNews)
             item.put(use: updateNews)
@@ -80,6 +82,38 @@ struct NewsController: RouteCollection {
         return try await req.application.newsService.syncNews(userId: session.userId, on: req)
     }
 
+    @Sendable
+    func recordNewsView(req: Request) async throws -> HTTPStatus {
+        let session = try req.auth.require(SessionToken.self)
+        let payload = try req.content.decode(NewsViewRequest.self)
+        let headline = payload.headline.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !headline.isEmpty else {
+            throw Abort(.badRequest, reason: "headline is required.")
+        }
+
+        let symbol = payload.symbol?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .uppercased()
+        let referenceKey = newsViewReferenceKey(payload: payload, headline: headline, symbol: symbol)
+
+        try await req.userActivityService.recordActivity(
+            UserActivityRecord(
+                userId: session.userId,
+                type: .newsViewed,
+                title: headline,
+                subtitle: symbol.map { "Read \($0) news" } ?? "Read market news",
+                amount: nil,
+                isGrowth: true,
+                symbol: "newspaper.fill",
+                referenceKey: referenceKey
+            ),
+            on: req.db
+        )
+
+        await req.reconcileBadges(userId: session.userId, on: req.db)
+        return .noContent
+    }
+
     private func requireUUIDParameter(_ req: Request, name: String, reason: String) throws -> UUID {
         guard let raw = req.parameters.get(name), let value = UUID(uuidString: raw) else {
             throw Abort(.badRequest, reason: reason)
@@ -89,5 +123,21 @@ struct NewsController: RouteCollection {
 
     private func clampedLimit(_ rawLimit: Int?, default defaultValue: Int = 50, max maxValue: Int = 200) -> Int {
         max(1, min(rawLimit ?? defaultValue, maxValue))
+    }
+
+    private func newsViewReferenceKey(payload: NewsViewRequest, headline: String, symbol: String?) -> String {
+        if let newsId = payload.newsId {
+            return "news:\(newsId.uuidString.lowercased())"
+        }
+        if let url = payload.url?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(),
+           !url.isEmpty
+        {
+            return "url:\(url)"
+        }
+        let normalizedSymbol = symbol ?? "market"
+        let normalizedHeadline = headline
+            .lowercased()
+            .replacingOccurrences(of: #"\s+"#, with: " ", options: .regularExpression)
+        return "headline:\(normalizedSymbol):\(normalizedHeadline)"
     }
 }

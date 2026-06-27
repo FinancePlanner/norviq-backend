@@ -30,6 +30,9 @@ final class UserActivity: Model, Content, @unchecked Sendable {
     @Field(key: "symbol")
     var symbol: String
 
+    @OptionalField(key: "reference_key")
+    var referenceKey: String?
+
     @Timestamp(key: "created_at", on: .create)
     var createdAt: Date?
 
@@ -43,7 +46,8 @@ final class UserActivity: Model, Content, @unchecked Sendable {
         subtitle: String,
         amount: Double? = nil,
         isGrowth: Bool,
-        symbol: String
+        symbol: String,
+        referenceKey: String? = nil
     ) {
         self.id = id
         self.userId = userId
@@ -53,5 +57,6 @@ final class UserActivity: Model, Content, @unchecked Sendable {
         self.amount = amount
         self.isGrowth = isGrowth
         self.symbol = symbol
+        self.referenceKey = referenceKey
     }
 }

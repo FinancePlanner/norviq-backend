@@ -32,7 +32,7 @@ protocol BrokersService: Sendable {
     func get(provider: String, userId: UUID, on db: any Database) async throws -> BrokerConnectionResponse
     func recordCsvImport(provider: String, userId: UUID, on db: any Database) async throws -> BrokerConnectionResponse
     func startIBKRConnect(redirectURI: String, portfolioListId: String?, userId: UUID, on req: Request) async throws -> BrokerConnectStartResponse
-    func handleIBKRCallback(flowId: UUID, state: String, on req: Request) async throws -> Response
+    func handleIBKRCallback(flowId: UUID?, code: String?, error: String?, state: String, on req: Request) async throws -> Response
     func syncIBKR(userId: UUID, on req: Request) async throws -> BrokerSyncResponse
     func disconnectIBKR(userId: UUID, on db: any Database) async throws -> BrokerConnectionResponse
 }
@@ -40,6 +40,20 @@ protocol BrokersService: Sendable {
 struct DefaultBrokersService: BrokersService {
     let repo: any BrokersRepository
     let ibkrGatewayClient: IBKRBrokerGatewayClient
+    let ibkrOAuthClient: IBKROAuthClient?
+    let ibkrConnectMode: IBKRConnectMode
+
+    init(
+        repo: any BrokersRepository,
+        ibkrGatewayClient: IBKRBrokerGatewayClient,
+        ibkrOAuthClient: IBKROAuthClient? = nil,
+        ibkrConnectMode: IBKRConnectMode = .gateway
+    ) {
+        self.repo = repo
+        self.ibkrGatewayClient = ibkrGatewayClient
+        self.ibkrOAuthClient = ibkrOAuthClient
+        self.ibkrConnectMode = ibkrConnectMode
+    }
 
     func list(userId: UUID, on db: any Database) async throws -> [BrokerConnectionResponse] {
         let connections = try await repo.list(userId: userId, on: db)
@@ -93,26 +107,42 @@ struct DefaultBrokersService: BrokersService {
             throw Abort(.internalServerError, reason: "Broker connect flow id missing.")
         }
 
-        let callbackURL = try makeBrokerCallbackURL(
-            req: req,
-            flowId: flowID,
-            state: state
-        )
+        let callbackURL = try makeBrokerCallbackURL(req: req)
+        let authorizationURL: URL
+        if ibkrConnectMode == .oauth2 {
+            guard let ibkrOAuthClient else {
+                throw Abort(.serviceUnavailable, reason: "IBKR OAuth2 is not configured.")
+            }
+            authorizationURL = try ibkrOAuthClient.makeAuthorizationURL(
+                state: state,
+                redirectURI: callbackURL.absoluteString
+            )
+        } else {
+            authorizationURL = try makeGatewayBrokerCallbackURL(
+                callbackURL: callbackURL,
+                flowId: flowID,
+                state: state
+            )
+        }
         return BrokerConnectStartResponse(
             flowId: flowID.uuidString,
-            authorizationURL: callbackURL.absoluteString,
+            authorizationURL: authorizationURL.absoluteString,
             expiresIn: expiresIn
         )
     }
 
-    func handleIBKRCallback(flowId: UUID, state: String, on req: Request) async throws -> Response {
+    func handleIBKRCallback(flowId: UUID?, code: String?, error: String?, state: String, on req: Request) async throws -> Response {
         let now = Date()
-        guard let flow = try await BrokerOAuthFlow.query(on: req.db)
-            .filter(\.$id == flowId)
+        let normalizedState = state.trimmingCharacters(in: .whitespacesAndNewlines)
+        let flowQuery = BrokerOAuthFlow.query(on: req.db)
             .filter(\.$provider == "ibkr")
             .filter(\.$usedAt == nil)
-            .first()
-        else {
+        if let flowId {
+            flowQuery.filter(\.$id == flowId)
+        } else {
+            flowQuery.filter(\.$state == normalizedState)
+        }
+        guard let flow = try await flowQuery.first() else {
             throw Abort(.unauthorized, reason: "Broker connect flow is invalid or expired.")
         }
 
@@ -120,7 +150,6 @@ struct DefaultBrokersService: BrokersService {
             throw Abort(.unauthorized, reason: "Broker connect flow expired.")
         }
 
-        let normalizedState = state.trimmingCharacters(in: .whitespacesAndNewlines)
         guard flow.state == normalizedState else {
             throw Abort(.unauthorized, reason: "Broker connect state mismatch.")
         }
@@ -129,7 +158,17 @@ struct DefaultBrokersService: BrokersService {
         try await flow.save(on: req.db)
 
         do {
-            let account = try await ibkrGatewayClient.requirePrimaryAccount(on: req)
+            if let error = error?.trimmingCharacters(in: .whitespacesAndNewlines), !error.isEmpty {
+                throw Abort(.badRequest, reason: "IBKR authorization failed: \(error)")
+            }
+            let authorization = try await connectCallbackAuthorization(
+                flow: flow,
+                code: code,
+                callbackURL: makeBrokerCallbackURL(req: req),
+                on: req
+            )
+            let syncClient = authorization.client
+            let account = try await syncClient.requirePrimaryAccount(on: req)
             let connection = try await upsertBrokerConnection(
                 provider: "ibkr",
                 userId: flow.userId,
@@ -140,10 +179,13 @@ struct DefaultBrokersService: BrokersService {
                 connectedAt: now,
                 lastSyncedAt: nil,
                 portfolioListId: flow.portfolioListId,
+                accessToken: authorization.accessToken,
+                refreshToken: authorization.refreshToken,
+                expiresAt: authorization.expiresAt,
                 on: req.db
             )
 
-            _ = try await IBKRBrokerSyncService(gatewayClient: ibkrGatewayClient)
+            _ = try await IBKRBrokerSyncService(gatewayClient: syncClient)
                 .sync(connection: connection, userId: flow.userId, on: req)
             return redirectResponse(to: brokerAppRedirectURL(base: flow.redirectURI, status: "success", error: nil))
         } catch {
@@ -157,6 +199,9 @@ struct DefaultBrokersService: BrokersService {
                 connectedAt: nil,
                 lastSyncedAt: nil,
                 portfolioListId: flow.portfolioListId,
+                accessToken: nil,
+                refreshToken: nil,
+                expiresAt: nil,
                 on: req.db
             )
             return redirectResponse(
@@ -175,7 +220,8 @@ struct DefaultBrokersService: BrokersService {
         }
 
         do {
-            return try await IBKRBrokerSyncService(gatewayClient: ibkrGatewayClient)
+            let syncClient = try await syncDataClient(connection: connection, on: req)
+            return try await IBKRBrokerSyncService(gatewayClient: syncClient)
                 .sync(connection: connection, userId: userId, on: req)
         } catch {
             connection.status = "error"
@@ -200,6 +246,13 @@ struct DefaultBrokersService: BrokersService {
         try await connection.save(on: db)
         return try BrokerConnectionResponse(from: connection)
     }
+}
+
+private struct IBKRCallbackAuthorization {
+    let client: IBKRBrokerGatewayClient
+    let accessToken: String?
+    let refreshToken: String?
+    let expiresAt: Date?
 }
 
 extension BrokerConnectionResponse {
@@ -248,7 +301,7 @@ private extension DefaultBrokersService {
         }
     }
 
-    func makeBrokerCallbackURL(req: Request, flowId: UUID, state: String) throws -> URL {
+    func makeBrokerCallbackURL(req: Request) throws -> URL {
         let scheme = req.headers.first(name: "X-Forwarded-Proto") ?? "https"
         guard let host = req.headers.first(name: .host), !host.isEmpty else {
             throw Abort(.internalServerError, reason: "Missing request host.")
@@ -257,6 +310,16 @@ private extension DefaultBrokersService {
             throw Abort(.internalServerError, reason: "Failed to build broker callback URL.")
         }
         components.path = "/v1/auth/brokers/ibkr/callback"
+        guard let url = components.url else {
+            throw Abort(.internalServerError, reason: "Failed to build broker callback URL.")
+        }
+        return url
+    }
+
+    func makeGatewayBrokerCallbackURL(callbackURL: URL, flowId: UUID, state: String) throws -> URL {
+        guard var components = URLComponents(url: callbackURL, resolvingAgainstBaseURL: false) else {
+            throw Abort(.internalServerError, reason: "Failed to build broker callback URL.")
+        }
         components.queryItems = [
             URLQueryItem(name: "flowId", value: flowId.uuidString),
             URLQueryItem(name: "state", value: state),
@@ -265,6 +328,75 @@ private extension DefaultBrokersService {
             throw Abort(.internalServerError, reason: "Failed to build broker callback URL.")
         }
         return url
+    }
+
+    func connectCallbackAuthorization(
+        flow _: BrokerOAuthFlow,
+        code: String?,
+        callbackURL: URL,
+        on req: Request
+    ) async throws -> IBKRCallbackAuthorization {
+        guard ibkrConnectMode == .oauth2 else {
+            return IBKRCallbackAuthorization(client: ibkrGatewayClient, accessToken: nil, refreshToken: nil, expiresAt: nil)
+        }
+        guard let ibkrOAuthClient else {
+            throw Abort(.serviceUnavailable, reason: "IBKR OAuth2 is not configured.")
+        }
+        guard let code = code?.trimmingCharacters(in: .whitespacesAndNewlines), !code.isEmpty else {
+            throw Abort(.badRequest, reason: "Missing IBKR authorization code.")
+        }
+
+        let token = try await ibkrOAuthClient.exchangeCode(
+            code: code,
+            redirectURI: callbackURL.absoluteString,
+            on: req
+        )
+        let expiresAt = token.expiresIn.map { Date().addingTimeInterval(TimeInterval($0)) }
+        let client = IBKRBrokerGatewayClient(
+            baseURL: ibkrOAuthClient.config.apiBaseURL,
+            defaultCurrency: ibkrGatewayClient.defaultCurrency,
+            accessToken: token.accessToken
+        )
+        return IBKRCallbackAuthorization(
+            client: client,
+            accessToken: token.accessToken,
+            refreshToken: token.refreshToken,
+            expiresAt: expiresAt
+        )
+    }
+
+    func syncDataClient(connection: BrokerConnection, on req: Request) async throws -> IBKRBrokerGatewayClient {
+        guard let accessToken = connection.accessToken?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !accessToken.isEmpty,
+              let ibkrOAuthClient
+        else {
+            return ibkrGatewayClient
+        }
+
+        let refreshThreshold = Date().addingTimeInterval(60)
+        if let expiresAt = connection.expiresAt,
+           expiresAt <= refreshThreshold,
+           let refreshToken = connection.refreshToken?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !refreshToken.isEmpty
+        {
+            let token = try await ibkrOAuthClient.refresh(refreshToken: refreshToken, on: req)
+            connection.accessToken = token.accessToken
+            connection.refreshToken = token.refreshToken ?? refreshToken
+            connection.expiresAt = token.expiresIn.map { Date().addingTimeInterval(TimeInterval($0)) }
+            connection.updatedAt = Date()
+            try await connection.save(on: req.db)
+            return IBKRBrokerGatewayClient(
+                baseURL: ibkrOAuthClient.config.apiBaseURL,
+                defaultCurrency: ibkrGatewayClient.defaultCurrency,
+                accessToken: token.accessToken
+            )
+        }
+
+        return IBKRBrokerGatewayClient(
+            baseURL: ibkrOAuthClient.config.apiBaseURL,
+            defaultCurrency: ibkrGatewayClient.defaultCurrency,
+            accessToken: accessToken
+        )
     }
 
     func redirectResponse(to url: URL) -> Response {
@@ -296,11 +428,17 @@ private extension DefaultBrokersService {
         connectedAt: Date?,
         lastSyncedAt: Date?,
         portfolioListId: UUID?,
+        accessToken: String? = nil,
+        refreshToken: String? = nil,
+        expiresAt: Date? = nil,
         on db: any Database
     ) async throws -> BrokerConnection {
         let connection = try await repo.find(provider: provider, userId: userId, on: db)
             ?? BrokerConnection(userId: userId, provider: provider, status: status)
         connection.externalId = externalId ?? connection.externalId
+        connection.accessToken = accessToken ?? connection.accessToken
+        connection.refreshToken = refreshToken ?? connection.refreshToken
+        connection.expiresAt = expiresAt ?? connection.expiresAt
         connection.displayName = displayName ?? connection.displayName
         connection.status = status
         connection.statusDetail = statusDetail
