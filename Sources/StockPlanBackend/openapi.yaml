@@ -944,6 +944,94 @@ paths:
                 $ref: '#/components/schemas/WatchlistItemResponse'
         '401':
           description: Unauthorized
+  /v1/watchlist/import/csv/preview:
+    post:
+      operationId: importWatchlistCsvPreview
+      tags: [Watchlist]
+      summary: Preview a CSV import into a watchlist list
+      description: CSV must include a symbol or ticker column. Optional notes/note/memo/comment columns are imported as watchlist notes.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: watchlistListId
+          in: query
+          required: false
+          description: Optional target watchlist list identifier. If omitted, imports into the default watchlist list.
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          text/csv:
+            schema:
+              type: string
+              format: binary
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                file:
+                  type: string
+                  format: binary
+                csv:
+                  type: string
+                  format: binary
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WatchlistCsvImportPreviewResponse'
+        '400':
+          description: Invalid CSV
+        '401':
+          description: Unauthorized
+  /v1/watchlist/import/csv/commit:
+    post:
+      operationId: importWatchlistCsvCommit
+      tags: [Watchlist]
+      summary: Commit a CSV import into a watchlist list
+      description: Adds new symbols and updates matching symbols in the target watchlist list.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: watchlistListId
+          in: query
+          required: false
+          description: Optional target watchlist list identifier. If omitted, imports into the default watchlist list.
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          text/csv:
+            schema:
+              type: string
+              format: binary
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                file:
+                  type: string
+                  format: binary
+                csv:
+                  type: string
+                  format: binary
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WatchlistCsvImportCommitResponse'
+        '400':
+          description: Invalid CSV
+        '401':
+          description: Unauthorized
   /v1/watchlist/{watchlistId}:
     parameters:
       - name: watchlistId
@@ -3832,6 +3920,35 @@ paths:
         '502':
           description: RevenueCat lookup failed
 
+  /v1/billing/coupon/redeem:
+    post:
+      operationId: redeemBillingCoupon
+      tags: [Billing]
+      summary: Redeem a billing coupon
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RedeemBillingCouponRequest'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CouponRedemptionResponse'
+        '400':
+          description: Invalid coupon
+        '401':
+          description: Unauthorized
+        '404':
+          description: Coupon not found
+        '409':
+          description: Coupon already redeemed
+
   /v1/api/v3/export:
     post:
       operationId: createExport
@@ -5221,6 +5338,54 @@ components:
           type: string
           format: date-time
       required: [plan, entitlementLevel, isPremium, features, usage, generatedAt]
+    RedeemBillingCouponRequest:
+      type: object
+      properties:
+        code:
+          type: string
+      required: [code]
+    CouponDiscountDTO:
+      type: object
+      properties:
+        percentage:
+          type: integer
+          nullable: true
+        amount:
+          type: integer
+          nullable: true
+        currency:
+          type: string
+          nullable: true
+    CouponResponse:
+      type: object
+      properties:
+        code:
+          type: string
+        grantType:
+          type: string
+        trialDays:
+          type: integer
+        discount:
+          $ref: '#/components/schemas/CouponDiscountDTO'
+        expiresAt:
+          type: string
+          format: date-time
+          nullable: true
+      required: [code, grantType, trialDays, discount]
+    CouponRedemptionResponse:
+      type: object
+      properties:
+        coupon:
+          $ref: '#/components/schemas/CouponResponse'
+        trialDaysRemaining:
+          type: integer
+          nullable: true
+        isTrialActive:
+          type: boolean
+        billingContext:
+          nullable: true
+          $ref: '#/components/schemas/BillingContextResponse'
+      required: [coupon, isTrialActive]
     BillingSubscriptionDTO:
       type: object
       properties:
@@ -8505,6 +8670,60 @@ components:
           items:
             $ref: '#/components/schemas/CsvImportPreviewError'
       required: [provider, inserted, updated, errors]
+    WatchlistCsvImportPreviewItem:
+      type: object
+      properties:
+        line:
+          type: integer
+          format: int32
+        symbol:
+          type: string
+        note:
+          type: string
+          nullable: true
+        status:
+          $ref: '#/components/schemas/WatchlistStatus'
+        existingItemId:
+          type: string
+          format: uuid
+          nullable: true
+        willUpdateExisting:
+          type: boolean
+      required: [line, symbol, willUpdateExisting]
+    WatchlistCsvImportPreviewResponse:
+      type: object
+      properties:
+        watchlistListId:
+          type: string
+          format: uuid
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/WatchlistCsvImportPreviewItem'
+        errors:
+          type: array
+          items:
+            $ref: '#/components/schemas/CsvImportPreviewError'
+      required: [watchlistListId, items, errors]
+    WatchlistCsvImportCommitResponse:
+      type: object
+      properties:
+        watchlistListId:
+          type: string
+          format: uuid
+        inserted:
+          type: array
+          items:
+            $ref: '#/components/schemas/WatchlistItemResponse'
+        updated:
+          type: array
+          items:
+            $ref: '#/components/schemas/WatchlistItemResponse'
+        errors:
+          type: array
+          items:
+            $ref: '#/components/schemas/CsvImportPreviewError'
+      required: [watchlistListId, inserted, updated, errors]
     PushAuthorizationStatus:
       type: string
       enum: [notDetermined, denied, authorized, provisional]
