@@ -12,10 +12,7 @@ services:
     image: otel/opentelemetry-collector-contrib:0.111.0
     restart: unless-stopped
     command: ["--config=/etc/otelcol-contrib/config.yaml"]
-    environment:
-      SENTRY_OTLP_TRACES_ENDPOINT: ${SENTRY_OTLP_TRACES_ENDPOINT:-}
-      SENTRY_OTLP_LOGS_ENDPOINT: ${SENTRY_OTLP_LOGS_ENDPOINT:-}
-      SENTRY_OTLP_AUTH_HEADER: ${SENTRY_OTLP_AUTH_HEADER:-}
+    env_file: ${ENV_FILE:-.env.production}
     volumes:
       - ./monitoring/otel-collector.yaml:/etc/otelcol-contrib/config.yaml:ro
     networks:
