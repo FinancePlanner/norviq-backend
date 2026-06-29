@@ -68,6 +68,8 @@ protocol AuthService: Sendable {
     func refresh(using refreshToken: String, on req: Request) async throws -> AuthResponse
     func oauthStart(provider: OAuthProvider, redirectURI: String, on req: Request) async throws
         -> OAuthStartResponse
+    func oauthLinkStart(provider: OAuthProvider, redirectURI: String, on req: Request) async throws
+        -> OAuthStartResponse
     func oauthExchange(
         provider: OAuthProvider,
         flowId: UUID,
@@ -76,6 +78,15 @@ protocol AuthService: Sendable {
         redirectURI: String,
         on req: Request
     ) async throws -> AuthLoginOutcome
+    func oauthLinkedAccounts(on req: Request) async throws -> OAuthLinkedAccountsResponse
+    func oauthLinkExchange(
+        provider: OAuthProvider,
+        flowId: UUID,
+        code: String,
+        state: String,
+        redirectURI: String,
+        on req: Request
+    ) async throws -> OAuthLinkResponse
     func verifyMFA(challengeId: UUID, code: String, on req: Request) async throws -> AuthResponse
     func resendMFA(challengeId: UUID, on req: Request) async throws -> AuthMFAChallengeResponse
     func authResponse(for user: User, on req: Request) async throws -> AuthResponse
@@ -321,6 +332,35 @@ struct DefaultAuthService: AuthService {
     func oauthStart(provider: OAuthProvider, redirectURI: String, on req: Request) async throws
         -> OAuthStartResponse
     {
+        try await makeOAuthStartResponse(
+            provider: provider,
+            redirectURI: redirectURI,
+            purpose: .login,
+            userId: nil,
+            on: req
+        )
+    }
+
+    func oauthLinkStart(provider: OAuthProvider, redirectURI: String, on req: Request) async throws
+        -> OAuthStartResponse
+    {
+        let token = try req.auth.require(SessionToken.self)
+        return try await makeOAuthStartResponse(
+            provider: provider,
+            redirectURI: redirectURI,
+            purpose: .link,
+            userId: token.userId,
+            on: req
+        )
+    }
+
+    private func makeOAuthStartResponse(
+        provider: OAuthProvider,
+        redirectURI: String,
+        purpose: OAuthFlowPurpose,
+        userId: UUID?,
+        on req: Request
+    ) async throws -> OAuthStartResponse {
         let normalizedRedirectURI = try normalizeRedirectURI(redirectURI)
         try validateRedirectURI(normalizedRedirectURI, app: req.application)
 
@@ -342,12 +382,16 @@ struct DefaultAuthService: AuthService {
         let expiresIn = 600
         let expiresAt = Date().addingTimeInterval(TimeInterval(expiresIn))
         let flow = try await repo.createOAuthFlow(
-            provider: provider.rawValue,
-            state: state,
-            nonce: nonce,
-            codeVerifier: codeVerifier,
-            redirectURI: normalizedRedirectURI,
-            expiresAt: expiresAt,
+            OAuthFlowDraft(
+                provider: provider.rawValue,
+                state: state,
+                nonce: nonce,
+                codeVerifier: codeVerifier,
+                redirectURI: normalizedRedirectURI,
+                purpose: purpose.rawValue,
+                userId: userId,
+                expiresAt: expiresAt
+            ),
             on: req.db
         )
 
@@ -400,6 +444,9 @@ struct DefaultAuthService: AuthService {
 
         guard flow.redirectURI == normalizedRedirectURI else {
             throw Abort(.unauthorized, reason: "OAuth redirect URI mismatch")
+        }
+        guard flow.purpose == OAuthFlowPurpose.login.rawValue else {
+            throw Abort(.unauthorized, reason: "OAuth flow is not valid for sign in")
         }
 
         let identityInfo = try await oauthProvider.resolveIdentity(
@@ -482,6 +529,134 @@ struct DefaultAuthService: AuthService {
         )
 
         return try await .authenticated(makeAuthResponse(for: user, on: req))
+    }
+
+    func oauthLinkedAccounts(on req: Request) async throws -> OAuthLinkedAccountsResponse {
+        let token = try req.auth.require(SessionToken.self)
+        let identities = try await repo.listOAuthIdentities(userId: token.userId, on: req.db)
+        let accounts: [OAuthLinkedAccount] = [OAuthProvider.apple, .google, .x].map { provider in
+            if let identity = identities.first(where: { $0.provider == provider.rawValue }) {
+                return OAuthLinkedAccount(
+                    provider: provider,
+                    connected: true,
+                    email: identity.email,
+                    emailVerified: identity.emailVerified,
+                    connectedAt: identity.createdAt
+                )
+            }
+            return OAuthLinkedAccount(provider: provider, connected: false)
+        }
+        return OAuthLinkedAccountsResponse(accounts: accounts)
+    }
+
+    func oauthLinkExchange(
+        provider: OAuthProvider,
+        flowId: UUID,
+        code: String,
+        state: String,
+        redirectURI: String,
+        on req: Request
+    ) async throws -> OAuthLinkResponse {
+        let token = try req.auth.require(SessionToken.self)
+        guard let user = try await repo.findUser(id: token.userId, on: req.db) else {
+            throw Abort(.unauthorized, reason: "User not found")
+        }
+
+        let normalizedCode = code.trimmingCharacters(in: .whitespacesAndNewlines)
+        let normalizedState = state.trimmingCharacters(in: .whitespacesAndNewlines)
+        let normalizedRedirectURI = try normalizeRedirectURI(redirectURI)
+        let oauthProvider = try oauthProviderClient(for: provider, redirectURI: normalizedRedirectURI)
+
+        guard !normalizedCode.isEmpty else {
+            throw Abort(.badRequest, reason: "OAuth authorization code is required")
+        }
+        guard !normalizedState.isEmpty else {
+            throw Abort(.badRequest, reason: "OAuth state is required")
+        }
+
+        let now = Date()
+        guard let flow = try await repo.findValidOAuthFlow(
+            id: flowId,
+            provider: provider.rawValue,
+            now: now,
+            on: req.db
+        ) else {
+            throw Abort(.unauthorized, reason: "OAuth flow is invalid or expired")
+        }
+
+        guard flow.state == normalizedState else {
+            throw Abort(.unauthorized, reason: "OAuth state mismatch")
+        }
+        guard flow.redirectURI == normalizedRedirectURI else {
+            throw Abort(.unauthorized, reason: "OAuth redirect URI mismatch")
+        }
+        guard flow.purpose == OAuthFlowPurpose.link.rawValue, flow.userId == token.userId else {
+            throw Abort(.unauthorized, reason: "OAuth flow is not valid for this account")
+        }
+
+        let identityInfo = try await oauthProvider.resolveIdentity(
+            code: normalizedCode,
+            redirectURI: normalizedRedirectURI,
+            codeVerifier: flow.codeVerifier,
+            nonce: flow.nonce,
+            on: req
+        )
+
+        try await repo.markOAuthFlowUsed(flow, usedAt: now, on: req.db)
+
+        let normalizedIdentityEmail = identityInfo.email?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        guard let normalizedIdentityEmail, !normalizedIdentityEmail.isEmpty else {
+            throw Abort(.conflict, reason: "Provider did not return a verified email for linking")
+        }
+        guard identityInfo.emailVerified else {
+            throw Abort(.conflict, reason: "Provider email is not verified")
+        }
+        guard normalizedIdentityEmail == normalizeEmail(user.email) else {
+            throw Abort(.conflict, reason: "Provider email must match your account email")
+        }
+
+        if let existingIdentity = try await repo.findOAuthIdentity(
+            provider: provider.rawValue,
+            providerUserID: identityInfo.providerUserID,
+            on: req.db
+        ) {
+            guard existingIdentity.$user.id == token.userId else {
+                throw Abort(.conflict, reason: "Provider identity is already linked to a different account")
+            }
+            return OAuthLinkResponse(
+                provider: provider,
+                connected: true,
+                email: normalizedIdentityEmail,
+                message: "Connected account is already linked."
+            )
+        }
+
+        if let providerIdentity = try await repo.findOAuthIdentity(
+            userId: token.userId,
+            provider: provider.rawValue,
+            on: req.db
+        ) {
+            if providerIdentity.providerUserID != identityInfo.providerUserID {
+                throw Abort(.conflict, reason: "Your account already has a different identity for this provider")
+            }
+        }
+
+        _ = try await createOAuthIdentity(
+            for: user,
+            provider: provider,
+            identityInfo: identityInfo,
+            email: normalizedIdentityEmail,
+            on: req
+        )
+
+        return OAuthLinkResponse(
+            provider: provider,
+            connected: true,
+            email: normalizedIdentityEmail,
+            message: "Connected account linked."
+        )
     }
 
     func verifyMFA(challengeId: UUID, code: String, on req: Request) async throws -> AuthResponse {

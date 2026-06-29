@@ -287,6 +287,84 @@ paths:
           description: OAuth flow invalid/expired or provider verification failed
         '409':
           description: Account with this email already exists and requires linking
+  /v1/auth/oauth/identities:
+    get:
+      operationId: authOAuthIdentities
+      tags: [Auth]
+      summary: List connected OAuth sign-in accounts for the authenticated user
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Connected sign-in account status
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OAuthLinkedAccountsResponse'
+        '401':
+          description: Missing or invalid authentication token
+  /v1/auth/oauth/{provider}/link/start:
+    post:
+      operationId: authOAuthLinkStart
+      tags: [Auth]
+      summary: Start an authenticated OAuth account-linking flow
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: provider
+          in: path
+          required: true
+          schema:
+            $ref: '#/components/schemas/OAuthProvider'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/OAuthStartRequest'
+      responses:
+        '200':
+          description: OAuth link flow initialized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OAuthStartResponse'
+        '400':
+          description: Invalid provider or redirect URI
+        '401':
+          description: Missing or invalid authentication token
+        '503':
+          description: OAuth provider is not configured on the backend
+  /v1/auth/oauth/{provider}/link/exchange:
+    post:
+      operationId: authOAuthLinkExchange
+      tags: [Auth]
+      summary: Exchange OAuth authorization code and link the provider to the authenticated account
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: provider
+          in: path
+          required: true
+          schema:
+            $ref: '#/components/schemas/OAuthProvider'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/OAuthExchangeRequest'
+      responses:
+        '200':
+          description: OAuth provider linked
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OAuthLinkResponse'
+        '401':
+          description: OAuth flow invalid/expired or missing authentication token
+        '409':
+          description: Provider email could not be verified for this account or provider is already linked
   /v1/auth/webauthn/login/options:
     post:
       operationId: authWebAuthnLoginOptions
@@ -5705,6 +5783,46 @@ components:
     OAuthProvider:
       type: string
       enum: [apple, google, x]
+    OAuthLinkedAccount:
+      type: object
+      properties:
+        provider:
+          $ref: '#/components/schemas/OAuthProvider'
+        connected:
+          type: boolean
+        email:
+          type: string
+          format: email
+          nullable: true
+        emailVerified:
+          type: boolean
+        connectedAt:
+          type: string
+          format: date-time
+          nullable: true
+      required: [provider, connected, emailVerified]
+    OAuthLinkedAccountsResponse:
+      type: object
+      properties:
+        accounts:
+          type: array
+          items:
+            $ref: '#/components/schemas/OAuthLinkedAccount'
+      required: [accounts]
+    OAuthLinkResponse:
+      type: object
+      properties:
+        provider:
+          $ref: '#/components/schemas/OAuthProvider'
+        connected:
+          type: boolean
+        email:
+          type: string
+          format: email
+          nullable: true
+        message:
+          type: string
+      required: [provider, connected, message]
     OAuthStartRequest:
       type: object
       properties:
