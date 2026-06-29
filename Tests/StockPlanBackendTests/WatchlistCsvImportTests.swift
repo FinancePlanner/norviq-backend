@@ -15,6 +15,7 @@ import VaporTesting
 struct WatchlistCsvImportTests {
     private func withApp(_ test: (Application) async throws -> Void) async throws {
         try await DatabaseTestLock.withLock {
+            setenv("BYPASS_BILLING", "false", 1)
             let app = try await Application.make(.testing)
             do {
                 try await configure(app)
@@ -50,6 +51,14 @@ struct WatchlistCsvImportTests {
             throw Abort(.internalServerError, reason: "Missing auth response")
         }
         return (response.token, response.userId)
+    }
+
+    private func clearDefaultTrial(for userId: UUID, on app: Application) async throws {
+        let user = try #require(try await User.find(userId, on: app.db))
+        user.trialStartedAt = nil
+        user.trialDays = nil
+        user.trialTier = nil
+        try await user.save(on: app.db)
     }
 
     private func createWatchlistList(
@@ -352,6 +361,64 @@ struct WatchlistCsvImportTests {
                 on: app
             )
             #expect(status == .badRequest)
+        }
+    }
+
+    @Test("Import rejects a watchlist list ID outside the user's themes")
+    func invalidTargetListRejected() async throws {
+        try await withApp { app in
+            let auth = try await registerUser(on: app, identifier: "invalid-list")
+            let csv = """
+            symbol,notes
+            AAPL,Not imported
+            """
+
+            let (status, _) = try await previewWatchlistCsv(
+                token: auth.token,
+                csv: csv,
+                watchlistListId: UUID().uuidString,
+                on: app
+            )
+
+            #expect(status == .notFound)
+        }
+    }
+
+    @Test("Free users cannot import more watchlist symbols than the resource limit")
+    func freeWatchlistItemLimitBlocksOversizedImport() async throws {
+        try await withApp { app in
+            let auth = try await registerUser(on: app, identifier: "free-watchlimit")
+            try await clearDefaultTrial(for: auth.userId, on: app)
+            let list = try await createWatchlistList(name: "Tech", token: auth.token, on: app)
+            let csv = """
+            symbol,notes
+            AAPL,1
+            MSFT,2
+            GOOG,3
+            AMZN,4
+            NVDA,5
+            META,6
+            TSLA,7
+            NFLX,8
+            AMD,9
+            INTC,10
+            ORCL,11
+            """
+
+            let (status, _) = try await commitWatchlistCsv(
+                token: auth.token,
+                csv: csv,
+                watchlistListId: list.id,
+                on: app
+            )
+
+            #expect(status == .forbidden)
+            let items = try await listWatchlistItems(
+                token: auth.token,
+                watchlistListId: list.id,
+                on: app
+            )
+            #expect(items.isEmpty)
         }
     }
 

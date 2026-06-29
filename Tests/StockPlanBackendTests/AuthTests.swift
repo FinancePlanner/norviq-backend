@@ -92,6 +92,57 @@ struct AuthTests {
         )
     }
 
+    private func makeAuthenticatedUser(
+        app: Application,
+        email: String,
+        username: String = "linked_user"
+    ) async throws -> AuthResponse {
+        let registerReq = makeRegisterRequest(email: email, username: username)
+        var auth: AuthResponse?
+        try await app.testing().test(.POST, "v1/auth/register", beforeRequest: { req in
+            try req.content.encode(registerReq)
+        }, afterResponse: { res async throws in
+            #expect(res.status == .ok)
+            auth = try res.content.decode(AuthResponse.self)
+        })
+        return try #require(auth)
+    }
+
+    private func makeOAuthLinkExchangeRequest(
+        app: Application,
+        provider: OAuthProvider,
+        token: String
+    ) async throws -> OAuthExchangeRequest {
+        let redirectURI = "norviqa://oauth/callback"
+        let startReq = OAuthStartRequest(redirectURI: redirectURI)
+        var startResponse: OAuthStartResponse?
+
+        try await app.testing().test(.POST, "v1/auth/oauth/\(provider.rawValue)/link/start", beforeRequest: { req in
+            req.headers.bearerAuthorization = BearerAuthorization(token: token)
+            try req.content.encode(startReq)
+        }, afterResponse: { res async throws in
+            #expect(res.status == .ok)
+            startResponse = try res.content.decode(OAuthStartResponse.self)
+        })
+
+        guard let startResponse,
+              let url = URL(string: startResponse.authorizationURL),
+              let state = URLComponents(url: url, resolvingAgainstBaseURL: false)?
+              .queryItems?
+              .first(where: { $0.name == "state" })?
+              .value
+        else {
+            throw Abort(.internalServerError, reason: "Fake OAuth link start did not return a state")
+        }
+
+        return OAuthExchangeRequest(
+            flowId: startResponse.flowId,
+            code: "fake-code",
+            state: state,
+            redirectURI: redirectURI
+        )
+    }
+
     private func assertOAuthLinksVerifiedExistingEmail(provider: OAuthProvider) async throws {
         try await withApp { app in
             let email = "oauth-\(provider.rawValue)-link@example.com"
@@ -753,6 +804,162 @@ struct AuthTests {
 
             let challengeCount = try await MFAChallenge.query(on: app.db).count()
             #expect(challengeCount == 0)
+        }
+    }
+
+    @Test("OAuth identities lists all supported providers with connected status")
+    func oauthIdentitiesListsSupportedProviders() async throws {
+        try await withApp { app in
+            let auth = try await makeAuthenticatedUser(app: app, email: "linked-list@example.com")
+            try await OAuthIdentity(
+                userID: auth.userId,
+                provider: OAuthProvider.google.rawValue,
+                providerUserID: "google-list-user",
+                email: "linked-list@example.com",
+                emailVerified: true
+            ).save(on: app.db)
+
+            try await app.testing().test(.GET, "v1/auth/oauth/identities", beforeRequest: { req in
+                req.headers.bearerAuthorization = BearerAuthorization(token: auth.token)
+            }, afterResponse: { res async throws in
+                #expect(res.status == .ok)
+                let response = try res.content.decode(OAuthLinkedAccountsResponse.self)
+                #expect(response.accounts.map(\.provider) == [.apple, .google, .x])
+                #expect(response.accounts.first(where: { $0.provider == .google })?.connected == true)
+                #expect(response.accounts.first(where: { $0.provider == .apple })?.connected == false)
+                #expect(response.accounts.first(where: { $0.provider == .x })?.connected == false)
+            })
+        }
+    }
+
+    @Test("OAuth link start requires auth and creates link flow bound to user")
+    func oauthLinkStartRequiresAuthAndCreatesBoundLinkFlow() async throws {
+        try await withApp { app in
+            let startReq = OAuthStartRequest(redirectURI: "norviqa://oauth/callback")
+            try await app.testing().test(.POST, "v1/auth/oauth/google/link/start", beforeRequest: { req in
+                try req.content.encode(startReq)
+            }, afterResponse: { res async in
+                #expect(res.status == .unauthorized)
+            })
+
+            let auth = try await makeAuthenticatedUser(app: app, email: "link-start@example.com")
+            try await app.testing().test(.POST, "v1/auth/oauth/google/link/start", beforeRequest: { req in
+                req.headers.bearerAuthorization = BearerAuthorization(token: auth.token)
+                try req.content.encode(startReq)
+            }, afterResponse: { res async throws in
+                #expect(res.status == .ok)
+                let response = try res.content.decode(OAuthStartResponse.self)
+                let flow = try await OAuthFlow.find(response.flowId, on: app.db)
+                #expect(flow?.purpose == OAuthFlowPurpose.link.rawValue)
+                #expect(flow?.userId == auth.userId)
+            })
+        }
+    }
+
+    @Test("OAuth link exchange succeeds for same verified email and is idempotent")
+    func oauthLinkExchangeSucceedsForSameVerifiedEmailAndIsIdempotent() async throws {
+        try await withApp { app in
+            let email = "same-link@example.com"
+            let auth = try await makeAuthenticatedUser(app: app, email: email)
+            configureFakeOAuthProvider(
+                app,
+                provider: .google,
+                identity: OAuthIdentityInfo(
+                    providerUserID: "google-same-user",
+                    email: "  SAME-LINK@example.com ",
+                    emailVerified: true,
+                    suggestedUsername: "same_link"
+                )
+            )
+
+            let exchangeReq = try await makeOAuthLinkExchangeRequest(app: app, provider: .google, token: auth.token)
+            try await app.testing().test(.POST, "v1/auth/oauth/google/link/exchange", beforeRequest: { req in
+                req.headers.bearerAuthorization = BearerAuthorization(token: auth.token)
+                try req.content.encode(exchangeReq)
+            }, afterResponse: { res async throws in
+                #expect(res.status == .ok)
+                let response = try res.content.decode(OAuthLinkResponse.self)
+                #expect(response.provider == .google)
+                #expect(response.connected == true)
+                #expect(response.email == email)
+            })
+
+            let secondReq = try await makeOAuthLinkExchangeRequest(app: app, provider: .google, token: auth.token)
+            try await app.testing().test(.POST, "v1/auth/oauth/google/link/exchange", beforeRequest: { req in
+                req.headers.bearerAuthorization = BearerAuthorization(token: auth.token)
+                try req.content.encode(secondReq)
+            }, afterResponse: { res async throws in
+                #expect(res.status == .ok)
+                let response = try res.content.decode(OAuthLinkResponse.self)
+                #expect(response.connected == true)
+            })
+
+            let identityCount = try await OAuthIdentity.query(on: app.db)
+                .filter(\.$provider == OAuthProvider.google.rawValue)
+                .filter(\.$providerUserID == "google-same-user")
+                .count()
+            #expect(identityCount == 1)
+        }
+    }
+
+    @Test("OAuth link exchange rejects mismatched provider email")
+    func oauthLinkExchangeRejectsMismatchedEmail() async throws {
+        try await withApp { app in
+            let auth = try await makeAuthenticatedUser(app: app, email: "current@example.com")
+            configureFakeOAuthProvider(
+                app,
+                provider: .x,
+                identity: OAuthIdentityInfo(
+                    providerUserID: "x-mismatch-user",
+                    email: "other@example.com",
+                    emailVerified: true,
+                    suggestedUsername: nil
+                )
+            )
+
+            let exchangeReq = try await makeOAuthLinkExchangeRequest(app: app, provider: .x, token: auth.token)
+            try await app.testing().test(.POST, "v1/auth/oauth/x/link/exchange", beforeRequest: { req in
+                req.headers.bearerAuthorization = BearerAuthorization(token: auth.token)
+                try req.content.encode(exchangeReq)
+            }, afterResponse: { res async in
+                #expect(res.status == .conflict)
+                #expect(res.body.string.contains("Provider email must match your account email"))
+            })
+        }
+    }
+
+    @Test("OAuth link exchange rejects identity already linked to another user")
+    func oauthLinkExchangeRejectsIdentityLinkedToAnotherUser() async throws {
+        try await withApp { app in
+            let owner = try await makeAuthenticatedUser(app: app, email: "owner@example.com", username: "owner_user")
+            let current = try await makeAuthenticatedUser(app: app, email: "current-owner@example.com", username: "current_owner")
+            try await OAuthIdentity(
+                userID: owner.userId,
+                provider: OAuthProvider.apple.rawValue,
+                providerUserID: "apple-owner-user",
+                email: "current-owner@example.com",
+                emailVerified: true
+            ).save(on: app.db)
+
+            configureFakeOAuthProvider(
+                app,
+                provider: .apple,
+                identity: OAuthIdentityInfo(
+                    providerUserID: "apple-owner-user",
+                    email: "current-owner@example.com",
+                    emailVerified: true,
+                    suggestedUsername: nil
+                )
+            )
+
+            let exchangeReq = try await makeOAuthLinkExchangeRequest(app: app, provider: .apple, token: current.token)
+            try await app.testing().test(.POST, "v1/auth/oauth/apple/link/exchange", beforeRequest: { req in
+                req.headers.bearerAuthorization = BearerAuthorization(token: current.token)
+                try req.content.encode(exchangeReq)
+            }, afterResponse: { res async in
+                #expect(res.status == .conflict)
+                #expect(res.body.string.contains("already linked to a different account"))
+            })
         }
     }
 

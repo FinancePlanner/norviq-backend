@@ -2770,8 +2770,8 @@ struct StockPlanBackendTests {
             let csv = """
             symbol,shares,buy_price,buy_date
             AAPL,4,150,2026-01-10
-            BAD,2,50,2026-01-11
             MSFT,3,250,
+            NOT!!!,2,50,2026-01-11
             """
 
             try await app.testing().test(.POST, "v1/brokers/import/csv/commit?provider=ibkr", beforeRequest: { req in
@@ -2784,7 +2784,7 @@ struct StockPlanBackendTests {
                 #expect(response.inserted.count == 2)
                 #expect(response.importedLotsCount == 2)
                 #expect(response.errors.count == 1)
-                #expect(response.errors.contains(where: { $0.line == 3 && $0.message.contains("Unknown symbol") }))
+                #expect(response.errors.contains(where: { $0.line == 4 && $0.message.contains("Unknown symbol") }))
             })
 
             try await app.testing().test(.GET, "v1/stocks", beforeRequest: { req in

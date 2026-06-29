@@ -455,7 +455,7 @@ private extension CsvPortfolioImportService {
             return instrument
         }
 
-        guard FMPSymbolPlanAccess.freeTierSupportedSymbols.contains(symbol) else {
+        guard Self.isImportableTickerSymbol(symbol) else {
             throw Abort(.badRequest, reason: "Unknown symbol \(symbol).")
         }
 
@@ -468,6 +468,13 @@ private extension CsvPortfolioImportService {
         )
         try await instrument.save(on: db)
         return instrument
+    }
+
+    static func isImportableTickerSymbol(_ raw: String) -> Bool {
+        let symbol = raw.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
+        guard !symbol.isEmpty, symbol.count <= 12 else { return false }
+        let allowed = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: ".-"))
+        return symbol.unicodeScalars.allSatisfy { allowed.contains($0) }
     }
 
     func resolveInstrumentCandidate(symbol: String, on req: Request, db: any Database) async throws -> SearchResultResponse? {

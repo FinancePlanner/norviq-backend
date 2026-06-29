@@ -102,6 +102,39 @@ extension AuthMFAChallengeResponse: @retroactive Content {}
 extension AuthMFAVerifyRequest: @retroactive Content {}
 extension AuthMFAResendRequest: @retroactive Content {}
 
+struct OAuthLinkedAccount: Codable, Equatable, Content {
+    let provider: OAuthProvider
+    let connected: Bool
+    let email: String?
+    let emailVerified: Bool
+    let connectedAt: Date?
+
+    init(
+        provider: OAuthProvider,
+        connected: Bool,
+        email: String? = nil,
+        emailVerified: Bool = false,
+        connectedAt: Date? = nil
+    ) {
+        self.provider = provider
+        self.connected = connected
+        self.email = email
+        self.emailVerified = emailVerified
+        self.connectedAt = connectedAt
+    }
+}
+
+struct OAuthLinkedAccountsResponse: Codable, Equatable, Content {
+    let accounts: [OAuthLinkedAccount]
+}
+
+struct OAuthLinkResponse: Codable, Equatable, Content {
+    let provider: OAuthProvider
+    let connected: Bool
+    let email: String?
+    let message: String
+}
+
 struct OAuthStartRequest: Codable, Equatable, Content {
     let redirectURI: String
 

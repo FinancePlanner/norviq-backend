@@ -3,6 +3,17 @@ import Fluent
 import Foundation
 import Vapor
 
+struct OAuthFlowDraft {
+    let provider: String
+    let state: String
+    let nonce: String
+    let codeVerifier: String
+    let redirectURI: String
+    let purpose: String
+    let userId: UUID?
+    let expiresAt: Date
+}
+
 protocol AuthRepository: Sendable {
     func findUser(email: String, on db: any Database) async throws -> User?
     func findUser(username: String, on db: any Database) async throws -> User?
@@ -26,19 +37,13 @@ protocol AuthRepository: Sendable {
     func findValidRefreshToken(tokenHash: String, now: Date, on db: any Database) async throws -> RefreshToken?
     func revokeRefreshToken(_ token: RefreshToken, revokedAt: Date, on db: any Database) async throws
 
-    func createOAuthFlow(
-        provider: String,
-        state: String,
-        nonce: String,
-        codeVerifier: String,
-        redirectURI: String,
-        expiresAt: Date,
-        on db: any Database
-    ) async throws -> OAuthFlow
+    func createOAuthFlow(_ draft: OAuthFlowDraft, on db: any Database) async throws -> OAuthFlow
     func findValidOAuthFlow(id: UUID, provider: String, now: Date, on db: any Database) async throws -> OAuthFlow?
     func markOAuthFlowUsed(_ flow: OAuthFlow, usedAt: Date, on db: any Database) async throws
 
     func findOAuthIdentity(provider: String, providerUserID: String, on db: any Database) async throws -> OAuthIdentity?
+    func findOAuthIdentity(userId: UUID, provider: String, on db: any Database) async throws -> OAuthIdentity?
+    func listOAuthIdentities(userId: UUID, on db: any Database) async throws -> [OAuthIdentity]
     func createOAuthIdentity(
         userId: UUID,
         provider: String,
@@ -186,22 +191,16 @@ struct DatabaseAuthRepository: AuthRepository {
         try await token.save(on: db)
     }
 
-    func createOAuthFlow(
-        provider: String,
-        state: String,
-        nonce: String,
-        codeVerifier: String,
-        redirectURI: String,
-        expiresAt: Date,
-        on db: any Database
-    ) async throws -> OAuthFlow {
+    func createOAuthFlow(_ draft: OAuthFlowDraft, on db: any Database) async throws -> OAuthFlow {
         let flow = OAuthFlow(
-            provider: provider,
-            state: state,
-            nonce: nonce,
-            codeVerifier: codeVerifier,
-            redirectURI: redirectURI,
-            expiresAt: expiresAt
+            provider: draft.provider,
+            state: draft.state,
+            nonce: draft.nonce,
+            codeVerifier: draft.codeVerifier,
+            redirectURI: draft.redirectURI,
+            purpose: draft.purpose,
+            userId: draft.userId,
+            expiresAt: draft.expiresAt
         )
         try await flow.save(on: db)
         return flow
@@ -226,6 +225,19 @@ struct DatabaseAuthRepository: AuthRepository {
             .filter(\.$provider == provider)
             .filter(\.$providerUserID == providerUserID)
             .first()
+    }
+
+    func findOAuthIdentity(userId: UUID, provider: String, on db: any Database) async throws -> OAuthIdentity? {
+        try await OAuthIdentity.query(on: db)
+            .filter(\.$user.$id == userId)
+            .filter(\.$provider == provider)
+            .first()
+    }
+
+    func listOAuthIdentities(userId: UUID, on db: any Database) async throws -> [OAuthIdentity] {
+        try await OAuthIdentity.query(on: db)
+            .filter(\.$user.$id == userId)
+            .all()
     }
 
     func createOAuthIdentity(

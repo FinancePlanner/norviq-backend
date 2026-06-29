@@ -193,6 +193,7 @@ func registerMigrations(_ app: Application) {
     app.migrations.add(CreateRefreshToken())
     app.migrations.add(CreateMFAChallenge())
     app.migrations.add(CreateOAuthTables())
+    app.migrations.add(AddOAuthFlowPurposeAndUserID())
     app.migrations.add(CreateWebAuthnTables())
     app.migrations.add(CreateWebAuthnRegisterChallenges())
     app.migrations.add(CreateStock())

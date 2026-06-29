@@ -1,6 +1,11 @@
 import Fluent
 import Foundation
 
+enum OAuthFlowPurpose: String {
+    case login
+    case link
+}
+
 final class OAuthFlow: Model, @unchecked Sendable {
     static let schema = "oauth_flows"
 
@@ -22,6 +27,12 @@ final class OAuthFlow: Model, @unchecked Sendable {
     @Field(key: "redirect_uri")
     var redirectURI: String
 
+    @Field(key: "purpose")
+    var purpose: String
+
+    @OptionalField(key: "user_id")
+    var userId: UUID?
+
     @Field(key: "expires_at")
     var expiresAt: Date
 
@@ -40,6 +51,8 @@ final class OAuthFlow: Model, @unchecked Sendable {
         nonce: String,
         codeVerifier: String,
         redirectURI: String,
+        purpose: String = OAuthFlowPurpose.login.rawValue,
+        userId: UUID? = nil,
         expiresAt: Date
     ) {
         self.id = id
@@ -48,6 +61,8 @@ final class OAuthFlow: Model, @unchecked Sendable {
         self.nonce = nonce
         self.codeVerifier = codeVerifier
         self.redirectURI = redirectURI
+        self.purpose = purpose
+        self.userId = userId
         self.expiresAt = expiresAt
     }
 }

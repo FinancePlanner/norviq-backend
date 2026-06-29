@@ -58,6 +58,9 @@ struct AuthController: RouteCollection {
             oauth.post("exchange", use: oauthExchange)
             oauth.get("callback", use: oauthCallbackBridge)
             oauth.post("callback", use: oauthCallbackBridgePost)
+            let protectedOAuth = oauth.grouped(SessionToken.authenticator(), SessionToken.guardMiddleware())
+            protectedOAuth.post("link", "start", use: oauthLinkStart)
+            protectedOAuth.post("link", "exchange", use: oauthLinkExchange)
         }
         auth.group("brokers", "ibkr") { brokers in
             brokers.get("callback", use: brokerIBKRCallback)
@@ -71,6 +74,7 @@ struct AuthController: RouteCollection {
 
         let protected = auth.grouped(SessionToken.authenticator(), SessionToken.guardMiddleware())
         protected.get("me", use: me)
+        protected.get("oauth", "identities", use: oauthLinkedAccounts)
 
         let webAuthnRegisterRateLimit = RateLimitMiddleware(limit: 20, interval: 60, keyPrefix: "ratelimit:webauthn-register")
         protected.group("webauthn", "register") { webauthn in
@@ -167,6 +171,36 @@ struct AuthController: RouteCollection {
         let payload = try req.content.decode(OAuthStartRequest.self)
         return try await req.application.authService.oauthStart(
             provider: provider,
+            redirectURI: payload.redirectURI,
+            on: req
+        )
+    }
+
+    @Sendable
+    func oauthLinkedAccounts(req: Request) async throws -> OAuthLinkedAccountsResponse {
+        try await req.application.authService.oauthLinkedAccounts(on: req)
+    }
+
+    @Sendable
+    func oauthLinkStart(req: Request) async throws -> OAuthStartResponse {
+        let provider = try oauthProvider(from: req)
+        let payload = try req.content.decode(OAuthStartRequest.self)
+        return try await req.application.authService.oauthLinkStart(
+            provider: provider,
+            redirectURI: payload.redirectURI,
+            on: req
+        )
+    }
+
+    @Sendable
+    func oauthLinkExchange(req: Request) async throws -> OAuthLinkResponse {
+        let provider = try oauthProvider(from: req)
+        let payload = try req.content.decode(OAuthExchangeRequest.self)
+        return try await req.application.authService.oauthLinkExchange(
+            provider: provider,
+            flowId: payload.flowId,
+            code: payload.code,
+            state: payload.state,
             redirectURI: payload.redirectURI,
             on: req
         )
