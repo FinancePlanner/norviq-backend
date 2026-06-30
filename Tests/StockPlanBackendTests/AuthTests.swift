@@ -843,6 +843,17 @@ struct AuthTests {
             })
 
             let auth = try await makeAuthenticatedUser(app: app, email: "link-start@example.com")
+            configureFakeOAuthProvider(
+                app,
+                provider: .google,
+                identity: OAuthIdentityInfo(
+                    providerUserID: "google-link-start-user",
+                    email: "link-start@example.com",
+                    emailVerified: true,
+                    suggestedUsername: "link_start"
+                )
+            )
+
             try await app.testing().test(.POST, "v1/auth/oauth/google/link/start", beforeRequest: { req in
                 req.headers.bearerAuthorization = BearerAuthorization(token: auth.token)
                 try req.content.encode(startReq)
