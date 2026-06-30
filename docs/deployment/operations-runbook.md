@@ -32,6 +32,59 @@ Before launch and after material production changes, run the full preflight:
 
 Record the output in the release notes. A passing preflight confirms health, request IDs, production CORS, reverse-proxy security headers, private DB/Redis port exposure, and JSON log shape.
 
+## Edge protocol checks
+
+The public Norviq edge terminates TLS, HTTP/2, and HTTP/3 in the Dockerized gateway Nginx container. Backend app containers continue to speak plain HTTP/1.1 behind the proxy.
+
+Current production shape:
+
+- Gateway container: `gateway-nginx-1`
+- Gateway image: `nginx:1.27-alpine`
+- Config path: `/opt/gateway/nginx/nginx.conf`
+- Public ports: `443/tcp` for HTTPS and HTTP/2, `443/udp` for HTTP/3/QUIC
+- API hosts: `api.norviq.org`, `api.norviqa.io`
+- Web hosts: `norviq.org`, `www.norviq.org`
+
+Nginx should be built with HTTP/3 support and should listen on QUIC:
+
+```bash
+docker exec gateway-nginx-1 nginx -V 2>&1 | grep -- --with-http_v3_module
+docker exec gateway-nginx-1 nginx -T 2>/dev/null | grep -Ei 'listen 443|http2 on|quic|Alt-Svc'
+ss -ulnp | grep ':443'
+ufw status verbose | grep '443/udp'
+```
+
+The API block should use modern HTTP/2 syntax:
+
+```nginx
+listen 443 quic;
+listen 443 ssl;
+http2 on;
+```
+
+Do not use deprecated `listen 443 ssl http2;` in new gateway config.
+
+Verify external protocol negotiation after gateway changes:
+
+```bash
+curl -sS -o /dev/null \
+  -w 'api h2 probe http=%{http_code} version=%{http_version}\n' \
+  https://api.norviq.org/health/live
+
+/usr/local/bin/curl-http3 --http3-only -sS -o /dev/null \
+  -w 'api h3 probe http=%{http_code} version=%{http_version}\n' \
+  https://api.norviq.org/health/live
+```
+
+Expected output:
+
+```text
+api h2 probe http=200 version=2
+api h3 probe http=200 version=3
+```
+
+The VPS has `/usr/local/bin/curl-http3`, a Docker-backed wrapper around `alpine/curl-http3:latest`. It exists so operators can force an HTTP/3-only request without replacing the system curl.
+
 ## Fast rollback to previous image
 
 Roll back app service to a previous immutable image tag:
