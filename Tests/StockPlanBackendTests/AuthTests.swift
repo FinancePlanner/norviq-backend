@@ -759,6 +759,12 @@ struct AuthTests {
                 .filter(\.$providerUserID == "google-new-user")
                 .first()
             #expect(identity != nil)
+
+            let userID = try #require(identity?.$user.id)
+            let user = try #require(try await User.find(userID, on: app.db))
+            #expect(user.trialTier == "temporary")
+            #expect(user.trialDays == 7)
+            #expect(user.trialStartedAt != nil)
         }
     }
 
@@ -843,6 +849,17 @@ struct AuthTests {
             })
 
             let auth = try await makeAuthenticatedUser(app: app, email: "link-start@example.com")
+            configureFakeOAuthProvider(
+                app,
+                provider: .google,
+                identity: OAuthIdentityInfo(
+                    providerUserID: "google-link-start-user",
+                    email: "link-start@example.com",
+                    emailVerified: true,
+                    suggestedUsername: "link_start"
+                )
+            )
+
             try await app.testing().test(.POST, "v1/auth/oauth/google/link/start", beforeRequest: { req in
                 req.headers.bearerAuthorization = BearerAuthorization(token: auth.token)
                 try req.content.encode(startReq)

@@ -33,14 +33,15 @@ struct BillingTests {
     private func registerUser(
         on app: Application,
         identifier: String,
-        keepDefaultTrial: Bool = false
+        keepDefaultTrial: Bool = false,
+        email: String? = nil
     ) async throws -> AuthResponse {
         let usernameSuffix = String(identifier.filter { $0.isLetter || $0.isNumber || $0 == "_" }.prefix(18))
         let request = AuthRegisterRequest(
             username: "billing_\(usernameSuffix)",
             password: "Password123!",
             confirmPassword: "Password123!",
-            email: "billing+\(identifier)@example.com",
+            email: email ?? "billing+\(identifier)@example.com",
             dateOfBirth: Date(timeIntervalSince1970: 946_684_800)
         )
         var response: AuthResponse?
@@ -805,6 +806,68 @@ struct BillingTests {
             #expect(body.isTrialActive == true)
             #expect(body.trialDaysRemaining != nil)
             assertAllFeaturesAvailable(body)
+        }
+    }
+
+    @Test("Expired default trial resolves to free before cleanup job runs")
+    func expiredDefaultTrialResolvesToFreeBeforeCleanupJobRuns() async throws {
+        try await withApp { app in
+            let auth = try await registerUser(on: app, identifier: "trial-expired", keepDefaultTrial: true)
+            let user = try #require(try await User.find(auth.userId, on: app.db))
+            user.trialStartedAt = Date().addingTimeInterval(-8 * 86400)
+            user.trialDays = 7
+            user.trialTier = "temporary"
+            try await user.save(on: app.db)
+
+            let entitlement = try await app.entitlementResolver.resolve(userId: auth.userId, on: app.db)
+            #expect(entitlement.level == "free")
+            #expect(entitlement.isPremium == false)
+
+            let (status, context, _) = try await getBillingContext(token: auth.token, on: app)
+            #expect(status == .ok)
+            let body = try #require(context)
+            #expect(body.entitlementLevel == "free")
+            #expect(body.isPremium == false)
+            #expect(body.isTrialActive == false)
+            #expect(body.trialDaysRemaining == nil)
+        }
+    }
+
+    @Test("Configured premium email resolves to Pro without subscription")
+    func configuredPremiumEmailResolvesToProWithoutSubscription() async throws {
+        setenv("BILLING_PREMIUM_EMAILS", " ABC@gmail.com , xyz@gmail.com ", 1)
+        defer { unsetenv("BILLING_PREMIUM_EMAILS") }
+
+        try await withApp { app in
+            let premiumUsers = try await [
+                registerUser(on: app, identifier: "premium-email-abc", email: "abc@gmail.com"),
+                registerUser(on: app, identifier: "premium-email-xyz", email: "XYZ@gmail.com"),
+            ]
+
+            for auth in premiumUsers {
+                let entitlement = try await app.entitlementResolver.resolve(userId: auth.userId, on: app.db)
+                #expect(entitlement.level == "pro")
+                #expect(entitlement.isPremium == true)
+
+                let (status, context, _) = try await getBillingContext(token: auth.token, on: app)
+                #expect(status == .ok)
+                let body = try #require(context)
+                #expect(body.entitlementLevel == "pro")
+                #expect(body.isPremium == true)
+                #expect(body.subscription == nil)
+            }
+
+            let freeAuth = try await registerUser(on: app, identifier: "premium-email-free", email: "free@gmail.com")
+            let freeEntitlement = try await app.entitlementResolver.resolve(userId: freeAuth.userId, on: app.db)
+            #expect(freeEntitlement.level == "free")
+            #expect(freeEntitlement.isPremium == false)
+
+            let (status, context, _) = try await getBillingContext(token: freeAuth.token, on: app)
+            #expect(status == .ok)
+            let body = try #require(context)
+            #expect(body.entitlementLevel == "free")
+            #expect(body.isPremium == false)
+            #expect(body.subscription == nil)
         }
     }
 

@@ -164,14 +164,7 @@ struct DefaultAuthService: AuthService {
             throw error
         }
 
-        if !user.hadTrial {
-            try await trialService.initializeTrial(
-                user: user,
-                trialDays: defaultTrialDays(on: req),
-                tierName: "temporary",
-                db: req.db
-            )
-        }
+        try await initializeDefaultTrialIfNeeded(for: user, on: req)
 
         Task {
             try? await req.discord.send("🎉 New user registered: \(normalizedEmail)", on: req)
@@ -187,6 +180,17 @@ struct DefaultAuthService: AuthService {
             return 7
         }
         return min(max(configured, 7), 14)
+    }
+
+    private func initializeDefaultTrialIfNeeded(for user: User, on req: Request) async throws {
+        guard !user.hadTrial else { return }
+
+        try await trialService.initializeTrial(
+            user: user,
+            trialDays: defaultTrialDays(on: req),
+            tierName: "temporary",
+            db: req.db
+        )
     }
 
     func login(email: String, password: String, requireMFA: Bool, on req: Request) async throws -> AuthLoginOutcome {
@@ -515,6 +519,7 @@ struct DefaultAuthService: AuthService {
             dateOfBirth: defaultDateOfBirth(),
             on: req.db
         )
+        try await initializeDefaultTrialIfNeeded(for: user, on: req)
 
         Task {
             try? await req.discord.send("🎉 New user registered via OAuth: \(resolvedUserEmail)", on: req)

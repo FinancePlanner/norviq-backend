@@ -61,7 +61,7 @@ This must be the **secret** API key (starts with `sk_`), not the public iOS key.
 
 > RevenueCat Dashboard → Project → API Keys → Secret keys
 
-The current value in `.env` is `sk_HEJTcPFiLTipIaSqddoOSunQuAOTL` — verify this is your actual secret key and not a placeholder.
+Verify the deployed value comes from RevenueCat Dashboard -> Project -> API Keys -> Secret keys. Do not store or paste the actual secret key in documentation.
 
 ---
 
