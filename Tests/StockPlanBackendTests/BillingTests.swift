@@ -808,6 +808,51 @@ struct BillingTests {
         }
     }
 
+    @Test("Expired default trial resolves to free before cleanup job runs")
+    func expiredDefaultTrialResolvesToFreeBeforeCleanupJobRuns() async throws {
+        try await withApp { app in
+            let auth = try await registerUser(on: app, identifier: "trial-expired", keepDefaultTrial: true)
+            let user = try #require(try await User.find(auth.userId, on: app.db))
+            user.trialStartedAt = Date().addingTimeInterval(-8 * 86400)
+            user.trialDays = 7
+            user.trialTier = "temporary"
+            try await user.save(on: app.db)
+
+            let entitlement = try await app.entitlementResolver.resolve(userId: auth.userId, on: app.db)
+            #expect(entitlement.level == "free")
+            #expect(entitlement.isPremium == false)
+
+            let (status, context, _) = try await getBillingContext(token: auth.token, on: app)
+            #expect(status == .ok)
+            let body = try #require(context)
+            #expect(body.entitlementLevel == "free")
+            #expect(body.isPremium == false)
+            #expect(body.isTrialActive == false)
+            #expect(body.trialDaysRemaining == nil)
+        }
+    }
+
+    @Test("Configured premium email resolves to Pro without subscription")
+    func configuredPremiumEmailResolvesToProWithoutSubscription() async throws {
+        setenv("BILLING_PREMIUM_EMAILS", " billing+premium-email@example.com ", 1)
+        defer { unsetenv("BILLING_PREMIUM_EMAILS") }
+
+        try await withApp { app in
+            let auth = try await registerUser(on: app, identifier: "premium-email")
+
+            let entitlement = try await app.entitlementResolver.resolve(userId: auth.userId, on: app.db)
+            #expect(entitlement.level == "pro")
+            #expect(entitlement.isPremium == true)
+
+            let (status, context, _) = try await getBillingContext(token: auth.token, on: app)
+            #expect(status == .ok)
+            let body = try #require(context)
+            #expect(body.entitlementLevel == "pro")
+            #expect(body.isPremium == true)
+            #expect(body.subscription == nil)
+        }
+    }
+
     // MARK: - Coupon tests
 
     @Test("Registration starts a default temporary trial")

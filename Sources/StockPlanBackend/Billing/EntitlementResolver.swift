@@ -72,8 +72,11 @@ struct DefaultEntitlementResolver: EntitlementResolver {
             .filter(\.$userId == userId)
             .first()
 
-        // 4. Trial Logic: Trial Tier ("temporary") should override "free" or missing entitlements
-        if let user = try await User.find(userId, on: db), let trialTier = user.trialTier {
+        // 4. Active Trial Logic: Trial Tier ("temporary") should override "free" or missing entitlements
+        if let user = try await User.find(userId, on: db),
+           let trialTier = user.trialTier,
+           Self.hasActiveTrial(user)
+        {
             // If user has a trial, and no entitlement or the entitlement is "free", trial wins.
             if entitlement == nil || entitlement?.level == "free" {
                 return EntitlementSnapshot(userId: userId, level: trialTier)
@@ -81,6 +84,18 @@ struct DefaultEntitlementResolver: EntitlementResolver {
         }
 
         return EntitlementSnapshot(userId: userId, level: entitlement?.level ?? "free")
+    }
+
+    private static func hasActiveTrial(_ user: User) -> Bool {
+        guard let startedAt = user.trialStartedAt,
+              let days = user.trialDays,
+              days > 0
+        else {
+            return false
+        }
+
+        let expiresAt = startedAt.addingTimeInterval(TimeInterval(days * 86400))
+        return Date() < expiresAt
     }
 }
 

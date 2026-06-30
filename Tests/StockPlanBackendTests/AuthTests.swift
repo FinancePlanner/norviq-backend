@@ -732,6 +732,9 @@ struct AuthTests {
 
     @Test("OAuth exchange still creates new OAuth user when email is new")
     func oauthExchangeCreatesNewUserForNewEmail() async throws {
+        setenv("BYPASS_BILLING", "false", 1)
+        defer { unsetenv("BYPASS_BILLING") }
+
         try await withApp { app in
             let email = "oauth-new-user@example.com"
             configureFakeOAuthProvider(
@@ -759,6 +762,16 @@ struct AuthTests {
                 .filter(\.$providerUserID == "google-new-user")
                 .first()
             #expect(identity != nil)
+
+            let userID = try #require(identity?.$user.id)
+            let user = try #require(try await User.find(userID, on: app.db))
+            #expect(user.trialTier == "temporary")
+            #expect(user.trialDays == 7)
+            #expect(user.trialStartedAt != nil)
+
+            let context = try await app.billingContextService.context(userId: userID, on: app.db)
+            #expect(context.entitlementLevel == "temporary")
+            #expect(context.isPremium == true)
         }
     }
 
