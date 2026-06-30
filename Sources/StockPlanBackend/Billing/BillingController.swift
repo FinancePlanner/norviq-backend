@@ -204,6 +204,9 @@ private extension BillingController {
         if product.contains("annual") || product.contains("year") {
             return "pro_annual"
         }
+        if product.contains("weekly") || product.contains("week") {
+            return "pro_weekly"
+        }
         if product.contains("monthly") || product.contains("month") {
             return "pro_monthly"
         }
