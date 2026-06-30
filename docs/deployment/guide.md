@@ -10,7 +10,7 @@ This guide covers deploying the StockPlanBackend Vapor application to a producti
 │                                                             │
 │   ┌─────────────┐      ┌─────────────┐     ┌─────────────┐ │
 │   │    Nginx    │──────│  Vapor App  │─────│  PostgreSQL │ │
-│   │   (HTTPS)   │:8080 │   (Docker)  │     │   (Docker)  │ │
+│   │ HTTPS/h2/h3 │:8080 │   (Docker)  │     │   (Docker)  │ │
 │   └─────────────┘      └─────────────┘     └─────────────┘ │
 │         │                                                   │
 │         │ :443                                              │
@@ -24,7 +24,7 @@ This guide covers deploying the StockPlanBackend Vapor application to a producti
 | Decision | Recommendation | Reason |
 |----------|----------------|--------|
 | **Docker Compose** | ✅ Yes, for both app and DB | Simplified deployment, easy migrations, consistent environments |
-| **Reverse Proxy** | ✅ Nginx | Battle-tested proxy and HTTPS with Let's Encrypt |
+| **Reverse Proxy** | ✅ Nginx | Battle-tested proxy, HTTPS with Let's Encrypt, HTTP/2, and HTTP/3 at the edge |
 | **Domain vs IP** | ✅ Use a domain | Required for HTTPS, professional, enables CDN/WAF later |
 
 ---
@@ -86,8 +86,9 @@ server {
 
 # Main HTTPS Server Block
 server {
-    listen 443 ssl http2;
-    listen [::]:443 ssl http2;
+    listen 443 ssl;
+    listen [::]:443 ssl;
+    http2 on;
     server_name api.yourdomain.com;
 
     ssl_certificate /etc/letsencrypt/live/api.yourdomain.com/fullchain.pem;
@@ -134,8 +135,9 @@ server {
      }
     
      server {
-         listen 443 ssl http2;
-        listen [::]:443 ssl http2;
+         listen 443 ssl;
+        listen [::]:443 ssl;
+        http2 on;
         server_name www.prod-norviq.online prod-norviq.online;
    
         ssl_certificate /etc/letsencrypt/live/prod-norviq.online/fullchain.pem;
@@ -193,7 +195,8 @@ Create two separate files in `/etc/nginx/sites-available/` and symlink them to `
 *For Prod (`/etc/nginx/sites-available/norviq-prod`):*
 ```nginx
 server {
-    listen 443 ssl http2;
+    listen 443 ssl;
+    http2 on;
     server_name www.prod-norviq.online prod-norviq.online;
     
     # ... SSL certs and standard headers ...
@@ -208,7 +211,8 @@ server {
 *For Dev (`/etc/nginx/sites-available/norviq-dev`):*
 ```nginx
 server {
-    listen 443 ssl http2;
+    listen 443 ssl;
+    http2 on;
     server_name www.dev-norviq.online dev-norviq.online;
     
     # ... SSL certs and standard headers ...
@@ -228,6 +232,53 @@ sudo certbot certonly --nginx -d www.dev-norviq.online -d dev-norviq.online
 ```
 
 After generating certificates and writing the configurations, restart Nginx (`sudo systemctl restart nginx`). Both environments will now securely route traffic to their respective backend instances.
+
+### Current Norviq Edge Gateway
+
+The current VPS uses a Dockerized gateway Nginx in `/opt/gateway` instead of host-level site files:
+
+- Container: `gateway-nginx-1`
+- Image: `nginx:1.27-alpine`
+- Config: `/opt/gateway/nginx/nginx.conf`
+- Ports: `80/tcp`, `443/tcp`, and `443/udp`
+
+The gateway terminates HTTP/2 and HTTP/3 for both the API and web app, then proxies to internal Docker services over HTTP/1.1:
+
+- `api.norviq.org` / `api.norviqa.io` -> `prod-app-1:8080`
+- `dev.norviq.org` / `dev-api.norviqa.io` -> `dev-app-1:8080`
+- `norviq.org` / `www.norviq.org` -> `stockplanweb-web-1:6969`
+
+Use modern HTTP/2 syntax in gateway server blocks:
+
+```nginx
+server {
+    listen 443 quic;
+    listen 443 ssl;
+    http2 on;
+    server_name api.norviq.org api.norviqa.io;
+
+    add_header Alt-Svc 'h3=":443"; ma=86400';
+
+    location / {
+        proxy_pass http://prod-app-1:8080;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+}
+```
+
+HTTP/3 requires all of the following:
+
+- Nginx built with `--with-http_v3_module`
+- `listen 443 quic;` in the server block
+- Docker publishing `443/udp`
+- Firewall allowing `443/udp`
+- `Alt-Svc: h3=":443"` advertised to clients
+
+The app container itself does not need to support HTTP/2 or HTTP/3. Keep HTTP/3 at the edge, especially for mobile API clients where QUIC can improve behavior on lossy networks and network changes.
 
 ---
 
