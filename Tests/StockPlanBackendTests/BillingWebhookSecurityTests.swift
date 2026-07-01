@@ -127,14 +127,12 @@ struct BillingWebhookSecurityTests {
             try app.register(collection: RevenueCatWebhookController())
 
             let payload = "{\"event\": {\"id\": \"test_event\", \"type\": \"INITIAL_PURCHASE\", \"app_user_id\": \"test_user\", \"product_id\": \"pro_annual\"}}"
-            let key = SymmetricKey(data: Data(hmacSecret.utf8))
-            let computedHMAC = HMAC<SHA256>.authenticationCode(for: Data(payload.utf8), using: key)
-            let signature = Data(computedHMAC).base64EncodedString()
+            let signatureHeader = revenueCatSignatureHeader(payload: payload, secret: hmacSecret)
 
             var status: HTTPStatus = .internalServerError
             try await app.testing().test(.POST, "webhooks/revenuecat", beforeRequest: { req in
                 req.headers.contentType = .json
-                req.headers.replaceOrAdd(name: "X-RevenueCat-Signature", value: signature)
+                req.headers.replaceOrAdd(name: "X-RevenueCat-Webhook-Signature", value: signatureHeader)
                 req.body = .init(string: payload)
             }, afterResponse: { res async throws in
                 status = res.status
@@ -173,7 +171,48 @@ struct BillingWebhookSecurityTests {
             var status: HTTPStatus = .internalServerError
             try await app.testing().test(.POST, "webhooks/revenuecat", beforeRequest: { req in
                 req.headers.contentType = .json
-                req.headers.replaceOrAdd(name: "X-RevenueCat-Signature", value: "invalid-signature")
+                let timestamp = Int64(Date().timeIntervalSince1970)
+                req.headers.replaceOrAdd(name: "X-RevenueCat-Webhook-Signature", value: "t=\(timestamp),v1=invalid-signature")
+                req.body = .init(string: payload)
+            }, afterResponse: { res async throws in
+                status = res.status
+            })
+
+            #expect(status == .unauthorized)
+
+            try await app.asyncShutdown()
+            unsetenv("REVENUECAT_HMAC_SECRET")
+            unsetenv("REVENUECAT_API_KEY")
+        }
+    }
+
+    @Test
+    func webhookHMACValidationFailsWithStaleSignatureTimestamp() async throws {
+        try await DatabaseTestLock.withLock {
+            let hmacSecret = "test-hmac-secret-12345"
+            setenv("REVENUECAT_HMAC_SECRET", hmacSecret, 1)
+            setenv("REVENUECAT_API_KEY", "present", 1)
+            let app = try await Application.make(.testing)
+            app.databases.use(
+                .postgres(configuration: .init(
+                    hostname: "localhost",
+                    port: 5432,
+                    username: "dummy",
+                    password: "dummy",
+                    database: "dummy"
+                )),
+                as: .psql
+            )
+            app.billingService = MockBillingService()
+            try app.register(collection: RevenueCatWebhookController())
+
+            let payload = "{\"event\": {\"id\": \"test_event\"}}"
+            let signatureHeader = revenueCatSignatureHeader(payload: payload, secret: hmacSecret, timestamp: 1_700_000_000)
+
+            var status: HTTPStatus = .internalServerError
+            try await app.testing().test(.POST, "webhooks/revenuecat", beforeRequest: { req in
+                req.headers.contentType = .json
+                req.headers.replaceOrAdd(name: "X-RevenueCat-Webhook-Signature", value: signatureHeader)
                 req.body = .init(string: payload)
             }, afterResponse: { res async throws in
                 status = res.status
@@ -268,4 +307,16 @@ struct BillingWebhookSecurityTests {
 
 private struct MockBillingService: BillingService {
     func process(event _: RevenueCatWebhookEvent, rawPayload _: String, on _: any Database) async throws {}
+}
+
+private func revenueCatSignatureHeader(
+    payload: String,
+    secret: String,
+    timestamp: Int64 = Int64(Date().timeIntervalSince1970)
+) -> String {
+    let signedPayload = "\(timestamp).\(payload)"
+    let key = SymmetricKey(data: Data(secret.utf8))
+    let hmac = HMAC<SHA256>.authenticationCode(for: Data(signedPayload.utf8), using: key)
+    let hex = Data(hmac).map { String(format: "%02x", $0) }.joined()
+    return "t=\(timestamp),v1=\(hex)"
 }
