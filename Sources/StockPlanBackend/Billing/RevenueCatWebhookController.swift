@@ -21,25 +21,33 @@ struct RevenueCatWebhookController: RouteCollection {
 }
 
 private extension RevenueCatWebhookController {
+    static let revenueCatSignatureHeader = "X-RevenueCat-Webhook-Signature"
+    static let signatureToleranceSeconds: TimeInterval = 300
+
     func verifySecret(_ req: Request, rawPayload: String) throws {
         // 1. HMAC validation takes precedence if REVENUECAT_HMAC_SECRET is configured
         if let hmacSecret = Environment.get("REVENUECAT_HMAC_SECRET")?
             .trimmingCharacters(in: .whitespacesAndNewlines), !hmacSecret.isEmpty
         {
-            let signature = req.headers.first(name: "X-RevenueCat-Signature")?
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-                ?? req.headers.first(name: "X-Signature")?
+            let header = req.headers.first(name: Self.revenueCatSignatureHeader)?
                 .trimmingCharacters(in: .whitespacesAndNewlines)
 
-            guard let signature, !signature.isEmpty else {
+            guard let header, !header.isEmpty else {
                 throw Abort(.unauthorized, reason: "Missing signature header for HMAC validation.")
             }
 
-            let key = SymmetricKey(data: Data(hmacSecret.utf8))
-            let computedHMAC = HMAC<SHA256>.authenticationCode(for: Data(rawPayload.utf8), using: key)
-            let computedBase64 = Data(computedHMAC).base64EncodedString()
+            let parsed = try parseRevenueCatSignatureHeader(header)
+            let now = Date().timeIntervalSince1970
+            guard abs(now - TimeInterval(parsed.timestamp)) <= Self.signatureToleranceSeconds else {
+                throw Abort(.unauthorized, reason: "Webhook signature timestamp is outside the allowed tolerance.")
+            }
 
-            guard RevenueCatWebhookController.constantTimeEquals(signature, computedBase64) else {
+            let key = SymmetricKey(data: Data(hmacSecret.utf8))
+            let signedPayload = "\(parsed.timestamp).\(rawPayload)"
+            let computedHMAC = HMAC<SHA256>.authenticationCode(for: Data(signedPayload.utf8), using: key)
+            let computedHex = Data(computedHMAC).map { String(format: "%02x", $0) }.joined()
+
+            guard RevenueCatWebhookController.constantTimeEquals(parsed.signature, computedHex) else {
                 throw Abort(.unauthorized, reason: "Invalid webhook signature.")
             }
             return
@@ -59,6 +67,32 @@ private extension RevenueCatWebhookController {
         guard RevenueCatWebhookController.constantTimeEquals(provided, configured) else {
             throw Abort(.unauthorized, reason: "Invalid webhook secret.")
         }
+    }
+
+    func parseRevenueCatSignatureHeader(_ header: String) throws -> (timestamp: Int64, signature: String) {
+        var timestamp: Int64?
+        var signature: String?
+
+        for part in header.split(separator: ",") {
+            let pieces = part.split(separator: "=", maxSplits: 1)
+            guard pieces.count == 2 else { continue }
+            let key = pieces[0].trimmingCharacters(in: .whitespacesAndNewlines)
+            let value = pieces[1].trimmingCharacters(in: .whitespacesAndNewlines)
+            switch key {
+            case "t":
+                timestamp = Int64(value)
+            case "v1":
+                signature = value
+            default:
+                continue
+            }
+        }
+
+        guard let timestamp, let signature, !signature.isEmpty else {
+            throw Abort(.unauthorized, reason: "Malformed webhook signature header.")
+        }
+
+        return (timestamp, signature.lowercased())
     }
 }
 
