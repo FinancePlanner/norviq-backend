@@ -1078,6 +1078,50 @@ struct BillingTests {
         }
     }
 
+    @Test("Billing management URL requires RevenueCat project configuration")
+    func billingManagementURLRequiresRevenueCatProjectConfiguration() async throws {
+        try await withApp { app in
+            let previousProjectID = Environment.get("REVENUECAT_PROJECT_ID")
+            let previousAPIV2Key = Environment.get("REVENUECAT_API_V2_KEY")
+            unsetenv("REVENUECAT_PROJECT_ID")
+            setenv("REVENUECAT_API_V2_KEY", "test-v2-key", 1)
+            defer {
+                if let previousProjectID {
+                    setenv("REVENUECAT_PROJECT_ID", previousProjectID, 1)
+                } else {
+                    unsetenv("REVENUECAT_PROJECT_ID")
+                }
+                if let previousAPIV2Key {
+                    setenv("REVENUECAT_API_V2_KEY", previousAPIV2Key, 1)
+                } else {
+                    unsetenv("REVENUECAT_API_V2_KEY")
+                }
+            }
+
+            let auth = try await registerUser(on: app, identifier: "management-url")
+            let futureMs = Int64(Date().addingTimeInterval(2_592_000).timeIntervalSince1970 * 1000)
+            #expect(try await post(
+                makePayload(
+                    type: "INITIAL_PURCHASE",
+                    eventId: UUID().uuidString,
+                    appUserId: auth.userId.uuidString,
+                    expirationAtMs: futureMs
+                ),
+                authorization: secret,
+                on: app
+            ) == .ok)
+
+            var status: HTTPStatus = .ok
+            try await app.testing().test(.POST, "v1/billing/management-url", beforeRequest: { req in
+                req.headers.bearerAuthorization = .init(token: auth.token)
+            }, afterResponse: { res async throws in
+                status = res.status
+            })
+
+            #expect(status == .serviceUnavailable)
+        }
+    }
+
     // MARK: - Crypto entitlement tests
 
     @Test("Free users are blocked from every Crypto endpoint")

@@ -23,6 +23,7 @@ struct MarketDataController: RouteCollection {
         rateLimited.get("analysis", ":symbol", use: analysis)
         rateLimited.get("compare", use: compare)
         rateLimited.get("cash-flow-statement", ":symbol", use: cashFlowStatement)
+        rateLimited.get("income-statement", ":symbol", use: incomeStatement)
         rateLimited.get("balance-sheet-statement", ":symbol", use: balanceSheetStatement)
         rateLimited.get("ratios-ttm", ":symbol", use: ratiosTTM)
         rateLimited.get("grades-consensus", ":symbol", use: gradesConsensus)
@@ -286,6 +287,24 @@ struct MarketDataController: RouteCollection {
         let limit = req.query[Int.self, at: "limit"]
         let period = req.query[String.self, at: "period"]
         return try await req.application.marketDataService.cashFlowStatement(
+            symbol: symbol,
+            limit: limit,
+            period: period,
+            on: req
+        )
+    }
+
+    @Sendable
+    func incomeStatement(req: Request) async throws -> [IncomeStatementResponse] {
+        let session = try req.auth.require(SessionToken.self)
+        try await requireMarketFundamentalsAccess(session: session, req: req)
+        guard let symbol = req.parameters.get("symbol") else {
+            throw Abort(.badRequest, reason: "Missing symbol.")
+        }
+
+        let limit = req.query[Int.self, at: "limit"]
+        let period = req.query[String.self, at: "period"]
+        return try await req.application.marketDataService.incomeStatement(
             symbol: symbol,
             limit: limit,
             period: period,

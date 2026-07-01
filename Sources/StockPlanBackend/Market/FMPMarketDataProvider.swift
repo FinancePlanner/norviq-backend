@@ -11,6 +11,12 @@ protocol FMPMarketDataProvider: Sendable {
         period: String?,
         on req: Request
     ) async throws -> [CashFlowStatementResponse]
+    func incomeStatement(
+        symbol: String,
+        limit: Int?,
+        period: String?,
+        on req: Request
+    ) async throws -> [IncomeStatementResponse]
     func balanceSheetStatement(
         symbol: String,
         limit: Int?,
@@ -353,6 +359,30 @@ struct LiveFMPMarketDataProvider: FMPMarketDataProvider, CryptoDataProvider {
 
         return try await fetchJSON(
             path: "/stable/cash-flow-statement",
+            query: query,
+            on: req
+        )
+    }
+
+    func incomeStatement(
+        symbol rawSymbol: String,
+        limit: Int?,
+        period rawPeriod: String?,
+        on req: Request
+    ) async throws -> [IncomeStatementResponse] {
+        let symbol = try normalizeSymbol(rawSymbol)
+        let period = normalizedOptionalValue(rawPeriod)
+
+        var query: [(String, String?)] = [("symbol", symbol)]
+        if let limit {
+            query.append(("limit", String(limit)))
+        }
+        if let period {
+            query.append(("period", period))
+        }
+
+        return try await fetchJSON(
+            path: "/stable/income-statement",
             query: query,
             on: req
         )
