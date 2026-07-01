@@ -3,6 +3,12 @@ import Foundation
 import StockPlanShared
 import Vapor
 
+struct BillingManagementURLResponse: Content {
+    let managementUrl: String
+    let provider: String
+    let source: String
+}
+
 struct BillingController: RouteCollection {
     func boot(routes: any RoutesBuilder) throws {
         let protected = routes.grouped(SessionToken.authenticator(), SessionToken.guardMiddleware())
@@ -10,6 +16,7 @@ struct BillingController: RouteCollection {
 
         billing.get("me", use: me)
         billing.post("restore", use: restore)
+        billing.post("management-url", use: managementURL)
         billing.post("coupon", "redeem", use: redeemCoupon)
     }
 
@@ -26,6 +33,55 @@ struct BillingController: RouteCollection {
         let subscriber = try await fetchRevenueCatSubscriber(userId: session.userId, apiKey: apiKey, req: req)
         try await syncRevenueCatSubscriber(subscriber, userId: session.userId, on: req.db)
         return try await req.billingContextService.context(userId: session.userId, on: req.db)
+    }
+
+    @Sendable
+    func managementURL(req: Request) async throws -> BillingManagementURLResponse {
+        let session = try req.auth.require(SessionToken.self)
+        let projectID = try revenueCatProjectID()
+        let apiKey = try revenueCatAPIV2Key()
+        let subscriptions = try await fetchRevenueCatSubscriptions(
+            userId: session.userId,
+            projectID: projectID,
+            apiKey: apiKey,
+            req: req
+        )
+        guard let subscription = preferredManagementSubscription(from: subscriptions) else {
+            throw Abort(.notFound, reason: "No manageable subscription was found.")
+        }
+
+        if isRevenueCatWebBillingStore(subscription.store),
+           let url = try await fetchAuthenticatedManagementURL(
+               projectID: projectID,
+               subscriptionID: subscription.id,
+               apiKey: apiKey,
+               req: req
+           )
+        {
+            return BillingManagementURLResponse(
+                managementUrl: url,
+                provider: subscription.store ?? "revenuecat",
+                source: "revenuecat_customer_portal"
+            )
+        }
+
+        if let url = subscription.managementURL, !url.isEmpty {
+            return BillingManagementURLResponse(
+                managementUrl: url,
+                provider: subscription.store ?? "revenuecat",
+                source: "revenuecat_management_url"
+            )
+        }
+
+        if subscription.store?.lowercased() == "app_store" {
+            return BillingManagementURLResponse(
+                managementUrl: "https://apps.apple.com/account/subscriptions",
+                provider: "app_store",
+                source: "apple_subscriptions"
+            )
+        }
+
+        throw Abort(.notFound, reason: "No subscription management URL is available.")
     }
 
     @Sendable
@@ -46,6 +102,38 @@ struct BillingController: RouteCollection {
 }
 
 private extension BillingController {
+    struct RevenueCatV2SubscriptionListResponse: Decodable {
+        let items: [RevenueCatV2Subscription]
+    }
+
+    struct RevenueCatV2Subscription: Decodable {
+        let id: String
+        let store: String?
+        let status: String?
+        let givesAccess: Bool?
+        let managementURL: String?
+        let currentPeriodEndsAt: Int64?
+        let endsAt: Int64?
+
+        enum CodingKeys: String, CodingKey {
+            case id
+            case store
+            case status
+            case givesAccess = "gives_access"
+            case managementURL = "management_url"
+            case currentPeriodEndsAt = "current_period_ends_at"
+            case endsAt = "ends_at"
+        }
+    }
+
+    struct RevenueCatAuthenticatedManagementURLResponse: Decodable {
+        let managementURL: String
+
+        enum CodingKeys: String, CodingKey {
+            case managementURL = "management_url"
+        }
+    }
+
     struct RevenueCatSubscriberResponse: Decodable {
         let subscriber: RevenueCatSubscriber
     }
@@ -96,6 +184,125 @@ private extension BillingController {
             throw Abort(.serviceUnavailable, reason: "REVENUECAT_API_KEY is not configured.")
         }
         return value
+    }
+
+    func revenueCatAPIV2Key() throws -> String {
+        let value = Environment.get("REVENUECAT_API_V2_KEY")?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            ?? Environment.get("REVENUECAT_API_KEY")?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            ?? ""
+        guard !value.isEmpty else {
+            throw Abort(.serviceUnavailable, reason: "REVENUECAT_API_V2_KEY is not configured.")
+        }
+        return value
+    }
+
+    func revenueCatProjectID() throws -> String {
+        let value = Environment.get("REVENUECAT_PROJECT_ID")?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard !value.isEmpty else {
+            throw Abort(.serviceUnavailable, reason: "REVENUECAT_PROJECT_ID is not configured.")
+        }
+        return value
+    }
+
+    func fetchRevenueCatSubscriptions(
+        userId: UUID,
+        projectID: String,
+        apiKey: String,
+        req: Request
+    ) async throws -> [RevenueCatV2Subscription] {
+        let encodedProjectID = pathSegment(projectID)
+        let encodedUserID = pathSegment(userId.uuidString)
+        let response = try await req.client.get(
+            "https://api.revenuecat.com/v2/projects/\(encodedProjectID)/customers/\(encodedUserID)/subscriptions?limit=20"
+        ) { clientRequest in
+            clientRequest.headers.bearerAuthorization = .init(token: apiKey)
+            clientRequest.headers.replaceOrAdd(name: .accept, value: "application/json")
+            clientRequest.headers.contentType = .json
+        }
+
+        guard response.status == .ok else {
+            throw Abort(.badGateway, reason: "RevenueCat subscription lookup failed with status \(response.status.code).")
+        }
+
+        do {
+            return try response.content.decode(RevenueCatV2SubscriptionListResponse.self).items
+        } catch {
+            throw Abort(.badGateway, reason: "RevenueCat subscription list response was invalid.")
+        }
+    }
+
+    func fetchAuthenticatedManagementURL(
+        projectID: String,
+        subscriptionID: String,
+        apiKey: String,
+        req: Request
+    ) async throws -> String? {
+        let encodedProjectID = pathSegment(projectID)
+        let encodedSubscriptionID = pathSegment(subscriptionID)
+        let response = try await req.client.get(
+            "https://api.revenuecat.com/v2/projects/\(encodedProjectID)/subscriptions/\(encodedSubscriptionID)/authenticated_management_url"
+        ) { clientRequest in
+            clientRequest.headers.bearerAuthorization = .init(token: apiKey)
+            clientRequest.headers.replaceOrAdd(name: .accept, value: "application/json")
+            clientRequest.headers.contentType = .json
+        }
+
+        guard response.status == .ok else {
+            return nil
+        }
+
+        do {
+            return try response.content.decode(RevenueCatAuthenticatedManagementURLResponse.self).managementURL
+        } catch {
+            return nil
+        }
+    }
+
+    func preferredManagementSubscription(from subscriptions: [RevenueCatV2Subscription]) -> RevenueCatV2Subscription? {
+        subscriptions.sorted(by: managementSubscriptionSort).first
+    }
+
+    func managementSubscriptionSort(_ lhs: RevenueCatV2Subscription, _ rhs: RevenueCatV2Subscription) -> Bool {
+        let lhsScore = managementSubscriptionScore(lhs)
+        let rhsScore = managementSubscriptionScore(rhs)
+        if lhsScore != rhsScore {
+            return lhsScore > rhsScore
+        }
+        return (lhs.currentPeriodEndsAt ?? lhs.endsAt ?? 0) > (rhs.currentPeriodEndsAt ?? rhs.endsAt ?? 0)
+    }
+
+    func managementSubscriptionScore(_ subscription: RevenueCatV2Subscription) -> Int {
+        if subscription.givesAccess == true {
+            return 4
+        }
+        switch subscription.status?.lowercased() {
+        case "active", "trialing", "grace_period":
+            return 3
+        case "cancelled":
+            return 2
+        case "billing_issue":
+            return 1
+        default:
+            return 0
+        }
+    }
+
+    func isRevenueCatWebBillingStore(_ store: String?) -> Bool {
+        switch store?.lowercased() {
+        case "rc_billing", "revenuecat", "web_billing", "revenuecat_web_billing":
+            true
+        default:
+            false
+        }
+    }
+
+    func pathSegment(_ value: String) -> String {
+        var allowed = CharacterSet.urlPathAllowed
+        allowed.remove(charactersIn: "/")
+        return value.addingPercentEncoding(withAllowedCharacters: allowed) ?? value
     }
 
     func fetchRevenueCatSubscriber(

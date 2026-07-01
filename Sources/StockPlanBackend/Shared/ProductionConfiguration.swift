@@ -10,8 +10,13 @@ enum ProductionConfiguration {
             username: Environment.get("DATABASE_USERNAME"),
             password: Environment.get("DATABASE_PASSWORD")
         )
-        try validateRequiredSecret(Environment.get("REVENUECAT_WEBHOOK_SECRET"), name: "REVENUECAT_WEBHOOK_SECRET")
         try validateRequiredSecret(Environment.get("REVENUECAT_API_KEY"), name: "REVENUECAT_API_KEY")
+
+        let webhookSecret = (Environment.get("REVENUECAT_WEBHOOK_SECRET")?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "")
+        let hmacSecret = (Environment.get("REVENUECAT_HMAC_SECRET")?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "")
+        if webhookSecret.isEmpty, hmacSecret.isEmpty {
+            throw Abort(.internalServerError, reason: "Either REVENUECAT_WEBHOOK_SECRET or REVENUECAT_HMAC_SECRET is required in production.")
+        }
     }
 
     static func allowedOrigins(from rawValue: String?, isProduction: Bool) throws -> [String] {

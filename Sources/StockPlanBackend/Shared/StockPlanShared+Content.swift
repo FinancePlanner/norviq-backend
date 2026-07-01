@@ -182,6 +182,7 @@ extension BasicFinancialSeriesPoint: @retroactive Content {}
 extension BasicFinancialsResponse: @retroactive Content {}
 extension RatiosTTMResponse: @retroactive Content {}
 extension BalanceSheetStatementResponse: @retroactive Content {}
+extension IncomeStatementResponse: @retroactive Content {}
 extension CashFlowStatementResponse: @retroactive Content {}
 extension FinancialGrowthResponse: @retroactive Content {}
 extension AnalystEstimatesResponse: @retroactive Content {}
