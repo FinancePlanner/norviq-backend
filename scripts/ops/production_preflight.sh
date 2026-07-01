@@ -27,6 +27,12 @@ curl_local() {
   curl -fsS -H "Host: ${DOMAIN}" "$@"
 }
 
+curl_http3_api() {
+  local version
+  version=$(/usr/local/bin/curl-http3 --http3-only -sS -o /dev/null -w '%{http_version}' "https://${DOMAIN}/health/live")
+  [[ "${version}" == "3" ]]
+}
+
 check "liveness endpoint" curl_local "http://127.0.0.1/health/live"
 check "readiness endpoint" curl_local "http://127.0.0.1/health/ready"
 
@@ -48,6 +54,12 @@ check "Referrer-Policy header" bash -c \
   "curl -fsSI https://${DOMAIN}/health/live | grep -qi '^referrer-policy:'"
 check "Permissions-Policy header" bash -c \
   "curl -fsSI https://${DOMAIN}/health/live | grep -qi '^permissions-policy:'"
+
+if command -v /usr/local/bin/curl-http3 >/dev/null 2>&1; then
+  check "HTTP/3 API health" curl_http3_api
+else
+  printf "skip - HTTP/3 API health (/usr/local/bin/curl-http3 not installed)\n"
+fi
 
 check "postgres is not host-published by compose" bash -c \
   "! docker compose -f '${COMPOSE_FILE}' port db 5432 >/dev/null 2>&1"
