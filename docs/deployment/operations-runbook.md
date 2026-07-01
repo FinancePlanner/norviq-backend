@@ -64,6 +64,19 @@ http2 on;
 
 Do not use deprecated `listen 443 ssl http2;` in new gateway config.
 
+The gateway access log should include the negotiated protocol and HTTP/3 marker so operators can distinguish TCP HTTP/2 traffic from QUIC HTTP/3 traffic:
+
+```nginx
+log_format edge '$remote_addr - $remote_user [$time_local] $request '
+                '$status $body_bytes_sent $http_referer $http_user_agent '
+                'host=$host proto=$server_protocol http3=$http3 '
+                'request_time=$request_time upstream=$upstream_addr '
+                'upstream_status=$upstream_status upstream_time=$upstream_response_time';
+access_log /var/log/nginx/access.log edge;
+```
+
+Expected log markers are `proto=HTTP/2.0 http3=` for HTTP/2 and `proto=HTTP/3.0 http3=h3` for HTTP/3.
+
 Verify external protocol negotiation after gateway changes:
 
 ```bash
