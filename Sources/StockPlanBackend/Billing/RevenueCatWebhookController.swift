@@ -1,3 +1,4 @@
+import Crypto
 import Vapor
 
 struct RevenueCatWebhookController: RouteCollection {
@@ -7,8 +8,8 @@ struct RevenueCatWebhookController: RouteCollection {
 
     @Sendable
     func receive(req: Request) async throws -> HTTPStatus {
-        try verifySecret(req)
         let rawPayload = req.body.string ?? ""
+        try verifySecret(req, rawPayload: rawPayload)
         let payload = try req.content.decode(RevenueCatWebhookPayload.self)
         try await req.application.billingService.process(
             event: payload.event,
@@ -20,11 +21,35 @@ struct RevenueCatWebhookController: RouteCollection {
 }
 
 private extension RevenueCatWebhookController {
-    func verifySecret(_ req: Request) throws {
+    func verifySecret(_ req: Request, rawPayload: String) throws {
+        // 1. HMAC validation takes precedence if REVENUECAT_HMAC_SECRET is configured
+        if let hmacSecret = Environment.get("REVENUECAT_HMAC_SECRET")?
+            .trimmingCharacters(in: .whitespacesAndNewlines), !hmacSecret.isEmpty
+        {
+            let signature = req.headers.first(name: "X-RevenueCat-Signature")?
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                ?? req.headers.first(name: "X-Signature")?
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+
+            guard let signature, !signature.isEmpty else {
+                throw Abort(.unauthorized, reason: "Missing signature header for HMAC validation.")
+            }
+
+            let key = SymmetricKey(data: Data(hmacSecret.utf8))
+            let computedHMAC = HMAC<SHA256>.authenticationCode(for: Data(rawPayload.utf8), using: key)
+            let computedBase64 = Data(computedHMAC).base64EncodedString()
+
+            guard RevenueCatWebhookController.constantTimeEquals(signature, computedBase64) else {
+                throw Abort(.unauthorized, reason: "Invalid webhook signature.")
+            }
+            return
+        }
+
+        // 2. Fallback to legacy Authorization header
         let configured = Environment.get("REVENUECAT_WEBHOOK_SECRET")?
             .trimmingCharacters(in: .whitespacesAndNewlines)
         guard let configured, !configured.isEmpty else {
-            throw Abort(.serviceUnavailable, reason: "REVENUECAT_WEBHOOK_SECRET is not configured.")
+            throw Abort(.serviceUnavailable, reason: "Neither REVENUECAT_HMAC_SECRET nor REVENUECAT_WEBHOOK_SECRET is configured.")
         }
         let provided = req.headers.first(name: .authorization)?
             .trimmingCharacters(in: .whitespacesAndNewlines)

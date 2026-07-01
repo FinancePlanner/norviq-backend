@@ -222,13 +222,18 @@ public func configure(_ app: Application) async throws {
 /// boot so the misconfiguration surfaces at deploy time instead of as lost revenue; elsewhere we
 /// log a loud warning.
 func validateBillingSecrets(_ app: Application) throws {
-    let required = [
-        "REVENUECAT_WEBHOOK_SECRET",
-        "REVENUECAT_API_KEY",
-    ]
-    let missing = required.filter { name in
-        (Environment.get(name)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "").isEmpty
+    let apiKey = (Environment.get("REVENUECAT_API_KEY")?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "")
+    let webhookSecret = (Environment.get("REVENUECAT_WEBHOOK_SECRET")?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "")
+    let hmacSecret = (Environment.get("REVENUECAT_HMAC_SECRET")?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "")
+
+    var missing: [String] = []
+    if apiKey.isEmpty {
+        missing.append("REVENUECAT_API_KEY")
     }
+    if webhookSecret.isEmpty, hmacSecret.isEmpty {
+        missing.append("REVENUECAT_WEBHOOK_SECRET or REVENUECAT_HMAC_SECRET")
+    }
+
     guard !missing.isEmpty else { return }
 
     let list = missing.joined(separator: ", ")
