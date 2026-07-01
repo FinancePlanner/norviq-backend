@@ -23,6 +23,9 @@ protocol MarketDataService: Sendable {
     func cashFlowStatement(symbol: String, limit: Int?, period: String?, on req: Request)
         async throws
         -> [CashFlowStatementResponse]
+    func incomeStatement(symbol: String, limit: Int?, period: String?, on req: Request)
+        async throws
+        -> [IncomeStatementResponse]
     func balanceSheetStatement(symbol: String, limit: Int?, period: String?, on req: Request)
         async throws
         -> [BalanceSheetStatementResponse]
@@ -1151,6 +1154,35 @@ struct DefaultMarketDataService: MarketDataService {
             )
         } catch {
             throw mapFMPProviderError(error, operation: "cash-flow-statement")
+        }
+    }
+
+    func incomeStatement(
+        symbol rawSymbol: String,
+        limit: Int?,
+        period rawPeriod: String?,
+        on req: Request
+    ) async throws -> [IncomeStatementResponse] {
+        let symbol = try normalizeSymbol(rawSymbol)
+        let period = normalizeOptionalText(rawPeriod)
+        let limit = try normalizeFMPResultLimit(limit)
+
+        if let limit, limit <= 0 {
+            throw Abort(.badRequest, reason: "`limit` must be greater than 0.")
+        }
+
+        try validateFMPSymbolAccess(symbol: symbol, operation: "income-statement")
+        let fmpProvider = try requireFMPProvider()
+
+        do {
+            return try await fmpProvider.incomeStatement(
+                symbol: symbol,
+                limit: limit,
+                period: period,
+                on: req
+            )
+        } catch {
+            throw mapFMPProviderError(error, operation: "income-statement")
         }
     }
 

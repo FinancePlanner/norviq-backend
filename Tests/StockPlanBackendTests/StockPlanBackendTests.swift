@@ -1172,6 +1172,59 @@ struct StockPlanBackendTests {
         }
     }
 
+    @Test("Income statement endpoint forwards limit and period to FMP")
+    func incomeStatementEndpoint() async throws {
+        try await withApp { app in
+            let state = TestMarketProviderState()
+            let fmpState = TestFMPProviderState()
+            app.marketDataService = makeTestMarketService(state: state, fmpState: fmpState)
+            let (token, userId) = try await registerTestUser(app: app, identifier: "incomestatement")
+            try await grantPremium(userId: userId, on: app)
+
+            try await app.testing().test(.GET, "v1/market/income-statement/AAPL?limit=5&period=FY", beforeRequest: { req in
+                req.headers.bearerAuthorization = .init(token: token)
+            }, afterResponse: { res async throws in
+                #expect(res.status == .ok)
+                let body = try res.content.decode([IncomeStatementResponse].self)
+                #expect(body.count == 1)
+                #expect(body.first?.symbol == "AAPL")
+                #expect(body.first?.period == "FY")
+                #expect(body.first?.revenue == 391_035_000_000)
+                #expect(body.first?.grossProfit == 180_683_000_000)
+                #expect(body.first?.operatingIncome == 123_216_000_000)
+                #expect(body.first?.netIncome == 93_736_000_000)
+                #expect(body.first?.eps == 6.11)
+            })
+
+            let lastRequest = await fmpState.lastIncomeStatementRequest()
+            #expect(lastRequest?.symbol == "AAPL")
+            #expect(lastRequest?.limit == 5)
+            #expect(lastRequest?.period == "FY")
+        }
+    }
+
+    @Test("Income statement endpoint clamps free-tier limit to plan-safe maximum")
+    func incomeStatementEndpointClampsFreeTierLimit() async throws {
+        try await withApp { app in
+            let state = TestMarketProviderState()
+            let fmpState = TestFMPProviderState()
+            app.marketDataService = makeTestMarketService(state: state, fmpState: fmpState, fmpAccessTier: .free)
+            let (token, userId) = try await registerTestUser(app: app, identifier: "incomestatementclamp")
+            try await grantPremium(userId: userId, on: app)
+
+            try await app.testing().test(.GET, "v1/market/income-statement/META?limit=10&period=FY", beforeRequest: { req in
+                req.headers.bearerAuthorization = .init(token: token)
+            }, afterResponse: { res async throws in
+                #expect(res.status == .ok)
+            })
+
+            let lastRequest = await fmpState.lastIncomeStatementRequest()
+            #expect(lastRequest?.symbol == "META")
+            #expect(lastRequest?.limit == 5)
+            #expect(lastRequest?.period == "FY")
+        }
+    }
+
     @Test("Cash flow statement endpoint clamps free-tier limit to plan-safe maximum")
     func cashFlowStatementEndpointClampsFreeTierLimit() async throws {
         try await withApp { app in
@@ -3644,6 +3697,7 @@ struct StockPlanBackendTests {
     actor TestFMPProviderState {
         private var balanceSheetRequests: [FinancialGrowthRequestCapture] = []
         private var cashFlowRequests: [FinancialGrowthRequestCapture] = []
+        private var incomeStatementRequests: [FinancialGrowthRequestCapture] = []
         private var ratiosTTMCallCount: Int = 0
         private var gradesConsensusCallCount: Int = 0
         private var financialGrowthRequests: [FinancialGrowthRequestCapture] = []
@@ -3705,6 +3759,10 @@ struct StockPlanBackendTests {
             cashFlowRequests.append(.init(symbol: symbol, limit: limit, period: period))
         }
 
+        func recordIncomeStatement(symbol: String, limit: Int?, period: String?) {
+            incomeStatementRequests.append(.init(symbol: symbol, limit: limit, period: period))
+        }
+
         func recordSectorPerformance(sector: String, exchange: String?, from: String?, to: String?) {
             sectorPerformanceRequests.append(.init(sector: sector, exchange: exchange, from: from, to: to))
         }
@@ -3735,6 +3793,10 @@ struct StockPlanBackendTests {
 
         func lastCashFlowRequest() -> FinancialGrowthRequestCapture? {
             cashFlowRequests.last
+        }
+
+        func lastIncomeStatementRequest() -> FinancialGrowthRequestCapture? {
+            incomeStatementRequests.last
         }
 
         func earningsCalls() -> Int {
@@ -3934,6 +3996,58 @@ struct StockPlanBackendTests {
                     freeCashFlow: 108_807_000_000,
                     incomeTaxesPaid: 26_102_000_000,
                     interestPaid: 0
+                ),
+            ]
+        }
+
+        func incomeStatement(
+            symbol: String,
+            limit: Int?,
+            period: String?,
+            on _: Request
+        ) async throws -> [IncomeStatementResponse] {
+            await state.recordIncomeStatement(symbol: symbol, limit: limit, period: period)
+            return [
+                IncomeStatementResponse(
+                    date: "2024-09-28",
+                    symbol: symbol,
+                    reportedCurrency: "USD",
+                    cik: "0000320193",
+                    filingDate: "2024-11-01",
+                    acceptedDate: "2024-11-01 06:01:36",
+                    fiscalYear: "2024",
+                    period: period ?? "FY",
+                    revenue: 391_035_000_000,
+                    costOfRevenue: 210_352_000_000,
+                    grossProfit: 180_683_000_000,
+                    researchAndDevelopmentExpenses: 31_370_000_000,
+                    generalAndAdministrativeExpenses: nil,
+                    sellingAndMarketingExpenses: nil,
+                    sellingGeneralAndAdministrativeExpenses: 26_097_000_000,
+                    otherExpenses: nil,
+                    operatingExpenses: 57_467_000_000,
+                    costAndExpenses: 267_819_000_000,
+                    netInterestIncome: nil,
+                    interestIncome: nil,
+                    interestExpense: nil,
+                    depreciationAndAmortization: 11_445_000_000,
+                    ebitda: 134_661_000_000,
+                    ebit: 123_216_000_000,
+                    nonOperatingIncomeExcludingInterest: nil,
+                    operatingIncome: 123_216_000_000,
+                    totalOtherIncomeExpensesNet: 269_000_000,
+                    incomeBeforeTax: 123_485_000_000,
+                    incomeTaxExpense: 29_749_000_000,
+                    netIncomeFromContinuingOperations: 93_736_000_000,
+                    netIncomeFromDiscontinuedOperations: nil,
+                    otherAdjustmentsToNetIncome: nil,
+                    netIncome: 93_736_000_000,
+                    netIncomeDeductions: nil,
+                    bottomLineNetIncome: 93_736_000_000,
+                    eps: 6.11,
+                    epsDiluted: 6.08,
+                    weightedAverageShsOut: 15_343_783_000,
+                    weightedAverageShsOutDil: 15_408_095_000
                 ),
             ]
         }
@@ -4454,6 +4568,15 @@ struct StockPlanBackendTests {
             period _: String?,
             on _: Request
         ) async throws -> [CashFlowStatementResponse] {
+            []
+        }
+
+        func incomeStatement(
+            symbol _: String,
+            limit _: Int?,
+            period _: String?,
+            on _: Request
+        ) async throws -> [IncomeStatementResponse] {
             []
         }
 

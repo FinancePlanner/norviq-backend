@@ -1,3 +1,6 @@
+import Crypto
+import Fluent
+import FluentPostgresDriver
 import Foundation
 @testable import StockPlanBackend
 import Testing
@@ -31,11 +34,12 @@ struct BillingWebhookSecurityTests {
     // MARK: startup secret validation
 
     @Test
-    func productionBootFailsWhenWebhookSecretMissing() async throws {
+    func productionBootFailsWhenWebhookSecretAndHMACSecretBothMissing() async throws {
         try await DatabaseTestLock.withLock {
             let app = try await Application.make(.production)
             // Unset AFTER make: Application bootstrap loads .env files into the process env.
             unsetenv("REVENUECAT_WEBHOOK_SECRET")
+            unsetenv("REVENUECAT_HMAC_SECRET")
             unsetenv("REVENUECAT_API_KEY")
             #expect(throws: (any Error).self) {
                 try validateBillingSecrets(app)
@@ -45,9 +49,10 @@ struct BillingWebhookSecurityTests {
     }
 
     @Test
-    func productionBootSucceedsWhenSecretsPresent() async throws {
+    func productionBootSucceedsWhenWebhookSecretPresent() async throws {
         try await DatabaseTestLock.withLock {
             setenv("REVENUECAT_WEBHOOK_SECRET", "present", 1)
+            unsetenv("REVENUECAT_HMAC_SECRET")
             setenv("REVENUECAT_API_KEY", "present", 1)
             let app = try await Application.make(.production)
             do {
@@ -63,11 +68,31 @@ struct BillingWebhookSecurityTests {
     }
 
     @Test
+    func productionBootSucceedsWhenHMACSecretPresent() async throws {
+        try await DatabaseTestLock.withLock {
+            unsetenv("REVENUECAT_WEBHOOK_SECRET")
+            setenv("REVENUECAT_HMAC_SECRET", "present_hmac", 1)
+            setenv("REVENUECAT_API_KEY", "present", 1)
+            let app = try await Application.make(.production)
+            do {
+                try validateBillingSecrets(app)
+            } catch {
+                try await app.asyncShutdown()
+                throw error
+            }
+            try await app.asyncShutdown()
+            unsetenv("REVENUECAT_HMAC_SECRET")
+            unsetenv("REVENUECAT_API_KEY")
+        }
+    }
+
+    @Test
     func developmentBootDoesNotThrowWhenSecretsMissing() async throws {
         try await DatabaseTestLock.withLock {
             let app = try await Application.make(.development)
             // Unset AFTER make: Application bootstrap loads .env files into the process env.
             unsetenv("REVENUECAT_WEBHOOK_SECRET")
+            unsetenv("REVENUECAT_HMAC_SECRET")
             unsetenv("REVENUECAT_API_KEY")
             do {
                 try validateBillingSecrets(app)
@@ -78,4 +103,169 @@ struct BillingWebhookSecurityTests {
             try await app.asyncShutdown()
         }
     }
+
+    // MARK: Webhook HMAC signature validation
+
+    @Test
+    func webhookHMACValidationSucceedsWithValidSignature() async throws {
+        try await DatabaseTestLock.withLock {
+            let hmacSecret = "test-hmac-secret-12345"
+            setenv("REVENUECAT_HMAC_SECRET", hmacSecret, 1)
+            setenv("REVENUECAT_API_KEY", "present", 1)
+            let app = try await Application.make(.testing)
+            app.databases.use(
+                .postgres(configuration: .init(
+                    hostname: "localhost",
+                    port: 5432,
+                    username: "dummy",
+                    password: "dummy",
+                    database: "dummy"
+                )),
+                as: .psql
+            )
+            app.billingService = MockBillingService()
+            try app.register(collection: RevenueCatWebhookController())
+
+            let payload = "{\"event\": {\"id\": \"test_event\", \"type\": \"INITIAL_PURCHASE\", \"app_user_id\": \"test_user\", \"product_id\": \"pro_annual\"}}"
+            let key = SymmetricKey(data: Data(hmacSecret.utf8))
+            let computedHMAC = HMAC<SHA256>.authenticationCode(for: Data(payload.utf8), using: key)
+            let signature = Data(computedHMAC).base64EncodedString()
+
+            var status: HTTPStatus = .internalServerError
+            try await app.testing().test(.POST, "webhooks/revenuecat", beforeRequest: { req in
+                req.headers.contentType = .json
+                req.headers.replaceOrAdd(name: "X-RevenueCat-Signature", value: signature)
+                req.body = .init(string: payload)
+            }, afterResponse: { res async throws in
+                status = res.status
+            })
+
+            #expect(status == .ok)
+
+            try await app.asyncShutdown()
+            unsetenv("REVENUECAT_HMAC_SECRET")
+            unsetenv("REVENUECAT_API_KEY")
+        }
+    }
+
+    @Test
+    func webhookHMACValidationFailsWithInvalidSignature() async throws {
+        try await DatabaseTestLock.withLock {
+            let hmacSecret = "test-hmac-secret-12345"
+            setenv("REVENUECAT_HMAC_SECRET", hmacSecret, 1)
+            setenv("REVENUECAT_API_KEY", "present", 1)
+            let app = try await Application.make(.testing)
+            app.databases.use(
+                .postgres(configuration: .init(
+                    hostname: "localhost",
+                    port: 5432,
+                    username: "dummy",
+                    password: "dummy",
+                    database: "dummy"
+                )),
+                as: .psql
+            )
+            app.billingService = MockBillingService()
+            try app.register(collection: RevenueCatWebhookController())
+
+            let payload = "{\"event\": {\"id\": \"test_event\"}}"
+
+            var status: HTTPStatus = .internalServerError
+            try await app.testing().test(.POST, "webhooks/revenuecat", beforeRequest: { req in
+                req.headers.contentType = .json
+                req.headers.replaceOrAdd(name: "X-RevenueCat-Signature", value: "invalid-signature")
+                req.body = .init(string: payload)
+            }, afterResponse: { res async throws in
+                status = res.status
+            })
+
+            #expect(status == .unauthorized)
+
+            try await app.asyncShutdown()
+            unsetenv("REVENUECAT_HMAC_SECRET")
+            unsetenv("REVENUECAT_API_KEY")
+        }
+    }
+
+    @Test
+    func webhookHMACValidationFailsWithMissingSignature() async throws {
+        try await DatabaseTestLock.withLock {
+            let hmacSecret = "test-hmac-secret-12345"
+            setenv("REVENUECAT_HMAC_SECRET", hmacSecret, 1)
+            setenv("REVENUECAT_API_KEY", "present", 1)
+            let app = try await Application.make(.testing)
+            app.databases.use(
+                .postgres(configuration: .init(
+                    hostname: "localhost",
+                    port: 5432,
+                    username: "dummy",
+                    password: "dummy",
+                    database: "dummy"
+                )),
+                as: .psql
+            )
+            app.billingService = MockBillingService()
+            try app.register(collection: RevenueCatWebhookController())
+
+            let payload = "{\"event\": {\"id\": \"test_event\"}}"
+
+            var status: HTTPStatus = .internalServerError
+            try await app.testing().test(.POST, "webhooks/revenuecat", beforeRequest: { req in
+                req.headers.contentType = .json
+                req.body = .init(string: payload)
+            }, afterResponse: { res async throws in
+                status = res.status
+            })
+
+            #expect(status == .unauthorized)
+
+            try await app.asyncShutdown()
+            unsetenv("REVENUECAT_HMAC_SECRET")
+            unsetenv("REVENUECAT_API_KEY")
+        }
+    }
+
+    @Test
+    func webhookFallbackToLegacyAuthSucceeds() async throws {
+        try await DatabaseTestLock.withLock {
+            let webhookSecret = "test-webhook-secret-12345"
+            unsetenv("REVENUECAT_HMAC_SECRET")
+            setenv("REVENUECAT_WEBHOOK_SECRET", webhookSecret, 1)
+            setenv("REVENUECAT_API_KEY", "present", 1)
+            let app = try await Application.make(.testing)
+            app.databases.use(
+                .postgres(configuration: .init(
+                    hostname: "localhost",
+                    port: 5432,
+                    username: "dummy",
+                    password: "dummy",
+                    database: "dummy"
+                )),
+                as: .psql
+            )
+            app.billingService = MockBillingService()
+            try app.register(collection: RevenueCatWebhookController())
+
+            let payload = "{\"event\": {\"id\": \"test_event\", \"type\": \"INITIAL_PURCHASE\", \"app_user_id\": \"test_user\", \"product_id\": \"pro_annual\"}}"
+
+            var status: HTTPStatus = .internalServerError
+            try await app.testing().test(.POST, "webhooks/revenuecat", beforeRequest: { req in
+                req.headers.contentType = .json
+                req.headers.replaceOrAdd(name: .authorization, value: webhookSecret)
+                req.body = .init(string: payload)
+            }, afterResponse: { res async throws in
+                status = res.status
+            })
+
+            #expect(status == .ok)
+
+            try await app.asyncShutdown()
+            unsetenv("REVENUECAT_WEBHOOK_SECRET")
+            unsetenv("REVENUECAT_API_KEY")
+        }
+    }
+}
+
+private struct MockBillingService: BillingService {
+    func process(event _: RevenueCatWebhookEvent, rawPayload _: String, on _: any Database) async throws {}
 }

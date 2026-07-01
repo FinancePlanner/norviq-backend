@@ -2111,6 +2111,52 @@ paths:
           description: Bad Gateway for FMP provider
         '503':
           description: FMP provider unavailable or misconfigured
+  /v1/market/income-statement/{symbol}:
+    parameters:
+      - name: symbol
+        in: path
+        required: true
+        schema:
+          type: string
+    get:
+      operationId: getIncomeStatement
+      tags: [MarketData]
+      summary: Get income statements for a symbol
+      description: Returns FMP-backed income statements for a symbol using the backend's configured `FMP_API_KEY`. Supports optional `limit` and `period` filters. When `FMP_SYMBOL_ACCESS_TIER=free`, symbols outside FMP's free-tier coverage return `402 Payment Required`.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            format: int32
+        - name: period
+          in: query
+          required: false
+          description: Optional FMP period such as `Q1`, `Q2`, `Q3`, `Q4`, `FY`, `annual`, or `quarter`.
+          schema:
+            type: string
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/IncomeStatementResponse'
+        '401':
+          description: Unauthorized
+        '402':
+          description: Premium or paid FMP plan required for this symbol
+        '404':
+          description: Not Found or provider missing data
+        '502':
+          description: Bad Gateway for FMP provider
+        '503':
+          description: FMP provider unavailable or misconfigured
   /v1/market/balance-sheet-statement/{symbol}:
     parameters:
       - name: symbol
@@ -3998,6 +4044,30 @@ paths:
         '502':
           description: RevenueCat lookup failed
 
+  /v1/billing/management-url:
+    post:
+      operationId: createBillingManagementURL
+      tags: [Billing]
+      summary: Create a subscription management URL
+      description: Returns a provider-specific URL for the authenticated user to manage or cancel their current subscription. Web Billing subscriptions return a secure RevenueCat customer portal URL when configured.
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BillingManagementURLResponse'
+        '401':
+          description: Unauthorized
+        '404':
+          description: No manageable subscription was found
+        '502':
+          description: RevenueCat lookup failed
+        '503':
+          description: Billing management is not configured
+
   /v1/billing/coupon/redeem:
     post:
       operationId: redeemBillingCoupon
@@ -5422,6 +5492,19 @@ components:
         code:
           type: string
       required: [code]
+    BillingManagementURLResponse:
+      type: object
+      properties:
+        managementUrl:
+          type: string
+          format: uri
+        provider:
+          type: string
+          example: rc_billing
+        source:
+          type: string
+          example: revenuecat_customer_portal
+      required: [managementUrl, provider, source]
     CouponDiscountDTO:
       type: object
       properties:
@@ -7760,6 +7843,49 @@ components:
         totalInvestments: { type: number, format: double }
         totalDebt: { type: number, format: double }
         netDebt: { type: number, format: double }
+      required: [date, symbol]
+    IncomeStatementResponse:
+      type: object
+      properties:
+        date: { type: string, format: date }
+        symbol: { type: string }
+        reportedCurrency: { type: string }
+        cik: { type: string }
+        filingDate: { type: string, format: date }
+        acceptedDate: { type: string }
+        fiscalYear: { type: string }
+        period: { type: string }
+        revenue: { type: number, format: double }
+        costOfRevenue: { type: number, format: double }
+        grossProfit: { type: number, format: double }
+        researchAndDevelopmentExpenses: { type: number, format: double }
+        generalAndAdministrativeExpenses: { type: number, format: double }
+        sellingAndMarketingExpenses: { type: number, format: double }
+        sellingGeneralAndAdministrativeExpenses: { type: number, format: double }
+        otherExpenses: { type: number, format: double }
+        operatingExpenses: { type: number, format: double }
+        costAndExpenses: { type: number, format: double }
+        netInterestIncome: { type: number, format: double }
+        interestIncome: { type: number, format: double }
+        interestExpense: { type: number, format: double }
+        depreciationAndAmortization: { type: number, format: double }
+        ebitda: { type: number, format: double }
+        ebit: { type: number, format: double }
+        nonOperatingIncomeExcludingInterest: { type: number, format: double }
+        operatingIncome: { type: number, format: double }
+        totalOtherIncomeExpensesNet: { type: number, format: double }
+        incomeBeforeTax: { type: number, format: double }
+        incomeTaxExpense: { type: number, format: double }
+        netIncomeFromContinuingOperations: { type: number, format: double }
+        netIncomeFromDiscontinuedOperations: { type: number, format: double }
+        otherAdjustmentsToNetIncome: { type: number, format: double }
+        netIncome: { type: number, format: double }
+        netIncomeDeductions: { type: number, format: double }
+        bottomLineNetIncome: { type: number, format: double }
+        eps: { type: number, format: double }
+        epsDiluted: { type: number, format: double }
+        weightedAverageShsOut: { type: number, format: double }
+        weightedAverageShsOutDil: { type: number, format: double }
       required: [date, symbol]
     CashFlowStatementResponse:
       type: object
