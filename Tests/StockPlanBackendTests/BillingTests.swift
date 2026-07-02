@@ -1230,6 +1230,35 @@ struct BillingTests {
         }
     }
 
+    @Test("Empty RevenueCat restore clears entitlement without creating unknown subscription")
+    func emptyRevenueCatRestoreDoesNotCreateUnknownSubscription() async throws {
+        try await withApp { app in
+            let auth = try await registerUser(on: app, identifier: "empty-restore")
+            try await grantPremium(userId: auth.userId, on: app)
+
+            let subscriber = BillingController.RevenueCatSubscriber(
+                entitlements: [:],
+                subscriptions: [:]
+            )
+            try await BillingController().syncRevenueCatSubscriber(
+                subscriber,
+                userId: auth.userId,
+                on: app.db
+            )
+
+            let subscriptions = try await Subscription.query(on: app.db)
+                .filter(\.$userId == auth.userId)
+                .all()
+            let entitlement = try #require(try await Entitlement.query(on: app.db)
+                .filter(\.$userId == auth.userId)
+                .first())
+
+            #expect(subscriptions.isEmpty)
+            #expect(entitlement.level == "free")
+            #expect(entitlement.subscriptionId == nil)
+        }
+    }
+
     // MARK: - Crypto entitlement tests
 
     @Test("Free users are blocked from every Crypto endpoint")
