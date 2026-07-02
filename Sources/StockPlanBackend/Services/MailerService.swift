@@ -5,6 +5,22 @@ struct MailMessage {
     let to: String
     let subject: String
     let body: String
+    let purpose: String?
+    let challengeId: UUID?
+
+    init(
+        to: String,
+        subject: String,
+        body: String,
+        purpose: String? = nil,
+        challengeId: UUID? = nil
+    ) {
+        self.to = to
+        self.subject = subject
+        self.body = body
+        self.purpose = purpose
+        self.challengeId = challengeId
+    }
 }
 
 protocol MailerService: Sendable {
@@ -13,7 +29,9 @@ protocol MailerService: Sendable {
 
 struct ConsoleMailerService: MailerService {
     func send(_ message: MailMessage, on req: Request) async throws {
-        req.logger.info("[mailer] recipient=\(redactedEmail(message.to)) subject=\(message.subject)")
+        req.logger.info(
+            "[mailer] recipient=\(redactedEmail(message.to)) purpose=\(message.purpose ?? "general") challenge_id=\(message.challengeId?.uuidString ?? "none")"
+        )
     }
 }
 
@@ -49,10 +67,15 @@ struct ResendMailerService: MailerService {
 
         guard (200 ..< 300).contains(response.status.code) else {
             req.logger.error(
-                "resend.mail failed status=\(response.status.code) recipient=\(redactedEmail(message.to))"
+                "resend.mail failed status=\(response.status.code) recipient=\(redactedEmail(message.to)) purpose=\(message.purpose ?? "general") challenge_id=\(message.challengeId?.uuidString ?? "none")"
             )
             throw Abort(.serviceUnavailable, reason: "Unable to send email right now.")
         }
+
+        let responseID = (try? response.content.decode(ResendEmailResponse.self).id) ?? "unknown"
+        req.logger.info(
+            "resend.mail sent id=\(responseID) recipient=\(redactedEmail(message.to)) purpose=\(message.purpose ?? "general") challenge_id=\(message.challengeId?.uuidString ?? "none")"
+        )
     }
 }
 
@@ -68,6 +91,10 @@ private struct ResendEmailPayload: Content {
     let to: [String]
     let subject: String
     let text: String
+}
+
+private struct ResendEmailResponse: Decodable {
+    let id: String?
 }
 
 extension Application {

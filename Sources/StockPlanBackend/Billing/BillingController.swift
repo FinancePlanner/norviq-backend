@@ -45,7 +45,9 @@ struct BillingController: RouteCollection {
             apiKey: apiKey,
             req: req
         )
+        req.logger.info("billing.management_url subscriptions_found=\(subscriptions.count) user_id=\(session.userId.uuidString)")
         guard let subscription = preferredManagementSubscription(from: subscriptions) else {
+            req.logger.warning("billing.management_url no_manageable_subscription user_id=\(session.userId.uuidString)")
             throw Abort(.notFound, reason: "No manageable subscription was found.")
         }
 
@@ -57,6 +59,7 @@ struct BillingController: RouteCollection {
                req: req
            )
         {
+            req.logger.info("billing.management_url source=revenuecat_customer_portal subscription_id=\(subscription.id) store=\(subscription.store ?? "unknown") user_id=\(session.userId.uuidString)")
             return BillingManagementURLResponse(
                 managementUrl: url,
                 provider: subscription.store ?? "revenuecat",
@@ -65,6 +68,7 @@ struct BillingController: RouteCollection {
         }
 
         if let url = subscription.managementURL, !url.isEmpty {
+            req.logger.info("billing.management_url source=revenuecat_management_url subscription_id=\(subscription.id) store=\(subscription.store ?? "unknown") user_id=\(session.userId.uuidString)")
             return BillingManagementURLResponse(
                 managementUrl: url,
                 provider: subscription.store ?? "revenuecat",
@@ -73,6 +77,7 @@ struct BillingController: RouteCollection {
         }
 
         if subscription.store?.lowercased() == "app_store" {
+            req.logger.info("billing.management_url source=apple_subscriptions subscription_id=\(subscription.id) store=app_store user_id=\(session.userId.uuidString)")
             return BillingManagementURLResponse(
                 managementUrl: "https://apps.apple.com/account/subscriptions",
                 provider: "app_store",
@@ -80,6 +85,7 @@ struct BillingController: RouteCollection {
             )
         }
 
+        req.logger.warning("billing.management_url no_management_url subscription_id=\(subscription.id) store=\(subscription.store ?? "unknown") user_id=\(session.userId.uuidString)")
         throw Abort(.notFound, reason: "No subscription management URL is available.")
     }
 
@@ -100,7 +106,7 @@ struct BillingController: RouteCollection {
     }
 }
 
-private extension BillingController {
+extension BillingController {
     struct RevenueCatV2SubscriptionListResponse: Decodable {
         let items: [RevenueCatV2Subscription]
     }
@@ -332,6 +338,17 @@ private extension BillingController {
         userId: UUID,
         on db: any Database
     ) async throws {
+        guard !subscriber.entitlements.isEmpty || !subscriber.subscriptions.isEmpty else {
+            let entitlement = try await Entitlement.query(on: db)
+                .filter(\.$userId == userId)
+                .first()
+                ?? Entitlement(userId: userId, level: "free", subscriptionId: nil)
+            entitlement.level = "free"
+            entitlement.subscriptionId = nil
+            try await entitlement.save(on: db)
+            return
+        }
+
         let proEntitlement = subscriber.entitlements["pro"]
         let productId = proEntitlement?.productIdentifier
             ?? subscriber.subscriptions.keys.sorted(by: preferredProductSort).first
