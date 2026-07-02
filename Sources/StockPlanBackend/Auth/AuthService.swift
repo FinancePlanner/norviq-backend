@@ -737,6 +737,7 @@ struct DefaultAuthService: AuthService {
         try await sendMFACodeEmail(
             to: challenge.destination,
             code: newCode,
+            challengeId: challengeId,
             purpose: AuthMFAPurpose(rawValue: challenge.purpose) ?? .login,
             on: req
         )
@@ -834,7 +835,13 @@ struct DefaultAuthService: AuthService {
         )
 
         if !TestFlightBypass.applies(to: destination, on: req.application) {
-            try await sendMFACodeEmail(to: destination, code: code, purpose: purpose, on: req)
+            try await sendMFACodeEmail(
+                to: destination,
+                code: code,
+                challengeId: challenge.id,
+                purpose: purpose,
+                on: req
+            )
         }
         return try makeMFAChallengeResponse(from: challenge, now: now)
     }
@@ -868,13 +875,21 @@ struct DefaultAuthService: AuthService {
     private func sendMFACodeEmail(
         to destination: String,
         code: String,
+        challengeId: UUID?,
         purpose: AuthMFAPurpose,
         on req: Request
     ) async throws {
-        let subject = "Your StockPlan verification code"
+        let subject = "Your Norviq code is \(code)"
         let context = purpose == .oauth ? "finish sign in with your provider" : "finish signing in"
-        let body = "Use this code to \(context): \(code). This code expires in \(mfaConfig.codeTTLSeconds / 60) minutes."
-        let message = MailMessage(to: destination, subject: subject, body: body)
+        let requestedAt = ISO8601DateFormatter().string(from: Date())
+        let body = "Use this code to \(context): \(code). This code expires in \(mfaConfig.codeTTLSeconds / 60) minutes. Requested at \(requestedAt)."
+        let message = MailMessage(
+            to: destination,
+            subject: subject,
+            body: body,
+            purpose: "mfa_\(purpose.rawValue)",
+            challengeId: challengeId
+        )
         try await req.application.mailer.send(message, on: req)
     }
 

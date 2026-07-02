@@ -1,6 +1,7 @@
 import Crypto
 import Fluent
 import Foundation
+import Logging
 @testable import StockPlanBackend
 import Testing
 import VaporTesting
@@ -400,6 +401,8 @@ struct AuthTests {
         defer { unsetenv("AUTH_MFA_ENABLED") }
 
         try await withApp { app in
+            let mailer = RecordingMailerService()
+            app.mailer = mailer
             let registerReq = makeRegisterRequest(email: "mfa-login@example.com", password: "Password123!")
             try await app.testing().test(.POST, "v1/auth/register", beforeRequest: { req in
                 try req.content.encode(registerReq)
@@ -418,6 +421,73 @@ struct AuthTests {
                 #expect(outcome.mfa != nil)
                 #expect(outcome.auth == nil)
             })
+        }
+    }
+
+    @Test("MFA email subject includes the generated verification code")
+    func mfaEmailSubjectIncludesGeneratedCode() async throws {
+        setenv("AUTH_MFA_ENABLED", "true", 1)
+        defer { unsetenv("AUTH_MFA_ENABLED") }
+
+        try await withApp { app in
+            let mailer = RecordingMailerService()
+            app.mailer = mailer
+            let registerReq = makeRegisterRequest(email: "mfa-subject@example.com", password: "Password123!")
+            try await app.testing().test(.POST, "v1/auth/register", beforeRequest: { req in
+                try req.content.encode(registerReq)
+            }, afterResponse: { res async in
+                #expect(res.status == .ok)
+            })
+
+            let loginReq = AuthLoginRequest(email: "mfa-subject@example.com", password: "Password123!")
+            try await app.testing().test(.POST, "v1/auth/login", beforeRequest: { req in
+                req.headers.replaceOrAdd(name: "X-StockPlan-Client-Capabilities", value: "mfa-auth-v1")
+                try req.content.encode(loginReq)
+            }, afterResponse: { res async throws in
+                #expect(res.status == .ok)
+                let outcome = try res.content.decode(AuthLoginOutcome.self)
+                #expect(outcome.status == .mfaRequired)
+            })
+
+            let message = try #require(await mailer.messages().first)
+            let regex = try NSRegularExpression(pattern: "\\b[0-9]{6}\\b")
+            let bodyRange = NSRange(message.body.startIndex ..< message.body.endIndex, in: message.body)
+            let match = try #require(regex.firstMatch(in: message.body, range: bodyRange))
+            let codeRange = try #require(Range(match.range, in: message.body))
+            let code = String(message.body[codeRange])
+
+            #expect(message.subject == "Your Norviq code is \(code)")
+        }
+    }
+
+    @Test("Console mailer logs MFA metadata without leaking code")
+    func consoleMailerDoesNotLogVerificationCode() async throws {
+        let app = try await Application.make(.testing)
+        do {
+            let recorder = LogRecorder()
+            let request = makeRequest(app)
+            request.logger = Logger(label: "mailer-test") { _ in CapturingLogHandler(recorder: recorder) }
+
+            try await ConsoleMailerService().send(
+                MailMessage(
+                    to: "person@example.com",
+                    subject: "Your Norviq code is 123456",
+                    body: "Use this code to finish signing in: 123456.",
+                    purpose: "mfa_login",
+                    challengeId: UUID(uuidString: "00000000-0000-0000-0000-000000000001")
+                ),
+                on: request
+            )
+
+            let logs = recorder.messages().joined(separator: "\n")
+            #expect(!logs.contains("123456"))
+            #expect(!logs.contains("Your Norviq code"))
+            #expect(logs.contains("mfa_login"))
+            #expect(logs.contains("00000000-0000-0000-0000-000000000001"))
+            try await app.asyncShutdown()
+        } catch {
+            try? await app.asyncShutdown()
+            throw error
         }
     }
 
@@ -1086,6 +1156,58 @@ struct AuthTests {
             )
             #expect(token == nil)
         }
+    }
+}
+
+private actor RecordingMailerService: MailerService {
+    private var sentMessages: [MailMessage] = []
+
+    func send(_ message: MailMessage, on _: Request) async throws {
+        sentMessages.append(message)
+    }
+
+    func messages() -> [MailMessage] {
+        sentMessages
+    }
+}
+
+private final class LogRecorder: @unchecked Sendable {
+    private let lock = NSLock()
+    private var capturedMessages: [String] = []
+
+    func append(_ message: String) {
+        lock.lock()
+        defer { lock.unlock() }
+        capturedMessages.append(message)
+    }
+
+    func messages() -> [String] {
+        lock.lock()
+        defer { lock.unlock() }
+        return capturedMessages
+    }
+}
+
+private struct CapturingLogHandler: LogHandler {
+    let recorder: LogRecorder
+    var metadata: Logger.Metadata = [:]
+    var metadataProvider: Logger.MetadataProvider?
+    var logLevel: Logger.Level = .trace
+
+    subscript(metadataKey key: String) -> Logger.Metadata.Value? {
+        get { metadata[key] }
+        set { metadata[key] = newValue }
+    }
+
+    func log(event: LogEvent) {
+        let renderedMetadata = (event.metadata ?? [:])
+            .map { "\($0.key)=\($0.value)" }
+            .sorted()
+            .joined(separator: " ")
+        let rendered = renderedMetadata.isEmpty
+            ? "\(event.message)"
+            : "\(event.message) \(renderedMetadata)"
+        recorder.append(rendered)
     }
 }
 
