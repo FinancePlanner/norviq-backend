@@ -1,6 +1,5 @@
 import Fluent
 import Foundation
-import StockPlanShared
 import Vapor
 
 struct CouponCodeRequest: Content {

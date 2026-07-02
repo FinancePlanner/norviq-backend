@@ -1,8 +1,6 @@
 import Fluent
 import Foundation
 @testable import StockPlanBackend
-import struct StockPlanShared.BillingContextResponse
-import struct StockPlanShared.BillingUpgradeRequiredResponse
 import struct StockPlanShared.CryptoPortfolioItemRequest
 import Testing
 import VaporTesting
@@ -69,7 +67,9 @@ struct BillingTests {
         productId: String = "pro_annual",
         expirationAtMs: Int64? = nil,
         gracePeriodMs: Int64? = nil,
-        originalTransactionId: String? = nil
+        originalTransactionId: String? = nil,
+        newProductId: String? = nil,
+        store: String? = nil
     ) -> String {
         var fields = """
         "id": "\(eventId)",
@@ -80,6 +80,8 @@ struct BillingTests {
         if let ms = expirationAtMs { fields += ",\n\"expiration_at_ms\": \(ms)" }
         if let ms = gracePeriodMs { fields += ",\n\"grace_period_expires_date_ms\": \(ms)" }
         if let originalTransactionId { fields += ",\n\"original_transaction_id\": \"\(originalTransactionId)\"" }
+        if let newProductId { fields += ",\n\"new_product_id\": \"\(newProductId)\"" }
+        if let store { fields += ",\n\"store\": \"\(store)\"" }
         return "{\"event\": {\(fields)}}"
     }
 
@@ -401,6 +403,104 @@ struct BillingTests {
 
             let ent = try await Entitlement.query(on: app.db).filter(\.$userId == userId).first()
             #expect(ent?.level == "pro")
+        }
+    }
+
+    @Test("PRODUCT_CHANGE records pending plan and keeps current entitlement")
+    func productChangeRecordsPendingPlan() async throws {
+        try await withApp { app in
+            let auth = try await registerUser(on: app, identifier: "product-change")
+            let userId = auth.userId
+            let transactionId = "change-\(UUID().uuidString)"
+            let futureMs = Int64(Date().addingTimeInterval(2_592_000).timeIntervalSince1970 * 1000)
+
+            let purchasePayload = makePayload(
+                type: "INITIAL_PURCHASE",
+                eventId: UUID().uuidString,
+                appUserId: userId.uuidString,
+                productId: "pro_weekly",
+                expirationAtMs: futureMs,
+                originalTransactionId: transactionId,
+                store: "APP_STORE"
+            )
+            #expect(try await post(purchasePayload, authorization: secret, on: app) == .ok)
+
+            let changePayload = makePayload(
+                type: "PRODUCT_CHANGE",
+                eventId: UUID().uuidString,
+                appUserId: userId.uuidString,
+                productId: "pro_weekly",
+                expirationAtMs: futureMs,
+                originalTransactionId: transactionId,
+                newProductId: "pro_annual",
+                store: "APP_STORE"
+            )
+            #expect(try await post(changePayload, authorization: secret, on: app) == .ok)
+
+            let sub = try #require(try await Subscription.query(on: app.db).filter(\.$userId == userId).first())
+            let ent = try #require(try await Entitlement.query(on: app.db).filter(\.$userId == userId).first())
+            #expect(sub.productId == "pro_weekly")
+            #expect(sub.plan == "pro_weekly")
+            #expect(sub.pendingProductId == "pro_annual")
+            #expect(sub.pendingPlan == "pro_annual")
+            #expect(sub.pendingPlanEffectiveAt != nil)
+            #expect(sub.store == "app_store")
+            #expect(ent.level == "pro")
+        }
+    }
+
+    @Test("RENEWAL to pending product clears pending plan")
+    func renewalToPendingProductClearsPendingPlan() async throws {
+        try await withApp { app in
+            let auth = try await registerUser(on: app, identifier: "product-change-renewal")
+            let userId = auth.userId
+            let transactionId = "change-renew-\(UUID().uuidString)"
+            let futureMs = Int64(Date().addingTimeInterval(2_592_000).timeIntervalSince1970 * 1000)
+
+            #expect(try await post(
+                makePayload(
+                    type: "INITIAL_PURCHASE",
+                    eventId: UUID().uuidString,
+                    appUserId: userId.uuidString,
+                    productId: "pro_weekly",
+                    expirationAtMs: futureMs,
+                    originalTransactionId: transactionId
+                ),
+                authorization: secret,
+                on: app
+            ) == .ok)
+            #expect(try await post(
+                makePayload(
+                    type: "PRODUCT_CHANGE",
+                    eventId: UUID().uuidString,
+                    appUserId: userId.uuidString,
+                    productId: "pro_weekly",
+                    expirationAtMs: futureMs,
+                    originalTransactionId: transactionId,
+                    newProductId: "pro_monthly"
+                ),
+                authorization: secret,
+                on: app
+            ) == .ok)
+            #expect(try await post(
+                makePayload(
+                    type: "RENEWAL",
+                    eventId: UUID().uuidString,
+                    appUserId: userId.uuidString,
+                    productId: "pro_monthly",
+                    expirationAtMs: futureMs,
+                    originalTransactionId: transactionId
+                ),
+                authorization: secret,
+                on: app
+            ) == .ok)
+
+            let sub = try #require(try await Subscription.query(on: app.db).filter(\.$userId == userId).first())
+            #expect(sub.productId == "pro_monthly")
+            #expect(sub.plan == "pro_monthly")
+            #expect(sub.pendingProductId == nil)
+            #expect(sub.pendingPlan == nil)
+            #expect(sub.pendingPlanEffectiveAt == nil)
         }
     }
 
@@ -1002,6 +1102,9 @@ struct BillingTests {
             #expect(body.entitlementLevel == "free")
             #expect(body.isPremium == false)
             #expect(body.subscription == nil)
+            #expect(body.planOptions.count == 3)
+            #expect(body.planOptions.allSatisfy { $0.changeKind == "subscribe" })
+            #expect(body.planOptions.first { $0.plan == "pro_annual" }?.badge == "Best value")
 
             let holdings = try #require(body.usage.first { $0.key == "holdings" })
             #expect(holdings.used == 1)
@@ -1037,6 +1140,9 @@ struct BillingTests {
             #expect(body.subscription?.status == "active")
             #expect(body.subscription?.plan == "pro_annual")
             #expect(body.subscription?.renewsOrExpiresAt != nil)
+            #expect(body.subscription?.willRenew == true)
+            #expect(body.planOptions.first { $0.plan == "pro_annual" }?.isCurrent == true)
+            #expect(!body.planOptions.contains { $0.changeKind == "upgrade" })
             #expect(!body.features.contains(where: { !$0.available }))
             #expect(body.usage.first { $0.key == "holdings" }?.limit == nil)
         }
@@ -1074,6 +1180,8 @@ struct BillingTests {
             #expect(body.isPremium == true)
             #expect(body.subscription?.status == "cancelled")
             #expect(body.subscription?.isCancelledButActive == true)
+            #expect(body.subscription?.willRenew == false)
+            #expect(body.subscription?.accessEndsAt != nil)
             #expect(body.subscription?.periodEndsAt != nil)
         }
     }

@@ -1,6 +1,5 @@
 import Fluent
 import Foundation
-import StockPlanShared
 import Vapor
 
 struct BillingManagementURLResponse: Content {
@@ -378,6 +377,7 @@ private extension BillingController {
             )
 
         subscription.userId = userId
+        subscription.store = subscriptionInfo?.store?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         subscription.providerCustomerId = userId.uuidString
         subscription.productId = productId
         subscription.plan = plan(for: productId)
@@ -387,6 +387,11 @@ private extension BillingController {
         subscription.trialEndsAt = subscriptionInfo?.periodType?.uppercased() == "TRIAL" ? periodEndsAt : subscription.trialEndsAt
         subscription.gracePeriodEndsAt = graceEndsAt
         subscription.cancelledAt = parseRevenueCatDate(subscriptionInfo?.unsubscribeDetectedAt)
+        if subscription.pendingProductId == productId {
+            subscription.pendingProductId = nil
+            subscription.pendingPlan = nil
+            subscription.pendingPlanEffectiveAt = nil
+        }
         try await subscription.save(on: db)
 
         let entitlement = try await Entitlement.query(on: db)
