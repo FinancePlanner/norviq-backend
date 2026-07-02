@@ -77,7 +77,7 @@ Verified:
 Still needs external config:
 - Backend env: REVENUECAT_API_KEY
 - iOS build setting: REVENUECAT_IOS_API_KEY
-- RevenueCat: entitlement pro, products pro_monthly, pro_annual
+- RevenueCat: entitlement pro_access, products pro_monthly, pro_annual
 - App Store Connect: subscription group + 14-day annual trial.
 
 Pair this guide with the iOS client's `financeplan/Documentation/source-of-truth.md`. The client document explains which features treat the API as authoritative, which data is cached in SwiftData, and which mock paths must stay preview/test-only.
@@ -918,7 +918,7 @@ Three RevenueCat products are expected:
 | `pro_monthly` | Monthly | Flexible billing; no trial |
 | `pro_weekly` | Weekly | Short-term access; no trial |
 
-RevenueCat entitlement ID: `pro`
+RevenueCat entitlement ID: `pro_access`
 
 ### Paywall Feature Gates
 
@@ -1890,4 +1890,3 @@ Coverage: moderate (~17 test files). Focus areas to expand: provider fallback lo
 - `ibkr-integration.md` – IBKR sync flow and deployment notes
 - `persistence-standards.md` – database design principles
 - `pii-encryption.md` – field-level encryption design
-

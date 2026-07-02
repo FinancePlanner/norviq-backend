@@ -67,7 +67,7 @@ These items should be closed or explicitly accepted before public MVP launch.
 - [ ] Verify stock detail projections/comparison/fundamentals tabs are backend-hydrated where marketed, or explicitly position incomplete sections as unavailable/empty for MVP.
 - [ ] Replace placeholder testimonials/trust copy in paywalls and onboarding with real, supportable copy.
 - [ ] Verify TestFlight build routing: TestFlight uses the dev API, App Store builds use the production API, and no debug fixtures appear in release.
-- [ ] Verify RevenueCat iOS API key, App Store subscription products, `pro` entitlement, trial configuration, restore purchases, manage subscription, and cancellation/expiration states.
+- [ ] Verify RevenueCat iOS API key, App Store subscription products, `pro_access` entitlement, trial configuration, restore purchases, manage subscription, and cancellation/expiration states.
 - [ ] Verify paywall legal links, About legal links, privacy welcome screen, and account deletion flow satisfy App Store review requirements.
 - [ ] Verify APNS permissions, device registration, target alert deep links, and earnings notification preferences on a real device or explicitly defer push-dependent claims.
 - [ ] Run manual accessibility QA on real devices for Dynamic Type, VoiceOver, contrast, Reduce Motion, and localized tab labels.
@@ -111,4 +111,3 @@ This checklist reflects the current docs and code references as of 2026-06-30:
 - iOS MVP and monetization docs: `StockPlanIOSApp/financeplan/financeplan/Documentation/mvp-roadmap.md`, `mvp-features-roadmap.md`, `monetization.md`
 - iOS source-of-truth doc: `StockPlanIOSApp/financeplan/financeplan/Documentation/source-of-truth.md`
 - Backlog plans for remaining iOS canonical-data and UI smoke coverage: `.hermes/plans/2026-04-23_180042-mvp-remove-local-fallback-from-expenses-reports.md`, `.hermes/plans/2026-04-23_154826-mvp-ui-smoke-tests-for-expenses-planner-and.md`
-
