@@ -70,7 +70,7 @@
       "location" : "https://github.com/FinancePlanner/FinanceShared.git",
       "state" : {
         "branch" : "main",
-        "revision" : "271a67a9b3961efe5cfe66ce89f33bc33934c94c"
+        "revision" : "97e4333bc852a47247bbc5334aef3d70b410de54"
       }
     },
     {
@@ -564,8 +564,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/vapor/vapor.git",
       "state" : {
-        "revision" : "cfd8f434843ac7850e2d97f46c1aa5ddb906cf1c",
-        "version" : "4.121.4"
+        "revision" : "748ae8432a33e0965bbf0351fedd4e915e7f460c",
+        "version" : "4.122.0"
       }
     },
     {

@@ -1,6 +1,5 @@
 import Fluent
 import Foundation
-import StockPlanShared
 import Vapor
 
 protocol BillingContextService: Sendable {
@@ -71,11 +70,14 @@ struct DefaultBillingContextService: BillingContextService {
             usageByFeature: usageByFeature
         )
 
+        let plan = subscription?.plan ?? entitlement.level
+
         return BillingContextResponse(
-            plan: subscription?.plan ?? entitlement.level,
+            plan: plan,
             entitlementLevel: entitlement.level,
             isPremium: entitlement.isPremium,
             subscription: subscription.map(makeSubscriptionDTO),
+            planOptions: makePlanOptions(currentPlan: plan, isPremium: entitlement.isPremium),
             features: features,
             usage: usageRows,
             trialDaysRemaining: trialDaysRemaining,
@@ -158,6 +160,7 @@ struct DefaultBillingContextService: BillingContextService {
 
         return BillingSubscriptionDTO(
             provider: subscription.provider,
+            store: subscription.store,
             productId: subscription.productId,
             plan: subscription.plan,
             status: subscription.status,
@@ -170,9 +173,80 @@ struct DefaultBillingContextService: BillingContextService {
             isInGracePeriod: isInGracePeriod,
             hasBillingIssue: subscription.status == "billing_issue",
             isCancelledButActive: isCancelledButActive,
-            renewsOrExpiresAt: subscription.periodEndsAt
+            renewsOrExpiresAt: subscription.periodEndsAt,
+            willRenew: willRenew(subscription),
+            accessEndsAt: subscription.periodEndsAt,
+            pendingProductId: subscription.pendingProductId,
+            pendingPlan: subscription.pendingPlan,
+            pendingPlanEffectiveAt: subscription.pendingPlanEffectiveAt
         )
     }
+
+    private func makePlanOptions(currentPlan: String, isPremium: Bool) -> [BillingPlanOptionDTO] {
+        PlanOptionDescriptor.all.map { descriptor in
+            let currentRank = planRank(currentPlan)
+            let isCurrent = descriptor.plan == currentPlan
+            let changeKind = if isCurrent {
+                "current"
+            } else if !isPremium {
+                "subscribe"
+            } else if let currentRank, descriptor.rank > currentRank {
+                "upgrade"
+            } else if let currentRank, descriptor.rank < currentRank {
+                "downgrade"
+            } else {
+                "subscribe"
+            }
+
+            return BillingPlanOptionDTO(
+                productId: descriptor.productId,
+                plan: descriptor.plan,
+                displayName: descriptor.displayName,
+                interval: descriptor.interval,
+                rank: descriptor.rank,
+                badge: descriptor.badge,
+                isCurrent: isCurrent,
+                changeKind: changeKind
+            )
+        }
+    }
+
+    private func planRank(_ plan: String) -> Int? {
+        switch plan {
+        case "pro_weekly":
+            1
+        case "pro_monthly":
+            2
+        case "pro_annual":
+            3
+        default:
+            nil
+        }
+    }
+
+    private func willRenew(_ subscription: Subscription) -> Bool {
+        switch subscription.status {
+        case "active", "trialing", "grace_period":
+            true
+        default:
+            false
+        }
+    }
+}
+
+private struct PlanOptionDescriptor {
+    let productId: String
+    let plan: String
+    let displayName: String
+    let interval: String
+    let rank: Int
+    let badge: String?
+
+    static let all: [PlanOptionDescriptor] = [
+        .init(productId: "pro_weekly", plan: "pro_weekly", displayName: "Weekly", interval: "weekly", rank: 1, badge: nil),
+        .init(productId: "pro_monthly", plan: "pro_monthly", displayName: "Monthly", interval: "monthly", rank: 2, badge: "Better value"),
+        .init(productId: "pro_annual", plan: "pro_annual", displayName: "Annual", interval: "annual", rank: 3, badge: "Best value"),
+    ]
 }
 
 private struct BillingFeatureDescriptor {

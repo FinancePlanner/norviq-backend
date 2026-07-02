@@ -16,6 +16,8 @@ struct RevenueCatWebhookEvent: Content {
     let expirationAtMs: Int64?
     let gracePeriodExpiresDateMs: Int64?
     let cancelReason: String?
+    let expirationReason: String?
+    let newProductId: String?
     let store: String?
     let originalTransactionId: String?
 
@@ -33,9 +35,14 @@ struct RevenueCatWebhookEvent: Content {
         case expirationAtMs = "expiration_at_ms"
         case expirationAtMsCamel = "expirationAtMs"
         case gracePeriodExpiresDateMs = "grace_period_expires_date_ms"
+        case gracePeriodExpirationAtMs = "grace_period_expiration_at_ms"
         case gracePeriodExpiresDateMsCamel = "gracePeriodExpiresDateMs"
         case cancelReason = "cancel_reason"
         case cancelReasonCamel = "cancelReason"
+        case expirationReason = "expiration_reason"
+        case expirationReasonCamel = "expirationReason"
+        case newProductId = "new_product_id"
+        case newProductIdCamel = "newProductId"
         case store
         case originalTransactionId = "original_transaction_id"
         case originalTransactionIdCamel = "originalTransactionId"
@@ -56,9 +63,14 @@ struct RevenueCatWebhookEvent: Content {
         expirationAtMs = try container.decodeIfPresent(Int64.self, forKey: .expirationAtMs)
             ?? container.decodeIfPresent(Int64.self, forKey: .expirationAtMsCamel)
         gracePeriodExpiresDateMs = try container.decodeIfPresent(Int64.self, forKey: .gracePeriodExpiresDateMs)
+            ?? container.decodeIfPresent(Int64.self, forKey: .gracePeriodExpirationAtMs)
             ?? container.decodeIfPresent(Int64.self, forKey: .gracePeriodExpiresDateMsCamel)
         cancelReason = try container.decodeIfPresent(String.self, forKey: .cancelReason)
             ?? container.decodeIfPresent(String.self, forKey: .cancelReasonCamel)
+        expirationReason = try container.decodeIfPresent(String.self, forKey: .expirationReason)
+            ?? container.decodeIfPresent(String.self, forKey: .expirationReasonCamel)
+        newProductId = try container.decodeIfPresent(String.self, forKey: .newProductId)
+            ?? container.decodeIfPresent(String.self, forKey: .newProductIdCamel)
         store = try container.decodeIfPresent(String.self, forKey: .store)
         originalTransactionId = try container.decodeIfPresent(String.self, forKey: .originalTransactionId)
             ?? container.decodeIfPresent(String.self, forKey: .originalTransactionIdCamel)
@@ -75,6 +87,8 @@ struct RevenueCatWebhookEvent: Content {
         try container.encodeIfPresent(expirationAtMs, forKey: .expirationAtMs)
         try container.encodeIfPresent(gracePeriodExpiresDateMs, forKey: .gracePeriodExpiresDateMs)
         try container.encodeIfPresent(cancelReason, forKey: .cancelReason)
+        try container.encodeIfPresent(expirationReason, forKey: .expirationReason)
+        try container.encodeIfPresent(newProductId, forKey: .newProductId)
         try container.encodeIfPresent(store, forKey: .store)
         try container.encodeIfPresent(originalTransactionId, forKey: .originalTransactionId)
     }
@@ -141,6 +155,23 @@ struct DefaultBillingService: BillingService {
                 subscriptionId: update.subscription.id,
                 on: db
             )
+            try await upsertEntitlement(userId: userId, level: "pro", subscriptionId: update.subscription.id, on: db)
+
+        case "PRODUCT_CHANGE":
+            let update = try await upsertSubscription(
+                userId: userId,
+                event: event,
+                status: "active",
+                cancelledAt: nil,
+                on: db
+            )
+            try await revokeTransferredEntitlementIfNeeded(
+                previousUserId: update.previousUserId,
+                newUserId: userId,
+                subscriptionId: update.subscription.id,
+                on: db
+            )
+            try await applyPendingPlanChange(event: event, subscription: update.subscription, on: db)
             try await upsertEntitlement(userId: userId, level: "pro", subscriptionId: update.subscription.id, on: db)
 
         case "EXPIRATION":
@@ -222,6 +253,7 @@ struct DefaultBillingService: BillingService {
         let previousUserId = subscription.id == nil ? nil : subscription.userId
 
         subscription.userId = userId
+        subscription.store = normalizedStore(for: event)
         subscription.providerCustomerId = event.appUserId
         subscription.productId = productId(for: event)
         subscription.plan = plan(for: event)
@@ -233,8 +265,30 @@ struct DefaultBillingService: BillingService {
             : subscription.trialEndsAt
         subscription.gracePeriodEndsAt = event.gracePeriodExpiresDateMs.flatMap(dateFromMilliseconds)
         subscription.cancelledAt = cancelledAt ?? (status == "active" ? nil : subscription.cancelledAt)
+        if subscription.pendingProductId == subscription.productId {
+            subscription.pendingProductId = nil
+            subscription.pendingPlan = nil
+            subscription.pendingPlanEffectiveAt = nil
+        }
         try await subscription.save(on: db)
         return (subscription, previousUserId)
+    }
+
+    private func applyPendingPlanChange(
+        event: RevenueCatWebhookEvent,
+        subscription: Subscription,
+        on db: any Database
+    ) async throws {
+        guard let pendingProductId = event.newProductId?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !pendingProductId.isEmpty
+        else {
+            return
+        }
+        subscription.pendingProductId = pendingProductId
+        subscription.pendingPlan = plan(forProductId: pendingProductId)
+        subscription.pendingPlanEffectiveAt = event.expirationAtMs.flatMap(dateFromMilliseconds)
+            ?? subscription.periodEndsAt
+        try await subscription.save(on: db)
     }
 
     private func revokeTransferredEntitlementIfNeeded(
@@ -288,7 +342,11 @@ struct DefaultBillingService: BillingService {
     }
 
     private func plan(for event: RevenueCatWebhookEvent) -> String {
-        let product = productId(for: event).lowercased()
+        plan(forProductId: productId(for: event))
+    }
+
+    private func plan(forProductId productId: String) -> String {
+        let product = productId.lowercased()
         if product.contains("year") || product.contains("annual") {
             return "pro_annual"
         }
@@ -298,8 +356,11 @@ struct DefaultBillingService: BillingService {
         if product.contains("month") {
             return "pro_monthly"
         }
-        let id = productId(for: event)
-        return id.hasPrefix("pro_") ? id : "pro_monthly"
+        return productId.hasPrefix("pro_") ? productId : "pro_monthly"
+    }
+
+    private func normalizedStore(for event: RevenueCatWebhookEvent) -> String? {
+        event.store?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
     }
 
     private func dateFromMilliseconds(_ milliseconds: Int64) -> Date {

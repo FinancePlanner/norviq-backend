@@ -247,6 +247,7 @@ func registerMigrations(_ app: Application) {
     app.migrations.add(AddReferenceKeyToUserActivity())
     app.migrations.add(CreateUserBadge())
     app.migrations.add(CreateBillingTables())
+    app.migrations.add(AddSubscriptionPlanChangeFields())
     app.migrations.add(CreateTrialWarning())
     app.migrations.add(CreateCoupons())
     app.migrations.add(AddCouponGrantType())
