@@ -6,7 +6,7 @@ Main work:
 - Added a pre-login privacy screen (`PrivacyWelcomeScreen`) highlighting data ownership and security.
 - Added a pre-login paywall screen (`PreLoginPaywallScreen`) allowing anonymous users to start a 7-day free trial on the Pro annual plan.
 - Configured Amplitude unified SDK for iOS analytics, initialized via DI (`AnalyticsService`), currently tracking "App Launched".
-- Set up local StoreKit testing (`Products.storekit`) in Xcode with `pro_weekly`, `pro_monthly`, and `pro_annual` to bypass App Store Connect for local simulator testing.
+- Set up local StoreKit testing (`Products.storekit`) in Xcode with `pro_weekly`, `pro_monthly`, and `pro_yearly` to bypass App Store Connect for local simulator testing.
 - Updated `BillingManager` to support anonymous RevenueCat initialization and purchases, aliasing to the user ID upon login/signup.
 
 Key files:
@@ -77,7 +77,7 @@ Verified:
 Still needs external config:
 - Backend env: REVENUECAT_API_KEY
 - iOS build setting: REVENUECAT_IOS_API_KEY
-- RevenueCat: entitlement pro_access, products pro_monthly, pro_annual
+- RevenueCat: entitlement pro_access, products pro_monthly, pro_yearly
 - App Store Connect: subscription group + 14-day annual trial.
 
 Pair this guide with the iOS client's `financeplan/Documentation/source-of-truth.md`. The client document explains which features treat the API as authoritative, which data is cached in SwiftData, and which mock paths must stay preview/test-only.
@@ -914,7 +914,7 @@ Three RevenueCat products are expected:
 
 | Product ID | Billing | Notes |
 |---|---|---|
-| `pro_annual` | Yearly | Best value; 14-day free trial; shown as prominent card in paywall |
+| `pro_yearly` | Yearly | Best value; 14-day free trial; shown as prominent card in paywall |
 | `pro_monthly` | Monthly | Flexible billing; no trial |
 | `pro_weekly` | Weekly | Short-term access; no trial |
 
@@ -1591,7 +1591,7 @@ Implementations (`FMPMarketDataProvider`, `FinnhubMarketDataProvider`) use Vapor
 - Event processor: `BillingService.process(event:rawPayload:on:)`
 - Updates `BillingContext` (user entitlement snapshot)
 - iOS client uses RevenueCat SDK Purchases; anonymous aliasing on login; `PaywallView` presents products
-- Products expected: `pro_monthly`, `pro_weekly`, `pro_annual`
+- Products expected: `pro_monthly`, `pro_weekly`, `pro_yearly`
 - Backend feature gates via `BillingMiddleware` or service checks
 
 ### Push Notifications (APNS)
@@ -1842,7 +1842,7 @@ Implementations (`FMPMarketDataProvider`, `FinnhubMarketDataProvider`) use Vapor
 - Event processor: `BillingService.process(event:rawPayload:on:)`
 - Updates `BillingContext` (user entitlement snapshot)
 - iOS client uses RevenueCat SDK Purchases; anonymous aliasing on login; `PaywallView` presents products
-- Products expected: `pro_monthly`, `pro_weekly`, `pro_annual`
+- Products expected: `pro_monthly`, `pro_weekly`, `pro_yearly`
 - Backend feature gates via `BillingMiddleware` or service checks
 
 ### Push Notifications (APNS)

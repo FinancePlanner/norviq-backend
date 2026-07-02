@@ -423,7 +423,7 @@ Avoid gating basic onboarding too aggressively. Users should experience value be
 - [ ] Apple Developer Program membership active
 - [ ] Apple Sign In — Services ID, redirect URIs for dev and prod, ES256 key (.p8)
 - [ ] APNS — `APNS_TEAM_ID`, `APNS_KEY_ID`, `APNS_PRIVATE_KEY_P8`, `APNS_TOPIC` set in `.env.production`
-- [ ] RevenueCat products created in App Store Connect (`pro_annual`, `pro_monthly`, `pro_weekly`)
+- [ ] RevenueCat products created in App Store Connect (`pro_yearly`, `pro_monthly`, `pro_weekly`)
 
 ### Backend Production Configuration
 
