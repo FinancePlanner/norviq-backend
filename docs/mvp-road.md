@@ -429,7 +429,7 @@ Avoid gating basic onboarding too aggressively. Users should experience value be
 
 - [ ] `REVENUECAT_API_KEY` set in `.env.production`
 - [ ] `REVENUECAT_WEBHOOK_SECRET` set in `.env.production`
-- [ ] RevenueCat dashboard: app linked, `pro` entitlement created, products linked
+- [ ] RevenueCat dashboard: app linked, `pro_access` entitlement created, products linked
 - [x] `AUTH_MFA_ENABLED=true` and `AUTH_MFA_ALLOW_LEGACY_BYPASS=false` in `.env.production`
 - [x] `RESEND_API_KEY` and `RESEND_FROM_EMAIL` set (domain verified in Resend)
 - [ ] `OAUTH_APPLE_CLIENT_ID`, `OAUTH_APPLE_TEAM_ID`, `OAUTH_APPLE_KEY_ID`, `OAUTH_APPLE_PRIVATE_KEY` set

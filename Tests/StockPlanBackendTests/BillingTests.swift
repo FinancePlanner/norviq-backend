@@ -1259,6 +1259,44 @@ struct BillingTests {
         }
     }
 
+    @Test("RevenueCat restore reads pro_access entitlement")
+    func revenueCatRestoreReadsProAccessEntitlement() async throws {
+        try await withApp { app in
+            let auth = try await registerUser(on: app, identifier: "pro-access-restore")
+            let formatter = ISO8601DateFormatter()
+            let purchaseDate = formatter.string(from: Date())
+            let expiresDate = formatter.string(from: Date().addingTimeInterval(86400))
+            let subscriber = BillingController.RevenueCatSubscriber(
+                entitlements: [
+                    "pro_access": BillingController.RevenueCatEntitlement(
+                        expiresDate: expiresDate,
+                        purchaseDate: purchaseDate,
+                        productIdentifier: "pro_weekly"
+                    ),
+                ],
+                subscriptions: [:]
+            )
+
+            try await BillingController().syncRevenueCatSubscriber(
+                subscriber,
+                userId: auth.userId,
+                on: app.db
+            )
+
+            let subscription = try #require(try await Subscription.query(on: app.db)
+                .filter(\.$userId == auth.userId)
+                .first())
+            let entitlement = try #require(try await Entitlement.query(on: app.db)
+                .filter(\.$userId == auth.userId)
+                .first())
+
+            #expect(subscription.productId == "pro_weekly")
+            #expect(subscription.status == "active")
+            #expect(entitlement.level == "pro")
+            #expect(entitlement.subscriptionId == subscription.id)
+        }
+    }
+
     // MARK: - Crypto entitlement tests
 
     @Test("Free users are blocked from every Crypto endpoint")

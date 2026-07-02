@@ -182,6 +182,10 @@ extension BillingController {
         }
     }
 
+    private enum RevenueCatEntitlementID {
+        static let proAccess = "pro_access"
+    }
+
     func revenueCatAPIKey() throws -> String {
         let value = Environment.get("REVENUECAT_API_KEY")?
             .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
@@ -349,7 +353,7 @@ extension BillingController {
             return
         }
 
-        let proEntitlement = subscriber.entitlements["pro"]
+        let proEntitlement = subscriber.entitlements[RevenueCatEntitlementID.proAccess]
         let productId = proEntitlement?.productIdentifier
             ?? subscriber.subscriptions.keys.sorted(by: preferredProductSort).first
             ?? "unknown"
