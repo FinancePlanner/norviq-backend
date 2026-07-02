@@ -5502,10 +5502,10 @@ components:
       properties:
         productId:
           type: string
-          example: pro_annual
+          example: pro_yearly
         plan:
           type: string
-          example: pro_annual
+          example: pro_yearly
         displayName:
           type: string
           example: Annual
@@ -5647,11 +5647,11 @@ components:
         pendingProductId:
           type: string
           nullable: true
-          example: pro_annual
+          example: pro_yearly
         pendingPlan:
           type: string
           nullable: true
-          example: pro_annual
+          example: pro_yearly
         pendingPlanEffectiveAt:
           type: string
           format: date-time

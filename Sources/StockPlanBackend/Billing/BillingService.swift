@@ -348,7 +348,7 @@ struct DefaultBillingService: BillingService {
     private func plan(forProductId productId: String) -> String {
         let product = productId.lowercased()
         if product.contains("year") || product.contains("annual") {
-            return "pro_annual"
+            return "pro_yearly"
         }
         if product.contains("week") {
             return "pro_weekly"
