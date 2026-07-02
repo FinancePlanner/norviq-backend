@@ -5471,9 +5471,15 @@ components:
           example: premium
         isPremium:
           type: boolean
+        isPro:
+          type: boolean
         subscription:
           nullable: true
           $ref: '#/components/schemas/BillingSubscriptionDTO'
+        planOptions:
+          type: array
+          items:
+            $ref: '#/components/schemas/BillingPlanOptionDTO'
         features:
           type: array
           items:
@@ -5482,10 +5488,43 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/BillingUsageDTO'
+        trialDaysRemaining:
+          type: integer
+          nullable: true
+        isTrialActive:
+          type: boolean
         generatedAt:
           type: string
           format: date-time
-      required: [plan, entitlementLevel, isPremium, features, usage, generatedAt]
+      required: [plan, entitlementLevel, isPremium, planOptions, features, usage, isTrialActive, generatedAt]
+    BillingPlanOptionDTO:
+      type: object
+      properties:
+        productId:
+          type: string
+          example: pro_annual
+        plan:
+          type: string
+          example: pro_annual
+        displayName:
+          type: string
+          example: Annual
+        interval:
+          type: string
+          enum: [weekly, monthly, annual]
+        rank:
+          type: integer
+          example: 3
+        badge:
+          type: string
+          nullable: true
+          example: Best value
+        isCurrent:
+          type: boolean
+        changeKind:
+          type: string
+          enum: [subscribe, current, upgrade, downgrade]
+      required: [productId, plan, displayName, interval, rank, isCurrent, changeKind]
     RedeemBillingCouponRequest:
       type: object
       properties:
@@ -5553,6 +5592,10 @@ components:
         provider:
           type: string
           example: revenuecat
+        store:
+          type: string
+          nullable: true
+          example: app_store
         productId:
           type: string
           example: com.app.premium_yearly
@@ -5591,6 +5634,25 @@ components:
         isCancelledButActive:
           type: boolean
         renewsOrExpiresAt:
+          type: string
+          format: date-time
+          nullable: true
+        willRenew:
+          type: boolean
+          nullable: true
+        accessEndsAt:
+          type: string
+          format: date-time
+          nullable: true
+        pendingProductId:
+          type: string
+          nullable: true
+          example: pro_annual
+        pendingPlan:
+          type: string
+          nullable: true
+          example: pro_annual
+        pendingPlanEffectiveAt:
           type: string
           format: date-time
           nullable: true

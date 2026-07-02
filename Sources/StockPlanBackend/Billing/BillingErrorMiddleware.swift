@@ -1,4 +1,3 @@
-import StockPlanShared
 import Vapor
 
 struct BillingErrorMiddleware: AsyncMiddleware {
