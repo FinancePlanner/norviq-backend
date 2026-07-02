@@ -126,7 +126,7 @@ struct BillingWebhookSecurityTests {
             app.billingService = MockBillingService()
             try app.register(collection: RevenueCatWebhookController())
 
-            let payload = "{\"event\": {\"id\": \"test_event\", \"type\": \"INITIAL_PURCHASE\", \"app_user_id\": \"test_user\", \"product_id\": \"pro_annual\"}}"
+            let payload = "{\"event\": {\"id\": \"test_event\", \"type\": \"INITIAL_PURCHASE\", \"app_user_id\": \"test_user\", \"product_id\": \"pro_yearly\"}}"
             let signatureHeader = revenueCatSignatureHeader(payload: payload, secret: hmacSecret)
 
             var status: HTTPStatus = .internalServerError
@@ -285,7 +285,7 @@ struct BillingWebhookSecurityTests {
             app.billingService = MockBillingService()
             try app.register(collection: RevenueCatWebhookController())
 
-            let payload = "{\"event\": {\"id\": \"test_event\", \"type\": \"INITIAL_PURCHASE\", \"app_user_id\": \"test_user\", \"product_id\": \"pro_annual\"}}"
+            let payload = "{\"event\": {\"id\": \"test_event\", \"type\": \"INITIAL_PURCHASE\", \"app_user_id\": \"test_user\", \"product_id\": \"pro_yearly\"}}"
 
             var status: HTTPStatus = .internalServerError
             try await app.testing().test(.POST, "webhooks/revenuecat", beforeRequest: { req in

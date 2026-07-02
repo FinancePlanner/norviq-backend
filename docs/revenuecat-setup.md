@@ -82,7 +82,7 @@ curl -X POST http://localhost:8080/webhooks/revenuecat \
       "id": "test-event-id",
       "type": "INITIAL_PURCHASE",
       "app_user_id": "your-user-uuid",
-      "product_id": "pro_annual",
+      "product_id": "pro_yearly",
       "period_type": "NORMAL",
       "purchased_at_ms": 1714000000000,
       "expiration_at_ms": 1745536000000

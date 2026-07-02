@@ -425,6 +425,8 @@ extension BillingController {
     }
 
     func preferredProductSort(_ lhs: String, _ rhs: String) -> Bool {
+        if lhs == "pro_yearly" { return true }
+        if rhs == "pro_yearly" { return false }
         if lhs == "pro_annual" { return true }
         if rhs == "pro_annual" { return false }
         if lhs == "pro_monthly" { return true }
@@ -435,7 +437,7 @@ extension BillingController {
     func plan(for productId: String) -> String {
         let product = productId.lowercased()
         if product.contains("annual") || product.contains("year") {
-            return "pro_annual"
+            return "pro_yearly"
         }
         if product.contains("weekly") || product.contains("week") {
             return "pro_weekly"
