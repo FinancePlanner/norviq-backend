@@ -217,7 +217,7 @@ struct DefaultBillingContextService: BillingContextService {
             1
         case "pro_monthly":
             2
-        case "pro_annual":
+        case "pro_yearly", "pro_annual":
             3
         default:
             nil
@@ -245,7 +245,7 @@ private struct PlanOptionDescriptor {
     static let all: [PlanOptionDescriptor] = [
         .init(productId: "pro_weekly", plan: "pro_weekly", displayName: "Weekly", interval: "weekly", rank: 1, badge: nil),
         .init(productId: "pro_monthly", plan: "pro_monthly", displayName: "Monthly", interval: "monthly", rank: 2, badge: "Better value"),
-        .init(productId: "pro_annual", plan: "pro_annual", displayName: "Annual", interval: "annual", rank: 3, badge: "Best value"),
+        .init(productId: "pro_yearly", plan: "pro_yearly", displayName: "Annual", interval: "annual", rank: 3, badge: "Best value"),
     ]
 }
 
