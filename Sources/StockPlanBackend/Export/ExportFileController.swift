@@ -5,16 +5,23 @@ struct ExportFileController: RouteCollection {
     let exportService: any DataExportService
 
     func boot(routes: any RoutesBuilder) throws {
-        let exports = routes.grouped("api", "v3", "export")
+        let protected = routes.grouped(SessionToken.authenticator(), SessionToken.guardMiddleware())
+        let exports = protected.grouped("api", "v3", "export")
         exports.get("file", ":userId", ":filename", use: serveExportFile)
     }
 
     @Sendable
     func serveExportFile(req: Request) async throws -> Response {
+        let session = try req.auth.require(SessionToken.self)
+
         guard let userId = req.parameters.get("userId", as: UUID.self),
               let filename = req.parameters.get("filename")
         else {
             throw Abort(.badRequest, reason: "Missing parameters")
+        }
+
+        guard userId == session.userId else {
+            throw Abort(.forbidden, reason: "You are not allowed to access this export")
         }
 
         let exportIdString = filename.split(separator: ".").first.map(String.init)
