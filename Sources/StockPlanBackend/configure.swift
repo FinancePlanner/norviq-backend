@@ -38,6 +38,7 @@ public func configure(_ app: Application) async throws {
     app.middleware.use(cors, at: .beginning)
     // Add Vary: Origin for correct CDN caching when CORS is enabled.
     app.middleware.use(VaryHeaderMiddleware())
+    app.middleware.use(SecurityHeadersMiddleware(includeHSTS: app.environment == .production))
     // Enable response compression (gzip/deflate) with 1KB threshold
     app.http.server.configuration.responseCompression = .enabled(initialByteBufferCapacity: 1024)
     app.middleware.use(ResponseCompressionMiddleware(override: .useDefault))

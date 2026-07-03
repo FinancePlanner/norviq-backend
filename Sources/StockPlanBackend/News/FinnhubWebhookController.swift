@@ -39,14 +39,12 @@ private extension FinnhubWebhookController {
 
         let providedSecret = req.headers.first(name: "X-Finnhub-Secret")?
             .trimmingCharacters(in: .whitespacesAndNewlines)
-            ?? req.query[String.self, at: "secret"]?
-            .trimmingCharacters(in: .whitespacesAndNewlines)
 
         guard let providedSecret, !providedSecret.isEmpty else {
             throw Abort(.unauthorized, reason: "Missing Finnhub webhook secret.")
         }
 
-        guard providedSecret == configuredSecret else {
+        guard ConstantTime.equals(providedSecret, configuredSecret) else {
             throw Abort(.unauthorized, reason: "Invalid Finnhub webhook secret.")
         }
     }
