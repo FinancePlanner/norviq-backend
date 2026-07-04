@@ -81,6 +81,9 @@ func routes(_ app: Application) throws {
     try api.register(collection: PushNotificationsController())
     try api.register(collection: DataExportController(exportService: app.dataExportService))
     try api.register(collection: ExportFileController(exportService: app.dataExportService))
+    // Rate limit Hermes-backed insights (reads hit Postgres, but keep parity with market data).
+    let insightsRateLimit = RateLimitMiddleware(limit: 60, interval: 60, keyPrefix: "ratelimit:insights")
+    try api.grouped(insightsRateLimit).register(collection: InsightsController())
 }
 
 private func makeReadinessResponse(_ req: Request) async -> HealthCheckResponse {
@@ -90,6 +93,7 @@ private func makeReadinessResponse(_ req: Request) async -> HealthCheckResponse 
     checks["mailer"] = mailerHealthCheck(req)
     checks["apns"] = apnsHealthCheck(req)
     checks["marketData"] = marketDataHealthCheck(req)
+    checks["hermes"] = hermesHealthCheck(req)
 
     let hasFailure = checks.values.contains { $0.status == "unhealthy" }
     let hasWarning = checks.values.contains { $0.status == "degraded" }
@@ -175,6 +179,23 @@ private func marketDataHealthCheck(_: Request) -> HealthCheck {
         return HealthCheck(status: "healthy", message: nil, latencyMs: nil)
     }
     return HealthCheck(status: "degraded", message: "No live market-data provider is configured.", latencyMs: nil)
+}
+
+private func hermesHealthCheck(_ req: Request) -> HealthCheck {
+    guard req.application.insightsProvider.isEnabled else {
+        return HealthCheck(status: "skipped", message: "HERMES_BASE_URL is not configured; insights sync is disabled.", latencyMs: nil)
+    }
+
+    let interval = Environment.get("HERMES_SYNC_INTERVAL_SECONDS").flatMap(Double.init(_:)) ?? 900
+    guard let lastSuccess = req.application.insightsSyncStatus.lastSuccessAt else {
+        return HealthCheck(status: "degraded", message: "Hermes sync has not completed yet.", latencyMs: nil)
+    }
+    // Degraded (never unhealthy) when the last successful sync is older than
+    // three intervals — Hermes is a non-critical upstream.
+    if Date().timeIntervalSince(lastSuccess) > interval * 3 {
+        return HealthCheck(status: "degraded", message: "Hermes sync is stale.", latencyMs: nil)
+    }
+    return HealthCheck(status: "healthy", message: nil, latencyMs: nil)
 }
 
 private func elapsedMilliseconds(since start: DispatchTime) -> Double {
