@@ -253,6 +253,10 @@ func registerMigrations(_ app: Application) {
     app.migrations.add(AddCouponGrantType())
     app.migrations.add(CreateCouponRedemptions())
     app.migrations.add(CreateDataExport())
+    app.migrations.add(CreateInsightEvent())
+    app.migrations.add(CreateSentimentSnapshot())
+    app.migrations.add(CreateTickerSentimentPost())
+    app.migrations.add(CreateNetWorthSnapshot())
 }
 
 func envBool(_ key: String, default defaultValue: Bool) -> Bool {
