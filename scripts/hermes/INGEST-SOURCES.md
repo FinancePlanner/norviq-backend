@@ -76,4 +76,6 @@ sentiment snapshots re-upsert on the next sync tick).
 `./deploy-ticker-scraper.sh` (this directory): uploads scraper + config,
 installs `hermes-ticker-scraper.timer` (45 min) and
 `hermes-topic-ingest.timer` (daily 06:20 UTC), runs a one-shot verification.
-Requires `XAI_API_KEY` present in `/opt/data/.env` on the VPS.
+Requires `XAI_API_KEY` in `/root/.hermes/.env` on the VPS (canonical Hermes
+env — confirmed present) plus xAI API credits; without credits the timers
+install fine and runs start succeeding once topped up.

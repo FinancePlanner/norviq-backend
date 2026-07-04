@@ -9,8 +9,8 @@ Modes:
            and /finance/sentiment reflect real financial content.
 
 No HTML scraping: Grok performs the search server-side and returns citations.
-Requires XAI_API_KEY (loaded from /opt/data/.env, /root/.hermes/.env, or the
-process environment).
+Requires XAI_API_KEY (loaded from /root/.hermes/.env, /opt/data/.env, or the
+process environment) and available xAI API credits.
 
 Examples:
   python3 ticker_sentiment_scraper.py --mode tickers
@@ -61,8 +61,11 @@ CREATE TABLE IF NOT EXISTS ticker_posts (
 
 
 def load_env_files() -> None:
-    """Load shell-style .env files the way the other Hermes scripts do."""
-    for env_path in (Path("/opt/data/.env"), Path("/root/.hermes/.env")):
+    """Load shell-style .env files the way the other Hermes scripts do.
+
+    /root/.hermes/.env is the canonical Hermes agent env (holds XAI_API_KEY);
+    /opt/data/.env is the legacy location other pollers read."""
+    for env_path in (Path("/root/.hermes/.env"), Path("/opt/data/.env")):
         if not env_path.exists():
             continue
         for line in env_path.read_text().splitlines():
@@ -118,7 +121,7 @@ def load_config(path: str) -> dict:
 def xai_chat(payload: dict, timeout: int, retries: int = 3) -> dict:
     api_key = os.environ.get("XAI_API_KEY", "").strip()
     if not api_key:
-        raise SystemExit("XAI_API_KEY is not set (checked /opt/data/.env, /root/.hermes/.env, environment).")
+        raise SystemExit("XAI_API_KEY is not set (checked /root/.hermes/.env, /opt/data/.env, environment).")
 
     body = json.dumps(payload).encode("utf-8")
     last_error: Exception | None = None

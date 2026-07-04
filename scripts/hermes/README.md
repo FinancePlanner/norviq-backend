@@ -43,7 +43,8 @@ Built. Uses the xAI Live Search API (no HTML scraping) — see
 - `--purge-source manual --yes`: deletes the junk-classified legacy rows.
 - Config: `scraper_config.json` (symbols, curated `notable_handles` ≤10,
   caps, model). Keep symbols in sync with backend `HERMES_TRACKED_TICKERS`.
-- Requires `XAI_API_KEY` in `/opt/data/.env` on the VPS.
+- Requires `XAI_API_KEY` in `/root/.hermes/.env` on the VPS (present; needs
+  xAI API credits to actually run).
 - Deploy: `./deploy-ticker-scraper.sh` (uploads, installs timers, runs a live
   verification pass).
 

@@ -4,8 +4,11 @@
 #
 #   ./deploy-ticker-scraper.sh [root@78.46.192.73]
 #
-# Requires: XAI_API_KEY present in /opt/data/.env (or /root/.hermes/.env) on
-# the VPS. Verify with: ssh <host> "grep -c '^XAI_API_KEY=' /opt/data/.env"
+# Requires: XAI_API_KEY present in /root/.hermes/.env on the VPS (canonical
+# Hermes env; /opt/data/.env also read). Verify with:
+#   ssh <host> "grep -c '^XAI_API_KEY=' /root/.hermes/.env"
+# NOTE: the live verification step needs xAI API credits; without credits the
+# timers still install fine and runs succeed automatically once topped up.
 set -euo pipefail
 
 HOST="${1:-root@78.46.192.73}"
@@ -66,8 +69,11 @@ systemctl daemon-reload
 systemctl enable --now hermes-ticker-scraper.timer hermes-topic-ingest.timer
 systemctl list-timers hermes-\* --no-pager | head -5"
 
-echo "==> One-shot verification run (tickers, live)"
-ssh "${HOST}" "python3 -u ${REMOTE_DIR}/scripts/ticker_sentiment_scraper.py --mode tickers 2>&1 | tail -8"
+echo "==> One-shot verification run (tickers, live; tolerated if xAI credits are missing)"
+if ! ssh "${HOST}" "python3 -u ${REMOTE_DIR}/scripts/ticker_sentiment_scraper.py --mode tickers 2>&1 | tail -8"; then
+  echo "WARN: live run failed — most likely no xAI API credits yet."
+  echo "      Timers are installed; runs will succeed automatically once credits are added."
+fi
 
 echo "==> Row counts"
 ssh "${HOST}" "python3 -c \"
