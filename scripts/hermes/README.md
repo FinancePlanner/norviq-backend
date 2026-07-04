@@ -31,17 +31,22 @@ script. Design and roadmap: `docs/post-mvp-financial-platform.md`.
    If blocked: `iptables -A FORWARD -i docker0 -o tailscale0 -j ACCEPT`
    (plus the ESTABLISHED,RELATED reverse rule).
 
-## Ticker scraper (next Hermes-side job — not yet built)
+## Ticker + topic ingest (`ticker_sentiment_scraper.py`)
 
-Populates `ticker_posts`. Outline:
-- Config: curated list of notable X accounts + tracked symbols
-  (start from `HERMES_TRACKED_TICKERS` in the backend env).
-- Poll cashtag search / account timelines every 30–60 min
-  (extend `x_link_poller_v2.py`).
-- SuperGrok extraction per post → `{symbol, thesis_quote, sentiment
-  (bullish|bearish|neutral), sentiment_score, confidence}`.
-- Insert with tweet id as `event_id` (dedupe key end-to-end), `posted_at` from
-  the tweet, systemd timer.
+Built. Uses the xAI Live Search API (no HTML scraping) — see
+`INGEST-SOURCES.md` for the source spec.
+
+- `--mode tickers`: notable X posts per symbol → `ticker_posts` (tweet id as
+  dedupe key end-to-end). Timer: every 45 min.
+- `--mode topics`: X + news per financial topic → real `fin_event` rows.
+  Timer: daily 06:20 UTC.
+- `--purge-source manual --yes`: deletes the junk-classified legacy rows.
+- Config: `scraper_config.json` (symbols, curated `notable_handles` ≤10,
+  caps, model). Keep symbols in sync with backend `HERMES_TRACKED_TICKERS`.
+- Requires `XAI_API_KEY` in `/root/.hermes/.env` on the VPS (present; needs
+  xAI API credits to actually run).
+- Deploy: `./deploy-ticker-scraper.sh` (uploads, installs timers, runs a live
+  verification pass).
 
 ## Data-quality warning (as of 2026-07-03)
 
