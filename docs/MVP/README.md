@@ -96,12 +96,18 @@ These are intentionally not MVP blockers unless a launch promise depends on them
 - Support/admin tooling for entitlement repair, refunds, data export, deletion, and incident response.
 - Public data export API if the support-only export workflow is not enough.
 - Team/family/B2B plans.
+- Financial platform expansion powered by the Hermes data pipeline: see `StockPlanBackend/docs/post-mvp-financial-platform.md`.
+  - Hermes → backend insights sync over Tailscale (`/v1/insights/*` API).
+  - Ticker-level X sentiment: notable-account theses and quotes per symbol (e.g. tap `$AMD` → server-served posts with sentiment labels).
+  - Topic sentiment feeds (housing, savings, insurance, retirement, net worth, crypto, stocks, expenses).
+  - New sectors: banking/cash flow, debt & credit, housing/renting, retirement, insurance, taxes, savings goals + net worth dashboard.
 
 ## Source Material
 
 This checklist reflects the current docs and code references as of 2026-06-30:
 
 - Backend MVP/production roadmap: `StockPlanBackend/docs/mvp-road.md`
+- Post-MVP financial platform + Hermes pipeline: `StockPlanBackend/docs/post-mvp-financial-platform.md`
 - Backend README and API scope: `StockPlanBackend/README.md`
 - Backend RevenueCat setup: `StockPlanBackend/docs/revenuecat-setup.md`
 - Backend operations runbook and deployment guide: `StockPlanBackend/docs/deployment/operations-runbook.md`, `StockPlanBackend/docs/deployment/guide.md`

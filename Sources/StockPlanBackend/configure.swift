@@ -198,6 +198,32 @@ public func configure(_ app: Application) async throws {
     // leaves the server. Boots disabled when no key is configured.
     app.aiInsightsService = DefaultAIInsightsService(client: makeOpenAIChatClient(app))
 
+    // Hermes insights (topic/ticker sentiment scraped by the self-hosted Hermes
+    // agent). Reached only over the private Tailscale network; boots disabled
+    // when HERMES_BASE_URL is not configured.
+    let hermesBaseURL = Environment.get("HERMES_BASE_URL")?
+        .trimmingCharacters(in: .whitespacesAndNewlines)
+    app.insightsRepository = DatabaseInsightsRepository()
+    app.insightsSyncStatus = InsightsSyncStatus()
+    let insightsProvider: any InsightsProvider = if let hermesBaseURL, !hermesBaseURL.isEmpty {
+        HermesInsightsProvider(
+            baseURL: hermesBaseURL,
+            apiToken: Environment.get("HERMES_API_TOKEN")?.trimmingCharacters(in: .whitespacesAndNewlines)
+        )
+    } else {
+        DisabledInsightsProvider()
+    }
+    app.insightsProvider = insightsProvider
+    let trackedTickers = (Environment.get("HERMES_TRACKED_TICKERS") ?? "")
+        .split(separator: ",")
+        .map { $0.trimmingCharacters(in: .whitespaces).uppercased() }
+        .filter { !$0.isEmpty }
+    app.insightsService = DefaultInsightsService(
+        repo: app.insightsRepository,
+        provider: insightsProvider,
+        trackedTickers: trackedTickers
+    )
+
     let cleanupIntervalMinutes = Environment.get("AUTH_TOKEN_CLEANUP_INTERVAL_MINUTES").flatMap(Int.init(_:)) ?? 60
     app.lifecycle.use(AuthTokenCleanup(interval: TimeInterval(cleanupIntervalMinutes * 60)))
     app.lifecycle.use(IBKRSyncJob())
@@ -208,6 +234,8 @@ public func configure(_ app: Application) async throws {
     app.lifecycle.use(TrialExpirationJob())
     // Data Export cleanup (expire files after 7 days)
     app.lifecycle.use(DataExportCleanupJob(repository: app.dataExportRepository, interval: 86400))
+    let hermesSyncSeconds = Environment.get("HERMES_SYNC_INTERVAL_SECONDS").flatMap(Int64.init(_:)) ?? 900
+    app.lifecycle.use(HermesSyncJob(intervalSeconds: hermesSyncSeconds))
 
     registerMigrations(app)
 
