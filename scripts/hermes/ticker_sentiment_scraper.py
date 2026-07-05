@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""Hermes ticker/topic sentiment ingest via the xAI Live Search API.
+"""Hermes ticker/topic sentiment ingest via the xAI Agent Tools API
+(/v1/responses with server-side x_search / web_search tools).
 
 Modes:
   tickers  Search X for notable posts per tracked symbol; write ticker_posts
@@ -39,7 +40,8 @@ LOG = logging.getLogger("ticker_scraper")
 DEFAULT_DB = "/root/.hermes/financial-pipeline/data/finance.sqlite"
 DEFAULT_CONFIG = "/root/.hermes/financial-pipeline/scraper_config.json"
 DEFAULT_RAW_JSONL = "/root/.hermes/financial-pipeline/data/raw_events.jsonl"
-XAI_URL = "https://api.x.ai/v1/chat/completions"
+# Agent Tools API (the old chat.completions Live Search returns HTTP 410).
+XAI_URL = "https://api.x.ai/v1/responses"
 
 STATUS_ID_RE = re.compile(r"(?:x\.com|twitter\.com)/[^/]+/status/(\d+)")
 
@@ -89,7 +91,7 @@ def now_iso() -> str:
 
 def load_config(path: str) -> dict:
     defaults = {
-        "model": os.environ.get("GROK_MODEL", "grok-3-mini"),
+        "model": os.environ.get("GROK_MODEL", "grok-4.3"),
         "tickers": ["AMD", "NVDA", "AAPL"],
         "notable_handles": [],
         "topics": {
@@ -176,12 +178,24 @@ def extract_json_array(content: str) -> list:
 def log_usage(label: str, response: dict) -> None:
     usage = response.get("usage") or {}
     LOG.info(
-        "usage %s prompt=%s completion=%s total=%s",
+        "usage %s input=%s output=%s total=%s",
         label,
-        usage.get("prompt_tokens"),
-        usage.get("completion_tokens"),
+        usage.get("input_tokens", usage.get("prompt_tokens")),
+        usage.get("output_tokens", usage.get("completion_tokens")),
         usage.get("total_tokens"),
     )
+
+
+def extract_output_text(response: dict) -> str:
+    """Concatenate output_text parts from a /v1/responses payload."""
+    parts = []
+    for item in response.get("output") or []:
+        if item.get("type") != "message":
+            continue
+        for piece in item.get("content") or []:
+            if piece.get("type") == "output_text" and piece.get("text"):
+                parts.append(piece["text"])
+    return "\n".join(parts)
 
 
 # ── Normalization ─────────────────────────────────────────────────────────────
@@ -231,10 +245,10 @@ def parse_posted_at(raw, days_back: int) -> str:
 
 def build_ticker_payload(cfg: dict, symbol: str) -> dict:
     from_date = (datetime.now(timezone.utc) - timedelta(days=cfg["days_back"])).date().isoformat()
-    x_source: dict = {"type": "x"}
-    handles = [h.lstrip("@") for h in cfg.get("notable_handles", []) if h.strip()][:10]
+    x_search_tool: dict = {"type": "x_search", "from_date": from_date}
+    handles = [h.lstrip("@") for h in cfg.get("notable_handles", []) if h.strip()][:20]
     if handles:
-        x_source["included_x_handles"] = handles
+        x_search_tool["allowed_x_handles"] = handles
 
     prompt = (
         f"Search X for substantive recent posts about ${symbol} (the stock). "
@@ -254,18 +268,11 @@ def build_ticker_payload(cfg: dict, symbol: str) -> dict:
 
     return {
         "model": cfg["model"],
-        "messages": [
+        "input": [
             {"role": "system", "content": "You extract structured financial sentiment data. You reply with strict JSON only."},
             {"role": "user", "content": prompt},
         ],
-        "search_parameters": {
-            "mode": "on",
-            "sources": [x_source],
-            "from_date": from_date,
-            "max_search_results": cfg["max_search_results"],
-            "return_citations": True,
-        },
-        "temperature": 0.1,
+        "tools": [x_search_tool],
     }
 
 
@@ -285,7 +292,7 @@ def run_tickers(cfg: dict, db_path: str, dry_run: bool) -> None:
             continue
         log_usage(f"tickers:{symbol}", response)
 
-        content = (response.get("choices") or [{}])[0].get("message", {}).get("content", "")
+        content = extract_output_text(response)
         try:
             items = extract_json_array(content)
         except (json.JSONDecodeError, ValueError):
@@ -348,18 +355,14 @@ def build_topic_payload(cfg: dict, topic: str, hint: str) -> dict:
     )
     return {
         "model": cfg["model"],
-        "messages": [
+        "input": [
             {"role": "system", "content": "You extract structured financial news/sentiment data. You reply with strict JSON only."},
             {"role": "user", "content": prompt},
         ],
-        "search_parameters": {
-            "mode": "on",
-            "sources": [{"type": "x"}, {"type": "news"}],
-            "from_date": from_date,
-            "max_search_results": cfg["max_search_results"],
-            "return_citations": True,
-        },
-        "temperature": 0.1,
+        "tools": [
+            {"type": "x_search", "from_date": from_date},
+            {"type": "web_search"},
+        ],
     }
 
 
@@ -376,7 +379,7 @@ def run_topics(cfg: dict, db_path: str, raw_jsonl: str, dry_run: bool) -> None:
             continue
         log_usage(f"topics:{topic}", response)
 
-        content = (response.get("choices") or [{}])[0].get("message", {}).get("content", "")
+        content = extract_output_text(response)
         try:
             items = extract_json_array(content)
         except (json.JSONDecodeError, ValueError):

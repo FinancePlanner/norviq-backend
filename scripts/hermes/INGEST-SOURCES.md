@@ -12,7 +12,7 @@ spec defines the real sources that replace it.
 
 ## Source strategy
 
-**Primary mechanism: xAI Live Search API** (`POST https://api.x.ai/v1/chat/completions`
+**Primary mechanism: xAI Agent Tools API** (`POST https://api.x.ai/v1/chat/completions`
 with `search_parameters`). Grok searches X (and optionally news/web) natively
 and returns citations. No HTML scraping, no throwaway X accounts, no ToS
 gymnastics — one API, one key (`XAI_API_KEY`), and it is the same Grok stack
@@ -20,12 +20,12 @@ Hermes already uses.
 
 | Feed | Source | Cadence | Output |
 |------|--------|---------|--------|
-| Ticker sentiment (flagship) | Live Search, `sources=[x]`, per tracked symbol, optional curated handle list | every 45 min (config) | `ticker_posts` table → backend `ticker_sentiment_posts` → `/v1/insights/tickers/:symbol/sentiment` |
-| Topic pulse (Housing, Savings, Insurance, Retirement, NetWorth, Taxes, Debt, Crypto, Stocks, Expenses) | Live Search, `sources=[x, news]`, per topic query | daily | `fin_event` rows (+ append-only `raw_events.jsonl`) → `/finance/summary`, `/finance/sentiment`, backend `insight_events` |
+| Ticker sentiment (flagship) | Agent Tools `x_search`, per tracked symbol, optional curated handle list | every 45 min (config) | `ticker_posts` table → backend `ticker_sentiment_posts` → `/v1/insights/tickers/:symbol/sentiment` |
+| Topic pulse (Housing, Savings, Insurance, Retirement, NetWorth, Taxes, Debt, Crypto, Stocks, Expenses) | Agent Tools `x_search` + `web_search`, per topic query | daily | `fin_event` rows (+ append-only `raw_events.jsonl`) → `/finance/summary`, `/finance/sentiment`, backend `insight_events` |
 | Manual shares (existing `x_link_poller_v2.py`) | Telegram-shared X links only | as shared | keep, but scope it to explicitly shared links — never re-compile the whole vault into `fin_event` |
 
 RSS feeds (CoinDesk, Calculated Risk, etc.) are a possible later addition;
-Live Search `news` source already covers most of that ground with less code.
+the Agent Tools `web_search` tool already covers most of that ground with less code.
 
 ## Ticker feed details
 
@@ -54,7 +54,7 @@ sentiment `{label, score}`).
 - `max_search_results` passed to xAI (default 20).
 - Token usage from `response.usage` logged every call; grep
   `journalctl -u hermes-ticker-scraper` for `usage`.
-- Default model `grok-3-mini`; override with config `model` or `GROK_MODEL` env.
+- Default model `grok-4.3`; override with config `model` or `GROK_MODEL` env.
 
 ## Junk cleanup (one-time)
 

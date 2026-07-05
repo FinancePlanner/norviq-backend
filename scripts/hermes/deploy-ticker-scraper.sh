@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Deploys the xAI Live Search ingest (ticker + topic) to the Hermes VPS and
+# Deploys the xAI Agent Tools ingest (ticker + topic) to the Hermes VPS and
 # installs systemd timers.
 #
 #   ./deploy-ticker-scraper.sh [root@78.46.192.73]
@@ -25,7 +25,7 @@ ssh "${HOST}" "python3 -m py_compile ${REMOTE_DIR}/scripts/ticker_sentiment_scra
 echo "==> Installing systemd units"
 ssh "${HOST}" "cat > /etc/systemd/system/hermes-ticker-scraper.service <<'EOF'
 [Unit]
-Description=Hermes ticker sentiment ingest (xAI Live Search)
+Description=Hermes ticker sentiment ingest (xAI Agent Tools)
 After=network-online.target
 
 [Service]
@@ -46,7 +46,7 @@ WantedBy=timers.target
 EOF
 cat > /etc/systemd/system/hermes-topic-ingest.service <<'EOF'
 [Unit]
-Description=Hermes topic sentiment ingest (xAI Live Search)
+Description=Hermes topic sentiment ingest (xAI Agent Tools)
 After=network-online.target
 
 [Service]

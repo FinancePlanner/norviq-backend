@@ -33,7 +33,7 @@ script. Design and roadmap: `docs/post-mvp-financial-platform.md`.
 
 ## Ticker + topic ingest (`ticker_sentiment_scraper.py`)
 
-Built. Uses the xAI Live Search API (no HTML scraping) — see
+Built. Uses the xAI Agent Tools API (no HTML scraping) — see
 `INGEST-SOURCES.md` for the source spec.
 
 - `--mode tickers`: notable X posts per symbol → `ticker_posts` (tweet id as
