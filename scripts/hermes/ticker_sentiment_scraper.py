@@ -276,6 +276,41 @@ def build_ticker_payload(cfg: dict, symbol: str) -> dict:
     }
 
 
+def insert_ticker_post_rows(conn, symbol: str, items: list, cfg: dict, dry_run: bool) -> int:
+    """Validate/normalize ticker post dicts and insert; returns inserted count."""
+    inserted = 0
+    for item in items[: cfg["max_posts_per_symbol"]]:
+        text = str(item.get("text") or "").strip()
+        if not text:
+            continue
+        row = (
+            post_event_id(item),
+            symbol,
+            (str(item.get("author") or "").strip() or None),
+            (str(item.get("author_handle") or "").strip().lstrip("@") or None),
+            text[:500],
+            (str(item.get("url") or "").strip() or None),
+            normalize_sentiment(item.get("sentiment"), ("bullish", "bearish", "neutral"), "neutral"),
+            clamp(item.get("sentiment_score"), -1.0, 1.0, None),
+            clamp(item.get("confidence"), 0.0, 1.0, None),
+            parse_posted_at(item.get("posted_at"), cfg["days_back"]),
+            now_iso(),
+        )
+        if dry_run:
+            LOG.info("dry-run ticker_post %s %s @%s", symbol, row[0], row[3])
+            continue
+        cursor = conn.execute(
+            "INSERT OR IGNORE INTO ticker_posts "
+            "(event_id, symbol, author, author_handle, text, url, sentiment, sentiment_score, confidence, posted_at, ingested_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            row,
+        )
+        inserted += cursor.rowcount
+    if not dry_run:
+        conn.commit()
+    return inserted
+
+
 def run_tickers(cfg: dict, db_path: str, dry_run: bool) -> None:
     conn = sqlite3.connect(db_path)
     conn.execute(TICKER_POSTS_SCHEMA)
@@ -299,36 +334,7 @@ def run_tickers(cfg: dict, db_path: str, dry_run: bool) -> None:
             LOG.error("symbol=%s unparseable model output: %.200s", symbol, content)
             continue
 
-        inserted = 0
-        for item in items[: cfg["max_posts_per_symbol"]]:
-            text = str(item.get("text") or "").strip()
-            if not text:
-                continue
-            row = (
-                post_event_id(item),
-                symbol,
-                (str(item.get("author") or "").strip() or None),
-                (str(item.get("author_handle") or "").strip().lstrip("@") or None),
-                text[:500],
-                (str(item.get("url") or "").strip() or None),
-                normalize_sentiment(item.get("sentiment"), ("bullish", "bearish", "neutral"), "neutral"),
-                clamp(item.get("sentiment_score"), -1.0, 1.0, None),
-                clamp(item.get("confidence"), 0.0, 1.0, None),
-                parse_posted_at(item.get("posted_at"), cfg["days_back"]),
-                now_iso(),
-            )
-            if dry_run:
-                LOG.info("dry-run ticker_post %s %s @%s", symbol, row[0], row[3])
-                continue
-            cursor = conn.execute(
-                "INSERT OR IGNORE INTO ticker_posts "
-                "(event_id, symbol, author, author_handle, text, url, sentiment, sentiment_score, confidence, posted_at, ingested_at) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                row,
-            )
-            inserted += cursor.rowcount
-        if not dry_run:
-            conn.commit()
+        inserted = insert_ticker_post_rows(conn, symbol, items, cfg, dry_run)
         total_inserted += inserted
         LOG.info("symbol=%s extracted=%d inserted=%d", symbol, len(items), inserted)
 
@@ -366,6 +372,63 @@ def build_topic_payload(cfg: dict, topic: str, hint: str) -> dict:
     }
 
 
+def insert_topic_item_rows(conn, raw_path: Path, topic: str, items: list, cfg: dict, dry_run: bool) -> int:
+    """Validate/normalize topic item dicts into fin_event rows; returns inserted count."""
+    inserted = 0
+    for item in items[: cfg["max_items_per_topic"]]:
+        url = str(item.get("url") or "").strip()
+        title = str(item.get("title") or "").strip()
+        if not title and not url:
+            continue
+        observed_at = parse_posted_at(item.get("published_at"), cfg["days_back"])
+        event_id = hashlib.sha256(f"{url or title}|{observed_at[:10]}".encode("utf-8")).hexdigest()
+        event = {
+            "event_id": event_id,
+            "source": "xai_live_search",
+            "source_id": url or title,
+            "observed_at": observed_at,
+            "ingested_at": now_iso(),
+            "topic": topic,
+            "subcategory": None,
+            "payload": {
+                "title": title,
+                "url": url or None,
+                "summary": (str(item.get("summary") or "").strip() or None),
+                "author": (str(item.get("author") or "").strip() or None),
+            },
+            "derived": {},
+            "sentiment": {
+                "label": normalize_sentiment(item.get("sentiment"), ("positive", "neutral", "negative"), "neutral"),
+                "score": clamp(item.get("sentiment_score"), -1.0, 1.0, 0.0),
+            },
+            "status": "new",
+            "version": "v1",
+        }
+        if dry_run:
+            LOG.info("dry-run fin_event %s %s %.60s", topic, event_id[:12], title)
+            continue
+        cursor = conn.execute(
+            "INSERT OR IGNORE INTO fin_event "
+            "(event_id, source, source_id, observed_at, ingested_at, topic, subcategory, payload, derived, sentiment, status, version) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                event["event_id"], event["source"], event["source_id"], event["observed_at"],
+                event["ingested_at"], event["topic"], event["subcategory"],
+                json.dumps(event["payload"], ensure_ascii=False),
+                json.dumps(event["derived"]),
+                json.dumps(event["sentiment"]),
+                event["status"], event["version"],
+            ),
+        )
+        if cursor.rowcount:
+            with raw_path.open("a", encoding="utf-8") as fh:
+                fh.write(json.dumps(event, ensure_ascii=False) + "\n")
+        inserted += cursor.rowcount
+    if not dry_run:
+        conn.commit()
+    return inserted
+
+
 def run_topics(cfg: dict, db_path: str, raw_jsonl: str, dry_run: bool) -> None:
     conn = sqlite3.connect(db_path)
     raw_path = Path(raw_jsonl)
@@ -386,63 +449,71 @@ def run_topics(cfg: dict, db_path: str, raw_jsonl: str, dry_run: bool) -> None:
             LOG.error("topic=%s unparseable model output: %.200s", topic, content)
             continue
 
-        inserted = 0
-        for item in items[: cfg["max_items_per_topic"]]:
-            url = str(item.get("url") or "").strip()
-            title = str(item.get("title") or "").strip()
-            if not title and not url:
-                continue
-            observed_at = parse_posted_at(item.get("published_at"), cfg["days_back"])
-            event_id = hashlib.sha256(f"{url or title}|{observed_at[:10]}".encode("utf-8")).hexdigest()
-            event = {
-                "event_id": event_id,
-                "source": "xai_live_search",
-                "source_id": url or title,
-                "observed_at": observed_at,
-                "ingested_at": now_iso(),
-                "topic": topic,
-                "subcategory": None,
-                "payload": {
-                    "title": title,
-                    "url": url or None,
-                    "summary": (str(item.get("summary") or "").strip() or None),
-                    "author": (str(item.get("author") or "").strip() or None),
-                },
-                "derived": {},
-                "sentiment": {
-                    "label": normalize_sentiment(item.get("sentiment"), ("positive", "neutral", "negative"), "neutral"),
-                    "score": clamp(item.get("sentiment_score"), -1.0, 1.0, 0.0),
-                },
-                "status": "new",
-                "version": "v1",
-            }
-            if dry_run:
-                LOG.info("dry-run fin_event %s %s %.60s", topic, event_id[:12], title)
-                continue
-            cursor = conn.execute(
-                "INSERT OR IGNORE INTO fin_event "
-                "(event_id, source, source_id, observed_at, ingested_at, topic, subcategory, payload, derived, sentiment, status, version) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                (
-                    event["event_id"], event["source"], event["source_id"], event["observed_at"],
-                    event["ingested_at"], event["topic"], event["subcategory"],
-                    json.dumps(event["payload"], ensure_ascii=False),
-                    json.dumps(event["derived"]),
-                    json.dumps(event["sentiment"]),
-                    event["status"], event["version"],
-                ),
-            )
-            if cursor.rowcount:
-                with raw_path.open("a", encoding="utf-8") as fh:
-                    fh.write(json.dumps(event, ensure_ascii=False) + "\n")
-            inserted += cursor.rowcount
-        if not dry_run:
-            conn.commit()
+        inserted = insert_topic_item_rows(conn, raw_path, topic, items, cfg, dry_run)
         total_inserted += inserted
         LOG.info("topic=%s extracted=%d inserted=%d", topic, len(items), inserted)
 
     conn.close()
     LOG.info("topics done inserted=%d", total_inserted)
+
+
+# ── File ingest mode (Hermes agent hand-off) ─────────────────────────────────
+# The Hermes agent (SuperGrok OAuth — no xAI API key needed) searches X itself
+# and drops a JSON file; this mode validates, dedupes, and inserts it.
+# Expected shape (either key optional):
+#   {
+#     "tickers": [{"symbol": "AMD", "author": ..., "author_handle": ..., "url": ...,
+#                  "text": ..., "sentiment": "bullish|bearish|neutral",
+#                  "sentiment_score": -1..1, "confidence": 0..1, "posted_at": ISO}],
+#     "topics":  [{"topic": "Housing", "title": ..., "summary": ..., "url": ...,
+#                  "author": ..., "sentiment": "positive|neutral|negative",
+#                  "sentiment_score": -1..1, "published_at": ISO}]
+#   }
+
+def run_ingest_file(cfg: dict, db_path: str, raw_jsonl: str, file_path: str, dry_run: bool) -> None:
+    data = json.loads(Path(file_path).read_text(encoding="utf-8"))
+    if isinstance(data, list):
+        # Bare array: assume ticker posts (each item must carry "symbol").
+        data = {"tickers": data}
+
+    conn = sqlite3.connect(db_path)
+    conn.execute(TICKER_POSTS_SCHEMA)
+    raw_path = Path(raw_jsonl)
+
+    ticker_items = data.get("tickers") or []
+    by_symbol: dict[str, list] = {}
+    skipped = 0
+    for item in ticker_items:
+        symbol = str(item.get("symbol") or "").strip().lstrip("$").upper()
+        if not symbol:
+            skipped += 1
+            continue
+        by_symbol.setdefault(symbol, []).append(item)
+    tickers_inserted = 0
+    for symbol, items in by_symbol.items():
+        inserted = insert_ticker_post_rows(conn, symbol, items, cfg, dry_run)
+        tickers_inserted += inserted
+        LOG.info("ingest-file symbol=%s items=%d inserted=%d", symbol, len(items), inserted)
+
+    topic_items = data.get("topics") or []
+    by_topic: dict[str, list] = {}
+    for item in topic_items:
+        topic = str(item.get("topic") or "").strip()
+        if not topic:
+            skipped += 1
+            continue
+        by_topic.setdefault(topic, []).append(item)
+    topics_inserted = 0
+    for topic, items in by_topic.items():
+        inserted = insert_topic_item_rows(conn, raw_path, topic, items, cfg, dry_run)
+        topics_inserted += inserted
+        LOG.info("ingest-file topic=%s items=%d inserted=%d", topic, len(items), inserted)
+
+    conn.close()
+    LOG.info(
+        "ingest-file done file=%s ticker_posts_inserted=%d fin_events_inserted=%d skipped=%d",
+        file_path, tickers_inserted, topics_inserted, skipped,
+    )
 
 
 # ── Maintenance ───────────────────────────────────────────────────────────────
@@ -463,7 +534,8 @@ def purge_source(db_path: str, source: str, confirmed: bool) -> None:
 def main() -> None:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s", stream=sys.stdout)
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--mode", choices=["tickers", "topics"], help="ingest mode")
+    parser.add_argument("--mode", choices=["tickers", "topics", "ingest-file"], help="ingest mode")
+    parser.add_argument("--file", help="JSON file produced by the Hermes agent (required for --mode ingest-file)")
     parser.add_argument("--db", default=DEFAULT_DB)
     parser.add_argument("--config", default=DEFAULT_CONFIG)
     parser.add_argument("--raw-jsonl", default=DEFAULT_RAW_JSONL)
@@ -484,8 +556,12 @@ def main() -> None:
 
     if args.mode == "tickers":
         run_tickers(cfg, args.db, args.dry_run)
-    else:
+    elif args.mode == "topics":
         run_topics(cfg, args.db, args.raw_jsonl, args.dry_run)
+    else:
+        if not args.file:
+            parser.error("--mode ingest-file requires --file")
+        run_ingest_file(cfg, args.db, args.raw_jsonl, args.file, args.dry_run)
 
 
 if __name__ == "__main__":
