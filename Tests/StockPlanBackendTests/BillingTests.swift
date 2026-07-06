@@ -905,6 +905,7 @@ struct BillingTests {
             #expect(body.entitlementLevel == "temporary")
             #expect(body.isTrialActive == true)
             #expect(body.trialDaysRemaining != nil)
+            #expect(body.trialExpired == false)
             assertAllFeaturesAvailable(body)
         }
     }
@@ -930,6 +931,54 @@ struct BillingTests {
             #expect(body.isPremium == false)
             #expect(body.isTrialActive == false)
             #expect(body.trialDaysRemaining == nil)
+            // Trial window lapsed but the sweep job hasn't cleared the trial_* fields yet:
+            // isTrialExpired() catches this case so the client can show the subscribe prompt.
+            #expect(body.trialExpired == true)
+        }
+    }
+
+    @Test("Trial expired flag persists after the cleanup job clears trial fields")
+    func trialExpiredFlagPersistsAfterCleanupJob() async throws {
+        try await withApp { app in
+            let auth = try await registerUser(on: app, identifier: "trial-swept", keepDefaultTrial: true)
+            let user = try #require(try await User.find(auth.userId, on: app.db))
+            user.trialStartedAt = Date().addingTimeInterval(-8 * 86400)
+            user.trialDays = 7
+            user.trialTier = "temporary"
+            try await user.save(on: app.db)
+
+            // Run the sweep: markTrialExpired clears trial_* and stamps hadTrial = true.
+            try await app.trialService.markTrialExpired(user: user, db: app.db)
+            let swept = try #require(try await User.find(auth.userId, on: app.db))
+            #expect(swept.trialTier == nil)
+            #expect(swept.hadTrial == true)
+
+            let (status, context, _) = try await getBillingContext(token: auth.token, on: app)
+            #expect(status == .ok)
+            let body = try #require(context)
+            #expect(body.isPremium == false)
+            // hadTrial keeps trialExpired true even though isTrialExpired() now returns false.
+            #expect(body.trialExpired == true)
+        }
+    }
+
+    @Test("Never-trialed free user is not flagged as trial-expired")
+    func neverTrialedFreeUserIsNotTrialExpired() async throws {
+        try await withApp { app in
+            let auth = try await registerUser(on: app, identifier: "never-trialed", keepDefaultTrial: true)
+            // Simulate a user who never had a trial: clear the default trial without stamping hadTrial.
+            let user = try #require(try await User.find(auth.userId, on: app.db))
+            user.trialStartedAt = nil
+            user.trialDays = nil
+            user.trialTier = nil
+            user.hadTrial = false
+            try await user.save(on: app.db)
+
+            let (status, context, _) = try await getBillingContext(token: auth.token, on: app)
+            #expect(status == .ok)
+            let body = try #require(context)
+            #expect(body.isPremium == false)
+            #expect(body.trialExpired == false)
         }
     }
 

@@ -12,6 +12,10 @@ struct BillingContextResponse: Content, Equatable {
     let usage: [BillingUsageDTO]
     let trialDaysRemaining: Int?
     let isTrialActive: Bool
+    /// True when the user previously had a free trial that has now ended and they
+    /// are not currently entitled (drives the "trial ended → subscribe" surfaces).
+    /// Distinguishes an expired-trial user from a never-trialed free user.
+    let trialExpired: Bool
     let generatedAt: Date
 
     init(
@@ -25,6 +29,7 @@ struct BillingContextResponse: Content, Equatable {
         usage: [BillingUsageDTO],
         trialDaysRemaining: Int? = nil,
         isTrialActive: Bool = false,
+        trialExpired: Bool = false,
         generatedAt: Date
     ) {
         self.plan = plan
@@ -37,6 +42,7 @@ struct BillingContextResponse: Content, Equatable {
         self.usage = usage
         self.trialDaysRemaining = trialDaysRemaining
         self.isTrialActive = isTrialActive
+        self.trialExpired = trialExpired
         self.generatedAt = generatedAt
     }
 }

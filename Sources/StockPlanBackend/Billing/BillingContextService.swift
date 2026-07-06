@@ -53,6 +53,14 @@ struct DefaultBillingContextService: BillingContextService {
             (nil, false)
         }
 
+        // A trial has "expired" once the user is no longer entitled and either the
+        // background sweep has already stamped `hadTrial` (which clears the trial_*
+        // fields) or the trial window has lapsed but the sweep hasn't run yet.
+        // Never-trialed free users have `hadTrial == false` and no trial fields, so
+        // this stays false for them.
+        let trialExpired = !entitlement.isPremium
+            && (user.hadTrial || trialService.isTrialExpired(user: user))
+
         let usageRows = makeUsageRows(
             usage: usage,
             limits: limits,
@@ -82,6 +90,7 @@ struct DefaultBillingContextService: BillingContextService {
             usage: usageRows,
             trialDaysRemaining: trialDaysRemaining,
             isTrialActive: isTrialActive,
+            trialExpired: trialExpired,
             generatedAt: Date()
         )
     }

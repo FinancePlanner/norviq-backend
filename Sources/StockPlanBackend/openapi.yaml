@@ -5497,6 +5497,12 @@ components:
           nullable: true
         isTrialActive:
           type: boolean
+        trialExpired:
+          type: boolean
+          description: >-
+            True when the user previously had a free trial that has now ended and
+            they are not currently entitled. Distinguishes an expired-trial user
+            from a never-trialed free user; drives the trial-ended subscribe prompt.
         generatedAt:
           type: string
           format: date-time
