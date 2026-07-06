@@ -1,9 +1,14 @@
 # Infra Setup (backend view)
 
 How the backend is built, shipped, and run after the July 2026 migration from
-docker-compose-on-a-VPS to **GitOps on k3s**. Full platform detail lives in the
-`norviq-infra` repo (`docs/infra-setup.md`); this is the backend-developer slice.
-The **architecture deep-dive for study is §"Architecture, in depth"** near the end.
+docker-compose-on-a-VPS to **GitOps on k3s**. This is the backend-developer slice;
+the **architecture deep-dive for study is §"Architecture, in depth"** near the end.
+
+> **Full infra doc set is mirrored in [`docs/infra/`](infra/)** — the complete
+> `norviq-infra` guide + all runbooks (setup, credentials, cutover, rollback,
+> restore drill, disaster recovery), copied here so the backend repo is
+> self-contained. Source of truth is the `norviq-infra` repo; keep them in sync
+> when infra changes.
 
 ---
 
@@ -205,9 +210,23 @@ So to change a DB host you edit values (git); to rotate a JWT secret you re-seal
 
 ### Scaling / evolution path (when you have paying users)
 
-- **Vertical first**: bump the box (`server_type` in Terraform) — cheapest win.
-- **Then HA**: add nodes → k3s becomes multi-node → real machine redundancy, and
-  Postgres should move to a managed DB or a replicated operator (CloudNativePG).
-- **Separate staging**: give staging its own node once prod load matters.
-- None of these change the deploy *workflow* — that's the point of building it this
-  way now on a cheap box.
+You are **not** required to scale or to retire the old box on any schedule. Grow
+only when a real need appears. Full step-by-step in
+[`docs/infra/infra-setup.md` §6b](infra/infra-setup.md).
+
+- **Retire the old box whenever** — the new k3s box runs fine indefinitely; the
+  cutover (DNS flip + final DB copy, ~20–30 min, `docs/infra/runbook-cutover.md`)
+  is done at your pace. Keep the old box as a warm fallback until then.
+- **Vertical first**: bump `server_type` in `terraform/variables.tf`
+  (`cpx32` 8 GB, `cpx42` 16 GB) → `terraform apply` (replaces the server, IP
+  preserved → treat as a rebuild in a maintenance window). Cheapest headroom.
+- **Separate staging node**: once prod load matters, give staging its own box so a
+  staging deploy can't disturb prod. GitOps already splits the namespaces.
+- **Multi-node HA**: grow k3s to 3 server nodes (embedded etcd) + a Hetzner Load
+  Balancer → survives a node failure. First step that changes k3s bootstrap.
+- **Managed / replicated Postgres**: the single Postgres pod is the SPOF; move to
+  managed PG or CloudNativePG (replicas + failover + PITR). App just repoints
+  `DATABASE_HOST` (a values edit) + data migration.
+- None of these change the deploy *workflow* — that's the whole point of building
+  it this way now on a cheap box. Climb to HA/replicated-DB only when downtime
+  actually costs you money.
