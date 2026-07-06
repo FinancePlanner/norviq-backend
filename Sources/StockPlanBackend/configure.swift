@@ -218,6 +218,9 @@ public func configure(_ app: Application) async throws {
         .split(separator: ",")
         .map { $0.trimmingCharacters(in: .whitespaces).uppercased() }
         .filter { !$0.isEmpty }
+    if insightsProvider.isEnabled, trackedTickers.isEmpty {
+        app.logger.warning("HERMES_BASE_URL is set but HERMES_TRACKED_TICKERS is empty; ticker sentiment sync will fetch nothing.")
+    }
     app.insightsService = DefaultInsightsService(
         repo: app.insightsRepository,
         provider: insightsProvider,
