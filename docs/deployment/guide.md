@@ -57,9 +57,8 @@ sudo apt install -y nginx certbot python3-certbot-nginx supervisor
 Before configuring Nginx, ensure your domains point to your Hetzner machine:
 1. Find your Hetzner server's public IPv4 address.
 2. In your Namecheap dashboard, navigate to **Advanced DNS** for your domains.
-3. Add `A Records` for your APIs. Since you are hosting both on the same server, they will share the same IP:
-   - Host: `www.prod-norviq.online` (or `@`), Value: `YOUR_HETZNER_IP`
-   - Host: `www.dev-norviq.online` (or `@`), Value: `YOUR_HETZNER_IP`
+3. Add an `A` record for the production API:
+   - Host: `api`, Value: `YOUR_HETZNER_IP`
 4. Wait for DNS to propagate (can take a few minutes to hours).
 
 ### TLS (HTTPS) Certificates
@@ -170,27 +169,23 @@ Restart Nginx:
 sudo systemctl restart nginx
 ```
 
-### Hosting Multiple Environments (Dev & Prod)
+### Hosting the Production API
 
-To host both your development (`dev-norviq.online`) and production (`prod-norviq.online`) API environments securely on the same physical server, run two separate instances and route them through Nginx.
+The legacy remote dev API has been retired. Local development still uses
+`docker-compose.dev.yml`; the public remote API is production only.
 
-**1. Run Two API Instances with Docker Compose:**
-`docker-compose.production.yml` now supports overriding the bound port via `APP_PORT` and uses Docker compose projects (`-p`) to prevent database volume collisions. 
+**1. Run the production API with Docker Compose:**
+`docker-compose.production.yml` supports overriding the bound port via `APP_PORT`
+and uses the `prod` compose project.
 
-Start Prod on port `8080`:
+Start production on port `8080`:
 ```bash
 export APP_IMAGE=ghcr.io/yourusername/stockplanbackend:latest
 APP_PORT=8080 docker compose -p prod -f docker-compose.production.yml --env-file .env.production up -d
 ```
 
-Start Dev on port `8081`:
-```bash
-export APP_IMAGE=ghcr.io/yourusername/stockplanbackend:dev
-APP_PORT=8081 docker compose -p dev -f docker-compose.production.yml --env-file .env.development up -d
-```
-
-**2. Configure Two Nginx Server Blocks:**
-Create two separate files in `/etc/nginx/sites-available/` and symlink them to `sites-enabled`.
+**2. Configure the production Nginx server block:**
+Create `/etc/nginx/sites-available/norviq-prod` and symlink it to `sites-enabled`.
 
 *For Prod (`/etc/nginx/sites-available/norviq-prod`):*
 ```nginx
@@ -208,30 +203,14 @@ server {
 }
 ```
 
-*For Dev (`/etc/nginx/sites-available/norviq-dev`):*
-```nginx
-server {
-    listen 443 ssl;
-    http2 on;
-    server_name www.dev-norviq.online dev-norviq.online;
-    
-    # ... SSL certs and standard headers ...
-
-    location / {
-        proxy_pass http://127.0.0.1:8081; # Points to Dev API port
-        # ... proxy headers ...
-    }
-}
-```
-
-**3. Generate Certificates for Both:**
-Run Certbot twice to provision Let's Encrypt certificates for both domain sets:
+**3. Generate production certificates:**
 ```bash
 sudo certbot certonly --nginx -d www.prod-norviq.online -d prod-norviq.online
-sudo certbot certonly --nginx -d www.dev-norviq.online -d dev-norviq.online
 ```
 
-After generating certificates and writing the configurations, restart Nginx (`sudo systemctl restart nginx`). Both environments will now securely route traffic to their respective backend instances.
+After generating certificates and writing the configuration, restart Nginx
+(`sudo systemctl restart nginx`). Production traffic will route to the backend
+instance on port `8080`.
 
 ### Current Norviq Edge Gateway
 
@@ -245,7 +224,6 @@ The current VPS uses a Dockerized gateway Nginx in `/opt/gateway` instead of hos
 The gateway terminates HTTP/2 and HTTP/3 for both the API and web app, then proxies to internal Docker services over HTTP/1.1:
 
 - `api.norviq.org` / `api.norviqa.io` -> `prod-app-1:8080`
-- `dev.norviq.org` / `dev-api.norviqa.io` -> `dev-app-1:8080`
 - `norviq.org` / `www.norviq.org` -> `stockplanweb-web-1:6969`
 
 Use modern HTTP/2 syntax in gateway server blocks:

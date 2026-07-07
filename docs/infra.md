@@ -37,8 +37,8 @@ the **architecture deep-dive for study is §"Architecture, in depth"** near the 
 ### The workflow files
 - `.github/workflows/ci.yml` — tests/lint on PRs (unchanged, now a required check).
 - `.github/workflows/deploy-staging.yml` — the new build → GHCR → tag-bump flow.
-- `.github/workflows/deploy.yml` + `deploy-dev.yml` — **legacy SSH deploys**, kept
-  running until the k3s cutover completes, then deleted (migration Phase 5).
+- `.github/workflows/deploy.yml` — legacy production SSH deploy, kept until the
+  k3s cutover completes. The old dev SSH deploy has been retired.
 
 ---
 

@@ -26,4 +26,4 @@ Window: evening, ~20–30 min (dominated by dump/restore).
 4. **Flip DNS**: A/AAAA for `api.norviqa.io`, `norviq.org`, `www.norviq.org` → green primary IP (terraform output `server_ipv4`/`server_ipv6`).
 5. **Verify**: Grafana Cloud synthetics green; `curl https://api.norviqa.io/health/ready`; iOS login; web login session; RevenueCat webhook delivery; Sentry quiet.
 6. **Keep blue 2 weeks** (app stopped, data intact). Rollback = revert DNS + `docker compose ... start app` (minutes). Note: writes made on green after cutover are lost on rollback unless you re-dump green → blue first — decide before rolling back.
-7. **T+2 weeks**: snapshot blue's disk in Hetzner console, delete blue server. Delete legacy workflows: backend `deploy.yml`, `deploy-dev.yml`; web `deploy.yml` + `scripts/deploy/on-server.sh`.
+7. **T+2 weeks**: snapshot blue's disk in Hetzner console, delete blue server. Delete remaining legacy workflows: backend `deploy.yml`; web `deploy.yml` + `scripts/deploy/on-server.sh`.

@@ -449,11 +449,10 @@ Avoid gating basic onboarding too aggressively. Users should experience value be
 ### TestFlight → App Store Order
 
 1. Configure APNS + Apple Sign In on backend
-2. Deploy to dev server → test with TestFlight build
+2. Deploy to production server → test with TestFlight sandbox accounts
 3. Configure RevenueCat + subscription products
 4. Test purchases via TestFlight sandbox
-5. Deploy to production server
-6. Submit iOS app for App Store review
+5. Submit iOS app for App Store review
 
 ### Already Done
 

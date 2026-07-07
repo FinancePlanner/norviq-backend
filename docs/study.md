@@ -1583,7 +1583,7 @@ Implementations (`FMPMarketDataProvider`, `FinnhubMarketDataProvider`) use Vapor
 - `make backup-db` / `make restore-drill` – Postgres backup/restore (GPG encrypted)
 - `make production-preflight` – cert/domain checks pre-deploy
 
-**CI/CD**: `.github/workflows/deploy.yml` and `deploy-dev.yml` – build container, push to GHCR, SSH deploy to Hetzner (inferred from README).
+**CI/CD**: `.github/workflows/deploy.yml` – build container, push to GHCR, SSH deploy to Hetzner (inferred from README).
 
 ### RevenueCat Integration
 
@@ -1834,7 +1834,7 @@ Implementations (`FMPMarketDataProvider`, `FinnhubMarketDataProvider`) use Vapor
 - `make backup-db` / `make restore-drill` – Postgres backup/restore (GPG encrypted)
 - `make production-preflight` – cert/domain checks pre-deploy
 
-**CI/CD**: `.github/workflows/deploy.yml` and `deploy-dev.yml` – build container, push to GHCR, SSH deploy to Hetzner (inferred from README).
+**CI/CD**: `.github/workflows/deploy.yml` – build container, push to GHCR, SSH deploy to Hetzner (inferred from README).
 
 ### RevenueCat Integration
 

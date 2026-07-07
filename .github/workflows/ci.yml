@@ -4,16 +4,14 @@ on:
   push:
     branches-ignore:
       - main
-      - dev
     paths:
       - 'Sources/**'
       - 'Tests/**'
       - 'Package.swift'
       - 'Package.resolved'
   pull_request:
-    branches-ignore:
+    branches:
       - main
-      - dev
     paths:
       - 'Sources/**'
       - 'Tests/**'

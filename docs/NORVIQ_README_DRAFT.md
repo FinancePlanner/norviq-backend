@@ -71,7 +71,6 @@ A native iOS app designed for performance and clean UI, organized by functional 
 ### Environments
 The app can point to three environments via `AppEnvironment.swift`:
 - **Local**: `http://localhost:8080` (requires Docker/Vapor running locally).
-- **Dev**: `https://dev-api.norviqa.io`
 - **Production**: `https://api.norviqa.io`
 
 ---

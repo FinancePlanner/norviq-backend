@@ -66,7 +66,7 @@ These items should be closed or explicitly accepted before public MVP launch.
 - [ ] Add focused UI smoke coverage for the core Expenses and Reports journey: set salary/month plan, add planned item, record expense, view reports or empty/error states.
 - [ ] Verify stock detail projections/comparison/fundamentals tabs are backend-hydrated where marketed, or explicitly position incomplete sections as unavailable/empty for MVP.
 - [ ] Replace placeholder testimonials/trust copy in paywalls and onboarding with real, supportable copy.
-- [ ] Verify TestFlight build routing: TestFlight uses the dev API, App Store builds use the production API, and no debug fixtures appear in release.
+- [ ] Verify TestFlight and App Store builds use the production API and no debug fixtures appear in release.
 - [ ] Verify RevenueCat iOS API key, App Store subscription products, `pro_access` entitlement, trial configuration, restore purchases, manage subscription, and cancellation/expiration states.
 - [ ] Verify paywall legal links, About legal links, privacy welcome screen, and account deletion flow satisfy App Store review requirements.
 - [ ] Verify APNS permissions, device registration, target alert deep links, and earnings notification preferences on a real device or explicitly defer push-dependent claims.
