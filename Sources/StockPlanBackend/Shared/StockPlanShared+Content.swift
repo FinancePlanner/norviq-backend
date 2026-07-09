@@ -192,3 +192,21 @@ extension RatiosResponse: @retroactive Content {}
 
 extension AIInsightCardResponse: @retroactive Content {}
 extension AIInsightHighlight: @retroactive Content {}
+
+// MARK: - Macro / Inflation
+
+extension InflationSnapshotResponse: @retroactive Content {}
+extension InflationGaugeDTO: @retroactive Content {}
+extension InflationComponentDTO: @retroactive Content {}
+extension TopMoverDTO: @retroactive Content {}
+extension NextPrintDTO: @retroactive Content {}
+extension MacroSeriesPoint: @retroactive Content {}
+extension MacroSeriesResponse: @retroactive Content {}
+extension SupportedCountry: @retroactive Content {}
+extension FedWatchResponse: @retroactive Content {}
+extension MacroIndicatorDTO: @retroactive Content {}
+extension FOMCMeetingDTO: @retroactive Content {}
+extension RateMoveOddsDTO: @retroactive Content {}
+extension MacroItemDTO: @retroactive Content {}
+extension MacroItemsResponse: @retroactive Content {}
+extension MacroItemSeriesResponse: @retroactive Content {}

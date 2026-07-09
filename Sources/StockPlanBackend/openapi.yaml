@@ -41,6 +41,14 @@ tags:
   - name: Notifications
   - name: Billing
   - name: Export
+  - name: Macro
+    description: >-
+      Global macro / inflation data (Nowflation parity). Country-aware via
+      `?country=US|BR|PT|EA` (defaults to US). Sources — US uses FRED
+      (`FRED_API_KEY`) plus optional Nowflation enrichment
+      (`NOWFLATION_BASE_URL`/`NOWFLATION_SNAPSHOT_PATH`); PT/EA use Eurostat
+      HICP; BR uses IBGE SIDRA. Responses fall back to stub data marked
+      `source="stub"` while `MACRO_ALLOW_STUB_FALLBACK=true`.
 paths:
   /health:
     get:
@@ -5398,7 +5406,229 @@ paths:
         '501':
           description: Not Implemented
 
+  /v1/macro/inflation/current:
+    get:
+      tags: [Macro]
+      operationId: macroInflationCurrent
+      summary: Current inflation snapshot (headline, gauges, components, top movers)
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/MacroCountryParam'
+      responses:
+        '200':
+          description: Snapshot for the requested country
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InflationSnapshotResponse'
+        '401':
+          description: Unauthorized
+        '429':
+          description: Rate limit exceeded
+        '503':
+          description: No macro data available and stub fallback disabled
+  /v1/macro/inflation/components:
+    get:
+      tags: [Macro]
+      operationId: macroInflationComponents
+      summary: Component breakdown of the current snapshot
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/MacroCountryParam'
+      responses:
+        '200':
+          description: Component list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/InflationComponentDTO'
+        '401':
+          description: Unauthorized
+  /v1/macro/top-movers:
+    get:
+      tags: [Macro]
+      operationId: macroTopMovers
+      summary: Largest category moves (Utilities, Food, Shelter emphasis)
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/MacroCountryParam'
+        - name: focus
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Comma-separated substrings to filter categories (e.g. `utilities,food,shelter`)
+      responses:
+        '200':
+          description: Top movers
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/TopMoverDTO'
+        '401':
+          description: Unauthorized
+  /v1/macro/inflation/series:
+    get:
+      tags: [Macro]
+      operationId: macroInflationSeries
+      summary: Historical series for charts (latest vintage per period)
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/MacroCountryParam'
+        - name: series
+          in: query
+          required: false
+          schema:
+            type: string
+          description: 'Series key (default `headline_cpi`). Known keys: `headline_cpi`, `core_cpi`, `pce`, `core_pce`, `trimmed_mean_cpi`, `energy_cpi`, `food_cpi`, `nowflation_gauge`, `dgs2`, `dgs10`, `dfii10`, `t10yie`. Legacy aliases `headline`, `official_cpi`, `nowflation_cpi`, `core` are accepted.'
+        - name: from
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Inclusive start period (yyyy-MM-dd)
+        - name: to
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Inclusive end period (yyyy-MM-dd)
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 120
+            maximum: 1000
+          description: Most recent periods to return
+      responses:
+        '200':
+          description: Series points
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MacroSeriesResponse'
+        '401':
+          description: Unauthorized
+  /v1/macro/supported-countries:
+    get:
+      tags: [Macro]
+      operationId: macroSupportedCountries
+      summary: Supported countries with data source and freshness metadata
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Supported countries
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/SupportedCountry'
+        '401':
+          description: Unauthorized
+  /v1/macro/fed-watch:
+    get:
+      tags: [Macro]
+      operationId: macroFedWatch
+      summary: Fed Watch — Core PCE vs 2% target, trimmed mean, treasury yields, next FOMC
+      description: US-only. Assembled from stored FRED points (`PCEPILFE`, `TRMMEANCPIM158SFRBCLE`, `DGS2`, `DGS10`, `DFII10`, `T10YIE`). FOMC meeting odds are not populated (no free odds API).
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Fed Watch snapshot
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FedWatchResponse'
+        '401':
+          description: Unauthorized
+        '503':
+          description: No US macro data ingested yet and stub fallback disabled
+  /v1/macro/items:
+    get:
+      tags: [Macro]
+      operationId: macroItems
+      summary: Everyday item trackers (eggs, milk, gasoline, ...)
+      description: US items carry average prices (BLS APU series); PT/EA/BR items are index-based (YoY only, `latestPrice` null).
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/MacroCountryParam'
+      responses:
+        '200':
+          description: Item catalog with latest readings
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MacroItemsResponse'
+        '401':
+          description: Unauthorized
+  /v1/macro/items/{itemId}/series:
+    get:
+      tags: [Macro]
+      operationId: macroItemSeries
+      summary: Historical series for one tracked item
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: itemId
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Item id from `/v1/macro/items` (e.g. `eggs`)
+        - $ref: '#/components/parameters/MacroCountryParam'
+        - name: from
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: to
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 120
+            maximum: 1000
+      responses:
+        '200':
+          description: Item series points
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MacroItemSeriesResponse'
+        '401':
+          description: Unauthorized
+        '404':
+          description: Unknown item for the requested country
+
 components:
+  parameters:
+    MacroCountryParam:
+      name: country
+      in: query
+      required: false
+      schema:
+        type: string
+        enum: [US, BR, PT, EA]
+        default: US
+      description: Country code (case-insensitive; `EURO`/`EZ` accepted as aliases for `EA`). Unknown values fall back to US.
   securitySchemes:
     bearerAuth:
       type: http
@@ -9376,3 +9606,346 @@ components:
           type: integer
           format: int32
           nullable: true
+    InflationGaugeDTO:
+      type: object
+      required: [name, nowValue, unit]
+      properties:
+        name:
+          type: string
+        nowValue:
+          type: number
+          format: double
+        officialValue:
+          type: number
+          format: double
+          nullable: true
+        officialAsOf:
+          type: string
+          nullable: true
+        gap:
+          type: number
+          format: double
+          nullable: true
+        unit:
+          type: string
+        colVariant:
+          type: number
+          format: double
+          nullable: true
+        cumulativeSinceBase:
+          type: number
+          format: double
+          nullable: true
+        basePeriod:
+          type: string
+          nullable: true
+    InflationComponentDTO:
+      type: object
+      required: [category, ourYoY]
+      properties:
+        category:
+          type: string
+        ourYoY:
+          type: number
+          format: double
+        blsYoY:
+          type: number
+          format: double
+          nullable: true
+        cpiWeight:
+          type: number
+          format: double
+          nullable: true
+        contributionBps:
+          type: number
+          format: double
+          nullable: true
+    TopMoverDTO:
+      type: object
+      required: [category, changeYoY]
+      properties:
+        category:
+          type: string
+        changeYoY:
+          type: number
+          format: double
+        changeMoM:
+          type: number
+          format: double
+          nullable: true
+        weight:
+          type: number
+          format: double
+          nullable: true
+        direction:
+          type: string
+          nullable: true
+          enum: [up, down, flat]
+    NextPrintDTO:
+      type: object
+      properties:
+        date:
+          type: string
+          nullable: true
+        daysRemaining:
+          type: integer
+          nullable: true
+        forecastNowflation:
+          type: number
+          format: double
+          nullable: true
+        streetConsensus:
+          type: number
+          format: double
+          nullable: true
+        lastOfficial:
+          type: number
+          format: double
+          nullable: true
+    InflationSnapshotResponse:
+      type: object
+      required: [country, currency, asOf, updatedAt, source, headline, gauges, components, topMovers]
+      properties:
+        country:
+          type: string
+        currency:
+          type: string
+        asOf:
+          type: string
+        updatedAt:
+          type: string
+        source:
+          type: string
+          description: Data attribution. `stub` indicates fallback demo data.
+        headline:
+          $ref: '#/components/schemas/InflationGaugeDTO'
+        gauges:
+          type: array
+          items:
+            $ref: '#/components/schemas/InflationGaugeDTO'
+        components:
+          type: array
+          items:
+            $ref: '#/components/schemas/InflationComponentDTO'
+        topMovers:
+          type: array
+          items:
+            $ref: '#/components/schemas/TopMoverDTO'
+        notes:
+          type: string
+          nullable: true
+        nextPrintCountdown:
+          nullable: true
+          allOf:
+            - $ref: '#/components/schemas/NextPrintDTO'
+    MacroSeriesPoint:
+      type: object
+      required: [date, value, series]
+      properties:
+        date:
+          type: string
+        value:
+          type: number
+          format: double
+        series:
+          type: string
+    MacroSeriesResponse:
+      type: object
+      required: [series, points]
+      properties:
+        series:
+          type: string
+        points:
+          type: array
+          items:
+            $ref: '#/components/schemas/MacroSeriesPoint'
+        country:
+          type: string
+          nullable: true
+        unit:
+          type: string
+          nullable: true
+    SupportedCountry:
+      type: object
+      required: [code, name, currency, dataSource, hasDailyData]
+      properties:
+        code:
+          type: string
+        name:
+          type: string
+        currency:
+          type: string
+        dataSource:
+          type: string
+        hasDailyData:
+          type: boolean
+    MacroIndicatorDTO:
+      type: object
+      required: [name, value, unit, asOf, source]
+      properties:
+        name:
+          type: string
+        value:
+          type: number
+          format: double
+        unit:
+          type: string
+        asOf:
+          type: string
+        previousValue:
+          type: number
+          format: double
+          nullable: true
+        changeFromPrevious:
+          type: number
+          format: double
+          nullable: true
+        source:
+          type: string
+    RateMoveOddsDTO:
+      type: object
+      required: [move, probability]
+      properties:
+        move:
+          type: string
+        probability:
+          type: number
+          format: double
+        source:
+          type: string
+          nullable: true
+    FOMCMeetingDTO:
+      type: object
+      required: [startDate, endDate, daysRemaining]
+      properties:
+        startDate:
+          type: string
+        endDate:
+          type: string
+        daysRemaining:
+          type: integer
+        hasPressConference:
+          type: boolean
+          nullable: true
+        odds:
+          type: array
+          nullable: true
+          items:
+            $ref: '#/components/schemas/RateMoveOddsDTO'
+    FedWatchResponse:
+      type: object
+      required: [asOf, updatedAt, source, corePCE, fedTarget, distanceToTarget]
+      properties:
+        asOf:
+          type: string
+        updatedAt:
+          type: string
+        source:
+          type: string
+        corePCE:
+          $ref: '#/components/schemas/MacroIndicatorDTO'
+        fedTarget:
+          type: number
+          format: double
+        distanceToTarget:
+          type: number
+          format: double
+        trimmedMeanCPI:
+          nullable: true
+          allOf:
+            - $ref: '#/components/schemas/MacroIndicatorDTO'
+        treasury2Y:
+          nullable: true
+          allOf:
+            - $ref: '#/components/schemas/MacroIndicatorDTO'
+        treasury10Y:
+          nullable: true
+          allOf:
+            - $ref: '#/components/schemas/MacroIndicatorDTO'
+        spread10Y2Y:
+          type: number
+          format: double
+          nullable: true
+        real10Y:
+          nullable: true
+          allOf:
+            - $ref: '#/components/schemas/MacroIndicatorDTO'
+        breakeven10Y:
+          nullable: true
+          allOf:
+            - $ref: '#/components/schemas/MacroIndicatorDTO'
+        nextFOMC:
+          nullable: true
+          allOf:
+            - $ref: '#/components/schemas/FOMCMeetingDTO'
+        stance:
+          type: string
+          nullable: true
+          enum: [restrictive, neutral, accommodative]
+        notes:
+          type: string
+          nullable: true
+    MacroItemDTO:
+      type: object
+      required: [id, name, country, currency, unit, source, hasSeries]
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        emoji:
+          type: string
+          nullable: true
+        country:
+          type: string
+        currency:
+          type: string
+        unit:
+          type: string
+        latestPrice:
+          type: number
+          format: double
+          nullable: true
+        changeYoY:
+          type: number
+          format: double
+          nullable: true
+        changeMoM:
+          type: number
+          format: double
+          nullable: true
+        asOf:
+          type: string
+          nullable: true
+        source:
+          type: string
+        hasSeries:
+          type: boolean
+    MacroItemsResponse:
+      type: object
+      required: [country, updatedAt, items]
+      properties:
+        country:
+          type: string
+        updatedAt:
+          type: string
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/MacroItemDTO'
+    MacroItemSeriesResponse:
+      type: object
+      required: [itemId, country, currency, unit, points]
+      properties:
+        itemId:
+          type: string
+        country:
+          type: string
+        currency:
+          type: string
+        unit:
+          type: string
+        points:
+          type: array
+          items:
+            $ref: '#/components/schemas/MacroSeriesPoint'

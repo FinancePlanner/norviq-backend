@@ -202,4 +202,44 @@ struct InsightsServiceTests {
         #expect(parseHermesTimestamp("not-a-date") == nil)
         #expect(parseHermesTimestamp(nil) == nil)
     }
+
+    @Test("POST /v1/insights/sync requires authentication")
+    func syncRequiresAuth() async throws {
+        try await withApp { app in
+            try await app.testing().test(.POST, "v1/insights/sync", afterResponse: { res async throws in
+                #expect(res.status == .unauthorized)
+            })
+        }
+    }
+
+    @Test("POST /v1/insights/sync is fail-closed when INSIGHTS_ADMIN_EMAILS is unset")
+    func syncForbiddenForNonAdmin() async throws {
+        try await withApp { app in
+            let token = try await registerToken(app: app)
+            try await app.testing().test(.POST, "v1/insights/sync", beforeRequest: { req in
+                req.headers.bearerAuthorization = .init(token: token)
+            }, afterResponse: { res async throws in
+                #expect(res.status == .forbidden)
+            })
+        }
+    }
+
+    private func registerToken(app: Application) async throws -> String {
+        let id = String(UUID().uuidString.replacingOccurrences(of: "-", with: "").lowercased().prefix(12))
+        let register = AuthRegisterRequest(
+            username: "test_\(id)",
+            password: "Password123!",
+            confirmPassword: "Password123!",
+            email: "test+\(id)@example.com",
+            dateOfBirth: Date(timeIntervalSince1970: 946_684_800)
+        )
+        var token: String?
+        try await app.testing().test(.POST, "v1/auth/register", beforeRequest: { req in
+            try req.content.encode(register)
+        }, afterResponse: { res async throws in
+            #expect(res.status == .ok)
+            token = try res.content.decode(AuthResponse.self).token
+        })
+        return try #require(token)
+    }
 }
