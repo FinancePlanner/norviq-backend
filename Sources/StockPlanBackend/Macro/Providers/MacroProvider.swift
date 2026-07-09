@@ -1,0 +1,109 @@
+import Foundation
+import StockPlanShared
+import Vapor
+
+/// Countries with first-class macro/inflation support.
+enum MacroCountry: String, CaseIterable, Sendable {
+    case us = "US"
+    case br = "BR"
+    case pt = "PT"
+    case ea = "EA"
+
+    /// Accepts case-insensitive input plus legacy aliases ("EURO" → EA).
+    init?(query raw: String?) {
+        guard let raw else { return nil }
+        let normalized = raw.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
+        switch normalized {
+        case "US": self = .us
+        case "BR": self = .br
+        case "PT": self = .pt
+        case "EA", "EURO", "EZ": self = .ea
+        default: return nil
+        }
+    }
+
+    var currency: String {
+        switch self {
+        case .us: "USD"
+        case .br: "BRL"
+        case .pt, .ea: "EUR"
+        }
+    }
+
+    var displayName: String {
+        switch self {
+        case .us: "United States"
+        case .br: "Brazil"
+        case .pt: "Portugal"
+        case .ea: "Euro Area"
+        }
+    }
+}
+
+/// Registry of series keys stored in `macro_series_points.series_key`.
+/// Item price series use the `item.<id>` convention (see `itemKey`).
+enum MacroSeriesKey: String, CaseIterable, Sendable {
+    case headlineCPI = "headline_cpi"
+    case coreCPI = "core_cpi"
+    case pce
+    case corePCE = "core_pce"
+    case trimmedMeanCPI = "trimmed_mean_cpi"
+    case energyCPI = "energy_cpi"
+    case foodCPI = "food_cpi"
+    case nowflationGauge = "nowflation_gauge"
+    case treasury2Y = "dgs2"
+    case treasury10Y = "dgs10"
+    case real10Y = "dfii10"
+    case breakeven10Y = "t10yie"
+
+    static func itemKey(_ itemID: String) -> String {
+        "item.\(itemID)"
+    }
+
+    /// Maps legacy client series names ("nowflation_cpi", "official_cpi",
+    /// "headline") onto stored keys so old iOS builds keep working.
+    static func resolve(_ raw: String?) -> String {
+        guard let raw, !raw.isEmpty else { return MacroSeriesKey.headlineCPI.rawValue }
+        let normalized = raw.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        switch normalized {
+        case "headline", "official_cpi", "cpi": return MacroSeriesKey.headlineCPI.rawValue
+        case "nowflation_cpi": return MacroSeriesKey.nowflationGauge.rawValue
+        case "core", "core_cpi": return MacroSeriesKey.coreCPI.rawValue
+        default: return normalized
+        }
+    }
+}
+
+/// Snapshot plus the raw series points backing it, ready for persistence.
+struct MacroProviderResult: Sendable {
+    var snapshot: InflationSnapshotResponse
+    var points: [MacroSeriesPointRecord]
+}
+
+/// A primary/fallback data source for one or more countries.
+protocol MacroProvider: Sendable {
+    var name: String { get }
+    func supports(_ country: MacroCountry) -> Bool
+    func fetchSnapshot(country: MacroCountry, on req: Request) async throws -> MacroProviderResult
+}
+
+/// Optional layer applied on top of a primary result (e.g. Nowflation daily
+/// gauge on top of official FRED numbers). Must never fail the refresh:
+/// implementations return the input unchanged on any error.
+protocol MacroEnrichmentProviding: Sendable {
+    var name: String { get }
+    var isEnabled: Bool { get }
+    func enrich(_ result: MacroProviderResult, country: MacroCountry, on req: Request) async -> MacroProviderResult
+}
+
+struct DisabledMacroProvider: MacroProvider {
+    let name = "disabled"
+
+    func supports(_: MacroCountry) -> Bool {
+        false
+    }
+
+    func fetchSnapshot(country: MacroCountry, on _: Request) async throws -> MacroProviderResult {
+        throw Abort(.serviceUnavailable, reason: "Macro data provider is disabled for \(country.rawValue).")
+    }
+}
