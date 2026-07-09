@@ -1079,10 +1079,18 @@ private extension DatabaseStatisticsRepository {
             return "Industrials"
         }
 
-        if symbol.hasPrefix("XLE") { return "Energy" }
-        if symbol.hasPrefix("XLK") { return "Technology" }
-        if symbol.hasPrefix("XLF") { return "Financials" }
-        if symbol.hasPrefix("XLV") { return "Healthcare" }
+        if symbol.hasPrefix("XLE") {
+            return "Energy"
+        }
+        if symbol.hasPrefix("XLK") {
+            return "Technology"
+        }
+        if symbol.hasPrefix("XLF") {
+            return "Financials"
+        }
+        if symbol.hasPrefix("XLV") {
+            return "Healthcare"
+        }
         return "Unknown"
     }
 

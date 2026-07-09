@@ -117,6 +117,26 @@ The differentiator. Two layers:
 
 Bonus ideas parked for later: multi-user/household mode, side-income tracking, subscription optimizer, financial health score, scenario planning ("what if I buy a house in 2 years?").
 
+## Macro & Inflation Context (Nowflation Parity) — Post-MVP Addition
+
+**See dedicated doc**: `docs/POST-MVP.md`
+
+High-level addition after core MVP acceptance:
+
+- New public macro data surface (inspired by nowflation.com).
+- Daily Nowflation-style gauge + vs official BLS/PCE.
+- Top movers (Utilities, Food, Shelter emphasis) + component breakdowns.
+- Time series for charts.
+- iOS + web surfaces + optional dashboard context card.
+- Personalization ("My Inflation") using expense data in later phase.
+- Data fetched from nowflation.com (open data) initially; long-term primary sources.
+
+Endpoints start at `/v1/macro/inflation/current` (see `MacroController.swift`).
+
+This fills the cost-of-living / macro backdrop gap for American users.
+
+---
+
 ## Phased Roadmap
 
 | Phase | Contents | Depends on |

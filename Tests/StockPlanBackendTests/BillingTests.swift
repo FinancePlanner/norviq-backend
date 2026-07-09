@@ -77,11 +77,21 @@ struct BillingTests {
         "app_user_id": "\(appUserId)",
         "product_id": "\(productId)"
         """
-        if let ms = expirationAtMs { fields += ",\n\"expiration_at_ms\": \(ms)" }
-        if let ms = gracePeriodMs { fields += ",\n\"grace_period_expires_date_ms\": \(ms)" }
-        if let originalTransactionId { fields += ",\n\"original_transaction_id\": \"\(originalTransactionId)\"" }
-        if let newProductId { fields += ",\n\"new_product_id\": \"\(newProductId)\"" }
-        if let store { fields += ",\n\"store\": \"\(store)\"" }
+        if let ms = expirationAtMs {
+            fields += ",\n\"expiration_at_ms\": \(ms)"
+        }
+        if let ms = gracePeriodMs {
+            fields += ",\n\"grace_period_expires_date_ms\": \(ms)"
+        }
+        if let originalTransactionId {
+            fields += ",\n\"original_transaction_id\": \"\(originalTransactionId)\""
+        }
+        if let newProductId {
+            fields += ",\n\"new_product_id\": \"\(newProductId)\""
+        }
+        if let store {
+            fields += ",\n\"store\": \"\(store)\""
+        }
         return "{\"event\": {\(fields)}}"
     }
 

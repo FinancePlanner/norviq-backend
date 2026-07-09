@@ -425,12 +425,24 @@ extension BillingController {
     }
 
     func preferredProductSort(_ lhs: String, _ rhs: String) -> Bool {
-        if lhs == "pro_yearly" { return true }
-        if rhs == "pro_yearly" { return false }
-        if lhs == "pro_annual" { return true }
-        if rhs == "pro_annual" { return false }
-        if lhs == "pro_monthly" { return true }
-        if rhs == "pro_monthly" { return false }
+        if lhs == "pro_yearly" {
+            return true
+        }
+        if rhs == "pro_yearly" {
+            return false
+        }
+        if lhs == "pro_annual" {
+            return true
+        }
+        if rhs == "pro_annual" {
+            return false
+        }
+        if lhs == "pro_monthly" {
+            return true
+        }
+        if rhs == "pro_monthly" {
+            return false
+        }
         return lhs < rhs
     }
 

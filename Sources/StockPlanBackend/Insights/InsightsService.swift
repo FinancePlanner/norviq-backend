@@ -272,8 +272,12 @@ private extension DefaultInsightsService {
 
     func sentimentLabel(forScore score: Double?, postLabels: [String]) -> String {
         if let score {
-            if score > 0.15 { return "bullish" }
-            if score < -0.15 { return "bearish" }
+            if score > 0.15 {
+                return "bullish"
+            }
+            if score < -0.15 {
+                return "bearish"
+            }
             return "neutral"
         }
         // No numeric scores: fall back to a majority vote over the post labels.

@@ -898,7 +898,9 @@ struct DefaultAuthService: AuthService {
         case .email:
             return maskEmail(destination)
         case .sms:
-            if destination.count <= 4 { return "••••" }
+            if destination.count <= 4 {
+                return "••••"
+            }
             return "••••\(destination.suffix(4))"
         }
     }

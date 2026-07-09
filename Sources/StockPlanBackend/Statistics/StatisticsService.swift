@@ -145,7 +145,9 @@ private extension DefaultStatisticsService {
     func parsePeriod(_ raw: String?) throws -> StatisticsPeriod {
         guard let raw else { return .oneMonth }
         let normalized = raw.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        if normalized.isEmpty { return .oneMonth }
+        if normalized.isEmpty {
+            return .oneMonth
+        }
 
         switch normalized {
         case "1w", "7d", "week":

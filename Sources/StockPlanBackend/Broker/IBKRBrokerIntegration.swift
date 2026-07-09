@@ -426,7 +426,9 @@ struct IBKRBrokerSyncService {
                     .filter(\.$accountId == sourceAccountId)
                     .filter(\.$externalId == externalID)
                     .first() != nil
-                if exists { continue }
+                if exists {
+                    continue
+                }
             }
 
             let instrument = try await requireInstrument(

@@ -249,8 +249,12 @@ struct LiveFMPMarketDataProvider: FMPMarketDataProvider, CryptoDataProvider {
     {
         let symbol = try normalizeSymbol(symbol)
         var query: [(String, String?)] = [("symbol", symbol)]
-        if let from { query.append(("from", from)) }
-        if let to { query.append(("to", to)) }
+        if let from {
+            query.append(("from", from))
+        }
+        if let to {
+            query.append(("to", to))
+        }
         return try await fetchJSON(
             path: "/stable/historical-price-eod/light",
             query: query,
@@ -263,8 +267,12 @@ struct LiveFMPMarketDataProvider: FMPMarketDataProvider, CryptoDataProvider {
     {
         let symbol = try normalizeSymbol(symbol)
         var query: [(String, String?)] = [("symbol", symbol)]
-        if let from { query.append(("from", from)) }
-        if let to { query.append(("to", to)) }
+        if let from {
+            query.append(("from", from))
+        }
+        if let to {
+            query.append(("to", to))
+        }
         return try await fetchJSON(
             path: "/stable/historical-price-eod/full",
             query: query,
@@ -299,11 +307,21 @@ struct LiveFMPMarketDataProvider: FMPMarketDataProvider, CryptoDataProvider {
         on req: Request
     ) async throws -> [FMPMarketNewsItem] {
         var query: [(String, String?)] = []
-        if let symbol { try query.append(("symbol", normalizeSymbol(symbol))) }
-        if let page { query.append(("page", String(page))) }
-        if let limit { query.append(("limit", String(limit))) }
-        if let from { query.append(("from", from)) }
-        if let to { query.append(("to", to)) }
+        if let symbol {
+            try query.append(("symbol", normalizeSymbol(symbol)))
+        }
+        if let page {
+            query.append(("page", String(page)))
+        }
+        if let limit {
+            query.append(("limit", String(limit)))
+        }
+        if let from {
+            query.append(("from", from))
+        }
+        if let to {
+            query.append(("to", to))
+        }
 
         return try await fetchJSON(
             path: "/stable/news/crypto-latest",
@@ -317,8 +335,12 @@ struct LiveFMPMarketDataProvider: FMPMarketDataProvider, CryptoDataProvider {
     ) async throws -> [CryptoHistoricalPoint] {
         let symbol = try normalizeSymbol(symbol)
         var query: [(String, String?)] = [("symbol", symbol)]
-        if let from { query.append(("from", from)) }
-        if let to { query.append(("to", to)) }
+        if let from {
+            query.append(("from", from))
+        }
+        if let to {
+            query.append(("to", to))
+        }
         return try await fetchJSON(
             path: "/stable/historical-chart/\(interval)",
             query: query,
@@ -659,10 +681,18 @@ struct LiveFMPMarketDataProvider: FMPMarketDataProvider, CryptoDataProvider {
         on req: Request
     ) async throws -> [FMPMarketNewsItem] {
         var query: [(String, String?)] = []
-        if let page { query.append(("page", String(page))) }
-        if let limit { query.append(("limit", String(limit))) }
-        if let from { query.append(("from", formatISODateOnly(from))) }
-        if let to { query.append(("to", formatISODateOnly(to))) }
+        if let page {
+            query.append(("page", String(page)))
+        }
+        if let limit {
+            query.append(("limit", String(limit)))
+        }
+        if let from {
+            query.append(("from", formatISODateOnly(from)))
+        }
+        if let to {
+            query.append(("to", formatISODateOnly(to)))
+        }
 
         return try await fetchJSON(
             path: "/stable/news/stock-latest",
@@ -682,8 +712,12 @@ struct LiveFMPMarketDataProvider: FMPMarketDataProvider, CryptoDataProvider {
     ) async throws -> [CryptoHistoricalPoint] {
         let symbol = try normalizeSymbol(rawSymbol)
         var query: [(String, String?)] = [("symbol", symbol)]
-        if let from { query.append(("from", from)) }
-        if let to { query.append(("to", to)) }
+        if let from {
+            query.append(("from", from))
+        }
+        if let to {
+            query.append(("to", to))
+        }
         return try await fetchJSON(
             path: "/stable/historical-chart/\(interval)",
             query: query,
@@ -699,8 +733,12 @@ struct LiveFMPMarketDataProvider: FMPMarketDataProvider, CryptoDataProvider {
     ) async throws -> [CryptoHistoricalLightPoint] {
         let symbol = try normalizeSymbol(rawSymbol)
         var query: [(String, String?)] = [("symbol", symbol)]
-        if let from { query.append(("from", from)) }
-        if let to { query.append(("to", to)) }
+        if let from {
+            query.append(("from", from))
+        }
+        if let to {
+            query.append(("to", to))
+        }
         return try await fetchJSON(
             path: "/stable/historical-price-eod/light",
             query: query,

@@ -51,16 +51,28 @@ final class DefaultExpensesService: ExpensesService {
     }
 
     private func symbol(for pillar: BudgetPillar) -> String {
-        if pillar == .fundamentals { return "house.fill" }
-        if pillar == .futureYou { return "chart.line.uptrend.xyaxis" }
-        if pillar == .fun { return "sparkles" }
+        if pillar == .fundamentals {
+            return "house.fill"
+        }
+        if pillar == .futureYou {
+            return "chart.line.uptrend.xyaxis"
+        }
+        if pillar == .fun {
+            return "sparkles"
+        }
         return "square.stack.3d.up.fill"
     }
 
     private func defaultTargetShare(for pillar: BudgetPillar) -> Double {
-        if pillar == .fundamentals { return 0.50 }
-        if pillar == .futureYou { return 0.20 }
-        if pillar == .fun { return 0.30 }
+        if pillar == .fundamentals {
+            return 0.50
+        }
+        if pillar == .futureYou {
+            return 0.20
+        }
+        if pillar == .fun {
+            return 0.30
+        }
         return 0
     }
 
@@ -961,9 +973,15 @@ private extension DefaultExpensesService {
     }
 
     func pillarRank(_ pillar: BudgetPillar) -> Int {
-        if pillar == .fundamentals { return 0 }
-        if pillar == .futureYou { return 1 }
-        if pillar == .fun { return 2 }
+        if pillar == .fundamentals {
+            return 0
+        }
+        if pillar == .futureYou {
+            return 1
+        }
+        if pillar == .fun {
+            return 2
+        }
         return 3
     }
 
