@@ -240,6 +240,49 @@ public func configure(_ app: Application) async throws {
     let hermesSyncSeconds = Environment.get("HERMES_SYNC_INTERVAL_SECONDS").flatMap(Int64.init(_:)) ?? 900
     app.lifecycle.use(HermesSyncJob(intervalSeconds: hermesSyncSeconds))
 
+    // Macro / inflation (Nowflation parity). FRED is the keystone provider:
+    // without FRED_API_KEY the US (and intl fallback) stay disabled while
+    // Eurostat/IBGE still serve PT/EA/BR.
+    let macroEnabled = envBool("MACRO_ENABLED", default: true)
+    let fredAPIKey = Environment.get("FRED_API_KEY")?
+        .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    let nowflationBaseURL = Environment.get("NOWFLATION_BASE_URL")?
+        .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    let nowflationSnapshotPath = Environment.get("NOWFLATION_SNAPSHOT_PATH")?
+        .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    let nowflation = NowflationEnrichment(baseURL: nowflationBaseURL, snapshotPath: nowflationSnapshotPath)
+    let macroPlan = MacroProviderPlanSelection.plan(
+        macroEnabled: macroEnabled,
+        hasFREDKey: !fredAPIKey.isEmpty,
+        nowflationConfigured: nowflation.isEnabled
+    )
+    app.macroRepository = DatabaseMacroRepository()
+    app.macroSyncStatus = MacroSyncStatus()
+    app.macroProviderRegistry = MacroProviderRegistry.build(
+        plan: macroPlan,
+        fred: fredAPIKey.isEmpty ? nil : FREDMacroProvider(apiKey: fredAPIKey),
+        eurostat: EurostatMacroProvider(),
+        ibge: IBGEMacroProvider(),
+        nowflation: nowflation,
+        extraEnrichments: [
+            SeekingAlphaEnrichment(flagEnabled: envBool("MACRO_ENRICHMENT_SEEKING_ALPHA_ENABLED", default: false)),
+            InvestingComEnrichment(flagEnabled: envBool("MACRO_ENRICHMENT_INVESTING_ENABLED", default: false)),
+        ]
+    )
+    app.macroService = DefaultMacroService(
+        repository: app.macroRepository,
+        registry: app.macroProviderRegistry,
+        allowStubFallback: envBool("MACRO_ALLOW_STUB_FALLBACK", default: true)
+    )
+    let macroTickSeconds = Environment.get("MACRO_REFRESH_INTERVAL_SECONDS").flatMap(Int64.init(_:)) ?? 3600
+    let macroUSRefreshSeconds = Environment.get("MACRO_US_REFRESH_SECONDS").flatMap(Double.init(_:)) ?? 21600
+    let macroIntlRefreshSeconds = Environment.get("MACRO_INTL_REFRESH_SECONDS").flatMap(Double.init(_:)) ?? 86400
+    app.lifecycle.use(MacroRefreshJob(
+        tickIntervalSeconds: macroTickSeconds,
+        usRefreshSeconds: macroUSRefreshSeconds,
+        intlRefreshSeconds: macroIntlRefreshSeconds
+    ))
+
     registerMigrations(app)
 
     // register routes

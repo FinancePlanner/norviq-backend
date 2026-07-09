@@ -98,6 +98,7 @@ private func makeReadinessResponse(_ req: Request) async -> HealthCheckResponse 
     checks["apns"] = apnsHealthCheck(req)
     checks["marketData"] = marketDataHealthCheck(req)
     checks["hermes"] = hermesHealthCheck(req)
+    checks["macro"] = await macroHealthCheck(req)
 
     let hasFailure = checks.values.contains { $0.status == "unhealthy" }
     let hasWarning = checks.values.contains { $0.status == "degraded" }
@@ -198,6 +199,41 @@ private func hermesHealthCheck(_ req: Request) -> HealthCheck {
     // three intervals — Hermes is a non-critical upstream.
     if Date().timeIntervalSince(lastSuccess) > interval * 3 {
         return HealthCheck(status: "degraded", message: "Hermes sync is stale.", latencyMs: nil)
+    }
+    return HealthCheck(status: "healthy", message: nil, latencyMs: nil)
+}
+
+private func macroHealthCheck(_ req: Request) async -> HealthCheck {
+    let registry = req.application.macroProviderRegistry
+    let countries = registry.enabledCountries
+    guard !countries.isEmpty else {
+        return HealthCheck(status: "skipped", message: "No macro providers configured; macro refresh is disabled.", latencyMs: nil)
+    }
+
+    let usCadence = Environment.get("MACRO_US_REFRESH_SECONDS").flatMap(Double.init(_:)) ?? 21600
+    let intlCadence = Environment.get("MACRO_INTL_REFRESH_SECONDS").flatMap(Double.init(_:)) ?? 86400
+    // DB-backed freshness so a restart doesn't reset countries to "never".
+    let dbFreshness = await (try? req.application.macroRepository.freshness(on: req.db)) ?? [:]
+
+    var stale: [String] = []
+    let now = Date()
+    for country in countries {
+        let cadence = country == .us ? usCadence : intlCadence
+        let inMemory = req.application.macroSyncStatus.lastSuccessAt(country)
+        let lastSuccess = [inMemory, dbFreshness[country.rawValue]].compactMap(\.self).max()
+        guard let lastSuccess else {
+            stale.append("\(country.rawValue) (never)")
+            continue
+        }
+        if now.timeIntervalSince(lastSuccess) > cadence * 3 {
+            let hours = Int(now.timeIntervalSince(lastSuccess) / 3600)
+            stale.append("\(country.rawValue) (\(hours)h)")
+        }
+    }
+
+    // Degraded, never unhealthy — macro upstreams are non-critical.
+    guard stale.isEmpty else {
+        return HealthCheck(status: "degraded", message: "Macro data stale: \(stale.joined(separator: ", ")).", latencyMs: nil)
     }
     return HealthCheck(status: "healthy", message: nil, latencyMs: nil)
 }
