@@ -5,32 +5,37 @@
 **Owner**: Backend (this phase) → iOS (next phase)
 **Related**: `docs/post-mvp-financial-platform.md`, `MVP/README.md`, iOS `Documentation/mvp-roadmap.md`
 
-**Scope**: Worldwide inflation gauges, CPI/HICP/IPCA, component breakdowns, top movers, Fed context, and everyday item trackers. First-class US support (FRED + optional Nowflation daily gauge) with real official-source providers for Brazil (IBGE) and Portugal/Euro Area (Eurostat). `country` is a first-class dimension everywhere (`?country=US|BR|PT|EA`, defaults to US).
+**Scope**: A global, Nowflation-style macro and cost-of-living layer: inflation gauges, official-release gaps, component tables, top movers, forecasts, personal inflation, everyday item trackers, housing/rates context, macro dashboards, public methodology, data status, and embeddable/API surfaces. Current backend coverage is US, Brazil, Portugal, and Euro Area; the product target is worldwide coverage with `country`, `region`, `currency`, `basket`, `measure`, `source`, `asOf`, and `vintage` as first-class dimensions.
 
 ## Why This Work
 
 After the core MVP (portfolio, expenses/budgets, earnings, stock/crypto detail, dashboard, billing/trials) was accepted, the product lacked the public-macro layer users expect from a complete personal-finance + investing app: *why is my grocery bill up? what is the Fed doing? what is inflation in my country vs the US market I invest in?*
 
-**Reference experience: nowflation.com** — a daily market-derived inflation gauge vs the lagged official BLS CPI, multiple measures (headline/core/supercore/PCE/core PCE), component tables with weights, Top Movers, Fed Watch box (Core PCE vs 2% target, trimmed mean, 2Y/10Y, FOMC odds), next-print countdown, grocery item trackers, basket treemap, methodology + open data. 1,079 series from 24 sources, base Jan 2018 = 100, vintage-true history.
+**Reference experience: nowflation.com** — a daily inflation gauge vs lagged official CPI, CPI-comparable and cost-of-living shelter variants, multiple measures (headline/core/supercore/PCE/core PCE), component tables with weights, forecasts and public scoreboards, item pages, personal inflation/cart calculators, geography pages, macro/rates/housing/labor/commodity dashboards, embeds, status, methodology, open data, and vintage-true history. Nowflation is US-centric; Norviq should use it as the feature model, not the geography model.
 
-## Gap Analysis vs Nowflation (screenshots, 2026-07-08)
+## Nowflation Feature Model, Globalized
 
-| Nowflation feature | Status | Backing endpoint |
+Every Nowflation-inspired surface must work from a global contract instead of hardcoding US concepts. The US can expose BLS CPI, PCE, Fed Watch, FOMC, and state/metro pages. Other markets should map to the closest official source: Eurostat HICP/ECB context, IBGE IPCA/Selic, ONS CPIH/BoE, StatsCan CPI/BoC, INEGI CPI/Banxico, and so on.
+
+| Nowflation pattern | Global Norviq version | Current backend status |
 |---|---|---|
-| Headline gauge vs official CPI + gap | **Live (official via FRED; gauge via Nowflation enrichment when configured)** | `GET /v1/macro/inflation/current` |
-| Multiple gauges (Core CPI, PCE, Core PCE, Trimmed Mean) | **Live (FRED)** | same, `gauges[]` |
-| Component table (Our YoY / BLS YoY / weight) | **Live (13 CPI sub-indices, static weights)** | same, `components[]`; `GET /v1/macro/inflation/components` |
-| Top Movers (Utility Gas, Food at Home, Apparel...) | **Live (top 6 by \|YoY\|, direction from prior month)** | `GET /v1/macro/top-movers?focus=` |
-| Category tiles (Energy / Food / Shelter / Services / Core) | **Partial** — energy_cpi/food_cpi/core series stored; shelter & services-ex-energy aggregates not yet split | `GET /v1/macro/inflation/series?series=energy_cpi` |
-| Fed Watch box (Core PCE vs target, trimmed mean, 2Y/10Y, real 10Y) | **Live (FRED)** | `GET /v1/macro/fed-watch` |
-| FOMC meeting odds (Kalshi/CME) | **Gap** — no free odds API; `nextFOMC.odds` ships `null` | — |
-| Next CPI print countdown | **Live** (BLS 2026 release calendar; forecast filled by Nowflation enrichment) | snapshot `nextPrintCountdown` |
-| Long-term multi-line chart (gauge vs official, 2018→) | **Live data** (monthly history since 2018, latest-vintage reads) — UI is iOS phase | `GET /v1/macro/inflation/series` |
-| Grocery item trackers (eggs, milk, bread, gas...) | **Live** — US real prices (BLS APU), PT/EA/BR index YoY | `GET /v1/macro/items`, `GET /v1/macro/items/:id/series` |
-| Basket treemap | **Later** — weights already in `components[].cpiWeight`; rendering is a client concern | — |
-| "My Inflation" personalization | **Phase 3** | — |
-| Housing/jobs/GDP/commodities/prediction-market sections | **Out of scope** for this phase | — |
-| Methodology / open data | **Partial** — every response carries `source` + `asOf`; vintage-true storage mirrors Nowflation's revision policy | — |
+| Today gauge vs official + gap | Country/region inflation nowcast vs latest official national statistic, with gap, as-of, source, and confidence | **Partial live** — US official via FRED plus optional Nowflation enrichment; BR/PT/EA official monthly |
+| CPI-comparable and cost-of-living shelter variants | Per-market official basket plus a cost-of-living variant that uses local rents, home prices, mortgage rates, and ownership mix where data exists | **Gap** — US owned/rent components exist; global shelter variant needs new sources |
+| Multiple gauges | Headline, core, trimmed mean, services/supercore, central-bank-preferred measure, and PCE-equivalent only where the country defines them | **Partial live** — US headline/core/PCE/core PCE/trimmed mean; global headline only today |
+| Component table with weights | COICOP/national basket component table: our YoY, official YoY, contribution, weight, and source lineage | **Live for current countries**, with static weights and country-specific component depth |
+| Top movers and category tiles | Largest component/item moves by country, category, contribution, and timeframe | **Live** for existing components/items |
+| Forecast and next-print countdown | Official-release calendar per statistical agency, forecast, consensus/market expectation when licensed, and post-release error grading | **Partial live** — US BLS/FOMC calendar; global calendars and scoreboards pending |
+| Long-run chart and revision history | Latest-vintage and vintage-at-time series for every country/measure; revision diff pages | **Live data model** — vintage-safe storage implemented |
+| Personal inflation / cart calculator | User basket from expense categories, country, region, household type, currency, and merchant/category mix | **Phase 3** |
+| Grocery/item pages | Global item trackers for food, fuel, utilities, rent, mortgage, vehicles, transit, and staples; show price when available, index otherwise | **Partial live** — US BLS APU prices; BR/PT/EA index YoY |
+| Geography pages | Country pages first, then regions/states/metros where official data exists | **Partial live** — country dimension exists; subnational geographies pending |
+| Housing and affordability | Rent, home price, mortgage rate, payment burden, rent-vs-buy, and affordability by country/region | **Gap** |
+| Rates, central-bank, and policy watch | Fed/ECB/BoE/BoC/Bacen/Banxico/etc. policy context, yield curves, real rates, breakevens where available | **Partial live** — US Fed Watch only |
+| Macro dashboards | Jobs, GDP, expectations, activity, labor, conditions, income, trade, surveys, money, fiscal, stress, liquidity, FX, credit, growth, real wages, recession | **Gap** outside US rate series; should be a new macro-provider family |
+| Commodities and energy | Global fuel, electricity, utility gas, food commodities, and FX-adjusted import pressure | **Partial live** — US energy/fuel CPI and item prices |
+| Compare/matrix pages | Country-vs-country, region-vs-region, and measure-vs-measure comparisons using normalized units and caveat labels | **Gap** |
+| Embeds, data, status, methodology | Public-ish API/embeds, source status, coverage badges, changelog, methodology, and data-quality labels | **Partial live** — source/asOf in responses; needs public docs/status surfaces |
+| Forecast scoreboard | Grade Norviq forecasts against official releases, consensus, central banks, and prediction markets where licensed | **Gap** |
 
 ## Architecture (implemented)
 
@@ -83,7 +88,7 @@ All under `/v1/macro`, SessionToken auth + rate limit (80/min, `ratelimit:macro`
 
 DTOs live in `norviq-shared` `Sources/StockPlanShared/Macro/` (`MacroDTOs.swift`, `FedWatchDTOs.swift`, `MacroItemDTOs.swift`) — all Phase-2 changes were additive-optional; existing iOS builds keep decoding.
 
-## Data Source Matrix
+## Implemented Data Source Matrix
 
 | Country | Primary | Fallback | Enrichment | Cadence | Key |
 |---|---|---|---|---|---|
@@ -93,6 +98,33 @@ DTOs live in `norviq-shared` `Sources/StockPlanShared/Macro/` (`MacroDTOs.swift`
 | EA | Eurostat HICP (geo=EA20) | FRED (OECD mirror) | — | daily | none |
 
 Series IDs verified live 2026-07-09 (all 35 FRED IDs, all Eurostat COICOP codes, all 9 SIDRA c315 group codes resolve). Notes: OECD-on-FRED fallback series lag badly (BR/PT last 2025-04, EA 2023-01) — fallback quality is "better than nothing" only. Eurostat data in this environment currently ends 2025-12; `asOf` in responses reflects the true latest month.
+
+## Global Coverage Strategy
+
+Global does **not** mean every country has the same feature depth on day one. Each market gets a coverage badge:
+
+| Level | Meaning | Example features |
+|---|---|---|
+| L0 — Official headline | National CPI/HICP/IPCA headline, latest release, history, source metadata | Country page, current snapshot, series chart |
+| L1 — Core basket | Core measures, components, weights, top movers, next-release calendar | Component table, movers, print countdown |
+| L2 — Nowcast | High-frequency proxies for fuel, food, shelter, energy, vehicles, FX/import pressure | Today gauge, gap vs official, volatile-category tiles |
+| L3 — Cost of living | Personal basket, local prices, rent/home/mortgage, regional data | My Inflation, cart calculator, affordability |
+| L4 — Macro context | Policy rates, yield curve, labor, GDP, income, trade, stress, liquidity, forecast scoreboard | Country macro dashboard and compare/matrix pages |
+
+Expansion order:
+
+1. **Current foundation**: US, BR, PT, EA with `country` as the API dimension.
+2. **Tier 1**: GB, CA, MX, JP, AU, and individual Eurostat member states because official inflation APIs and English/structured metadata are reliable.
+3. **Tier 2**: OECD/G20 coverage through national statistics, central-bank APIs, OECD, IMF, World Bank, BIS, and FRED mirrors where direct APIs are missing.
+4. **Tier 3**: Subnational geography where official data supports it: US states/metros, Eurostat geographies, and national regional datasets.
+
+Global normalization rules:
+
+- Use ISO country/region/currency codes in every request and response.
+- Store both native measure names (`CPIH`, `HICP`, `IPCA`) and normalized measure families (`headline`, `core`, `services`, `food`, `energy`, `shelter`).
+- Prefer official national statistical agencies for official prints; use high-frequency market/public data only for nowcasts and clearly label it as such.
+- Attach `frequency`, `coverageLevel`, `sourceURL`, `license`, `asOf`, `fetchedAt`, and `vintageDate` to persisted data.
+- Never compare unlike measures silently. Cross-country compare pages must show caveats for basket, tax, housing, seasonal-adjustment, and methodology differences.
 
 ## Configuration
 
@@ -108,10 +140,11 @@ See `.env.example` ("Macro / inflation data" block): `MACRO_ENABLED`, `FRED_API_
 
 - **Phase 1 (done)**: country-aware stub endpoints (`/current`, `/components`, `/top-movers`, `/series`, `/supported-countries`).
 - **Phase 2 (this branch — done)**: real providers (FRED/Eurostat/IBGE + Nowflation enrichment), vintage-safe persistence, `MacroRefreshJob`, Redis caching, `fed-watch` + `items` endpoints, health check, OpenAPI/Bruno/env docs, 24 tests.
-- **Phase 3 (next backend)**: "My Inflation" personalization (profile country + expense categories), purchasing-power/real-return calculators, shelter & services-ex-energy aggregates, more countries (GB/ONS first), central-bank policy-rate series (Fed funds, ECB, Selic).
-- **iOS phase**: wire existing `Features/Macro/MacroScreen.swift` into navigation, chart via `MetricTrendChart`/`InteractiveLineChart`, Fed Watch card (new DTOs ready), items grid, country picker default from UserProfile, Pro gating (free = current + movers; Pro = history, fed-watch, items, more countries).
-- **Web phase**: greenfield (`norviq-web` has zero macro surface) — new `internal/pages/macro/` + go-echarts.
-- **Phase 4**: dashboard context cards, alerts on big moves, exports.
+- **Phase 3 (next backend)**: global country registry, coverage badges, release calendars, normalized measure families, "My Inflation" personalization (profile country + expense categories), purchasing-power/real-return calculators, shelter & services-ex-energy aggregates, Tier-1 countries (GB/CA/MX/JP/AU + Eurostat member states), central-bank policy-rate series (Fed, ECB, BoE, BoC, Bacen, Banxico).
+- **Phase 4**: high-frequency global nowcast proxies (fuel/energy/food/shelter/FX), forecast scoreboards, compare/matrix pages, methodology/status/data pages, public embed payloads.
+- **iOS phase**: wire existing `Features/Macro/MacroScreen.swift` into navigation, chart via `MetricTrendChart`/`InteractiveLineChart`, country/region picker default from UserProfile, coverage badges, local central-bank context card, items grid, personal basket, Pro gating (free = current + movers; Pro = history, policy watch, items, more countries).
+- **Web phase**: greenfield (`norviq-web` has zero macro surface) — new `internal/pages/macro/` + go-echarts for country pages, compare/matrix, methodology/status, and embeddable charts.
+- **Phase 5**: dashboard context cards, alerts on big moves, exports.
 
 ## Tests
 
@@ -138,8 +171,9 @@ See `.env.example` ("Macro / inflation data" block): `MACRO_ENABLED`, `FRED_API_
 - **OECD-on-FRED fallback staleness** (see matrix) → fallback only; primaries are the fresh official sources.
 - **Seeking Alpha / Investing.com**: no public APIs; scraping violates their ToS. Shipped as hard-disabled stubs (`MacroEnrichmentStubs.swift`) — enabling is a product/legal decision, not a code change.
 - **FOMC odds**: no free source (CME FedWatch/Kalshi are licensed) — field ships `null`, UI should hide the row.
+- **US-centric feature drift**: Nowflation names are BLS/Fed-specific; global surfaces must map concepts to local equivalents instead of forcing US terminology on every market.
 - **iOS compat**: stub fallback stays on until live data proven; all DTO changes additive.
 
 ## Attribution Requirements
 
-Every screen and response must show `country`, `source`, `asOf`, and "Data from X + official national source". Responses already carry these fields; iOS must render them.
+Every screen and response must show `country`, optional `region`, `measure`, `currency`, `coverageLevel`, `source`, `asOf`, and "Data from X + official national source". Forecasts and nowcasts must be labeled separately from official releases. Responses already carry part of this metadata; clients must render it and new APIs must fill the missing global fields as coverage expands.
