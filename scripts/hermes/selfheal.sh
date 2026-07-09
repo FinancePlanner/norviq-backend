@@ -18,6 +18,8 @@ set -uo pipefail
 PIPELINE=/root/.hermes/financial-pipeline
 REBUILD=/root/.hermes/rebuild
 AUTHKEY_FILE="${REBUILD}/tailscale-authkey.txt"
+STATE_LIVE=/var/lib/tailscale/tailscaled.state
+STATE_BACKUP="${REBUILD}/tailscaled.state"
 TS_HOSTNAME=hermes-vps
 log() { echo "[selfheal $(date -u +%H:%M:%S)] $*"; }
 
@@ -26,12 +28,27 @@ if ! command -v tailscale >/dev/null 2>&1; then
   log "installing tailscale"
   curl -fsSL https://tailscale.com/install.sh | sh
 fi
+
+# Bring up only if not already connected. Prefer restoring the persisted node
+# identity from the volume so the SAME tailnet IP survives a rebuild; fall back
+# to the authkey (which mints a NEW node/IP) only if that fails.
 if ! tailscale status >/dev/null 2>&1; then
-  if [ -s "${AUTHKEY_FILE}" ]; then
-    log "tailscale up (authkey from volume)"
-    tailscale up --authkey="$(tr -d '\n\r' < "${AUTHKEY_FILE}")" --hostname="${TS_HOSTNAME}" || log "tailscale up failed"
+  if [ -s "${STATE_BACKUP}" ]; then
+    log "restoring persisted tailscale node identity from volume"
+    systemctl stop tailscaled 2>/dev/null || true
+    install -D -m600 "${STATE_BACKUP}" "${STATE_LIVE}"
+    systemctl start tailscaled 2>/dev/null || true
+    sleep 3
+  fi
+  if ! tailscale status >/dev/null 2>&1; then
+    if [ -s "${AUTHKEY_FILE}" ]; then
+      log "restore did not connect; tailscale up via authkey (new node/IP)"
+      tailscale up --authkey="$(tr -d '\n\r' < "${AUTHKEY_FILE}")" --hostname="${TS_HOSTNAME}" || log "tailscale up failed"
+    else
+      log "WARN no authkey at ${AUTHKEY_FILE}; run 'tailscale up' manually"
+    fi
   else
-    log "WARN no authkey at ${AUTHKEY_FILE}; run 'tailscale up' manually"
+    log "reconnected as persisted node"
   fi
 fi
 TSIP="$(tailscale ip -4 2>/dev/null | head -1)"
@@ -40,6 +57,13 @@ if [ -z "${TSIP}" ]; then
   exit 1
 fi
 log "tailnet IP ${TSIP}"
+
+# Persist current node identity to the volume for the next rebuild. Requires
+# key expiry to be DISABLED for this node in the Tailscale admin console, else
+# the saved identity expires and a rebuild falls back to a new IP.
+if [ -s "${STATE_LIVE}" ]; then
+  install -D -m600 "${STATE_LIVE}" "${STATE_BACKUP}" && log "backed up tailscale state to volume"
+fi
 
 # 2. finance-api bound to the tailnet IP ------------------------------------
 OVERRIDE_DIR=/etc/systemd/system/finance-api.service.d
