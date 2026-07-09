@@ -20,6 +20,8 @@ REBUILD=/root/.hermes/rebuild
 AUTHKEY_FILE="${REBUILD}/tailscale-authkey.txt"
 STATE_LIVE=/var/lib/tailscale/tailscaled.state
 STATE_BACKUP="${REBUILD}/tailscaled.state"
+TOKEN_FILE="${REBUILD}/finance-api-token.txt"
+TOKEN_PERSISTENT="${REBUILD}/finance-api-token.persistent"
 TS_HOSTNAME=hermes-vps
 log() { echo "[selfheal $(date -u +%H:%M:%S)] $*"; }
 
@@ -65,21 +67,39 @@ if [ -s "${STATE_LIVE}" ]; then
   install -D -m600 "${STATE_LIVE}" "${STATE_BACKUP}" && log "backed up tailscale state to volume"
 fi
 
-# 2. finance-api bound to the tailnet IP ------------------------------------
+# 2. finance-api: stable token + tailnet bind -------------------------------
+# A rebuild regenerates the finance-api token, which breaks the backend. Pin a
+# STABLE token on the volume (seeded once from the current token) and force the
+# service to use it via the systemd override, so the backend's HERMES_API_TOKEN
+# never has to change again.
+if [ ! -s "${TOKEN_PERSISTENT}" ] && [ -s "${TOKEN_FILE}" ]; then
+  install -m600 "${TOKEN_FILE}" "${TOKEN_PERSISTENT}"
+  log "seeded persistent finance-api token from current"
+fi
+TOKEN="$(tr -d '\n\r' < "${TOKEN_PERSISTENT}" 2>/dev/null || true)"
+# Keep the reference copy in sync so any tooling reading it gets the stable one.
+[ -n "${TOKEN}" ] && printf '%s' "${TOKEN}" > "${TOKEN_FILE}" && chmod 600 "${TOKEN_FILE}"
+
 OVERRIDE_DIR=/etc/systemd/system/finance-api.service.d
 CURRENT_BIND="$(ss -tlnp 2>/dev/null | grep -oE '[0-9.]+:8780' | cut -d: -f1 | head -1)"
-if [ "${CURRENT_BIND}" != "${TSIP}" ]; then
-  log "rebinding finance-api ${CURRENT_BIND:-none} -> ${TSIP}"
+SVC_TOKEN="$(systemctl show finance-api.service -p Environment --value 2>/dev/null | tr ' ' '\n' | grep '^FINANCE_API_TOKEN=' | cut -d= -f2-)"
+NEED_RESTART=0
+[ "${CURRENT_BIND}" != "${TSIP}" ] && NEED_RESTART=1
+[ -n "${TOKEN}" ] && [ "${SVC_TOKEN}" != "${TOKEN}" ] && NEED_RESTART=1
+if [ "${NEED_RESTART}" = 1 ]; then
+  log "reconciling finance-api (bind ${CURRENT_BIND:-none}->${TSIP}, token drift=$([ "${SVC_TOKEN}" != "${TOKEN}" ] && echo yes || echo no))"
   mkdir -p "${OVERRIDE_DIR}"
   cat > "${OVERRIDE_DIR}/override.conf" <<EOF
 [Service]
+Environment=FINANCE_API_TOKEN=${TOKEN}
 ExecStart=
 ExecStart=/usr/bin/python3 -u ${PIPELINE}/scripts/finance_api_server.py --db ${PIPELINE}/data/finance.sqlite --host ${TSIP} --port 8780
 EOF
+  chmod 600 "${OVERRIDE_DIR}/override.conf"
   systemctl daemon-reload
   systemctl restart finance-api.service
 else
-  log "finance-api already bound to ${TSIP}"
+  log "finance-api already bound to ${TSIP} with stable token"
 fi
 
 # 3. Sentiment cron jobs -----------------------------------------------------

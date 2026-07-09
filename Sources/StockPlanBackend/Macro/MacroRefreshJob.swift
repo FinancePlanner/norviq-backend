@@ -81,7 +81,12 @@ final class MacroRefreshJob: LifecycleHandler, @unchecked Sendable {
                 app.logger.info("macro_refresh ok country=\(country.rawValue) as_of=\(snapshot.asOf)")
             } catch {
                 // Per-country isolation: one failing source never blocks the rest.
-                app.logger.warning("macro_refresh failed country=\(country.rawValue) error=\(String(describing: error))")
+                // PSQLError's describing form hides all detail; use the debug
+                // reflection outside production (it may embed query text).
+                let detail = app.environment == .production
+                    ? String(describing: error)
+                    : String(reflecting: error)
+                app.logger.warning("macro_refresh failed country=\(country.rawValue) error=\(detail)")
             }
         }
     }
