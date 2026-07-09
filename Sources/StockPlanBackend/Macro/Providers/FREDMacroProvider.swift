@@ -286,7 +286,7 @@ struct FREDMacroProvider: MacroProvider {
 
     // MARK: - HTTP
 
-    struct Observation: Sendable, Equatable {
+    struct Observation: Equatable {
         let date: String
         let value: Double
     }
@@ -345,8 +345,8 @@ struct FREDMacroProvider: MacroProvider {
     }
 }
 
-struct FREDObservationsResponse: Decodable, Sendable {
-    struct RawObservation: Decodable, Sendable {
+struct FREDObservationsResponse: Decodable {
+    struct RawObservation: Decodable {
         let date: String
         let value: String
     }

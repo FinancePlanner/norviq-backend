@@ -126,12 +126,12 @@ struct IBGEMacroProvider: MacroProvider {
 
     // MARK: - Parsing (pure, fixture-tested)
 
-    struct SeriesReading: Sendable, Equatable {
+    struct SeriesReading: Equatable {
         let period: String // yyyy-MM-01
         let value: Double
     }
 
-    struct GroupReading: Sendable, Equatable {
+    struct GroupReading: Equatable {
         var mom: Double?
         var yoy: Double?
     }

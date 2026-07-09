@@ -204,9 +204,9 @@ struct EurostatMacroProvider: MacroProvider {
 /// Minimal JSON-stat 2.0 dataset decoder covering what Eurostat's
 /// dissemination API returns: dimension ids/sizes, category indices, and a
 /// sparse `value` object keyed by flattened linear index.
-struct JSONStatDataset: Decodable, Sendable {
-    struct Dimension: Decodable, Sendable {
-        struct Category: Decodable, Sendable {
+struct JSONStatDataset: Decodable {
+    struct Dimension: Decodable {
+        struct Category: Decodable {
             /// Category id → position. Eurostat emits this as an object.
             let index: [String: Int]?
             let label: [String: String]?

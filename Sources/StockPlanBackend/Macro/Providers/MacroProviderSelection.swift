@@ -3,14 +3,14 @@ import Foundation
 /// Pure per-country provider planning — mirrors `MarketDataProviderKind.select`
 /// so the wiring decision is unit-testable without Vapor.
 enum MacroProviderPlanSelection {
-    enum ProviderKind: Equatable, Sendable {
+    enum ProviderKind: Equatable {
         case fred
         case eurostat
         case ibge
         case disabled
     }
 
-    struct CountryPlan: Equatable, Sendable {
+    struct CountryPlan: Equatable {
         let primary: ProviderKind
         let fallback: ProviderKind?
         let nowflationEnrichment: Bool

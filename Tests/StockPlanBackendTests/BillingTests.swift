@@ -972,6 +972,23 @@ struct BillingTests {
         }
     }
 
+    @Test("Trial warning type filter uses PostgreSQL enum binding")
+    func trialWarningTypeFilterUsesPostgreSQLEnumBinding() async throws {
+        try await withApp { app in
+            let auth = try await registerUser(on: app, identifier: "trial-warning-filter", keepDefaultTrial: true)
+            let user = try #require(try await User.find(auth.userId, on: app.db))
+
+            try await app.trialService.markTrialExpired(user: user, db: app.db)
+
+            let warning = try await TrialWarning.query(on: app.db)
+                .filter(\.$userID == auth.userId)
+                .filter(\.$warningType == .expired)
+                .first()
+
+            #expect(warning?.warningType == .expired)
+        }
+    }
+
     @Test("Never-trialed free user is not flagged as trial-expired")
     func neverTrialedFreeUserIsNotTrialExpired() async throws {
         try await withApp { app in

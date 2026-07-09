@@ -6,7 +6,7 @@ import StockPlanShared
 /// COICOP classes (index YoY only, no price level); BR entries map to IPCA
 /// subitems on SIDRA.
 enum MacroItemsCatalog {
-    enum SourceRef: Sendable, Equatable {
+    enum SourceRef: Equatable {
         /// BLS average-price series mirrored on FRED (APU*).
         case fredSeries(String)
         /// Eurostat COICOP code on prc_hicp_manr (YoY rate, no price level).
@@ -15,7 +15,7 @@ enum MacroItemsCatalog {
         case sidraClassification(String)
     }
 
-    struct Item: Sendable {
+    struct Item {
         let id: String
         let name: String
         let emoji: String

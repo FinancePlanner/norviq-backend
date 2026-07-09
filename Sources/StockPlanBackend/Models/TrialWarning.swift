@@ -15,7 +15,7 @@ final class TrialWarning: Model, @unchecked Sendable {
     @Field(key: "user_id")
     var userID: UUID
 
-    @Field(key: "warning_type")
+    @Enum(key: "warning_type")
     var warningType: TrialWarningType
 
     @Field(key: "sent_at")

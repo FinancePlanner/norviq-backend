@@ -4,8 +4,8 @@ import Vapor
 
 /// Resolved providers per country: primary source, optional fallback, and
 /// enrichment layers applied in order on top of whichever source succeeded.
-struct MacroProviderRegistry: Sendable {
-    struct CountryProviders: Sendable {
+struct MacroProviderRegistry {
+    struct CountryProviders {
         let primary: any MacroProvider
         let fallback: (any MacroProvider)?
         let enrichments: [any MacroEnrichmentProviding]

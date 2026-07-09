@@ -3,7 +3,7 @@ import StockPlanShared
 import Vapor
 
 /// Countries with first-class macro/inflation support.
-enum MacroCountry: String, CaseIterable, Sendable {
+enum MacroCountry: String, CaseIterable {
     case us = "US"
     case br = "BR"
     case pt = "PT"
@@ -42,7 +42,7 @@ enum MacroCountry: String, CaseIterable, Sendable {
 
 /// Registry of series keys stored in `macro_series_points.series_key`.
 /// Item price series use the `item.<id>` convention (see `itemKey`).
-enum MacroSeriesKey: String, CaseIterable, Sendable {
+enum MacroSeriesKey: String, CaseIterable {
     case headlineCPI = "headline_cpi"
     case coreCPI = "core_cpi"
     case pce
@@ -75,7 +75,7 @@ enum MacroSeriesKey: String, CaseIterable, Sendable {
 }
 
 /// Snapshot plus the raw series points backing it, ready for persistence.
-struct MacroProviderResult: Sendable {
+struct MacroProviderResult {
     var snapshot: InflationSnapshotResponse
     var points: [MacroSeriesPointRecord]
 }

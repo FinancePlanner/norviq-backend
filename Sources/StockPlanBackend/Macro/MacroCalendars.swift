@@ -4,7 +4,7 @@ import StockPlanShared
 /// 2026 FOMC meeting dates. Source: federalreserve.gov meeting calendar —
 /// refresh this table annually alongside the BLS calendar below.
 enum FOMCCalendar {
-    struct Meeting: Sendable, Equatable {
+    struct Meeting: Equatable {
         let startDate: String // yyyy-MM-dd
         let endDate: String
     }

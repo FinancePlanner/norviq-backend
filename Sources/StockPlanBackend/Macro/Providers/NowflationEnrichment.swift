@@ -122,7 +122,7 @@ struct NowflationEnrichment: MacroEnrichmentProviding {
 /// Tolerantly-decoded Nowflation snapshot. The upstream schema is not under
 /// our control; each field is resolved from a list of candidate keys over a
 /// loose JSON tree, so shape drift degrades fields to nil.
-struct NowflationPayload: Sendable, Equatable {
+struct NowflationPayload: Equatable {
     var gaugeYoY: Double?
     var colYoY: Double?
     var cumulativeSinceBase: Double?
