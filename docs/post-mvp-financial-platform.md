@@ -119,7 +119,7 @@ Bonus ideas parked for later: multi-user/household mode, side-income tracking, s
 
 ## Macro & Inflation Context (Nowflation Parity) — Post-MVP Addition
 
-**See dedicated doc**: `docs/POST-MVP.md` (plan of record, includes gap analysis vs nowflation.com)
+**See dedicated doc**: `docs/POST-MVP.md` (plan of record for the global Nowflation-style feature model)
 
 **Status (2026-07-09)**: backend Phase 2 shipped on `feat/macro-live-data` — live providers
 (FRED for the US, Eurostat for PT/EA, IBGE for BR, optional Nowflation enrichment),
@@ -127,11 +127,13 @@ vintage-safe persistence, `MacroRefreshJob`, and new `/v1/macro/fed-watch` +
 `/v1/macro/items` endpoints alongside the original snapshot/series/top-movers surface.
 Needs `FRED_API_KEY` in prod to leave stub fallback (see POST-MVP.md "Operator steps").
 
-Remaining in later phases: "My Inflation" personalization from expense data, iOS screen
-wiring (scaffold exists in `Features/Macro/`), web surface, dashboard context card.
+Remaining in later phases: global country coverage tiers, "My Inflation" personalization
+from expense data, local central-bank/rates context, iOS screen wiring (scaffold exists
+in `Features/Macro/`), web country/compare pages, and dashboard context cards.
 
-This fills the cost-of-living / macro backdrop gap for American users and adds
-first-class Brazil + Portugal/Euro Area coverage.
+This fills the cost-of-living / macro backdrop gap globally: US support remains the
+deepest first market, while Brazil, Portugal, and Euro Area coverage are the first
+non-US official-source implementations.
 
 ---
 
