@@ -11,6 +11,15 @@ struct InsightsController: RouteCollection {
         insights.get("sentiment", use: sentiment)
         insights.get("net-worth", use: netWorth)
         insights.get("tickers", ":symbol", "sentiment", use: tickerSentiment)
+        // Admin-only: force an immediate Hermes pull instead of waiting for the
+        // scheduled poller. Gated by the INSIGHTS_ADMIN_EMAILS allowlist.
+        insights.post("sync", use: syncNow)
+    }
+
+    @Sendable
+    func syncNow(req: Request) async throws -> InsightsSyncSummary {
+        try await requireInsightsAdmin(req)
+        return try await req.application.insightsService.syncFromHermes(on: req)
     }
 
     @Sendable
@@ -56,6 +65,26 @@ struct InsightsController: RouteCollection {
         let days = clampedDays(req.query[Int.self, at: "days"], default: 14)
         let limit = clampedLimit(req.query[Int.self, at: "limit"], default: 20, max: 100)
         return try await req.application.insightsService.tickerSentiment(symbol: symbol, days: days, limit: limit, on: req.db)
+    }
+
+    /// Fail-closed admin gate: denies everyone unless the caller's email is in
+    /// the comma-separated INSIGHTS_ADMIN_EMAILS env allowlist.
+    private func requireInsightsAdmin(_ req: Request) async throws {
+        let session = try req.auth.require(SessionToken.self)
+        let admins = Set(
+            (Environment.get("INSIGHTS_ADMIN_EMAILS") ?? "")
+                .split(separator: ",")
+                .map { $0.trimmingCharacters(in: .whitespaces).lowercased() }
+                .filter { !$0.isEmpty }
+        )
+        guard !admins.isEmpty else {
+            throw Abort(.forbidden, reason: "Insights admin sync is disabled (INSIGHTS_ADMIN_EMAILS is not set).")
+        }
+        guard let user = try await User.find(session.userId, on: req.db),
+              admins.contains(user.email.lowercased())
+        else {
+            throw Abort(.forbidden, reason: "Admin access required.")
+        }
     }
 
     private func validatedSymbol(_ raw: String?) throws -> String {
