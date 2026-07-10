@@ -2745,6 +2745,132 @@ paths:
           description: Unauthorized
         '503':
           description: Market data provider unavailable or misconfigured
+  /v1/market/chart-builder/metrics:
+    get:
+      operationId: getChartBuilderMetrics
+      tags: [MarketData]
+      summary: Chart builder metric catalog
+      description: Returns the full chart-builder metric catalog grouped by statement (income statement, balance sheet, cash flow, ratios, growth, derived). Static metadata; requires authentication but no premium plan.
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChartBuilderMetricCatalogResponse'
+        '401':
+          description: Unauthorized
+  /v1/market/chart-builder/{symbol}:
+    parameters:
+      - name: symbol
+        in: path
+        required: true
+        schema:
+          type: string
+    get:
+      operationId: getChartBuilder
+      tags: [MarketData]
+      summary: Build aligned metric time series for a symbol
+      description: Returns aligned time series for the selected metrics of a symbol (max 20 metrics), optionally with up to 3 compare symbols matched by fiscal year. `period=ttm` assembles rolling four-quarter series (flow metrics summed, balance-sheet items point-in-time, supported margins recomputed from TTM components) and rejects metrics whose catalog entry has `supportsTTM=false`. Growth statistics (YOY, total change, CAGR) are computed per series. Requires the market fundamentals premium feature; FMP free-tier symbol restrictions apply to the primary and every compare symbol.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: metrics
+          in: query
+          required: true
+          description: Comma-separated metric keys from the chart-builder catalog, e.g. `revenue,freeCashFlow,netProfitMargin`.
+          schema:
+            type: string
+        - name: period
+          in: query
+          required: false
+          description: One of `annual` (default), `quarter`, or `ttm`.
+          schema:
+            type: string
+            enum: [annual, quarter, ttm]
+        - name: limit
+          in: query
+          required: false
+          description: Number of periods to return (default 10 annual / 20 quarter and TTM, max 40).
+          schema:
+            type: integer
+            format: int32
+        - name: compare
+          in: query
+          required: false
+          description: Comma-separated peer symbols (max 3), aligned to the primary symbol's fiscal years.
+          schema:
+            type: string
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChartBuilderResponse'
+        '400':
+          description: Unknown metric keys, invalid period, metric not supported for TTM, or caps exceeded
+        '401':
+          description: Unauthorized
+        '402':
+          description: Premium or paid FMP plan required for this symbol
+        '502':
+          description: Bad Gateway for FMP provider
+        '503':
+          description: FMP provider unavailable or misconfigured
+  /v1/market/chart-builder/{symbol}/csv:
+    parameters:
+      - name: symbol
+        in: path
+        required: true
+        schema:
+          type: string
+    get:
+      operationId: getChartBuilderCSV
+      tags: [MarketData]
+      summary: Download chart-builder series as CSV
+      description: Same parameters and semantics as `getChartBuilder`, but streams the aligned series as a UTF-8 BOM-prefixed CSV attachment (rows = periods oldest to newest, one column per symbol/metric pair).
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: metrics
+          in: query
+          required: true
+          description: Comma-separated metric keys from the chart-builder catalog.
+          schema:
+            type: string
+        - name: period
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [annual, quarter, ttm]
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            format: int32
+        - name: compare
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        '200':
+          description: CSV attachment
+          content:
+            text/csv:
+              schema:
+                type: string
+        '400':
+          description: Unknown metric keys, invalid period, or caps exceeded
+        '401':
+          description: Unauthorized
+        '402':
+          description: Premium or paid FMP plan required for this symbol
 
   /quote:
     get:
@@ -6746,6 +6872,9 @@ components:
     RecurringFrequency:
       type: string
       enum: [weekly, monthly]
+      x-enum-varnames:
+        - RecurringFrequencyWeekly
+        - RecurringFrequencyMonthly
 
     RecurringTemplateRequest:
       type: object
@@ -8026,6 +8155,114 @@ components:
               items:
                 $ref: '#/components/schemas/BasicFinancialSeriesPoint'
       required: [symbol, metricType, metric, series]
+    ChartMetricDescriptor:
+      type: object
+      properties:
+        key: { type: string }
+        label: { type: string }
+        group:
+          type: string
+          enum: [incomeStatement, balanceSheet, cashFlow, ratios, growth, derived]
+        format:
+          type: string
+          enum: [currency, percent, ratio, perShare, shares]
+        aggregation:
+          type: string
+          enum: [flow, pointInTime, ratio]
+        supportsTTM: { type: boolean }
+      required: [key, label, group, format, aggregation, supportsTTM]
+    ChartBuilderMetricGroup:
+      type: object
+      properties:
+        key:
+          type: string
+          enum: [incomeStatement, balanceSheet, cashFlow, ratios, growth, derived]
+        label: { type: string }
+        metrics:
+          type: array
+          items:
+            $ref: '#/components/schemas/ChartMetricDescriptor'
+      required: [key, label, metrics]
+    ChartBuilderMetricCatalogResponse:
+      type: object
+      properties:
+        groups:
+          type: array
+          items:
+            $ref: '#/components/schemas/ChartBuilderMetricGroup'
+      required: [groups]
+    ChartBuilderPeriod:
+      type: object
+      properties:
+        label: { type: string }
+        fiscalYear: { type: string, nullable: true }
+        fiscalPeriod: { type: string, nullable: true }
+        endDate: { type: string }
+      required: [label, endDate]
+    ChartBuilderGrowthPoint:
+      type: object
+      properties:
+        periodLabel: { type: string }
+        absolute: { type: number, format: double, nullable: true }
+        percent: { type: number, format: double, nullable: true }
+      required: [periodLabel]
+    ChartBuilderGrowthStats:
+      type: object
+      properties:
+        yoy:
+          type: array
+          items:
+            $ref: '#/components/schemas/ChartBuilderGrowthPoint'
+        totalChange: { type: number, format: double, nullable: true }
+        totalChangePercent: { type: number, format: double, nullable: true }
+        cagr: { type: number, format: double, nullable: true }
+      required: [yoy]
+    ChartBuilderSeries:
+      type: object
+      properties:
+        symbol: { type: string }
+        metricKey: { type: string }
+        label: { type: string }
+        format:
+          type: string
+          enum: [currency, percent, ratio, perShare, shares]
+        currency: { type: string, nullable: true }
+        values:
+          type: array
+          description: One entry per period; null marks a missing or misaligned period.
+          items:
+            type: number
+            format: double
+            nullable: true
+        growth:
+          $ref: '#/components/schemas/ChartBuilderGrowthStats'
+      required: [symbol, metricKey, label, format, values]
+    ChartBuilderCompany:
+      type: object
+      properties:
+        symbol: { type: string }
+        name: { type: string, nullable: true }
+        currency: { type: string, nullable: true }
+      required: [symbol]
+    ChartBuilderResponse:
+      type: object
+      properties:
+        period:
+          type: string
+          enum: [annual, quarter, ttm]
+        periods:
+          type: array
+          items:
+            $ref: '#/components/schemas/ChartBuilderPeriod'
+        series:
+          type: array
+          items:
+            $ref: '#/components/schemas/ChartBuilderSeries'
+        companies:
+          type: array
+          items:
+            $ref: '#/components/schemas/ChartBuilderCompany'
+      required: [period, periods, series, companies]
     YearlyProjectionResponse:
       type: object
       properties:
