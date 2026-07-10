@@ -64,6 +64,7 @@ func routes(_ app: Application) throws {
     // Rate limit market data endpoints (quotes, search) to protect third-party API quotas.
     let marketRateLimit = RateLimitMiddleware(limit: 100, interval: 60, keyPrefix: "ratelimit:market")
     try api.grouped(marketRateLimit).register(collection: MarketDataController())
+    try api.register(collection: ScenarioController())
 
     // Macro / inflation endpoints (Nowflation parity). Rate limit similar to market data.
     let macroRateLimit = RateLimitMiddleware(limit: 80, interval: 60, keyPrefix: "ratelimit:macro")
