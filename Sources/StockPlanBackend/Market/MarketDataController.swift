@@ -39,6 +39,51 @@ struct MarketDataController: RouteCollection {
         rateLimited.get("fx", use: fx)
         rateLimited.get("price-chart", "compare", use: priceChartComparison)
         rateLimited.get("price-chart", ":symbol", use: priceChart)
+        rateLimited.get("chart-builder", "metrics", use: chartBuilderMetrics)
+        rateLimited.get("chart-builder", ":symbol", "csv", use: chartBuilderCSV)
+        rateLimited.get("chart-builder", ":symbol", use: chartBuilder)
+    }
+
+    @Sendable
+    func chartBuilderMetrics(req: Request) async throws -> ChartBuilderMetricCatalogResponse {
+        _ = try req.auth.require(SessionToken.self)
+        return ChartBuilderMetricCatalogResponse.current()
+    }
+
+    @Sendable
+    func chartBuilder(req: Request) async throws -> ChartBuilderResponse {
+        let request = try await authorizedChartBuilderRequest(req: req)
+        return try await req.application.chartBuilderService.build(request, on: req)
+    }
+
+    @Sendable
+    func chartBuilderCSV(req: Request) async throws -> Response {
+        let request = try await authorizedChartBuilderRequest(req: req)
+        let chart = try await req.application.chartBuilderService.build(request, on: req)
+        let csv = DefaultChartBuilderService.makeCSV(response: chart)
+
+        let response = Response(status: .ok, body: .init(data: csv))
+        response.headers.replaceOrAdd(name: .contentType, value: "text/csv; charset=utf-8")
+        response.headers.replaceOrAdd(
+            name: "Content-Disposition",
+            value: "attachment; filename=\"\(DefaultChartBuilderService.csvFilename(symbol: request.symbol, period: request.period))\""
+        )
+        return response
+    }
+
+    private func authorizedChartBuilderRequest(req: Request) async throws -> ChartBuilderRequest {
+        let session = try req.auth.require(SessionToken.self)
+        try await requireMarketFundamentalsAccess(session: session, req: req)
+        guard let symbol = req.parameters.get("symbol") else {
+            throw Abort(.badRequest, reason: "Missing symbol.")
+        }
+        return try DefaultChartBuilderService.parseRequest(
+            symbol: symbol,
+            metricsQuery: req.query[String.self, at: "metrics"],
+            periodQuery: req.query[String.self, at: "period"],
+            limitQuery: req.query[Int.self, at: "limit"],
+            compareQuery: req.query[String.self, at: "compare"]
+        )
     }
 
     @Sendable

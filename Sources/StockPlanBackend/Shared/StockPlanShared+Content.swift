@@ -187,6 +187,8 @@ extension CashFlowStatementResponse: @retroactive Content {}
 extension FinancialGrowthResponse: @retroactive Content {}
 extension AnalystEstimatesResponse: @retroactive Content {}
 extension RatiosResponse: @retroactive Content {}
+extension ChartBuilderResponse: @retroactive Content {}
+extension ChartBuilderMetricCatalogResponse: @retroactive Content {}
 
 // MARK: - AI Insights
 
