@@ -2,7 +2,7 @@ import Foundation
 import StockPlanShared
 
 /// Statement families a chart-builder metric can draw from.
-enum ChartBuilderSource: String, CaseIterable, Sendable {
+enum ChartBuilderSource: String, CaseIterable {
     case income
     case balance
     case cashFlow
@@ -12,7 +12,7 @@ enum ChartBuilderSource: String, CaseIterable, Sendable {
 
 /// All statement rows for one symbol and one reporting period, matched by
 /// fiscal year (and fiscal period for quarterly data).
-struct ChartBuilderPeriodRow: Sendable {
+struct ChartBuilderPeriodRow {
     var income: IncomeStatementResponse?
     var balance: BalanceSheetStatementResponse?
     var cashFlow: CashFlowStatementResponse?
@@ -20,7 +20,7 @@ struct ChartBuilderPeriodRow: Sendable {
     var growth: FinancialGrowthResponse?
 }
 
-struct ChartBuilderMetricBinding: Sendable {
+struct ChartBuilderMetricBinding {
     let sources: Set<ChartBuilderSource>
     /// Numerator/denominator metric keys used to recompute a ratio for TTM
     /// (both must resolve to `flow` metrics). Nil for non-TTM ratios.

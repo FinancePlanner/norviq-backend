@@ -2,7 +2,7 @@ import Foundation
 import StockPlanShared
 import Vapor
 
-struct ChartBuilderRequest: Sendable {
+struct ChartBuilderRequest {
     let symbol: String
     let metricKeys: [String]
     let period: ChartBuilderPeriodKind
@@ -14,7 +14,7 @@ struct ChartBuilderRequest: Sendable {
     }
 }
 
-struct ChartBuilderStatementBundle: Sendable {
+struct ChartBuilderStatementBundle {
     var income: [IncomeStatementResponse] = []
     var balance: [BalanceSheetStatementResponse] = []
     var cashFlow: [CashFlowStatementResponse] = []
