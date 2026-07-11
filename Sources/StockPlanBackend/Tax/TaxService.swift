@@ -33,16 +33,19 @@ struct DefaultTaxService: TaxService {
         on db: any Database
     ) async throws -> TaxProfileContextResponse {
         let existing = try await profile(userId: userId, jurisdiction: jurisdiction, taxYear: taxYear, on: db)
-        let accounts = try await Account.query(on: db)
+        let ownedAccounts = try await Account.query(on: db)
             .filter(\.$userId == userId)
             .all()
+        let accounts = ownedAccounts
             .compactMap { account -> TaxProfileAccountOption? in
                 guard let id = account.id else { return nil }
                 let broker = account.broker.trimmingCharacters(in: .whitespacesAndNewlines)
+                let trimmedDisplayName = account.displayName?.trimmingCharacters(in: .whitespacesAndNewlines)
                 return TaxProfileAccountOption(
                     id: id.uuidString,
-                    displayName: account.displayName?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
-                        ?? (broker.isEmpty ? "Investment account" : broker.uppercased()),
+                    displayName: trimmedDisplayName?.isEmpty == false
+                        ? trimmedDisplayName!
+                        : (broker.isEmpty ? "Investment account" : broker.uppercased()),
                     broker: broker,
                     baseCurrency: account.baseCurrency.uppercased(),
                     wrapper: account.taxWrapper.flatMap(TaxAccountWrapper.init(rawValue:)) ?? .unknown,
