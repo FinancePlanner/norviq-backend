@@ -81,6 +81,7 @@ func routes(_ app: Application) throws {
     // Rate limit AI insight endpoints (LLM calls) to protect cost + provider quotas.
     let aiRateLimit = RateLimitMiddleware(limit: 20, interval: 60, keyPrefix: "ratelimit:ai")
     try api.grouped(aiRateLimit).register(collection: AIInsightsController())
+    try api.grouped(aiRateLimit).register(collection: AIChatController())
     try api.register(collection: BudgetController())
     try api.register(collection: ExpensesController())
     try api.register(collection: ReportsController())
