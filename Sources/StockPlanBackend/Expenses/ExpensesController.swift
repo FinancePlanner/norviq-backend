@@ -87,23 +87,24 @@ struct ExpensesController: RouteCollection {
     }
 
     func boot(routes: any RoutesBuilder) throws {
-        let protected = routes.grouped(SessionToken.authenticator(), SessionToken.guardMiddleware())
+        // ScopedBearerAuthenticator accepts both first-party JWTs and scoped
+        // personal access tokens; scope middleware gates the third-party surface.
+        let protected = routes.grouped(ScopedBearerAuthenticator(), SessionToken.guardMiddleware())
         let expenses = protected.grouped("expenses")
+        let readScoped = expenses.grouped(ScopeRequirementMiddleware(.expensesRead))
+        let writeScoped = expenses.grouped(ScopeRequirementMiddleware(.expensesWrite))
+        let firstParty = expenses.grouped(FirstPartyOnlyMiddleware())
 
-        expenses.group("partner") { partner in
+        firstParty.group("partner") { partner in
             partner.get(use: getHouseholdPartner)
             partner.put(use: updateHouseholdPartner)
         }
 
-        expenses.group("categories") { cat in
-            cat.get(use: getCategories)
-            cat.post(use: createCategory)
-            cat.group(":categoryId") { c in
-                c.delete(use: deleteCategory)
-            }
-        }
+        readScoped.get("categories", use: getCategories)
+        writeScoped.post("categories", use: createCategory)
+        writeScoped.delete("categories", ":categoryId", use: deleteCategory)
 
-        expenses.group("recurring") { rec in
+        firstParty.group("recurring") { rec in
             rec.get(use: getRecurringTemplates)
             rec.post(use: createRecurringTemplate)
             rec.group(":templateId") { t in
@@ -112,10 +113,10 @@ struct ExpensesController: RouteCollection {
             }
         }
 
-        expenses.get(use: getExpenses)
-        expenses.post(use: createExpense)
+        readScoped.get(use: getExpenses)
+        writeScoped.post(use: createExpense)
 
-        expenses.group(":expenseId") { expense in
+        writeScoped.group(":expenseId") { expense in
             expense.patch(use: updateExpense)
             expense.delete(use: deleteExpense)
         }

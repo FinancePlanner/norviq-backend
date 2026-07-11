@@ -131,6 +131,8 @@ enum BillingFeature: String {
     case crypto
     /// AI financial insight cards (educational, reads user's own data) — Pro/trial only.
     case aiInsights = "ai_insights"
+    /// Connecting external AI clients via MCP (personal access tokens, OAuth) — Pro/trial only.
+    case mcpAccess = "mcp_access"
 }
 
 struct BillingPlanLimits {
@@ -183,7 +185,7 @@ struct BillingPlanLimits {
         case .brokerSync, .expensePlanner, .reports, .statistics, .marketFundamentals,
              .advancedResearch, .peerComparison, .earningsText,
              .householdPartner, .recurringTemplates, .yearOverview, .smartSuggestions,
-             .crypto, .aiInsights:
+             .crypto, .aiInsights, .mcpAccess:
             nil
         }
     }
@@ -286,7 +288,7 @@ struct DefaultUsageCounterService: UsageCounterService {
         case .brokerSync, .portfolioLists, .valuationCases, .expensePlanner, .reports,
              .statistics, .marketFundamentals, .advancedResearch, .peerComparison, .earningsText,
              .householdPartner, .recurringTemplates, .yearOverview, .smartSuggestions,
-             .crypto, .aiInsights:
+             .crypto, .aiInsights, .mcpAccess:
             0
         }
     }
@@ -306,7 +308,7 @@ struct DefaultUsageCounterService: UsageCounterService {
         case .brokerSync, .portfolioLists, .valuationCases, .expensePlanner, .reports,
              .statistics, .marketFundamentals, .advancedResearch, .peerComparison, .earningsText,
              .householdPartner, .recurringTemplates, .yearOverview, .smartSuggestions,
-             .crypto, .aiInsights:
+             .crypto, .aiInsights, .mcpAccess:
             break
         }
     }

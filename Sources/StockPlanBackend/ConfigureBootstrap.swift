@@ -258,6 +258,7 @@ func registerMigrations(_ app: Application) {
     app.migrations.add(CreateTickerSentimentPost())
     app.migrations.add(CreateNetWorthSnapshot())
     app.migrations.add(CreateMacroTables())
+    app.migrations.add(CreatePersonalAccessTokens())
 }
 
 func envBool(_ key: String, default defaultValue: Bool) -> Bool {
