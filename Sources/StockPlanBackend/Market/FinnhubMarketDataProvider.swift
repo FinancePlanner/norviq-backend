@@ -317,6 +317,13 @@ private extension FinnhubMarketDataProvider {
         case .unauthorized, .forbidden:
             throw Abort(.badGateway, reason: "Finnhub rejected the request. Check FINNHUB_API_KEY.")
 
+        case .tooManyRequests:
+            let retryAfter = response.headers.first(name: "Retry-After").flatMap(Int.init) ?? 30
+            req.logger.warning(
+                "Finnhub rate limited for \(path); backing off retry_after=\(retryAfter)s"
+            )
+            throw MarketDataProviderRateLimitedError(retryAfterSeconds: retryAfter)
+
         default:
             let body = response.body
                 .flatMap { buffer in
