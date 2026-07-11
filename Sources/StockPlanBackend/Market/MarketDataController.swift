@@ -4,8 +4,9 @@ import Vapor
 
 struct MarketDataController: RouteCollection {
     func boot(routes: any RoutesBuilder) throws {
-        let protected = routes.grouped(SessionToken.authenticator(), SessionToken.guardMiddleware())
-        let market = protected.grouped("market")
+        // Scoped auth: first-party JWTs pass through untouched; MCP tokens need market:read.
+        let protected = routes.grouped(ScopedBearerAuthenticator(), SessionToken.guardMiddleware())
+        let market = protected.grouped("market").grouped(ScopeRequirementMiddleware(.marketRead))
         let rateLimited = market.grouped(RateLimitMiddleware(limit: 120, interval: 60, keyPrefix: "ratelimit:market"))
 
         rateLimited.get("details", use: details)

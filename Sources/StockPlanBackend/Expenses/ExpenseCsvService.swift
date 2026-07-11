@@ -1,0 +1,307 @@
+import Fluent
+import Foundation
+import StockPlanShared
+import Vapor
+
+/// CSV import/export for expenses. Import is atomic-per-row with a dry-run mode
+/// and dedup; export streams a UTF-8 BOM CSV (matching Export/ExportService).
+struct ExpenseCsvService {
+    static let maxRows = 1000
+    static let maxBytes = 1_048_576 // 1 MB
+    static let columns = ["title", "amount", "currency", "pillar", "category", "occurred_on", "external_id"]
+
+    let expensesService: any ExpensesService
+
+    // MARK: - Import
+
+    enum RowOutcome: String, Content {
+        case imported
+        case skippedDuplicate = "skipped_duplicate"
+        case error
+    }
+
+    struct RowResult: Content {
+        let line: Int
+        let outcome: RowOutcome
+        let message: String?
+    }
+
+    struct ImportResult: Content {
+        let dryRun: Bool
+        let total: Int
+        let imported: Int
+        let skipped: Int
+        let failed: Int
+        let rows: [RowResult]
+    }
+
+    func importCSV(
+        _ csv: String,
+        userId: UUID,
+        dryRun: Bool,
+        categoriesByName: [String: String],
+        on db: any Database
+    ) async throws -> ImportResult {
+        guard csv.utf8.count <= Self.maxBytes else {
+            throw Abort(.payloadTooLarge, reason: "CSV exceeds \(Self.maxBytes / 1024)KB limit.")
+        }
+        let parsed = try parse(csv)
+        guard parsed.count <= Self.maxRows else {
+            throw Abort(.badRequest, reason: "CSV exceeds \(Self.maxRows) row limit.")
+        }
+
+        // Existing dedup keys for this user (occurredOn|amount|title, plus any external ids present).
+        var seen = try await existingDedupKeys(userId: userId, on: db)
+
+        // Phase 1 — validate and classify every row without writing.
+        var rows: [RowResult] = []
+        var toImport: [(line: Int, request: ExpenseRequest)] = []
+        var skipped = 0, failed = 0
+
+        for (index, fields) in parsed.enumerated() {
+            let line = index + 2 // 1-based + header row
+            do {
+                let request = try buildRequest(fields, categoriesByName: categoriesByName)
+                let key = dedupKey(occurredOn: request.occurredOn, amount: request.amount, title: request.title,
+                                   externalID: fields["external_id"])
+                if seen.contains(key) {
+                    rows.append(RowResult(line: line, outcome: .skippedDuplicate, message: nil))
+                    skipped += 1
+                    continue
+                }
+                seen.insert(key)
+                toImport.append((line, request))
+                rows.append(RowResult(line: line, outcome: .imported, message: nil))
+            } catch {
+                rows.append(RowResult(line: line, outcome: .error, message: friendly(error)))
+                failed += 1
+            }
+        }
+
+        guard !dryRun, !toImport.isEmpty else {
+            return ImportResult(
+                dryRun: dryRun, total: parsed.count,
+                imported: toImport.count, skipped: skipped, failed: failed, rows: rows
+            )
+        }
+
+        // Phase 2 — ensure each distinct month's snapshot exists exactly once.
+        // We avoid createExpense here: it re-runs ensureSnapshotExists per row,
+        // and within a single request that repeated find-or-create races into a
+        // duplicate snapshot insert. One ensure per month sidesteps that.
+        for month in Set(toImport.compactMap { monthStart(for: $0.request.occurredOn) }) {
+            try await expensesService.ensureSnapshotExists(userId: userId, monthStart: month, on: db)
+        }
+
+        // Phase 3 — insert the accepted expense rows directly.
+        var resultByLine = Dictionary(uniqueKeysWithValues: rows.map { ($0.line, $0) })
+        var imported = 0
+        for row in toImport {
+            do {
+                try await insertExpense(row.request, userId: userId, on: db)
+                imported += 1
+            } catch {
+                resultByLine[row.line] = RowResult(line: row.line, outcome: .error, message: friendly(error))
+                failed += 1
+            }
+        }
+
+        let finalRows = rows.map { resultByLine[$0.line] ?? $0 }
+        return ImportResult(
+            dryRun: dryRun, total: parsed.count,
+            imported: imported, skipped: skipped, failed: failed, rows: finalRows
+        )
+    }
+
+    private func insertExpense(_ request: ExpenseRequest, userId: UUID, on db: any Database) async throws {
+        guard let occurredOn = parseDate(request.occurredOn) else {
+            throw Abort(.badRequest, reason: "Invalid occurredOn format. Expected YYYY-MM-DD.")
+        }
+        let expense = Expense(
+            userID: userId,
+            title: request.title,
+            amount: request.amount,
+            pillar: request.pillar,
+            occurredOn: occurredOn,
+            splitMode: request.splitMode,
+            userSharePercent: request.userSharePercent
+        )
+        if let catIdStr = request.categoryId, let catId = UUID(uuidString: catIdStr) {
+            expense.$category.id = catId
+        }
+        try await expense.create(on: db)
+    }
+
+    private func parseDate(_ string: String) -> Date? {
+        let df = DateFormatter()
+        df.dateFormat = "yyyy-MM-dd"
+        df.locale = Locale(identifier: "en_US_POSIX")
+        df.timeZone = TimeZone(secondsFromGMT: 0)
+        return df.date(from: string)
+    }
+
+    /// Month start (UTC, day 1) for a YYYY-MM-DD string, matching the service's
+    /// snapshot normalization.
+    private func monthStart(for occurredOn: String) -> Date? {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+        let df = DateFormatter()
+        df.dateFormat = "yyyy-MM-dd"
+        df.locale = Locale(identifier: "en_US_POSIX")
+        df.timeZone = TimeZone(secondsFromGMT: 0)
+        guard let date = df.date(from: occurredOn) else { return nil }
+        var comps = calendar.dateComponents([.year, .month], from: date)
+        comps.day = 1
+        comps.hour = 0; comps.minute = 0; comps.second = 0
+        comps.timeZone = TimeZone(secondsFromGMT: 0)
+        return calendar.date(from: comps)
+    }
+
+    // MARK: - Export
+
+    func exportCSV(userId: UUID, from: Date?, to: Date?, on db: any Database) async throws -> String {
+        let (items, _) = try await expensesService.getExpenses(
+            userId: userId, from: from, to: to, limit: 10000, cursor: nil, on: db
+        )
+        var out = "\u{FEFF}" // UTF-8 BOM
+        out += "title,amount,pillar,category_id,occurred_on\n"
+        for e in items {
+            out += [
+                csvEscape(e.title),
+                String(e.amount),
+                e.pillar.rawValue,
+                e.categoryId ?? "",
+                e.occurredOn,
+            ].joined(separator: ",") + "\n"
+        }
+        return out
+    }
+
+    // MARK: - Parsing
+
+    /// Minimal RFC 4180 parser: handles quoted fields, embedded commas, and
+    /// doubled quotes. Returns one dictionary per data row keyed by header.
+    func parse(_ csv: String) throws -> [[String: String]] {
+        let records = splitRecords(csv)
+        guard let headerLine = records.first else { return [] }
+        let headers = splitFields(headerLine).map { $0.trimmingCharacters(in: .whitespaces).lowercased() }
+        guard headers.contains("title"), headers.contains("amount"), headers.contains("pillar"),
+              headers.contains("occurred_on")
+        else {
+            throw Abort(.badRequest, reason: "CSV header must include title, amount, pillar, occurred_on.")
+        }
+        var out: [[String: String]] = []
+        for record in records.dropFirst() where !record.isEmpty {
+            let fields = splitFields(record)
+            var row: [String: String] = [:]
+            for (i, header) in headers.enumerated() where i < fields.count {
+                row[header] = fields[i].trimmingCharacters(in: .whitespaces)
+            }
+            out.append(row)
+        }
+        return out
+    }
+
+    private func splitRecords(_ csv: String) -> [String] {
+        // Split on newlines that are not inside quotes.
+        var records: [String] = []
+        var current = ""
+        var inQuotes = false
+        for char in csv {
+            if char == "\"" {
+                inQuotes.toggle()
+            }
+            if char == "\n" || char == "\r\n", !inQuotes {
+                records.append(current)
+                current = ""
+            } else if char == "\r", !inQuotes {
+                continue
+            } else {
+                current.append(char)
+            }
+        }
+        if !current.isEmpty {
+            records.append(current)
+        }
+        return records
+    }
+
+    private func splitFields(_ record: String) -> [String] {
+        var fields: [String] = []
+        var current = ""
+        var inQuotes = false
+        var iterator = record.makeIterator()
+        var pending: Character? = iterator.next()
+        while let char = pending {
+            pending = iterator.next()
+            if char == "\"" {
+                if inQuotes, pending == "\"" {
+                    current.append("\"")
+                    pending = iterator.next()
+                } else {
+                    inQuotes.toggle()
+                }
+            } else if char == ",", !inQuotes {
+                fields.append(current)
+                current = ""
+            } else {
+                current.append(char)
+            }
+        }
+        fields.append(current)
+        return fields
+    }
+
+    // MARK: - Helpers
+
+    private func buildRequest(_ fields: [String: String], categoriesByName: [String: String]) throws -> ExpenseRequest {
+        guard let title = fields["title"], !title.isEmpty else {
+            throw Abort(.badRequest, reason: "missing title")
+        }
+        guard let amountStr = fields["amount"], let amount = Double(amountStr) else {
+            throw Abort(.badRequest, reason: "invalid amount")
+        }
+        guard let pillarRaw = fields["pillar"], let pillar = BudgetPillar(rawValue: pillarRaw) else {
+            throw Abort(.badRequest, reason: "invalid pillar")
+        }
+        guard let occurredOn = fields["occurred_on"], !occurredOn.isEmpty else {
+            throw Abort(.badRequest, reason: "missing occurred_on")
+        }
+        var categoryId: String?
+        if let name = fields["category"], !name.isEmpty {
+            categoryId = categoriesByName[name.lowercased()]
+        }
+        return ExpenseRequest(
+            title: title, amount: amount, pillar: pillar, occurredOn: occurredOn,
+            categoryId: categoryId
+        )
+    }
+
+    private func existingDedupKeys(userId: UUID, on db: any Database) async throws -> Set<String> {
+        let (items, _) = try await expensesService.getExpenses(
+            userId: userId, from: nil, to: nil, limit: 10000, cursor: nil, on: db
+        )
+        return Set(items.map { dedupKey(occurredOn: $0.occurredOn, amount: $0.amount, title: $0.title, externalID: nil) })
+    }
+
+    private func dedupKey(occurredOn: String, amount: Double, title: String, externalID: String?) -> String {
+        if let ext = externalID, !ext.isEmpty {
+            return "ext:\(ext)"
+        }
+        return "\(occurredOn)|\(amount)|\(title.lowercased())"
+    }
+
+    private func csvEscape(_ value: String) -> String {
+        if value.contains(",") || value.contains("\"") || value.contains("\n") {
+            return "\"" + value.replacingOccurrences(of: "\"", with: "\"\"") + "\""
+        }
+        return value
+    }
+
+    private func friendly(_ error: Error) -> String {
+        if let abort = error as? AbortError {
+            return abort.reason
+        }
+        return "\(error)"
+    }
+}
