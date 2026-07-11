@@ -88,6 +88,7 @@ func routes(_ app: Application) throws {
     try api.register(collection: UserActivityController())
     try api.register(collection: BadgeController())
     try api.register(collection: AssetsController())
+    try api.register(collection: TaxController())
     try api.register(collection: PushNotificationsController())
     try api.register(collection: DataExportController(exportService: app.dataExportService))
     try api.register(collection: ExportFileController(exportService: app.dataExportService))

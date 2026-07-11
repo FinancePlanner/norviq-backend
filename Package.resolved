@@ -65,12 +65,12 @@
       }
     },
     {
-      "identity" : "financeshared",
+      "identity" : "norviq-shared",
       "kind" : "remoteSourceControl",
-      "location" : "https://github.com/FinancePlanner/FinanceShared.git",
+      "location" : "https://github.com/FinancePlanner/norviq-shared.git",
       "state" : {
-        "branch" : "main",
-        "revision" : "58f5fa9f94b3cee35f4352616b09266a29511c54"
+        "revision" : "fe2c1a687d06abdec1ac98789448061e9f52d170",
+        "version" : "3.7.0"
       }
     },
     {

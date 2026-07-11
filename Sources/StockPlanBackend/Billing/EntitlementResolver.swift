@@ -133,6 +133,10 @@ enum BillingFeature: String {
     case aiInsights = "ai_insights"
     /// Connecting external AI clients via MCP (personal access tokens, OAuth) — Pro/trial only.
     case mcpAccess = "mcp_access"
+    /// Advanced portfolio scenarios and stress tests — Pro/trial only.
+    case scenarioPlanning = "scenario_planning"
+    /// Tax projections, harvesting scenarios, workpapers, and alerts — Pro/trial only.
+    case taxOptimization = "tax_optimization"
 }
 
 struct BillingPlanLimits {
@@ -185,7 +189,11 @@ struct BillingPlanLimits {
         case .brokerSync, .expensePlanner, .reports, .statistics, .marketFundamentals,
              .advancedResearch, .peerComparison, .earningsText,
              .householdPartner, .recurringTemplates, .yearOverview, .smartSuggestions,
+<<<<<<< HEAD
              .crypto, .aiInsights, .mcpAccess:
+=======
+             .crypto, .aiInsights, .mcpAccess, .scenarioPlanning, .taxOptimization:
+>>>>>>> 9cad89a (commit changes for stability and features)
             nil
         }
     }
@@ -288,7 +296,11 @@ struct DefaultUsageCounterService: UsageCounterService {
         case .brokerSync, .portfolioLists, .valuationCases, .expensePlanner, .reports,
              .statistics, .marketFundamentals, .advancedResearch, .peerComparison, .earningsText,
              .householdPartner, .recurringTemplates, .yearOverview, .smartSuggestions,
+<<<<<<< HEAD
              .crypto, .aiInsights, .mcpAccess:
+=======
+             .crypto, .aiInsights, .mcpAccess, .scenarioPlanning, .taxOptimization:
+>>>>>>> 9cad89a (commit changes for stability and features)
             0
         }
     }
@@ -308,7 +320,11 @@ struct DefaultUsageCounterService: UsageCounterService {
         case .brokerSync, .portfolioLists, .valuationCases, .expensePlanner, .reports,
              .statistics, .marketFundamentals, .advancedResearch, .peerComparison, .earningsText,
              .householdPartner, .recurringTemplates, .yearOverview, .smartSuggestions,
+<<<<<<< HEAD
              .crypto, .aiInsights, .mcpAccess:
+=======
+             .crypto, .aiInsights, .mcpAccess, .scenarioPlanning, .taxOptimization:
+>>>>>>> 9cad89a (commit changes for stability and features)
             break
         }
     }

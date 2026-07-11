@@ -3564,6 +3564,14 @@ struct StockPlanBackendTests {
         ) async -> TargetPushSendSummary {
             .init(delivered: devices.count, failed: 0)
         }
+
+        func sendTaxOpportunity(
+            opportunity _: TaxOpportunityResponse,
+            devices: [PushDevice],
+            req _: Request
+        ) async -> TargetPushSendSummary {
+            .init(delivered: devices.count, failed: 0)
+        }
     }
 
     actor TestTargetAlertEvaluatorState {

@@ -22,7 +22,7 @@ struct ScenarioEngineTests {
             region: "US", currency: "USD", duration: nil, convexity: nil
         )
         let shocks = ScenarioShockSet(assetClasses: ["stock": -0.2], sectors: ["technology": -0.25])
-        #expect(ScenarioEngine().customValue(for: holding, shocks: shocks) == 60)
+        #expect(abs(ScenarioEngine().customValue(for: holding, shocks: shocks) - 60) < 0.0001)
     }
 
     @Test

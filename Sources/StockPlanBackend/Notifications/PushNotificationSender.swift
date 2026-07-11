@@ -1,6 +1,7 @@
 import APNS
 import APNSCore
 import Foundation
+import StockPlanShared
 import Vapor
 import VaporAPNS
 
@@ -32,9 +33,24 @@ protocol PushNotificationSending: Sendable {
         devices: [PushDevice],
         req: Request
     ) async -> TargetPushSendSummary
+
+    func sendTaxOpportunity(
+        opportunity: TaxOpportunityResponse,
+        devices: [PushDevice],
+        req: Request
+    ) async -> TargetPushSendSummary
 }
 
 struct NoopPushNotificationSender: PushNotificationSending {
+    func sendTaxOpportunity(
+        opportunity: TaxOpportunityResponse,
+        devices: [PushDevice],
+        req: Request
+    ) async -> TargetPushSendSummary {
+        req.logger.debug("push.notifications disabled tax_opportunity symbol=\(opportunity.symbol) devices=\(devices.count)")
+        return .init(delivered: 0, failed: devices.count)
+    }
+
     func sendTargetHit(
         target: Target,
         currentPrice _: Double,
@@ -107,7 +123,63 @@ struct APNSPushNotificationSender: PushNotificationSending {
         let deepLink: String?
     }
 
+    struct TaxOpportunityPayload: Codable {
+        let schemaVersion: Int
+        let type: String
+        let opportunityId: String
+        let instrumentId: String
+        let symbol: String
+        let estimatedBenefit: Decimal
+        let currency: String
+        let deepLink: String
+    }
+
     let topic: String
+
+    func sendTaxOpportunity(
+        opportunity: TaxOpportunityResponse,
+        devices: [PushDevice],
+        req: Request
+    ) async -> TargetPushSendSummary {
+        guard !devices.isEmpty else { return .init(delivered: 0, failed: 0) }
+        let benefit = NSDecimalNumber(decimal: opportunity.estimatedTaxBenefit.amount).doubleValue
+        let payload = TaxOpportunityPayload(
+            schemaVersion: 1,
+            type: "tax_harvest_opportunity",
+            opportunityId: opportunity.id,
+            instrumentId: opportunity.instrumentId,
+            symbol: opportunity.symbol,
+            estimatedBenefit: opportunity.estimatedTaxBenefit.amount,
+            currency: opportunity.estimatedTaxBenefit.currency,
+            deepLink: "financeplan://tax/opportunities/\(opportunity.id)"
+        )
+        let notification = APNSAlertNotification(
+            alert: .init(
+                title: .raw("Tax opportunity: \(opportunity.symbol)"),
+                body: .raw("Estimated benefit \(formatPrice(benefit, currency: opportunity.estimatedTaxBenefit.currency)). Review before acting.")
+            ),
+            expiration: .immediately,
+            priority: .immediately,
+            topic: topic,
+            payload: payload,
+            threadID: "tax-\(opportunity.instrumentId)",
+            category: "TAX_OPPORTUNITY"
+        )
+        var delivered = 0
+        var failed = 0
+        for device in devices {
+            do {
+                _ = try await client(for: device, req: req).sendAlertNotification(notification, deviceToken: device.deviceToken)
+                delivered += 1
+            } catch {
+                failed += 1
+                if isInvalidTokenError(error) {
+                    try? await req.pushDeviceService.deactivate(deviceToken: device.deviceToken, on: req.db)
+                }
+            }
+        }
+        return .init(delivered: delivered, failed: failed)
+    }
 
     func sendBudgetAlert(
         snapshot: BudgetSnapshot,
@@ -323,9 +395,13 @@ struct APNSPushNotificationSender: PushNotificationSending {
     }
 
     private func formatPrice(_ value: Double) -> String {
+        formatPrice(value, currency: "USD")
+    }
+
+    private func formatPrice(_ value: Double, currency: String) -> String {
         let formatter = NumberFormatter()
         formatter.numberStyle = .currency
-        formatter.currencyCode = "USD"
+        formatter.currencyCode = currency
         formatter.minimumFractionDigits = 2
         formatter.maximumFractionDigits = 2
         return formatter.string(from: NSNumber(value: value)) ?? "\(value)"
