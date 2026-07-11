@@ -189,11 +189,7 @@ struct BillingPlanLimits {
         case .brokerSync, .expensePlanner, .reports, .statistics, .marketFundamentals,
              .advancedResearch, .peerComparison, .earningsText,
              .householdPartner, .recurringTemplates, .yearOverview, .smartSuggestions,
-<<<<<<< HEAD
-             .crypto, .aiInsights, .mcpAccess:
-=======
              .crypto, .aiInsights, .mcpAccess, .scenarioPlanning, .taxOptimization:
->>>>>>> 9cad89a (commit changes for stability and features)
             nil
         }
     }
@@ -296,11 +292,7 @@ struct DefaultUsageCounterService: UsageCounterService {
         case .brokerSync, .portfolioLists, .valuationCases, .expensePlanner, .reports,
              .statistics, .marketFundamentals, .advancedResearch, .peerComparison, .earningsText,
              .householdPartner, .recurringTemplates, .yearOverview, .smartSuggestions,
-<<<<<<< HEAD
-             .crypto, .aiInsights, .mcpAccess:
-=======
              .crypto, .aiInsights, .mcpAccess, .scenarioPlanning, .taxOptimization:
->>>>>>> 9cad89a (commit changes for stability and features)
             0
         }
     }
@@ -320,11 +312,7 @@ struct DefaultUsageCounterService: UsageCounterService {
         case .brokerSync, .portfolioLists, .valuationCases, .expensePlanner, .reports,
              .statistics, .marketFundamentals, .advancedResearch, .peerComparison, .earningsText,
              .householdPartner, .recurringTemplates, .yearOverview, .smartSuggestions,
-<<<<<<< HEAD
-             .crypto, .aiInsights, .mcpAccess:
-=======
              .crypto, .aiInsights, .mcpAccess, .scenarioPlanning, .taxOptimization:
->>>>>>> 9cad89a (commit changes for stability and features)
             break
         }
     }
