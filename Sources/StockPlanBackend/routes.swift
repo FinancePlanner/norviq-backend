@@ -52,10 +52,13 @@ func routes(_ app: Application) throws {
     try app.register(collection: FinnhubWebhookController())
     try app.register(collection: RevenueCatWebhookController())
     try app.register(collection: SharingController())
+    // RFC 8414 authorization-server metadata lives at the root well-known path.
+    try app.register(collection: WellKnownController())
 
     try api.register(collection: AuthController(environment: app.environment))
     try api.register(collection: PersonalAccessTokenController())
     try api.register(collection: TokenIntrospectionController())
+    try api.register(collection: OAuthServerController())
     try api.register(collection: BillingController())
     try api.register(collection: StockController())
     // Rate limit market data endpoints (quotes, search) to protect third-party API quotas.
