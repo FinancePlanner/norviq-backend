@@ -14,6 +14,7 @@ struct TaxController: RouteCollection {
         let tax = protected.grouped("tax")
         tax.get("capabilities", use: capabilities)
         tax.get("profile", use: getProfile)
+        tax.get("profile", "context", use: getProfileContext)
         tax.put("profile", use: saveProfile)
         tax.get("dashboard", use: dashboard)
         tax.post("scenarios", use: createScenario)
@@ -47,6 +48,18 @@ struct TaxController: RouteCollection {
             on: req.db
         ) else { throw Abort(.notFound, reason: "Tax profile not found.") }
         return profile
+    }
+
+    @Sendable
+    private func getProfileContext(req: Request) async throws -> TaxProfileContextResponse {
+        let session = try req.auth.require(SessionToken.self)
+        let query = try req.query.decode(TaxQuery.self)
+        return try await req.application.taxService.profileContext(
+            userId: session.userId,
+            jurisdiction: query.jurisdiction ?? .unitedStates,
+            taxYear: query.taxYear ?? currentTaxYear(),
+            on: req.db
+        )
     }
 
     @Sendable
@@ -185,7 +198,14 @@ struct TaxController: RouteCollection {
         guard report.status == "ready", let path = report.filePath else {
             throw Abort(.conflict, reason: "Tax report is not ready.")
         }
-        return req.fileio.streamFile(at: path)
+        let response = req.fileio.streamFile(at: path)
+        let format = TaxReportFormat(rawValue: report.format) ?? .csv
+        response.headers.contentType = format == .pdf ? .pdf : .init(type: "text", subType: "csv", parameters: ["charset": "utf-8"])
+        response.headers.replaceOrAdd(
+            name: .contentDisposition,
+            value: "attachment; filename=\"norviq-tax-\(report.taxYear)-\(report.kind).\(format.rawValue)\""
+        )
+        return response
     }
 
     private func ownedReport(_ req: Request) async throws -> TaxReport {

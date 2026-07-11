@@ -253,6 +253,10 @@ public func configure(_ app: Application) async throws {
         intervalSeconds: Environment.get("SCENARIO_WORKER_INTERVAL_SECONDS").flatMap(Int64.init) ?? 2,
         maxConcurrent: Environment.get("SCENARIO_WORKER_MAX_CONCURRENT").flatMap(Int.init) ?? 2
     ))
+    app.lifecycle.use(MarketHistoryIngestionJob(
+        intervalSeconds: Environment.get("SCENARIO_HISTORY_REFRESH_SECONDS").flatMap(Int64.init) ?? 86400
+    ))
+    app.lifecycle.use(ScenarioRetentionJob())
 
     // Macro / inflation (Nowflation parity). FRED is the keystone provider:
     // without FRED_API_KEY the US (and intl fallback) stay disabled while

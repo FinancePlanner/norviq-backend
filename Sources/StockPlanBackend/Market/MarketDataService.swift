@@ -648,41 +648,8 @@ struct DefaultMarketDataService: MarketDataService {
         }
     }
 
-    private func fetchAndCacheBasicFinancials(
-        symbol: String,
-        providerName: String,
-        redisKey: String,
-        on req: Request
-    ) async throws -> BasicFinancialsResponse {
-        guard let fresh = try await provider.basicFinancials(symbol: symbol, on: req) else {
-            throw Abort(.notFound, reason: "Basic financials not found for \(symbol).")
-        }
-
-        let response = makeBasicFinancialsResponse(from: fresh)
-        do {
-            let cached = try await upsertBasicFinancialsCache(
-                response, provider: providerName, on: req.db
-            )
-            let decoded = decodeBasicFinancialsPayload(cached.payload) ?? response
-            await redisSetValue(
-                redisKey, value: decoded, ttlSeconds: cacheConfig.basicFinancialsTTLSeconds,
-                on: req
-            )
-            return decoded
-        } catch {
-            if isMissingDatabaseRelationError(error, relation: BasicFinancialsCache.schema) {
-                req.logger.warning(
-                    "market.basic-financials live response returned without DB cache because relation \(BasicFinancialsCache.schema) is missing"
-                )
-                await redisSetValue(
-                    redisKey, value: response,
-                    ttlSeconds: cacheConfig.basicFinancialsTTLSeconds, on: req
-                )
-                return response
-            }
-            throw error
-        }
-    }
+    // fetchAndCacheBasicFinancials lives in MarketDataProviderRateLimitedError.swift
+    // (same-module extension) to keep this file under the SwiftLint length cap.
 
     func analysis(symbol rawSymbol: String, on req: Request) async throws
         -> StockAnalysisMetricsResponse
@@ -2478,48 +2445,5 @@ extension DefaultMarketDataService {
             return nil
         }
         return lhs - rhs
-    }
-}
-
-extension DefaultMarketDataService {
-    private func normalizeFMPResultLimit(_ rawLimit: Int?, defaultLimit: Int? = nil) throws
-        -> Int?
-    {
-        let resolved = rawLimit ?? defaultLimit
-
-        guard let resolved else {
-            return nil
-        }
-
-        guard resolved > 0 else {
-            throw Abort(.badRequest, reason: "`limit` must be greater than 0.")
-        }
-
-        switch fmpAccessTier {
-        case .free, .starter:
-            return min(resolved, 5)
-        case .premium:
-            return resolved
-        }
-    }
-
-    static func calculateDCFPrice(
-        projections: [YearlyProjectionResponse],
-        sharesOutstanding: Double?,
-        wacc: Double,
-        terminalGrowthRate: Double,
-        netDebt: Double
-    ) -> Double? {
-        guard let shares = sharesOutstanding, shares > 0, !projections.isEmpty else {
-            return nil
-        }
-        var pvExplicit = 0.0
-        for (i, p) in projections.enumerated() {
-            pvExplicit += (p.fcf ?? 0) / pow(1 + wacc, Double(i + 1))
-        }
-        let finalFCF = projections.last?.fcf ?? 0
-        let tv = finalFCF * (1 + terminalGrowthRate) / (wacc - terminalGrowthRate)
-        let pvTerminal = tv / pow(1 + wacc, Double(projections.count))
-        return (pvExplicit + pvTerminal - netDebt) / shares
     }
 }

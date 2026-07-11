@@ -8,6 +8,7 @@ private let taxDisclaimer = "Educational estimate only. Review all calculations 
 
 protocol TaxService: Sendable {
     func capabilities(taxYear: Int) -> TaxCapabilitiesResponse
+    func profileContext(userId: UUID, jurisdiction: TaxJurisdiction, taxYear: Int, on db: any Database) async throws -> TaxProfileContextResponse
     func profile(userId: UUID, jurisdiction: TaxJurisdiction, taxYear: Int, on db: any Database) async throws -> TaxProfileResponse?
     func saveProfile(userId: UUID, request: TaxProfileRequest, on db: any Database) async throws -> TaxProfileResponse
     func dashboard(userId: UUID, jurisdiction: TaxJurisdiction, taxYear: Int, on db: any Database) async throws -> TaxDashboardResponse
@@ -23,6 +24,43 @@ struct DefaultTaxService: TaxService {
 
     func capabilities(taxYear: Int) -> TaxCapabilitiesResponse {
         TaxCapabilitiesResponse(generatedAt: isoDate(Date()), capabilities: rules.capabilities(taxYear: taxYear))
+    }
+
+    func profileContext(
+        userId: UUID,
+        jurisdiction: TaxJurisdiction,
+        taxYear: Int,
+        on db: any Database
+    ) async throws -> TaxProfileContextResponse {
+        let existing = try await profile(userId: userId, jurisdiction: jurisdiction, taxYear: taxYear, on: db)
+        let accounts = try await Account.query(on: db)
+            .filter(\.$userId == userId)
+            .all()
+            .compactMap { account -> TaxProfileAccountOption? in
+                guard let id = account.id else { return nil }
+                let broker = account.broker.trimmingCharacters(in: .whitespacesAndNewlines)
+                return TaxProfileAccountOption(
+                    id: id.uuidString,
+                    displayName: account.displayName?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+                        ?? (broker.isEmpty ? "Investment account" : broker.uppercased()),
+                    broker: broker,
+                    baseCurrency: account.baseCurrency.uppercased(),
+                    wrapper: account.taxWrapper.flatMap(TaxAccountWrapper.init(rawValue:)) ?? .unknown,
+                    ownerMemberId: account.taxOwnerMemberId,
+                    lotSelectionMethod: account.lotSelectionMethod.flatMap(TaxLotSelectionMethod.init(rawValue:)) ?? .jurisdictionDefault
+                )
+            }
+            .sorted {
+                let comparison = $0.displayName.localizedCaseInsensitiveCompare($1.displayName)
+                return comparison == .orderedSame ? $0.id < $1.id : comparison == .orderedAscending
+            }
+        return TaxProfileContextResponse(
+            jurisdiction: jurisdiction,
+            taxYear: taxYear,
+            defaultReportingCurrency: defaultCurrency(jurisdiction),
+            profile: existing,
+            accounts: accounts
+        )
     }
 
     func profile(
@@ -41,6 +79,24 @@ struct DefaultTaxService: TaxService {
     }
 
     func saveProfile(userId: UUID, request: TaxProfileRequest, on db: any Database) async throws -> TaxProfileResponse {
+        let memberIDs = Set(request.members.map(\.id))
+        guard memberIDs.count == request.members.count,
+              request.accounts.allSatisfy({ memberIDs.contains($0.ownerMemberId) }),
+              Set(request.accounts.map(\.accountId)).count == request.accounts.count
+        else { throw Abort(.unprocessableEntity, reason: "Tax household and account classifications are invalid.") }
+        let requestedAccountIDs = try request.accounts.map { classification -> UUID in
+            guard let id = UUID(uuidString: classification.accountId) else {
+                throw Abort(.unprocessableEntity, reason: "A tax account identifier is invalid.")
+            }
+            return id
+        }
+        let ownedAccounts = requestedAccountIDs.isEmpty ? [] : try await Account.query(on: db)
+            .filter(\.$userId == userId)
+            .filter(\.$id ~~ requestedAccountIDs)
+            .all()
+        guard ownedAccounts.count == requestedAccountIDs.count else {
+            throw Abort(.unprocessableEntity, reason: "One or more tax accounts do not belong to this user.")
+        }
         let missing = missingFields(request)
         let model = try await TaxProfile.query(on: db)
             .filter(\.$userId == userId)
@@ -56,13 +112,9 @@ struct DefaultTaxService: TaxService {
         model.isComplete = missing.isEmpty
         try await model.save(on: db)
 
+        let ownedByID = Dictionary(uniqueKeysWithValues: ownedAccounts.compactMap { account in account.id.map { ($0, account) } })
         for account in request.accounts {
-            guard let accountID = UUID(uuidString: account.accountId),
-                  let owned = try await Account.query(on: db)
-                  .filter(\.$id == accountID)
-                  .filter(\.$userId == userId)
-                  .first()
-            else { continue }
+            guard let accountID = UUID(uuidString: account.accountId), let owned = ownedByID[accountID] else { continue }
             owned.taxWrapper = account.wrapper.rawValue
             owned.taxJurisdiction = request.jurisdiction.rawValue
             owned.taxOwnerMemberId = account.ownerMemberId

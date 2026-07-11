@@ -7855,7 +7855,10 @@ components:
         portfolioListId:
           type: string
           format: uuid
-      required: [id, symbol, shares, buyPrice, buyDate, category]
+        createdAt:
+          type: string
+          format: date-time
+      required: [id, symbol, shares, buyPrice, buyDate, category, createdAt]
     StockListItem:
       type: object
       properties:
@@ -7880,7 +7883,10 @@ components:
         portfolioListId:
           type: string
           format: uuid
-      required: [id, symbol, shares, buyPrice, buyDate, category]
+        createdAt:
+          type: string
+          format: date-time
+      required: [id, symbol, shares, buyPrice, buyDate, category, createdAt]
     StockInsightsResponse:
       type: object
       properties:

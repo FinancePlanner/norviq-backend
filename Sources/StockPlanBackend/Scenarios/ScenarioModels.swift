@@ -79,6 +79,33 @@ struct ScenarioJSON: Content, Equatable, Sendable {
     }
 }
 
+final class HoldingRiskProfileModel: Model, Content, @unchecked Sendable {
+    static let schema = "holding_risk_profiles"
+    @ID(key: .id) var id: UUID?
+    @Field(key: "user_id") var userId: UUID
+    @Field(key: "holding_id") var holdingId: UUID
+    @Field(key: "asset_category") var assetCategory: String
+    @OptionalField(key: "sector") var sector: String?
+    @OptionalField(key: "region") var region: String?
+    @OptionalField(key: "benchmark_proxy") var benchmarkProxy: String?
+    @OptionalField(key: "manual_value") var manualValue: Double?
+    @OptionalField(key: "duration") var duration: Double?
+    @OptionalField(key: "convexity") var convexity: Double?
+    @Field(key: "factor_overrides") var factorOverrides: ScenarioJSON
+    @Timestamp(key: "created_at", on: .create) var createdAt: Date?
+    @Timestamp(key: "updated_at", on: .update) var updatedAt: Date?
+
+    init() {}
+    init(userId: UUID, holdingId: UUID, assetCategory: String) {
+        self.userId = userId; self.holdingId = holdingId; self.assetCategory = assetCategory
+        factorOverrides = ScenarioJSON()
+    }
+
+    static func owned(by userId: UUID, on db: any Database) -> QueryBuilder<HoldingRiskProfileModel> {
+        query(on: db).filter(\.$userId == userId)
+    }
+}
+
 final class FinancialGoalModel: Model, Content, @unchecked Sendable {
     static let schema = "financial_goals"
     @ID(key: .id) var id: UUID?

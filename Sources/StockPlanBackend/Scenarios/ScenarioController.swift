@@ -1,6 +1,7 @@
 import Crypto
 import Fluent
 import Foundation
+import Redis
 import Vapor
 
 private struct FinancialGoalInput: Content {
@@ -26,9 +27,10 @@ private struct ScenarioInput: Content {
 private struct SnapshotInput: Content {
     let portfolioListId: UUID
     let baseCurrency: String
-    let valuationTimestamp: Date
-    let payload: ScenarioJSON
+    let valuationTimestamp: Date?
+    let payload: ScenarioJSON?
     let warnings: ScenarioJSON?
+    let cryptoHoldingIds: [UUID]?
 }
 
 private struct RunInput: Content {
@@ -38,6 +40,17 @@ private struct RunInput: Content {
 
 private struct CompareInput: Content { let runIds: [UUID] }
 struct ComparisonResponse: Content { let runs: [ScenarioRunModel] }
+private struct RiskProfileInput: Content {
+    let holdingId: UUID
+    let assetCategory: String
+    let sector: String?
+    let region: String?
+    let benchmarkProxy: String?
+    let manualValue: Double?
+    let duration: Double?
+    let convexity: Double?
+    let factorOverrides: ScenarioJSON?
+}
 
 struct ScenarioController: RouteCollection {
     func boot(routes: any RoutesBuilder) throws {
@@ -62,6 +75,10 @@ struct ScenarioController: RouteCollection {
             runs.get(use: listRuns); runs.post("compare", use: compareRuns)
             runs.get(":id", use: getRun); runs.delete(":id", use: cancelRun)
             runs.get(":id", "result", use: getResult)
+        }
+        protected.group("holding-risk-profiles") { profiles in
+            profiles.get(use: listRiskProfiles); profiles.post(use: saveRiskProfile)
+            profiles.delete(":id", use: deleteRiskProfile)
         }
     }
 
@@ -129,7 +146,19 @@ struct ScenarioController: RouteCollection {
 
     @Sendable func createSnapshot(req: Request) async throws -> ScenarioSnapshotModel {
         let user = try await authorize(req); let input = try req.content.decode(SnapshotInput.self); try await requirePortfolio(input.portfolioListId, user: user, db: req.db)
-        let snapshot = ScenarioSnapshotModel(userId: user, portfolioListId: input.portfolioListId, baseCurrency: input.baseCurrency.uppercased(), valuationTimestamp: input.valuationTimestamp, payload: input.payload, warnings: input.warnings ?? ScenarioJSON())
+        let baseCurrency = input.baseCurrency.uppercased()
+        guard baseCurrency.count == 3 else { throw Abort(.badRequest, reason: "Invalid base currency") }
+        let snapshot: ScenarioSnapshotModel = if let payload = input.payload {
+            ScenarioSnapshotModel(userId: user, portfolioListId: input.portfolioListId, baseCurrency: baseCurrency, valuationTimestamp: input.valuationTimestamp ?? Date(), payload: payload, warnings: input.warnings ?? ScenarioJSON())
+        } else {
+            try await ScenarioSnapshotCaptureService().capture(
+                portfolioListId: input.portfolioListId,
+                userId: user,
+                baseCurrency: baseCurrency,
+                cryptoHoldingIds: input.cryptoHoldingIds ?? [],
+                req: req
+            )
+        }
         try await snapshot.save(on: req.db); return snapshot
     }
 
@@ -166,11 +195,49 @@ struct ScenarioController: RouteCollection {
     }
 
     @Sendable func getResult(req: Request) async throws -> ScenarioJSON {
-        let user = try await authorize(req); let run = try await ownedRun(req, user: user); guard run.state == "completed", let result = run.result else { throw Abort(.conflict, reason: "Result is not ready") }; return result
+        let user = try await authorize(req); let run = try await ownedRun(req, user: user)
+        guard run.state == "completed", let runID = run.id else { throw Abort(.conflict, reason: "Result is not ready") }
+        if req.application.redis.configuration != nil {
+            let key = RedisKey("scenario:result:\(runID.uuidString.lowercased())")
+            if let value = try? await req.redis.get(key, as: String.self).get(),
+               let data = value.data(using: .utf8), let cached = try? JSONDecoder().decode(ScenarioJSON.self, from: data)
+            {
+                PrometheusMetrics.shared.recordScenarioCacheHit(); return cached
+            }
+        }
+        guard let result = run.result else { throw Abort(.conflict, reason: "Result is not ready") }
+        return result
     }
 
     @Sendable func compareRuns(req: Request) async throws -> ComparisonResponse {
         let user = try await authorize(req); let input = try req.content.decode(CompareInput.self); guard (1 ... 4).contains(input.runIds.count) else { throw Abort(.badRequest, reason: "Compare between one and four runs") }; let runs = try await ScenarioRunModel.owned(by: user, on: req.db).filter(\.$id ~~ input.runIds).all(); guard runs.count == Set(input.runIds).count else { throw Abort(.notFound) }; return ComparisonResponse(runs: runs)
+    }
+
+    @Sendable func listRiskProfiles(req: Request) async throws -> [HoldingRiskProfileModel] {
+        let user = try await authorize(req)
+        return try await HoldingRiskProfileModel.owned(by: user, on: req.db).sort(\.$updatedAt, .descending).all()
+    }
+
+    @Sendable func saveRiskProfile(req: Request) async throws -> HoldingRiskProfileModel {
+        let user = try await authorize(req); let input = try req.content.decode(RiskProfileInput.self)
+        guard let holding = try await Stock.query(on: req.db).filter(\.$id == input.holdingId).filter(\.$userId == user).first() else { throw Abort(.notFound) }
+        let supported = Set(["stock", "etf", "mutual_fund", "crypto", "cash", "bond", "real_estate", "commodity"])
+        guard supported.contains(input.assetCategory), input.manualValue.map({ $0 > 0 }) ?? true,
+              input.duration.map({ $0 >= 0 }) ?? true, input.convexity.map({ $0 >= 0 }) ?? true
+        else { throw Abort(.badRequest, reason: "Invalid risk profile") }
+        let profile = try await HoldingRiskProfileModel.owned(by: user, on: req.db)
+            .filter(\.$holdingId == input.holdingId).first()
+            ?? HoldingRiskProfileModel(userId: user, holdingId: input.holdingId, assetCategory: holding.category.rawValue)
+        profile.assetCategory = input.assetCategory; profile.sector = input.sector?.nilIfBlank
+        profile.region = input.region?.nilIfBlank; profile.benchmarkProxy = input.benchmarkProxy?.nilIfBlank?.uppercased()
+        profile.manualValue = input.manualValue; profile.duration = input.duration; profile.convexity = input.convexity
+        profile.factorOverrides = input.factorOverrides ?? ScenarioJSON(); try await profile.save(on: req.db); return profile
+    }
+
+    @Sendable func deleteRiskProfile(req: Request) async throws -> HTTPStatus {
+        let user = try await authorize(req); let id = try requireID(req)
+        guard let profile = try await HoldingRiskProfileModel.owned(by: user, on: req.db).filter(\.$id == id).first() else { throw Abort(.notFound) }
+        try await profile.delete(on: req.db); return .noContent
     }
 
     private func authorize(_ req: Request) async throws -> UUID {
@@ -205,6 +272,12 @@ struct ScenarioController: RouteCollection {
         let input = try req.content.decode(ScenarioInput.self); guard ["historical", "custom", "monte_carlo"].contains(input.kind) else { throw Abort(.badRequest, reason: "Invalid scenario kind") }; try await requirePortfolio(input.portfolioListId, user: user, db: req.db); if let goalId = input.financialGoalId, try await FinancialGoalModel.owned(by: user, on: req.db).filter(\.$id == goalId).first() == nil {
             throw Abort(.notFound, reason: "Financial goal not found")
         }; let scenario = existing ?? ScenarioDefinitionModel(userId: user, portfolioListId: input.portfolioListId, financialGoalId: input.financialGoalId, name: input.name, kind: input.kind, configuration: input.configuration, isSaved: input.isSaved ?? true); scenario.portfolioListId = input.portfolioListId; scenario.financialGoalId = input.financialGoalId; scenario.name = input.name; scenario.kind = input.kind; scenario.configuration = input.configuration; scenario.isSaved = input.isSaved ?? true; try await scenario.save(on: req.db); return scenario
+    }
+}
+
+private extension String {
+    var nilIfBlank: String? {
+        let value = trimmingCharacters(in: .whitespacesAndNewlines); return value.isEmpty ? nil : value
     }
 }
 
