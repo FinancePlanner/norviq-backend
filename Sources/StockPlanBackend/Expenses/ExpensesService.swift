@@ -23,6 +23,9 @@ protocol ExpensesService: Sendable {
     // Expenses
     func getExpenses(userId: UUID, from: Date?, to: Date?, limit: Int, cursor: Date?, on db: any Database) async throws -> (items: [ExpenseResponse], nextCursor: String?)
     func createExpense(userId: UUID, request: ExpenseRequest, on db: any Database) async throws -> ExpenseResponse
+    /// Creates the month's budget snapshot only if none exists (non-destructive).
+    /// Exposed so bulk importers can pre-create snapshots once per month.
+    func ensureSnapshotExists(userId: UUID, monthStart: Date, on db: any Database) async throws
     func updateExpense(userId: UUID, expenseId: UUID, request: ExpenseRequest, on db: any Database) async throws -> ExpenseResponse
     func deleteExpense(userId: UUID, expenseId: UUID, on db: any Database) async throws
 
@@ -960,7 +963,9 @@ final class DefaultExpensesService: ExpensesService {
     }
 }
 
-private extension DefaultExpensesService {
+/// Not `private`: `ensureSnapshotExists` below satisfies an internal protocol
+/// requirement, so this extension's members must be at least internal.
+extension DefaultExpensesService {
     func sortedPillars(_ pillars: Set<BudgetPillar>) -> [BudgetPillar] {
         pillars.sorted { lhs, rhs in
             let lhsRank = pillarRank(lhs)
