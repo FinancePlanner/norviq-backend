@@ -260,6 +260,8 @@ func registerMigrations(_ app: Application) {
     app.migrations.add(CreateMacroTables())
     app.migrations.add(CreatePersonalAccessTokens())
     app.migrations.add(CreateOAuthServerTables())
+    app.migrations.add(CreateTaxOptimizationTables())
+    app.migrations.add(CreateScenarioPlanningTables())
 }
 
 func envBool(_ key: String, default defaultValue: Bool) -> Bool {

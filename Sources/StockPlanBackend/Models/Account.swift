@@ -23,6 +23,18 @@ final class Account: Model, Content, @unchecked Sendable {
     @Field(key: "base_currency")
     var baseCurrency: String
 
+    @OptionalField(key: "tax_wrapper")
+    var taxWrapper: String?
+
+    @OptionalField(key: "tax_jurisdiction")
+    var taxJurisdiction: String?
+
+    @OptionalField(key: "tax_owner_member_id")
+    var taxOwnerMemberId: String?
+
+    @OptionalField(key: "lot_selection_method")
+    var lotSelectionMethod: String?
+
     @Timestamp(key: "created_at", on: .create)
     var createdAt: Date?
 

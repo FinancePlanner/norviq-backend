@@ -648,6 +648,42 @@ struct DefaultMarketDataService: MarketDataService {
         }
     }
 
+    private func fetchAndCacheBasicFinancials(
+        symbol: String,
+        providerName: String,
+        redisKey: String,
+        on req: Request
+    ) async throws -> BasicFinancialsResponse {
+        guard let fresh = try await provider.basicFinancials(symbol: symbol, on: req) else {
+            throw Abort(.notFound, reason: "Basic financials not found for \(symbol).")
+        }
+
+        let response = makeBasicFinancialsResponse(from: fresh)
+        do {
+            let cached = try await upsertBasicFinancialsCache(
+                response, provider: providerName, on: req.db
+            )
+            let decoded = decodeBasicFinancialsPayload(cached.payload) ?? response
+            await redisSetValue(
+                redisKey, value: decoded, ttlSeconds: cacheConfig.basicFinancialsTTLSeconds,
+                on: req
+            )
+            return decoded
+        } catch {
+            if isMissingDatabaseRelationError(error, relation: BasicFinancialsCache.schema) {
+                req.logger.warning(
+                    "market.basic-financials live response returned without DB cache because relation \(BasicFinancialsCache.schema) is missing"
+                )
+                await redisSetValue(
+                    redisKey, value: response,
+                    ttlSeconds: cacheConfig.basicFinancialsTTLSeconds, on: req
+                )
+                return response
+            }
+            throw error
+        }
+    }
+
     func analysis(symbol rawSymbol: String, on req: Request) async throws
         -> StockAnalysisMetricsResponse
     {

@@ -23,6 +23,18 @@ final class Instrument: Model, Content, @unchecked Sendable {
     @Field(key: "name")
     var name: String?
 
+    @OptionalField(key: "instrument_type")
+    var instrumentType: String?
+
+    @OptionalField(key: "isin")
+    var isin: String?
+
+    @OptionalField(key: "cusip")
+    var cusip: String?
+
+    @OptionalField(key: "tax_identity_group")
+    var taxIdentityGroup: String?
+
     @Timestamp(key: "created_at", on: .create)
     var createdAt: Date?
 

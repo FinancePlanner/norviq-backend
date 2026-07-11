@@ -28,6 +28,7 @@ tags:
   - name: Webhooks
     description: Public inbound webhook endpoints for provider event delivery.
   - name: Portfolio
+  - name: Scenarios
   - name: Brokers
   - name: Statistics
   - name: News
@@ -39,6 +40,7 @@ tags:
   - name: Feedback
   - name: Assets
   - name: Notifications
+  - name: Tax
   - name: Billing
   - name: Export
   - name: Macro
@@ -5744,8 +5746,258 @@ paths:
         '404':
           description: Unknown item for the requested country
 
+  /v1/tax/capabilities:
+    get:
+      operationId: taxCapabilities
+      tags: [Tax]
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: taxYear, in: query, schema: { type: integer } }
+      responses:
+        '200': { description: Tax rule capabilities, content: { application/json: { schema: { $ref: '#/components/schemas/TaxCapabilitiesResponse' } } } }
+        '401': { description: Unauthorized }
+  /v1/tax/profile:
+    get:
+      operationId: getTaxProfile
+      tags: [Tax]
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: jurisdiction, in: query, required: true, schema: { $ref: '#/components/schemas/TaxJurisdiction' } }
+        - { name: taxYear, in: query, required: true, schema: { type: integer } }
+      responses:
+        '200': { description: Tax profile, content: { application/json: { schema: { $ref: '#/components/schemas/TaxProfileResponse' } } } }
+        '404': { description: Profile not found }
+    put:
+      operationId: saveTaxProfile
+      tags: [Tax]
+      security: [{ bearerAuth: [] }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/TaxProfileRequest' } } } }
+      responses:
+        '200': { description: Saved tax profile, content: { application/json: { schema: { $ref: '#/components/schemas/TaxProfileResponse' } } } }
+        '403': { description: Pro entitlement required }
+  /v1/tax/dashboard:
+    get:
+      operationId: getTaxDashboard
+      tags: [Tax]
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: jurisdiction, in: query, required: true, schema: { $ref: '#/components/schemas/TaxJurisdiction' } }
+        - { name: taxYear, in: query, required: true, schema: { type: integer } }
+      responses:
+        '200': { description: Tax projection dashboard, content: { application/json: { schema: { $ref: '#/components/schemas/TaxDashboardResponse' } } } }
+  /v1/tax/scenarios:
+    post:
+      operationId: createTaxScenario
+      tags: [Tax]
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: jurisdiction, in: query, required: true, schema: { $ref: '#/components/schemas/TaxJurisdiction' } }
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/TaxScenarioRequest' } } } }
+      responses:
+        '200': { description: Immutable scenario, content: { application/json: { schema: { $ref: '#/components/schemas/TaxScenarioResponse' } } } }
+        '403': { description: Pro entitlement required }
+  /v1/tax/scenarios/{scenarioId}:
+    get:
+      operationId: getTaxScenario
+      tags: [Tax]
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: scenarioId, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200': { description: Saved scenario, content: { application/json: { schema: { $ref: '#/components/schemas/TaxScenarioResponse' } } } }
+        '404': { description: Scenario not found }
+  /v1/tax/action-plans:
+    post:
+      operationId: createTaxActionPlan
+      tags: [Tax]
+      security: [{ bearerAuth: [] }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/TaxActionPlanRequest' } } } }
+      responses:
+        '200': { description: Non-custodial action plan, content: { application/json: { schema: { $ref: '#/components/schemas/TaxActionPlanResponse' } } } }
+  /v1/tax/notifications:
+    get:
+      operationId: getTaxNotificationPreferences
+      tags: [Tax]
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200': { description: Tax notification preferences, content: { application/json: { schema: { $ref: '#/components/schemas/TaxNotificationPreferences' } } } }
+    put:
+      operationId: saveTaxNotificationPreferences
+      tags: [Tax]
+      security: [{ bearerAuth: [] }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/TaxNotificationPreferences' } } } }
+      responses:
+        '200': { description: Saved preferences, content: { application/json: { schema: { $ref: '#/components/schemas/TaxNotificationPreferences' } } } }
+  /v1/tax/reports:
+    get:
+      operationId: listTaxReports
+      tags: [Tax]
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200': { description: Tax reports, content: { application/json: { schema: { type: array, items: { $ref: '#/components/schemas/TaxReportResponse' } } } } }
+    post:
+      operationId: createTaxReport
+      tags: [Tax]
+      security: [{ bearerAuth: [] }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/TaxReportRequest' } } } }
+      responses:
+        '200': { description: Queued tax report, content: { application/json: { schema: { $ref: '#/components/schemas/TaxReportResponse' } } } }
+  /v1/tax/reports/{reportId}:
+    get:
+      operationId: getTaxReport
+      tags: [Tax]
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: reportId, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200': { description: Tax report status, content: { application/json: { schema: { $ref: '#/components/schemas/TaxReportResponse' } } } }
+  /v1/tax/reports/{reportId}/download:
+    get:
+      operationId: downloadTaxReport
+      tags: [Tax]
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: reportId, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200': { description: Advisor workpaper, content: { application/octet-stream: { schema: { type: string, format: binary } } } }
+        '409': { description: Report is not ready }
+
+  /v1/financial-goals:
+    get:
+      operationId: listFinancialGoals
+      tags: [Scenarios]
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200': { description: Owned financial goals, content: { application/json: { schema: { type: array, items: { $ref: '#/components/schemas/FinancialGoal' } } } } }
+    post:
+      operationId: createFinancialGoal
+      tags: [Scenarios]
+      security: [{ bearerAuth: [] }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/FinancialGoalInput' } } } }
+      responses:
+        '200': { description: Created goal, content: { application/json: { schema: { $ref: '#/components/schemas/FinancialGoal' } } } }
+  /v1/financial-goals/{id}:
+    parameters: [{ $ref: '#/components/parameters/ScenarioResourceID' }]
+    get:
+      operationId: getFinancialGoal
+      tags: [Scenarios]
+      security: [{ bearerAuth: [] }]
+      responses: { '200': { description: Financial goal, content: { application/json: { schema: { $ref: '#/components/schemas/FinancialGoal' } } } } }
+    put:
+      operationId: updateFinancialGoal
+      tags: [Scenarios]
+      security: [{ bearerAuth: [] }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/FinancialGoalInput' } } } }
+      responses: { '200': { description: Updated goal, content: { application/json: { schema: { $ref: '#/components/schemas/FinancialGoal' } } } } }
+    delete:
+      operationId: deleteFinancialGoal
+      tags: [Scenarios]
+      security: [{ bearerAuth: [] }]
+      responses: { '204': { description: Deleted } }
+  /v1/scenarios/catalog:
+    get:
+      operationId: getScenarioCatalog
+      tags: [Scenarios]
+      security: [{ bearerAuth: [] }]
+      responses: { '200': { description: Versioned historical catalog, content: { application/json: { schema: { $ref: '#/components/schemas/ScenarioCatalog' } } } } }
+  /v1/scenarios:
+    get:
+      operationId: listScenarios
+      tags: [Scenarios]
+      security: [{ bearerAuth: [] }]
+      responses: { '200': { description: Owned scenarios, content: { application/json: { schema: { type: array, items: { $ref: '#/components/schemas/ScenarioDefinition' } } } } } }
+    post:
+      operationId: createScenario
+      tags: [Scenarios]
+      security: [{ bearerAuth: [] }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/ScenarioInput' } } } }
+      responses: { '200': { description: Created scenario, content: { application/json: { schema: { $ref: '#/components/schemas/ScenarioDefinition' } } } } }
+  /v1/scenarios/{id}:
+    parameters: [{ $ref: '#/components/parameters/ScenarioResourceID' }]
+    get:
+      operationId: getScenario
+      tags: [Scenarios]
+      security: [{ bearerAuth: [] }]
+      responses: { '200': { description: Scenario, content: { application/json: { schema: { $ref: '#/components/schemas/ScenarioDefinition' } } } } }
+    put:
+      operationId: updateScenario
+      tags: [Scenarios]
+      security: [{ bearerAuth: [] }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/ScenarioInput' } } } }
+      responses: { '200': { description: Updated scenario, content: { application/json: { schema: { $ref: '#/components/schemas/ScenarioDefinition' } } } } }
+    delete:
+      operationId: deleteScenario
+      tags: [Scenarios]
+      security: [{ bearerAuth: [] }]
+      responses: { '204': { description: Deleted } }
+  /v1/scenarios/{id}/runs:
+    parameters: [{ $ref: '#/components/parameters/ScenarioResourceID' }]
+    post:
+      operationId: createScenarioRun
+      tags: [Scenarios]
+      security: [{ bearerAuth: [] }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/ScenarioRunInput' } } } }
+      responses:
+        '200': { description: Deduplicated completed run, content: { application/json: { schema: { $ref: '#/components/schemas/ScenarioRun' } } } }
+        '202': { description: Queued run, content: { application/json: { schema: { $ref: '#/components/schemas/ScenarioRun' } } } }
+  /v1/portfolio/scenario-snapshots:
+    get:
+      operationId: listScenarioSnapshots
+      tags: [Scenarios]
+      security: [{ bearerAuth: [] }]
+      responses: { '200': { description: Owned immutable snapshots, content: { application/json: { schema: { type: array, items: { $ref: '#/components/schemas/ScenarioSnapshot' } } } } } }
+    post:
+      operationId: createScenarioSnapshot
+      tags: [Scenarios]
+      security: [{ bearerAuth: [] }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/ScenarioSnapshotInput' } } } }
+      responses: { '200': { description: Created snapshot, content: { application/json: { schema: { $ref: '#/components/schemas/ScenarioSnapshot' } } } } }
+  /v1/portfolio/scenario-snapshots/{id}:
+    parameters: [{ $ref: '#/components/parameters/ScenarioResourceID' }]
+    get:
+      operationId: getScenarioSnapshot
+      tags: [Scenarios]
+      security: [{ bearerAuth: [] }]
+      responses: { '200': { description: Immutable snapshot, content: { application/json: { schema: { $ref: '#/components/schemas/ScenarioSnapshot' } } } } }
+  /v1/scenario-runs:
+    get:
+      operationId: listScenarioRuns
+      tags: [Scenarios]
+      security: [{ bearerAuth: [] }]
+      responses: { '200': { description: Owned runs, content: { application/json: { schema: { type: array, items: { $ref: '#/components/schemas/ScenarioRun' } } } } } }
+  /v1/scenario-runs/{id}:
+    parameters: [{ $ref: '#/components/parameters/ScenarioResourceID' }]
+    get:
+      operationId: getScenarioRun
+      tags: [Scenarios]
+      security: [{ bearerAuth: [] }]
+      responses: { '200': { description: Scenario run, content: { application/json: { schema: { $ref: '#/components/schemas/ScenarioRun' } } } } }
+    delete:
+      operationId: cancelScenarioRun
+      tags: [Scenarios]
+      security: [{ bearerAuth: [] }]
+      responses: { '204': { description: Cancelled } }
+  /v1/scenario-runs/{id}/result:
+    parameters: [{ $ref: '#/components/parameters/ScenarioResourceID' }]
+    get:
+      operationId: getScenarioRunResult
+      tags: [Scenarios]
+      security: [{ bearerAuth: [] }]
+      responses: { '200': { description: Completed result, content: { application/json: { schema: { $ref: '#/components/schemas/ScenarioJSON' } } } } }
+  /v1/scenario-runs/compare:
+    post:
+      operationId: compareScenarioRuns
+      tags: [Scenarios]
+      security: [{ bearerAuth: [] }]
+      requestBody: { required: true, content: { application/json: { schema: { type: object, required: [runIds], properties: { runIds: { type: array, minItems: 1, maxItems: 4, items: { type: string, format: uuid } } } } } } }
+      responses: { '200': { description: Comparison set, content: { application/json: { schema: { type: object, required: [runs], properties: { runs: { type: array, items: { $ref: '#/components/schemas/ScenarioRun' } } } } } } } }
 components:
   parameters:
+    ScenarioResourceID:
+      name: id
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
     MacroCountryParam:
       name: country
       in: query
@@ -5791,6 +6043,283 @@ components:
       name: Authorization
       description: Shared secret for inbound RevenueCat webhook delivery. Configure the backend with `REVENUECAT_WEBHOOK_SECRET`.
   schemas:
+    ScenarioJSON:
+      type: object
+      additionalProperties: true
+    FinancialGoalInput:
+      type: object
+      required: [portfolioListId, name, targetAmount, targetDate, baseCurrency]
+      properties:
+        portfolioListId: { type: string, format: uuid }
+        name: { type: string, minLength: 1 }
+        targetAmount: { type: number, format: double, minimum: 0, exclusiveMinimum: true }
+        targetDate: { type: string, format: date-time }
+        baseCurrency: { type: string, minLength: 3, maxLength: 3 }
+        monthlyContribution: { type: number, format: double, minimum: 0, default: 0 }
+        annualContributionGrowth: { type: number, format: double, default: 0 }
+        inflationAssumption: { type: number, format: double, default: 0.02 }
+    FinancialGoal:
+      allOf:
+        - $ref: '#/components/schemas/FinancialGoalInput'
+        - type: object
+          required: [id, userId]
+          properties:
+            id: { type: string, format: uuid }
+            userId: { type: string, format: uuid }
+            createdAt: { type: string, format: date-time, nullable: true }
+            updatedAt: { type: string, format: date-time, nullable: true }
+    ScenarioInput:
+      type: object
+      required: [portfolioListId, name, kind, configuration]
+      properties:
+        portfolioListId: { type: string, format: uuid }
+        financialGoalId: { type: string, format: uuid, nullable: true }
+        name: { type: string, minLength: 1 }
+        kind: { type: string, enum: [historical, custom, monte_carlo] }
+        configuration: { $ref: '#/components/schemas/ScenarioJSON' }
+        isSaved: { type: boolean, default: true }
+    ScenarioDefinition:
+      allOf:
+        - $ref: '#/components/schemas/ScenarioInput'
+        - type: object
+          required: [id, userId]
+          properties:
+            id: { type: string, format: uuid }
+            userId: { type: string, format: uuid }
+            createdAt: { type: string, format: date-time, nullable: true }
+            updatedAt: { type: string, format: date-time, nullable: true }
+    ScenarioSnapshotInput:
+      type: object
+      required: [portfolioListId, baseCurrency, valuationTimestamp, payload]
+      properties:
+        portfolioListId: { type: string, format: uuid }
+        baseCurrency: { type: string, minLength: 3, maxLength: 3 }
+        valuationTimestamp: { type: string, format: date-time }
+        payload: { $ref: '#/components/schemas/ScenarioJSON' }
+        warnings: { $ref: '#/components/schemas/ScenarioJSON' }
+    ScenarioSnapshot:
+      allOf:
+        - $ref: '#/components/schemas/ScenarioSnapshotInput'
+        - type: object
+          required: [id, userId]
+          properties:
+            id: { type: string, format: uuid }
+            userId: { type: string, format: uuid }
+            createdAt: { type: string, format: date-time, nullable: true }
+    ScenarioRunInput:
+      type: object
+      required: [snapshotId]
+      properties:
+        snapshotId: { type: string, format: uuid }
+        seed: { type: integer, format: int64, minimum: 0, nullable: true }
+    ScenarioRun:
+      type: object
+      required: [id, userId, scenario, snapshot, state, progress, seed, deduplicationHash, engineVersion, catalogVersion]
+      properties:
+        id: { type: string, format: uuid }
+        userId: { type: string, format: uuid }
+        scenario: { type: object, additionalProperties: true }
+        snapshot: { type: object, additionalProperties: true }
+        state: { type: string, enum: [queued, running, completed, failed, cancelled] }
+        progress: { type: number, format: double, minimum: 0, maximum: 1 }
+        seed: { type: string }
+        deduplicationHash: { type: string }
+        engineVersion: { type: string }
+        catalogVersion: { type: string }
+        result: { $ref: '#/components/schemas/ScenarioJSON', nullable: true }
+        errorMessage: { type: string, nullable: true }
+        createdAt: { type: string, format: date-time, nullable: true }
+        startedAt: { type: string, format: date-time, nullable: true }
+        completedAt: { type: string, format: date-time, nullable: true }
+    ScenarioCatalogItem:
+      type: object
+      required: [id, name, startDate, endDate]
+      properties:
+        id: { type: string }
+        name: { type: string }
+        startDate: { type: string, format: date }
+        endDate: { type: string, format: date }
+    ScenarioCatalog:
+      type: object
+      required: [version, historicalScenarios]
+      properties:
+        version: { type: string }
+        historicalScenarios: { type: array, items: { $ref: '#/components/schemas/ScenarioCatalogItem' } }
+    TaxJurisdiction:
+      type: string
+      enum: [US, PT, ES, DE, FR, IT]
+    TaxMoney:
+      type: object
+      required: [amount, currency]
+      properties:
+        amount: { type: number }
+        currency: { type: string }
+    TaxAccountClassification:
+      type: object
+      required: [id, accountId, ownerMemberId, wrapper, lotSelectionMethod]
+      properties:
+        id: { type: string }
+        accountId: { type: string, format: uuid }
+        ownerMemberId: { type: string }
+        wrapper: { type: string, enum: [taxable, traditional_ira, roth_ira, pension, tax_exempt, country_specific, unknown] }
+        countryWrapperCode: { type: string, nullable: true }
+        lotSelectionMethod: { type: string, enum: [fifo, lifo, specific_id, jurisdiction_default] }
+    TaxHouseholdMember:
+      type: object
+      required: [id, displayName, relationship]
+      properties:
+        id: { type: string }
+        displayName: { type: string }
+        relationship: { type: string }
+    TaxProfileRequest:
+      type: object
+      required: [jurisdiction, taxYear, filingStatus, reportingCurrency, estimatedTaxableIncome, priorShortTermLossCarryover, priorLongTermLossCarryover, members, accounts]
+      properties:
+        jurisdiction: { $ref: '#/components/schemas/TaxJurisdiction' }
+        taxYear: { type: integer }
+        filingStatus: { type: string, enum: [single, married_joint, married_separate, domestic_partnership] }
+        reportingCurrency: { type: string }
+        estimatedTaxableIncome: { type: number }
+        marginalIncomeTaxRate: { type: number, nullable: true }
+        shortTermCapitalGainsRate: { type: number, nullable: true }
+        longTermCapitalGainsRate: { type: number, nullable: true }
+        priorShortTermLossCarryover: { type: number }
+        priorLongTermLossCarryover: { type: number }
+        members: { type: array, items: { $ref: '#/components/schemas/TaxHouseholdMember' } }
+        accounts: { type: array, items: { $ref: '#/components/schemas/TaxAccountClassification' } }
+    TaxProfileResponse:
+      type: object
+      required: [id, profile, isComplete, missingFields, updatedAt]
+      properties:
+        id: { type: string, format: uuid }
+        profile: { $ref: '#/components/schemas/TaxProfileRequest' }
+        isComplete: { type: boolean }
+        missingFields: { type: array, items: { type: string } }
+        updatedAt: { type: string, format: date-time }
+    TaxRuleCapability:
+      type: object
+      required: [jurisdiction, taxYear, ruleVersion, instrumentType, supportLevel, supportedAccountWrappers, limitations]
+      properties:
+        jurisdiction: { $ref: '#/components/schemas/TaxJurisdiction' }
+        taxYear: { type: integer }
+        ruleVersion: { type: string }
+        instrumentType: { type: string }
+        supportLevel: { type: string, enum: [supported, estimate_only, professional_review, unsupported] }
+        supportedAccountWrappers: { type: array, items: { type: string } }
+        limitations: { type: array, items: { type: string } }
+    TaxCapabilitiesResponse:
+      type: object
+      required: [generatedAt, capabilities]
+      properties:
+        generatedAt: { type: string, format: date-time }
+        capabilities: { type: array, items: { $ref: '#/components/schemas/TaxRuleCapability' } }
+    TaxProjectionSummary:
+      type: object
+      required: [realizedEstimatedLiability, embeddedUnrealizedLiability, harvestableLosses, estimatedNetBenefit, shortTermCarryover, longTermCarryover]
+      properties:
+        realizedEstimatedLiability: { $ref: '#/components/schemas/TaxMoney' }
+        embeddedUnrealizedLiability: { $ref: '#/components/schemas/TaxMoney' }
+        harvestableLosses: { $ref: '#/components/schemas/TaxMoney' }
+        estimatedNetBenefit: { $ref: '#/components/schemas/TaxMoney' }
+        shortTermCarryover: { $ref: '#/components/schemas/TaxMoney' }
+        longTermCarryover: { $ref: '#/components/schemas/TaxMoney' }
+        taxCostRatio: { type: number, nullable: true }
+    TaxOpportunityResponse:
+      type: object
+      required: [id, accountId, instrumentId, symbol, instrumentType, status, supportLevel, marketValue, unrealizedLoss, estimatedTaxBenefit, eligibleQuantity, holdingPeriod, warnings, confidence]
+      properties:
+        id: { type: string }
+        accountId: { type: string, format: uuid }
+        instrumentId: { type: string, format: uuid }
+        symbol: { type: string }
+        instrumentType: { type: string }
+        status: { type: string, enum: [actionable, watch, blocked, accepted, dismissed] }
+        supportLevel: { type: string, enum: [supported, estimate_only, professional_review, unsupported] }
+        marketValue: { $ref: '#/components/schemas/TaxMoney' }
+        unrealizedLoss: { $ref: '#/components/schemas/TaxMoney' }
+        estimatedTaxBenefit: { $ref: '#/components/schemas/TaxMoney' }
+        eligibleQuantity: { type: number }
+        holdingPeriod: { type: string }
+        washSaleWindowEndsAt: { type: string, format: date-time, nullable: true }
+        warnings: { type: array, items: { type: string } }
+        confidence: { type: number }
+    TaxDashboardResponse:
+      type: object
+      required: [generatedAt, taxYear, jurisdiction, ruleVersion, isStale, profileComplete, summary, opportunities, unsupportedValue, assumptions, disclaimer]
+      properties:
+        generatedAt: { type: string, format: date-time }
+        taxYear: { type: integer }
+        jurisdiction: { $ref: '#/components/schemas/TaxJurisdiction' }
+        ruleVersion: { type: string }
+        isStale: { type: boolean }
+        profileComplete: { type: boolean }
+        summary: { $ref: '#/components/schemas/TaxProjectionSummary' }
+        opportunities: { type: array, items: { $ref: '#/components/schemas/TaxOpportunityResponse' } }
+        unsupportedValue: { $ref: '#/components/schemas/TaxMoney' }
+        assumptions: { type: array, items: { type: string } }
+        disclaimer: { type: string }
+    TaxScenarioRequest:
+      type: object
+      required: [taxYear, opportunityIds, plannedReplacementInstrumentIds]
+      properties:
+        taxYear: { type: integer }
+        opportunityIds: { type: array, items: { type: string } }
+        plannedReplacementInstrumentIds: { type: object, additionalProperties: { type: string } }
+    TaxScenarioColumn:
+      type: object
+      required: [currentYearTax, nextYearTax, realizedLosses, carryover, feesAndSpread]
+      properties:
+        currentYearTax: { $ref: '#/components/schemas/TaxMoney' }
+        nextYearTax: { $ref: '#/components/schemas/TaxMoney' }
+        realizedLosses: { $ref: '#/components/schemas/TaxMoney' }
+        carryover: { $ref: '#/components/schemas/TaxMoney' }
+        feesAndSpread: { $ref: '#/components/schemas/TaxMoney' }
+    TaxScenarioResponse:
+      type: object
+      required: [id, createdAt, baseline, harvestNow, estimatedNetBenefit, warnings, assumptions]
+      properties:
+        id: { type: string, format: uuid }
+        createdAt: { type: string, format: date-time }
+        baseline: { $ref: '#/components/schemas/TaxScenarioColumn' }
+        harvestNow: { $ref: '#/components/schemas/TaxScenarioColumn' }
+        estimatedNetBenefit: { $ref: '#/components/schemas/TaxMoney' }
+        warnings: { type: array, items: { type: string } }
+        assumptions: { type: array, items: { type: string } }
+    TaxActionPlanRequest:
+      type: object
+      required: [scenarioId, idempotencyKey]
+      properties:
+        scenarioId: { type: string, format: uuid }
+        idempotencyKey: { type: string }
+    TaxActionPlanResponse:
+      type: object
+      additionalProperties: true
+    TaxNotificationPreferences:
+      type: object
+      required: [enabled, cooldownDays]
+      properties:
+        enabled: { type: boolean }
+        minimumBenefit: { type: number, nullable: true }
+        cooldownDays: { type: integer, minimum: 1 }
+    TaxReportRequest:
+      type: object
+      required: [taxYear, kind, format]
+      properties:
+        taxYear: { type: integer }
+        kind: { type: string, enum: [transaction_workpaper, form_8949, schedule_d_summary, country_capital_gains] }
+        format: { type: string, enum: [csv, pdf] }
+    TaxReportResponse:
+      type: object
+      required: [id, taxYear, kind, format, status, createdAt]
+      properties:
+        id: { type: string, format: uuid }
+        taxYear: { type: integer }
+        kind: { type: string }
+        format: { type: string }
+        status: { type: string }
+        createdAt: { type: string, format: date-time }
+        expiresAt: { type: string, format: date-time, nullable: true }
+        downloadPath: { type: string, nullable: true }
     HealthResponse:
       type: object
       properties:
