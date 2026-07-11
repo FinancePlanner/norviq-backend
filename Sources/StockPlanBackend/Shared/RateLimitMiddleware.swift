@@ -22,7 +22,13 @@ struct RateLimitMiddleware: AsyncMiddleware {
             return try await next.respond(to: request)
         }
 
-        let identifier = request.remoteAddress?.ipAddress ?? "unknown"
+        // Key by authenticated user when available so shared egress IPs (e.g. the
+        // MCP service proxying many users) don't exhaust a single bucket.
+        let identifier: String = if let session = request.auth.get(SessionToken.self) {
+            "user:\(session.userId.uuidString)"
+        } else {
+            request.remoteAddress?.ipAddress ?? "unknown"
+        }
         let key = RedisKey("\(keyPrefix):\(identifier)")
         let count: Int
         do {

@@ -54,6 +54,8 @@ func routes(_ app: Application) throws {
     try app.register(collection: SharingController())
 
     try api.register(collection: AuthController(environment: app.environment))
+    try api.register(collection: PersonalAccessTokenController())
+    try api.register(collection: TokenIntrospectionController())
     try api.register(collection: BillingController())
     try api.register(collection: StockController())
     // Rate limit market data endpoints (quotes, search) to protect third-party API quotas.

@@ -5,14 +5,16 @@ import Vapor
 
 struct ReportsController: RouteCollection {
     func boot(routes: any RoutesBuilder) throws {
-        let protected = routes.grouped(SessionToken.authenticator(), SessionToken.guardMiddleware())
+        // ScopedBearerAuthenticator accepts both first-party JWTs and scoped
+        // personal access tokens; scope middleware gates the third-party surface.
+        let protected = routes.grouped(ScopedBearerAuthenticator(), SessionToken.guardMiddleware())
         let reports = protected.grouped("reports")
-        let expenses = reports.grouped("expenses")
+        let readScoped = reports.grouped(ScopeRequirementMiddleware(.reportsRead))
 
-        reports.get("overview", use: getReportsOverview)
-        reports.get("suggestions", use: getSuggestions)
-        reports.post("suggestions", ":id", "dismiss", use: dismissSuggestion)
-        expenses.get(use: getExpenseReports)
+        readScoped.get("overview", use: getReportsOverview)
+        readScoped.get("suggestions", use: getSuggestions)
+        reports.grouped(FirstPartyOnlyMiddleware()).post("suggestions", ":id", "dismiss", use: dismissSuggestion)
+        readScoped.get("expenses", use: getExpenseReports)
     }
 
     @Sendable
