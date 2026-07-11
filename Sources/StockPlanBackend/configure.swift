@@ -92,7 +92,8 @@ public func configure(_ app: Application) async throws {
             defaultCurrency: Environment.get("MARKET_DEFAULT_CURRENCY") ?? "USD"
         ),
         ibkrOAuthClient: ibkrOAuthConfiguration.map(IBKROAuthClient.init(config:)),
-        ibkrConnectMode: ibkrConnectMode
+        ibkrConnectMode: ibkrConnectMode,
+        tokenVault: app.tokenEncryptionService
     )
     app.marketDataRepository = DatabaseMarketDataRepository()
     let configuredMarketProvider = Environment.get("MARKET_PROVIDER")?

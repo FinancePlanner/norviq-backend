@@ -42,17 +42,20 @@ struct DefaultBrokersService: BrokersService {
     let ibkrGatewayClient: IBKRBrokerGatewayClient
     let ibkrOAuthClient: IBKROAuthClient?
     let ibkrConnectMode: IBKRConnectMode
+    let tokenVault: any TokenEncryptionService
 
     init(
         repo: any BrokersRepository,
         ibkrGatewayClient: IBKRBrokerGatewayClient,
         ibkrOAuthClient: IBKROAuthClient? = nil,
-        ibkrConnectMode: IBKRConnectMode = .gateway
+        ibkrConnectMode: IBKRConnectMode = .gateway,
+        tokenVault: any TokenEncryptionService
     ) {
         self.repo = repo
         self.ibkrGatewayClient = ibkrGatewayClient
         self.ibkrOAuthClient = ibkrOAuthClient
         self.ibkrConnectMode = ibkrConnectMode
+        self.tokenVault = tokenVault
     }
 
     func list(userId: UUID, on db: any Database) async throws -> [BrokerConnectionResponse] {
@@ -237,6 +240,18 @@ struct DefaultBrokersService: BrokersService {
             throw BrokersServiceError.notFound
         }
 
+        // Disconnecting removes the synced holdings so a stale broker snapshot
+        // never lingers as if it were manually entered. Ledger rows are keyed to
+        // the account and cleaned up on the next reconcile; user-facing `stocks`
+        // rows tagged with this provider are removed here.
+        let importedStocks = try await Stock.query(on: db)
+            .filter(\.$userId == userId)
+            .filter(\.$sourceProvider == "ibkr")
+            .all()
+        for stock in importedStocks {
+            try await stock.delete(on: db)
+        }
+
         connection.accessToken = nil
         connection.refreshToken = nil
         connection.expiresAt = nil
@@ -366,22 +381,29 @@ private extension DefaultBrokersService {
     }
 
     func syncDataClient(connection: BrokerConnection, on req: Request) async throws -> IBKRBrokerGatewayClient {
-        guard let accessToken = connection.accessToken?.trimmingCharacters(in: .whitespacesAndNewlines),
-              !accessToken.isEmpty,
+        guard let storedAccessToken = connection.accessToken?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !storedAccessToken.isEmpty,
               let ibkrOAuthClient
         else {
             return ibkrGatewayClient
         }
 
+        let accessToken = try tokenVault.decrypt(storedAccessToken, context: .broker)
+        let storedRefreshToken = connection.refreshToken?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let refreshToken = try storedRefreshToken.flatMap { stored -> String? in
+            guard !stored.isEmpty else { return nil }
+            return try tokenVault.decrypt(stored, context: .broker)
+        }
+
         let refreshThreshold = Date().addingTimeInterval(60)
         if let expiresAt = connection.expiresAt,
            expiresAt <= refreshThreshold,
-           let refreshToken = connection.refreshToken?.trimmingCharacters(in: .whitespacesAndNewlines),
+           let refreshToken,
            !refreshToken.isEmpty
         {
             let token = try await ibkrOAuthClient.refresh(refreshToken: refreshToken, on: req)
-            connection.accessToken = token.accessToken
-            connection.refreshToken = token.refreshToken ?? refreshToken
+            connection.accessToken = try tokenVault.encrypt(token.accessToken, context: .broker)
+            connection.refreshToken = try tokenVault.encrypt(token.refreshToken ?? refreshToken, context: .broker)
             connection.expiresAt = token.expiresIn.map { Date().addingTimeInterval(TimeInterval($0)) }
             connection.updatedAt = Date()
             try await connection.save(on: req.db)
@@ -390,6 +412,16 @@ private extension DefaultBrokersService {
                 defaultCurrency: ibkrGatewayClient.defaultCurrency,
                 accessToken: token.accessToken
             )
+        }
+
+        // Legacy plaintext rows predate the encryption service; re-encrypt on first use.
+        if !tokenVault.isEncrypted(storedAccessToken) || storedRefreshToken.map({ !$0.isEmpty && !tokenVault.isEncrypted($0) }) == true {
+            connection.accessToken = try tokenVault.encrypt(accessToken, context: .broker)
+            if let refreshToken, !refreshToken.isEmpty {
+                connection.refreshToken = try tokenVault.encrypt(refreshToken, context: .broker)
+            }
+            connection.updatedAt = Date()
+            try await connection.save(on: req.db)
         }
 
         return IBKRBrokerGatewayClient(
@@ -436,8 +468,10 @@ private extension DefaultBrokersService {
         let connection = try await repo.find(provider: provider, userId: userId, on: db)
             ?? BrokerConnection(userId: userId, provider: provider, status: status)
         connection.externalId = externalId ?? connection.externalId
-        connection.accessToken = accessToken ?? connection.accessToken
-        connection.refreshToken = refreshToken ?? connection.refreshToken
+        connection.accessToken = try accessToken.map { try tokenVault.encrypt($0, context: .broker) }
+            ?? connection.accessToken
+        connection.refreshToken = try refreshToken.map { try tokenVault.encrypt($0, context: .broker) }
+            ?? connection.refreshToken
         connection.expiresAt = expiresAt ?? connection.expiresAt
         connection.displayName = displayName ?? connection.displayName
         connection.status = status
