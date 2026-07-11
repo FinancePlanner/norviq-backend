@@ -146,6 +146,15 @@
       }
     },
     {
+      "identity" : "norviq-shared",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/FinancePlanner/norviq-shared.git",
+      "state" : {
+        "revision" : "fe2c1a687d06abdec1ac98789448061e9f52d170",
+        "version" : "3.7.0"
+      }
+    },
+    {
       "identity" : "openapikit",
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/mattpolzin/OpenAPIKit",
