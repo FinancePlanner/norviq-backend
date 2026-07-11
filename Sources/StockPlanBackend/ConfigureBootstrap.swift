@@ -92,6 +92,7 @@ func configureAuthStack(_ app: Application) async throws {
     let jwtSecret = Environment.get("JWT_SECRET") ?? "dev-secret"
     await app.jwt.keys.add(hmac: HMACKey(from: jwtSecret), digestAlgorithm: .sha256)
     app.userPIIEncryptionService = try UserPIIEncryptionBootstrap.fromEnvironment(app: app)
+    app.tokenEncryptionService = try TokenEncryptionBootstrap.fromEnvironment(app: app)
     app.authRepository = DatabaseAuthRepository(encryptionService: app.userPIIEncryptionService)
     var oauthProviders: [OAuthProvider: any OAuthProviderClient] = [:]
     var oauthWebProviders: [OAuthProvider: any OAuthProviderClient] = [:]
@@ -259,6 +260,7 @@ func registerMigrations(_ app: Application) {
     app.migrations.add(CreateNetWorthSnapshot())
     app.migrations.add(CreateMacroTables())
     app.migrations.add(CreatePersonalAccessTokens())
+    app.migrations.add(EncryptBrokerConnectionTokens())
 }
 
 func envBool(_ key: String, default defaultValue: Bool) -> Bool {

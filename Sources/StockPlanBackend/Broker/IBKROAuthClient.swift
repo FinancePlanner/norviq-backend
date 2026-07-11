@@ -46,6 +46,9 @@ struct IBKROAuthConfiguration {
             return nil
         }
 
+        let scope = Environment.get("IBKR_OAUTH_SCOPE")?.trimmedNonEmpty
+        try assertReadOnlyScope(scope)
+
         return Self(
             clientID: clientID,
             keyID: Environment.get("IBKR_OAUTH_KEY_ID")?.trimmedNonEmpty,
@@ -55,8 +58,32 @@ struct IBKROAuthConfiguration {
             authorizationURL: authorizationURL,
             tokenURL: URI(string: tokenURLRaw),
             apiBaseURL: apiBaseURL,
-            scope: Environment.get("IBKR_OAUTH_SCOPE")?.trimmedNonEmpty
+            scope: scope
         )
+    }
+
+    /// Norviq's broker integration is strictly read-only: it may only read
+    /// portfolio and account data, never place trades or move funds. This guard
+    /// fails startup if a misconfigured `IBKR_OAUTH_SCOPE` requests any
+    /// write-capable scope, so a bad env value can never silently grant more
+    /// than read access.
+    static let disallowedScopeTokens = [
+        "trade", "trading", "order", "orders", "write",
+        "transfer", "transfers", "payment", "payments", "place", "modify",
+    ]
+
+    static func assertReadOnlyScope(_ scope: String?) throws {
+        guard let scope, !scope.isEmpty else { return }
+        let requested = scope
+            .lowercased()
+            .split(whereSeparator: { $0 == " " || $0 == "," || $0 == "+" })
+            .map(String.init)
+        for token in requested where disallowedScopeTokens.contains(where: token.contains) {
+            throw Abort(
+                .internalServerError,
+                reason: "IBKR_OAUTH_SCOPE requests a write-capable scope '\(token)'; broker access must be read-only."
+            )
+        }
     }
 }
 

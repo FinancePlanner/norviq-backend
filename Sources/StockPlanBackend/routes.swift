@@ -66,7 +66,11 @@ func routes(_ app: Application) throws {
     let macroRateLimit = RateLimitMiddleware(limit: 80, interval: 60, keyPrefix: "ratelimit:macro")
     try api.grouped(macroRateLimit).register(collection: MacroController())
     try api.register(collection: PortfolioController())
-    try api.register(collection: BrokerController())
+    // Broker connect/sync hit third-party APIs and mutate stored credentials; rate limit
+    // per-user and dedupe retried POSTs (OAuth callback, manual sync) via idempotency keys.
+    let brokerRateLimit = RateLimitMiddleware(limit: 30, interval: 60, keyPrefix: "ratelimit:broker")
+    try api.grouped(brokerRateLimit, IdempotencyMiddleware(keyPrefix: "idempotency:broker"))
+        .register(collection: BrokerController())
     try api.register(collection: StatisticsController())
     try api.register(collection: NewsController())
     try api.register(collection: DashboardController())

@@ -40,4 +40,20 @@ struct IBKROAuthClientTests {
         #expect(try IBKRConnectMode.fromEnvironment(hasOAuthConfiguration: true) == .oauth2)
         #expect(try IBKRConnectMode.fromEnvironment(hasOAuthConfiguration: false) == .gateway)
     }
+
+    @Test("Read-only scope guard accepts read scopes and nil")
+    func readOnlyScopeGuardAcceptsReadScopes() throws {
+        try IBKROAuthConfiguration.assertReadOnlyScope(nil)
+        try IBKROAuthConfiguration.assertReadOnlyScope("portfolio.read")
+        try IBKROAuthConfiguration.assertReadOnlyScope("accounts.read positions.read")
+    }
+
+    @Test("Read-only scope guard rejects write-capable scopes")
+    func readOnlyScopeGuardRejectsWriteScopes() throws {
+        for scope in ["trading", "portfolio.read orders.write", "place_order", "funds.transfer"] {
+            #expect(throws: (any Error).self) {
+                try IBKROAuthConfiguration.assertReadOnlyScope(scope)
+            }
+        }
+    }
 }

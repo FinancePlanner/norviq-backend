@@ -48,6 +48,56 @@ struct AESGCMUserPIIEncryptionService: UserPIIEncrypting, @unchecked Sendable {
         return try JSONEncoder().encode(envelope)
     }
 
+    /// Encrypts with additional authenticated data so ciphertexts are bound to a
+    /// caller-supplied context (e.g. credential type) and cannot be replayed across domains.
+    func encryptString(_ value: String, authenticating context: String) throws -> Data {
+        let payload = Data(value.utf8)
+        let sealed = try AES.GCM.seal(payload, using: activeKey, authenticating: Data(context.utf8))
+        guard let combined = sealed.combined else {
+            throw UserPIIEncryptionError.invalidPayload
+        }
+        let envelope = EnvelopeV1(
+            version: 2,
+            keyID: activeKeyID,
+            combinedCiphertext: combined.base64EncodedString()
+        )
+        return try JSONEncoder().encode(envelope)
+    }
+
+    func decryptString(_ payload: Data, authenticating context: String) throws -> String {
+        guard let envelope = try? JSONDecoder().decode(EnvelopeV1.self, from: payload),
+              envelope.version == 2,
+              let key = keysByID[envelope.keyID],
+              let combined = Data(base64Encoded: envelope.combinedCiphertext)
+        else {
+            if let envelope = try? JSONDecoder().decode(EnvelopeV1.self, from: payload),
+               keysByID[envelope.keyID] == nil
+            {
+                throw UserPIIEncryptionError.unknownKeyIdentifier(envelope.keyID)
+            }
+            throw UserPIIEncryptionError.invalidPayload
+        }
+
+        let box: AES.GCM.SealedBox
+        do {
+            box = try AES.GCM.SealedBox(combined: combined)
+        } catch {
+            throw UserPIIEncryptionError.invalidPayload
+        }
+
+        let decrypted: Data
+        do {
+            decrypted = try AES.GCM.open(box, using: key, authenticating: Data(context.utf8))
+        } catch {
+            throw UserPIIEncryptionError.decryptionFailed
+        }
+
+        guard let value = String(data: decrypted, encoding: .utf8) else {
+            throw UserPIIEncryptionError.invalidPayload
+        }
+        return value
+    }
+
     func decryptString(_ payload: Data) throws -> String {
         guard let envelope = try? JSONDecoder().decode(EnvelopeV1.self, from: payload),
               envelope.version == 1,
@@ -88,6 +138,14 @@ enum UserPIIEncryptionBootstrap {
     private static let defaultNonProductionKey = "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY="
 
     static func fromEnvironment(app: Application) throws -> any UserPIIEncrypting {
+        try concreteFromEnvironment(app: app)
+    }
+
+    static func fromProcessEnvironment(logger: Logger, isProduction: Bool) throws -> any UserPIIEncrypting {
+        try concreteFromProcessEnvironment(logger: logger, isProduction: isProduction)
+    }
+
+    static func concreteFromEnvironment(app: Application) throws -> AESGCMUserPIIEncryptionService {
         try fromEnvironment(
             isProduction: app.environment == .production,
             logger: app.logger,
@@ -95,7 +153,7 @@ enum UserPIIEncryptionBootstrap {
         )
     }
 
-    static func fromProcessEnvironment(logger: Logger, isProduction: Bool) throws -> any UserPIIEncrypting {
+    static func concreteFromProcessEnvironment(logger: Logger, isProduction: Bool) throws -> AESGCMUserPIIEncryptionService {
         try fromEnvironment(
             isProduction: isProduction,
             logger: logger,
@@ -107,7 +165,7 @@ enum UserPIIEncryptionBootstrap {
         isProduction: Bool,
         logger: Logger,
         getValue: (String) -> String?
-    ) throws -> any UserPIIEncrypting {
+    ) throws -> AESGCMUserPIIEncryptionService {
         let activeKeyID = getValue("USER_PII_ENCRYPTION_ACTIVE_KEY_ID")?
             .trimmingCharacters(in: .whitespacesAndNewlines)
         let activeKeyRaw = getValue("USER_PII_ENCRYPTION_ACTIVE_KEY")?

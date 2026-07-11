@@ -14,6 +14,7 @@ struct BrokerController: RouteCollection {
         protected.post("import", "csv", "commit", use: importCsvCommit)
         protected.post("ibkr", "connect", "start", use: startIBKRConnect)
         protected.post("ibkr", "sync", use: syncIbkr)
+        protected.get("ibkr", "sync", "status", use: getIbkrSyncStatus)
         protected.delete("ibkr", "connection", use: disconnectIbkr)
     }
 
