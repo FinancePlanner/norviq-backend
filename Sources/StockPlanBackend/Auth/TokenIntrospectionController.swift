@@ -14,36 +14,46 @@ struct TokenIntrospectionController: RouteCollection {
         try requireServiceSecret(req)
 
         let payload = try req.content.decode(TokenIntrospectionRequest.self)
-        guard payload.token.hasPrefix(OpaqueToken.patPrefix) else {
-            return .inactive
-        }
-
         let tokenHash = OpaqueToken.sha256Hex(payload.token)
-        guard
-            let pat = try await PersonalAccessToken.query(on: req.db)
-            .filter(\.$tokenHash == tokenHash)
-            .first(),
-            pat.isActive
-        else {
-            return .inactive
+
+        if payload.token.hasPrefix(OpaqueToken.patPrefix) {
+            guard let pat = try await PersonalAccessToken.query(on: req.db)
+                .filter(\.$tokenHash == tokenHash).first(), pat.isActive
+            else { return .inactive }
+            return try await TokenIntrospectionResponse(
+                active: true,
+                sub: pat.userId.uuidString,
+                scope: pat.scopes.joined(separator: " "),
+                tokenType: ScopedTokenKind.personalAccessToken.rawValue,
+                exp: Int(pat.expiresAt.timeIntervalSince1970),
+                entitled: isEntitled(pat.userId, req)
+            )
         }
 
-        let entitled: Bool
+        if payload.token.hasPrefix(OpaqueToken.oauthAccessPrefix) {
+            guard let oauth = try await OAuthToken.query(on: req.db)
+                .filter(\.$accessTokenHash == tokenHash).first(), oauth.accessActive
+            else { return .inactive }
+            return try await TokenIntrospectionResponse(
+                active: true,
+                sub: oauth.userID.uuidString,
+                scope: oauth.scopes.joined(separator: " "),
+                tokenType: ScopedTokenKind.oauthAccessToken.rawValue,
+                exp: Int(oauth.accessExpiresAt.timeIntervalSince1970),
+                entitled: isEntitled(oauth.userID, req)
+            )
+        }
+
+        return .inactive
+    }
+
+    private func isEntitled(_ userID: UUID, _ req: Request) async throws -> Bool {
         do {
-            try await req.usageCounterService.requirePremium(.mcpAccess, userId: pat.userId, on: req.db)
-            entitled = true
+            try await req.usageCounterService.requirePremium(.mcpAccess, userId: userID, on: req.db)
+            return true
         } catch is BillingUpgradeRequiredError {
-            entitled = false
+            return false
         }
-
-        return TokenIntrospectionResponse(
-            active: true,
-            sub: pat.userId.uuidString,
-            scope: pat.scopes.joined(separator: " "),
-            tokenType: ScopedTokenKind.personalAccessToken.rawValue,
-            exp: Int(pat.expiresAt.timeIntervalSince1970),
-            entitled: entitled
-        )
     }
 
     private func requireServiceSecret(_ req: Request) throws {

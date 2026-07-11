@@ -7,6 +7,7 @@ import JWT
 import JWTKit
 import NIOSSL
 import Redis
+import StockPlanShared
 import Vapor
 import VaporAPNS
 
@@ -162,6 +163,13 @@ public func configure(_ app: Application) async throws {
     app.dataExportRepository = DatabaseDataExportRepository()
     app.exportService = ExportService(repository: app.dataExportRepository, application: app)
     app.dataExportService = DefaultDataExportService(repository: app.dataExportRepository, exporter: app.exportService)
+    let validatedTaxJurisdictions = Set(
+        (Environment.get("TAX_VALIDATED_JURISDICTIONS") ?? "")
+            .split(separator: ",")
+            .compactMap { TaxJurisdiction(rawValue: $0.trimmingCharacters(in: .whitespaces).uppercased()) }
+    )
+    app.taxService = DefaultTaxService(rules: TaxRuleRegistry(validatedJurisdictions: validatedTaxJurisdictions))
+    app.taxReportGenerator = TaxReportGenerator()
     let premiumEmails = Set(
         (Environment.get("BILLING_PREMIUM_EMAILS") ?? "")
             .split(separator: ",")
@@ -198,6 +206,9 @@ public func configure(_ app: Application) async throws {
     // AI insights (educational, Pro-gated). Backend proxy to OpenAI; key never
     // leaves the server. Boots disabled when no key is configured.
     app.aiInsightsService = DefaultAIInsightsService(client: makeOpenAIChatClient(app))
+    // In-app conversational assistant (Pro-gated, first-party only). Shares the
+    // OpenAI client; tools execute in-process against the user's own data.
+    app.aiChatService = DefaultAIChatService(client: makeOpenAIChatClient(app))
 
     // Hermes insights (topic/ticker sentiment scraped by the self-hosted Hermes
     // agent). Reached only over the private Tailscale network; boots disabled
@@ -235,11 +246,21 @@ public func configure(_ app: Application) async throws {
     app.lifecycle.use(TargetAlertPoller(intervalSeconds: apnsAlertPollSeconds))
     let earningsAlertPollSeconds = Environment.get("EARNINGS_ALERT_POLL_SECONDS").flatMap(Int64.init(_:)) ?? 86400
     app.lifecycle.use(EarningsNotificationPoller(intervalSeconds: earningsAlertPollSeconds))
+    let taxProjectionPollSeconds = Int64(Environment.get("TAX_PROJECTION_POLL_SECONDS") ?? "86400") ?? 86400
+    app.lifecycle.use(TaxProjectionPoller(intervalSeconds: taxProjectionPollSeconds))
     app.lifecycle.use(TrialExpirationJob())
     // Data Export cleanup (expire files after 7 days)
     app.lifecycle.use(DataExportCleanupJob(repository: app.dataExportRepository, interval: 86400))
     let hermesSyncSeconds = Environment.get("HERMES_SYNC_INTERVAL_SECONDS").flatMap(Int64.init(_:)) ?? 900
     app.lifecycle.use(HermesSyncJob(intervalSeconds: hermesSyncSeconds))
+    app.lifecycle.use(ScenarioRunWorker(
+        intervalSeconds: Environment.get("SCENARIO_WORKER_INTERVAL_SECONDS").flatMap(Int64.init) ?? 2,
+        maxConcurrent: Environment.get("SCENARIO_WORKER_MAX_CONCURRENT").flatMap(Int.init) ?? 2
+    ))
+    app.lifecycle.use(MarketHistoryIngestionJob(
+        intervalSeconds: Environment.get("SCENARIO_HISTORY_REFRESH_SECONDS").flatMap(Int64.init) ?? 86400
+    ))
+    app.lifecycle.use(ScenarioRetentionJob())
 
     // Macro / inflation (Nowflation parity). FRED is the keystone provider:
     // without FRED_API_KEY the US (and intl fallback) stay disabled while

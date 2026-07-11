@@ -1,5 +1,5 @@
 {
-  "originHash" : "b3c3dcf0103fcbbfc7129b4e9106669a786dd95bf12bcdeab68a1868a124100e",
+  "originHash" : "01283734692f67b42e1cb84cf94c8b66fa19e3cb19059bd389a7118bcd9b12bc",
   "pins" : [
     {
       "identity" : "apns",
@@ -62,15 +62,6 @@
       "state" : {
         "revision" : "f2a627b84c1ff96f21ac2fcb623ab36142dd5512",
         "version" : "1.10.0"
-      }
-    },
-    {
-      "identity" : "financeshared",
-      "kind" : "remoteSourceControl",
-      "location" : "https://github.com/FinancePlanner/FinanceShared.git",
-      "state" : {
-        "branch" : "main",
-        "revision" : "58f5fa9f94b3cee35f4352616b09266a29511c54"
       }
     },
     {
@@ -152,6 +143,15 @@
       "state" : {
         "revision" : "3498e60218e6003894ff95192d756e238c01f44e",
         "version" : "4.7.1"
+      }
+    },
+    {
+      "identity" : "norviq-shared",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/FinancePlanner/norviq-shared.git",
+      "state" : {
+        "revision" : "fe2c1a687d06abdec1ac98789448061e9f52d170",
+        "version" : "3.7.0"
       }
     },
     {

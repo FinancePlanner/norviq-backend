@@ -165,6 +165,9 @@ struct DefaultMarketDataService: MarketDataService {
     let fmpProvider: (any FMPMarketDataProvider)?
     let cacheConfig: MarketDataCacheConfig
     let fmpAccessTier: FMPAccessTier
+    /// Collapses concurrent cache-miss fetches per symbol into one upstream
+    /// call (application-scoped; the service lives in Application.storage).
+    let basicFinancialsInFlight = InFlightFetchCoordinator<BasicFinancialsResponse>()
 
     init(
         provider: any MarketDataProvider,
@@ -614,32 +617,20 @@ struct DefaultMarketDataService: MarketDataService {
         }
 
         do {
-            guard let fresh = try await provider.basicFinancials(symbol: symbol, on: req) else {
-                throw Abort(.notFound, reason: "Basic financials not found for \(symbol).")
+            // Collapse concurrent cache misses for the same symbol into one
+            // upstream call: the first request leads, the rest await its result.
+            let dedupKey = "\(providerName):\(symbol)"
+            if let shared = try await basicFinancialsInFlight.joinOrLead(key: dedupKey) {
+                return shared
             }
-
-            let response = makeBasicFinancialsResponse(from: fresh)
             do {
-                let cached = try await upsertBasicFinancialsCache(
-                    response, provider: providerName, on: req.db
+                let fresh = try await fetchAndCacheBasicFinancials(
+                    symbol: symbol, providerName: providerName, redisKey: redisKey, on: req
                 )
-                let decoded = decodeBasicFinancialsPayload(cached.payload) ?? response
-                await redisSetValue(
-                    redisKey, value: decoded, ttlSeconds: cacheConfig.basicFinancialsTTLSeconds,
-                    on: req
-                )
-                return decoded
+                await basicFinancialsInFlight.complete(key: dedupKey, result: .success(fresh))
+                return fresh
             } catch {
-                if isMissingDatabaseRelationError(error, relation: BasicFinancialsCache.schema) {
-                    req.logger.warning(
-                        "market.basic-financials live response returned without DB cache because relation \(BasicFinancialsCache.schema) is missing"
-                    )
-                    await redisSetValue(
-                        redisKey, value: response,
-                        ttlSeconds: cacheConfig.basicFinancialsTTLSeconds, on: req
-                    )
-                    return response
-                }
+                await basicFinancialsInFlight.complete(key: dedupKey, result: .failure(error))
                 throw error
             }
         } catch {
@@ -656,6 +647,9 @@ struct DefaultMarketDataService: MarketDataService {
             throw mapProviderError(error, operation: "basic financials")
         }
     }
+
+    // fetchAndCacheBasicFinancials lives in MarketDataProviderRateLimitedError.swift
+    // (same-module extension) to keep this file under the SwiftLint length cap.
 
     func analysis(symbol rawSymbol: String, on req: Request) async throws
         -> StockAnalysisMetricsResponse
@@ -1671,7 +1665,9 @@ struct DefaultMarketDataService: MarketDataService {
 
 // swiftlint:enable type_body_length
 
-private extension DefaultMarketDataService {
+/// Internal (not private) so cache/fetch helpers can be reused by same-module
+/// extensions in other files, e.g. fetchAndCacheBasicFinancials.
+extension DefaultMarketDataService {
     func upsertQuoteCache(
         _ quote: MarketProviderQuote,
         provider providerName: String,
@@ -2347,6 +2343,12 @@ private extension DefaultMarketDataService {
             return MarketDataProviderDisabledError()
         }
 
+        // Preserve the Retry-After header; the generic AbortError re-wrap below
+        // would drop it.
+        if let rateLimited = error as? MarketDataProviderRateLimitedError {
+            return rateLimited
+        }
+
         if let abort = error as? Abort {
             return abort
         }
@@ -2443,48 +2445,5 @@ private extension DefaultMarketDataService {
             return nil
         }
         return lhs - rhs
-    }
-}
-
-extension DefaultMarketDataService {
-    private func normalizeFMPResultLimit(_ rawLimit: Int?, defaultLimit: Int? = nil) throws
-        -> Int?
-    {
-        let resolved = rawLimit ?? defaultLimit
-
-        guard let resolved else {
-            return nil
-        }
-
-        guard resolved > 0 else {
-            throw Abort(.badRequest, reason: "`limit` must be greater than 0.")
-        }
-
-        switch fmpAccessTier {
-        case .free, .starter:
-            return min(resolved, 5)
-        case .premium:
-            return resolved
-        }
-    }
-
-    static func calculateDCFPrice(
-        projections: [YearlyProjectionResponse],
-        sharesOutstanding: Double?,
-        wacc: Double,
-        terminalGrowthRate: Double,
-        netDebt: Double
-    ) -> Double? {
-        guard let shares = sharesOutstanding, shares > 0, !projections.isEmpty else {
-            return nil
-        }
-        var pvExplicit = 0.0
-        for (i, p) in projections.enumerated() {
-            pvExplicit += (p.fcf ?? 0) / pow(1 + wacc, Double(i + 1))
-        }
-        let finalFCF = projections.last?.fcf ?? 0
-        let tv = finalFCF * (1 + terminalGrowthRate) / (wacc - terminalGrowthRate)
-        let pvTerminal = tv / pow(1 + wacc, Double(projections.count))
-        return (pvExplicit + pvTerminal - netDebt) / shares
     }
 }

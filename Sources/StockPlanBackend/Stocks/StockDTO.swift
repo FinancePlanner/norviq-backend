@@ -91,6 +91,10 @@ struct StockListItem: Content {
     let notes: String?
     let category: AssetCategory
     let portfolioListId: String?
+    /// Required by the shared StockResponse contract the iOS client decodes this
+    /// list into (also its pagination cursor). Omitting it made every /v1/stocks
+    /// decode fail on iOS, so the holdings list never populated.
+    let createdAt: String
 
     init(from response: StockResponse) {
         id = response.id
@@ -101,5 +105,6 @@ struct StockListItem: Content {
         notes = response.notes
         category = response.category
         portfolioListId = response.portfolioListId
+        createdAt = response.createdAt
     }
 }

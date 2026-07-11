@@ -3,9 +3,10 @@ import Vapor
 
 struct InsightsController: RouteCollection {
     func boot(routes: any RoutesBuilder) throws {
-        let protected = routes.grouped(SessionToken.authenticator(), SessionToken.guardMiddleware())
+        // Scoped auth: first-party JWTs pass through untouched; MCP tokens need insights:read.
+        let protected = routes.grouped(ScopedBearerAuthenticator(), SessionToken.guardMiddleware())
 
-        let insights = protected.grouped("insights")
+        let insights = protected.grouped("insights").grouped(ScopeRequirementMiddleware(.insightsRead))
         insights.get("summary", use: summary)
         insights.get("topics", ":topic", use: topic)
         insights.get("sentiment", use: sentiment)

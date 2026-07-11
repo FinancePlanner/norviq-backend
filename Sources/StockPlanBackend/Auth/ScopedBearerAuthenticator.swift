@@ -4,9 +4,9 @@ import JWTKit
 import Vapor
 
 /// Authenticates bearer tokens on route groups exposed to third-party clients:
-/// opaque personal access tokens (and OAuth access tokens in a later phase) by
-/// prefix, falling back to first-party SessionToken JWT verification for
-/// everything else — mirroring `SessionToken.authenticator()`.
+/// opaque personal access tokens and OAuth access tokens by prefix, falling back
+/// to first-party SessionToken JWT verification for everything else — mirroring
+/// `SessionToken.authenticator()`.
 ///
 /// Use this INSTEAD of `SessionToken.authenticator()` on scoped groups (the JWT
 /// authenticator throws on non-JWT bearers, so chaining both would 401 every
@@ -16,13 +16,18 @@ import Vapor
 /// reject opaque tokens, which is the intended default.
 struct ScopedBearerAuthenticator: AsyncBearerAuthenticator {
     func authenticate(bearer: BearerAuthorization, for request: Request) async throws {
-        guard bearer.token.hasPrefix(OpaqueToken.patPrefix) else {
+        if bearer.token.hasPrefix(OpaqueToken.patPrefix) {
+            try await authenticatePAT(bearer.token, for: request)
+        } else if bearer.token.hasPrefix(OpaqueToken.oauthAccessPrefix) {
+            try await authenticateOAuth(bearer.token, for: request)
+        } else {
             let session = try await request.jwt.verify(bearer.token, as: SessionToken.self)
             request.auth.login(session)
-            return
         }
+    }
 
-        let tokenHash = OpaqueToken.sha256Hex(bearer.token)
+    private func authenticatePAT(_ token: String, for request: Request) async throws {
+        let tokenHash = OpaqueToken.sha256Hex(token)
         guard
             let pat = try await PersonalAccessToken.query(on: request.db)
             .filter(\.$tokenHash == tokenHash)
@@ -41,6 +46,27 @@ struct ScopedBearerAuthenticator: AsyncBearerAuthenticator {
             tokenId: tokenId,
             kind: .personalAccessToken,
             scopes: APIScope.parse(pat.scopes)
+        ))
+    }
+
+    private func authenticateOAuth(_ token: String, for request: Request) async throws {
+        let tokenHash = OpaqueToken.sha256Hex(token)
+        guard
+            let oauth = try await OAuthToken.query(on: request.db)
+            .filter(\.$accessTokenHash == tokenHash)
+            .first(),
+            oauth.accessActive,
+            let tokenId = oauth.id
+        else { return }
+
+        request.auth.login(SessionToken(
+            userId: oauth.userID,
+            exp: ExpirationClaim(value: oauth.accessExpiresAt)
+        ))
+        try request.auth.login(ScopeContext(
+            tokenId: tokenId,
+            kind: .oauthAccessToken,
+            scopes: APIScope.parse(oauth.scopes)
         ))
     }
 

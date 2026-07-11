@@ -52,15 +52,19 @@ func routes(_ app: Application) throws {
     try app.register(collection: FinnhubWebhookController())
     try app.register(collection: RevenueCatWebhookController())
     try app.register(collection: SharingController())
+    // RFC 8414 authorization-server metadata lives at the root well-known path.
+    try app.register(collection: WellKnownController())
 
     try api.register(collection: AuthController(environment: app.environment))
     try api.register(collection: PersonalAccessTokenController())
     try api.register(collection: TokenIntrospectionController())
+    try api.register(collection: OAuthServerController())
     try api.register(collection: BillingController())
     try api.register(collection: StockController())
     // Rate limit market data endpoints (quotes, search) to protect third-party API quotas.
     let marketRateLimit = RateLimitMiddleware(limit: 100, interval: 60, keyPrefix: "ratelimit:market")
     try api.grouped(marketRateLimit).register(collection: MarketDataController())
+    try api.register(collection: ScenarioController())
 
     // Macro / inflation endpoints (Nowflation parity). Rate limit similar to market data.
     let macroRateLimit = RateLimitMiddleware(limit: 80, interval: 60, keyPrefix: "ratelimit:macro")
@@ -81,6 +85,7 @@ func routes(_ app: Application) throws {
     // Rate limit AI insight endpoints (LLM calls) to protect cost + provider quotas.
     let aiRateLimit = RateLimitMiddleware(limit: 20, interval: 60, keyPrefix: "ratelimit:ai")
     try api.grouped(aiRateLimit).register(collection: AIInsightsController())
+    try api.grouped(aiRateLimit).register(collection: AIChatController())
     try api.register(collection: BudgetController())
     try api.register(collection: ExpensesController())
     try api.register(collection: ReportsController())
@@ -88,6 +93,7 @@ func routes(_ app: Application) throws {
     try api.register(collection: UserActivityController())
     try api.register(collection: BadgeController())
     try api.register(collection: AssetsController())
+    try api.register(collection: TaxController())
     try api.register(collection: PushNotificationsController())
     try api.register(collection: DataExportController(exportService: app.dataExportService))
     try api.register(collection: ExportFileController(exportService: app.dataExportService))

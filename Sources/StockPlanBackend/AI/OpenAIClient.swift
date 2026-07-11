@@ -54,12 +54,37 @@ struct OpenAIFunctionDef: Content {
     var parameters: OpenAIJSONSchema
 }
 
-/// All exposed tools take no arguments — the userId is bound server-side, never
-/// passed by the model. So `properties` is always empty.
+/// A single tool parameter (JSON Schema property). The userId is never a
+/// parameter — it is bound server-side, so no tool can request another user's data.
+struct OpenAIParameter: Content {
+    var type: String
+    var description: String?
+    var enumValues: [String]?
+
+    init(type: String, description: String? = nil, enumValues: [String]? = nil) {
+        self.type = type
+        self.description = description
+        self.enumValues = enumValues
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case type, description
+        case enumValues = "enum"
+    }
+}
+
+/// Tool parameter schema. Read-only insight tools pass no properties (encodes to
+/// `{"type":"object","properties":{},"required":[]}`); chat write-tools declare
+/// typed properties here.
 struct OpenAIJSONSchema: Content {
     var type: String = "object"
-    var properties: [String: String] = [:]
+    var properties: [String: OpenAIParameter] = [:]
     var required: [String] = []
+
+    init(properties: [String: OpenAIParameter] = [:], required: [String] = []) {
+        self.properties = properties
+        self.required = required
+    }
 }
 
 struct OpenAIResponseFormat: Content {

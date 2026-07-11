@@ -34,6 +34,12 @@ final class PrometheusMetrics: @unchecked Sendable {
     let portfoliosCreated = ManagedAtomic<Int64>(0 as Int64)
     let transactionsCreated = ManagedAtomic<Int64>(0 as Int64)
     let targetsCreated = ManagedAtomic<Int64>(0 as Int64)
+    let scenarioRunsCompleted = ManagedAtomic<Int64>(0)
+    let scenarioRunsFailed = ManagedAtomic<Int64>(0)
+    let scenarioCacheHits = ManagedAtomic<Int64>(0)
+    let scenarioPathsTotal = ManagedAtomic<Int64>(0)
+    let scenarioQueueDepth = ManagedAtomic<Int64>(0)
+    let scenarioDurationMilliseconds = ManagedAtomic<Int64>(0)
 
     // MARK: - Recording
 
@@ -79,6 +85,26 @@ final class PrometheusMetrics: @unchecked Sendable {
 
     func incrementTargetsCreated() {
         targetsCreated.wrappingIncrement(by: 1, ordering: .relaxed)
+    }
+
+    func recordScenarioCompleted(paths: Int, duration: Duration) {
+        scenarioRunsCompleted.wrappingIncrement(ordering: .relaxed)
+        scenarioPathsTotal.wrappingIncrement(by: Int64(paths), ordering: .relaxed)
+        let components = duration.components
+        let milliseconds = components.seconds * 1000 + Int64(components.attoseconds / 1_000_000_000_000_000)
+        scenarioDurationMilliseconds.wrappingIncrement(by: milliseconds, ordering: .relaxed)
+    }
+
+    func recordScenarioFailed() {
+        scenarioRunsFailed.wrappingIncrement(ordering: .relaxed)
+    }
+
+    func recordScenarioCacheHit() {
+        scenarioCacheHits.wrappingIncrement(ordering: .relaxed)
+    }
+
+    func setScenarioQueueDepth(_ value: Int) {
+        scenarioQueueDepth.store(Int64(value), ordering: .relaxed)
     }
 
     // MARK: - Render
@@ -129,6 +155,12 @@ final class PrometheusMetrics: @unchecked Sendable {
         out.append("# HELP targets_created_total Number of investment targets created via POST /v1/targets.\n")
         out.append("# TYPE targets_created_total counter\n")
         out.append("targets_created_total \(targetsCreated.load(ordering: .relaxed))\n")
+        out.append("\n# TYPE scenario_runs_completed_total counter\nscenario_runs_completed_total \(scenarioRunsCompleted.load(ordering: .relaxed))\n")
+        out.append("# TYPE scenario_runs_failed_total counter\nscenario_runs_failed_total \(scenarioRunsFailed.load(ordering: .relaxed))\n")
+        out.append("# TYPE scenario_result_cache_hits_total counter\nscenario_result_cache_hits_total \(scenarioCacheHits.load(ordering: .relaxed))\n")
+        out.append("# TYPE scenario_simulation_paths_total counter\nscenario_simulation_paths_total \(scenarioPathsTotal.load(ordering: .relaxed))\n")
+        out.append("# TYPE scenario_queue_depth gauge\nscenario_queue_depth \(scenarioQueueDepth.load(ordering: .relaxed))\n")
+        out.append("# TYPE scenario_run_duration_milliseconds_total counter\nscenario_run_duration_milliseconds_total \(scenarioDurationMilliseconds.load(ordering: .relaxed))\n")
 
         return out
     }

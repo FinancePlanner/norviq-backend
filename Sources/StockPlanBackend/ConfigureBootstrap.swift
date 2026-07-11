@@ -260,6 +260,11 @@ func registerMigrations(_ app: Application) {
     app.migrations.add(CreateNetWorthSnapshot())
     app.migrations.add(CreateMacroTables())
     app.migrations.add(CreatePersonalAccessTokens())
+    app.migrations.add(CreateOAuthServerTables())
+    app.migrations.add(CreateTaxOptimizationTables())
+    app.migrations.add(CreateScenarioPlanningTables())
+    app.migrations.add(CreateHoldingRiskProfiles())
+    app.migrations.add(CreateMarketPriceBars())
     app.migrations.add(EncryptBrokerConnectionTokens())
 }
 

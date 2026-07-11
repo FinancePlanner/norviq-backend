@@ -104,6 +104,9 @@ struct ExpensesController: RouteCollection {
         writeScoped.post("categories", use: createCategory)
         writeScoped.delete("categories", ":categoryId", use: deleteCategory)
 
+        writeScoped.on(.POST, "import", body: .collect(maxSize: "1mb"), use: importCSV)
+        readScoped.get("export.csv", use: exportCSV)
+
         firstParty.group("recurring") { rec in
             rec.get(use: getRecurringTemplates)
             rec.post(use: createRecurringTemplate)
@@ -205,6 +208,44 @@ struct ExpensesController: RouteCollection {
 
         let res = Response(status: .created)
         try res.content.encode(created)
+        return res
+    }
+
+    @Sendable
+    func importCSV(req: Request) async throws -> ExpenseCsvService.ImportResult {
+        let session = try req.auth.require(SessionToken.self)
+        guard let buffer = req.body.data else {
+            throw Abort(.badRequest, reason: "Missing CSV body.")
+        }
+        let csv = buffer.getString(at: buffer.readerIndex, length: buffer.readableBytes) ?? ""
+        let dryRun = req.query[Bool.self, at: "dry_run"] ?? true
+
+        let categories = try await req.expensesService.getCategories(userId: session.userId, on: req.db)
+        let byName = Dictionary(categories.map { ($0.name.lowercased(), $0.id) }, uniquingKeysWith: { first, _ in first })
+
+        let service = ExpenseCsvService(expensesService: req.expensesService)
+        return try await service.importCSV(
+            csv, userId: session.userId, dryRun: dryRun, categoriesByName: byName, on: req.db
+        )
+    }
+
+    @Sendable
+    func exportCSV(req: Request) async throws -> Response {
+        let session = try req.auth.require(SessionToken.self)
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy-MM-dd"
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = TimeZone(secondsFromGMT: 0)
+        let fromDate = req.query[String.self, at: "from"].flatMap { formatter.date(from: $0) }
+        let toDate = req.query[String.self, at: "to"].flatMap { formatter.date(from: $0) }
+
+        let service = ExpenseCsvService(expensesService: req.expensesService)
+        let csv = try await service.exportCSV(userId: session.userId, from: fromDate, to: toDate, on: req.db)
+
+        let res = Response(status: .ok)
+        res.headers.replaceOrAdd(name: .contentType, value: "text/csv; charset=utf-8")
+        res.headers.replaceOrAdd(name: .contentDisposition, value: "attachment; filename=\"expenses.csv\"")
+        res.body = .init(string: csv)
         return res
     }
 

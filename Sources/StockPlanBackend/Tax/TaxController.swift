@@ -1,0 +1,250 @@
+import Fluent
+import Foundation
+import StockPlanShared
+import Vapor
+
+struct TaxController: RouteCollection {
+    private struct TaxQuery: Content {
+        let jurisdiction: TaxJurisdiction?
+        let taxYear: Int?
+    }
+
+    func boot(routes: any RoutesBuilder) throws {
+        let protected = routes.grouped(SessionToken.authenticator(), SessionToken.guardMiddleware())
+        let tax = protected.grouped("tax")
+        tax.get("capabilities", use: capabilities)
+        tax.get("profile", use: getProfile)
+        tax.get("profile", "context", use: getProfileContext)
+        tax.put("profile", use: saveProfile)
+        tax.get("dashboard", use: dashboard)
+        tax.post("scenarios", use: createScenario)
+        tax.get("scenarios", ":scenarioId", use: getScenario)
+        tax.post("action-plans", use: createActionPlan)
+        tax.get("notifications", use: getNotificationPreferences)
+        tax.put("notifications", use: saveNotificationPreferences)
+        tax.post("reports", use: createReport)
+        tax.get("reports", use: listReports)
+        tax.get("reports", ":reportId", use: getReport)
+        tax.get("reports", ":reportId", "download", use: downloadReport)
+    }
+
+    @Sendable
+    private func capabilities(req: Request) throws -> TaxCapabilitiesResponse {
+        _ = try req.auth.require(SessionToken.self)
+        let query = try req.query.decode(TaxQuery.self)
+        return req.application.taxService.capabilities(taxYear: query.taxYear ?? currentTaxYear())
+    }
+
+    @Sendable
+    private func getProfile(req: Request) async throws -> TaxProfileResponse {
+        let session = try req.auth.require(SessionToken.self)
+        let query = try req.query.decode(TaxQuery.self)
+        let jurisdiction = query.jurisdiction ?? .unitedStates
+        let taxYear = query.taxYear ?? currentTaxYear()
+        guard let profile = try await req.application.taxService.profile(
+            userId: session.userId,
+            jurisdiction: jurisdiction,
+            taxYear: taxYear,
+            on: req.db
+        ) else { throw Abort(.notFound, reason: "Tax profile not found.") }
+        return profile
+    }
+
+    @Sendable
+    private func getProfileContext(req: Request) async throws -> TaxProfileContextResponse {
+        let session = try req.auth.require(SessionToken.self)
+        let query = try req.query.decode(TaxQuery.self)
+        return try await req.application.taxService.profileContext(
+            userId: session.userId,
+            jurisdiction: query.jurisdiction ?? .unitedStates,
+            taxYear: query.taxYear ?? currentTaxYear(),
+            on: req.db
+        )
+    }
+
+    @Sendable
+    private func saveProfile(req: Request) async throws -> TaxProfileResponse {
+        let session = try req.auth.require(SessionToken.self)
+        try await requireTaxPro(req, userId: session.userId)
+        let payload = try req.content.decode(TaxProfileRequest.self)
+        guard (2020 ... currentTaxYear() + 1).contains(payload.taxYear) else {
+            throw Abort(.unprocessableEntity, reason: "Tax year is outside the supported range.")
+        }
+        return try await req.application.taxService.saveProfile(userId: session.userId, request: payload, on: req.db)
+    }
+
+    @Sendable
+    private func dashboard(req: Request) async throws -> TaxDashboardResponse {
+        let session = try req.auth.require(SessionToken.self)
+        let query = try req.query.decode(TaxQuery.self)
+        let jurisdiction = query.jurisdiction ?? .unitedStates
+        let response = try await req.application.taxService.dashboard(
+            userId: session.userId,
+            jurisdiction: jurisdiction,
+            taxYear: query.taxYear ?? currentTaxYear(),
+            on: req.db
+        )
+        let entitlement = try await req.entitlementResolver.resolve(userId: session.userId, on: req.db)
+        guard !entitlement.isPro else { return response }
+        return TaxDashboardResponse(
+            generatedAt: response.generatedAt,
+            taxYear: response.taxYear,
+            jurisdiction: response.jurisdiction,
+            ruleVersion: response.ruleVersion,
+            isStale: response.isStale,
+            profileComplete: response.profileComplete,
+            summary: response.summary,
+            opportunities: [],
+            unsupportedValue: response.unsupportedValue,
+            assumptions: response.assumptions + ["Upgrade to Pro to review individual opportunities and run scenarios."],
+            disclaimer: response.disclaimer
+        )
+    }
+
+    @Sendable
+    private func createScenario(req: Request) async throws -> TaxScenarioResponse {
+        let session = try req.auth.require(SessionToken.self)
+        try await requireTaxPro(req, userId: session.userId)
+        let query = try req.query.decode(TaxQuery.self)
+        let payload = try req.content.decode(TaxScenarioRequest.self)
+        return try await req.application.taxService.createScenario(
+            userId: session.userId,
+            request: payload,
+            jurisdiction: query.jurisdiction ?? .unitedStates,
+            on: req.db
+        )
+    }
+
+    @Sendable
+    private func getScenario(req: Request) async throws -> TaxScenarioResponse {
+        let session = try req.auth.require(SessionToken.self)
+        try await requireTaxPro(req, userId: session.userId)
+        guard let rawID = req.parameters.get("scenarioId"),
+              let id = UUID(uuidString: rawID),
+              let response = try await req.application.taxService.scenario(userId: session.userId, id: id, on: req.db)
+        else { throw Abort(.notFound, reason: "Tax scenario not found.") }
+        return response
+    }
+
+    @Sendable
+    private func createActionPlan(req: Request) async throws -> TaxActionPlanResponse {
+        let session = try req.auth.require(SessionToken.self)
+        try await requireTaxPro(req, userId: session.userId)
+        let payload = try req.content.decode(TaxActionPlanRequest.self)
+        return try await req.application.taxService.createActionPlan(userId: session.userId, request: payload, on: req.db)
+    }
+
+    @Sendable
+    private func getNotificationPreferences(req: Request) async throws -> TaxNotificationPreferences {
+        let session = try req.auth.require(SessionToken.self)
+        try await requireTaxPro(req, userId: session.userId)
+        return try await req.application.taxService.notificationPreferences(userId: session.userId, on: req.db)
+    }
+
+    @Sendable
+    private func saveNotificationPreferences(req: Request) async throws -> TaxNotificationPreferences {
+        let session = try req.auth.require(SessionToken.self)
+        try await requireTaxPro(req, userId: session.userId)
+        let payload = try req.content.decode(TaxNotificationPreferences.self)
+        return try await req.application.taxService.saveNotificationPreferences(userId: session.userId, request: payload, on: req.db)
+    }
+
+    @Sendable
+    private func createReport(req: Request) async throws -> TaxReportResponse {
+        let session = try req.auth.require(SessionToken.self)
+        try await requireTaxPro(req, userId: session.userId)
+        try await req.usageCounterService.enforceResourceLimit(
+            .reportGenerations,
+            userId: session.userId,
+            currentCount: TaxReport.query(on: req.db).filter(\.$userId == session.userId).count(),
+            adding: 1,
+            on: req.db
+        )
+        let payload = try req.content.decode(TaxReportRequest.self)
+        let model = TaxReport()
+        model.userId = session.userId
+        model.taxYear = payload.taxYear
+        model.kind = payload.kind.rawValue
+        model.format = payload.format.rawValue
+        model.status = "pending"
+        try await model.create(on: req.db)
+        try await req.usageCounterService.incrementUsage(.reportGenerations, userId: session.userId, by: 1, on: req.db)
+        let application = req.application
+        let reportID = model.id!
+        Task { await application.taxReportGenerator.generate(reportID: reportID, application: application) }
+        return reportResponse(model)
+    }
+
+    @Sendable
+    private func listReports(req: Request) async throws -> [TaxReportResponse] {
+        let session = try req.auth.require(SessionToken.self)
+        try await requireTaxPro(req, userId: session.userId)
+        return try await TaxReport.query(on: req.db)
+            .filter(\.$userId == session.userId)
+            .sort(\.$createdAt, .descending)
+            .all()
+            .map(reportResponse)
+    }
+
+    @Sendable
+    private func getReport(req: Request) async throws -> TaxReportResponse {
+        let report = try await ownedReport(req)
+        return reportResponse(report)
+    }
+
+    @Sendable
+    private func downloadReport(req: Request) async throws -> Response {
+        let report = try await ownedReport(req)
+        guard report.status == "ready", let path = report.filePath else {
+            throw Abort(.conflict, reason: "Tax report is not ready.")
+        }
+        let response = req.fileio.streamFile(at: path)
+        let format = TaxReportFormat(rawValue: report.format) ?? .csv
+        response.headers.contentType = format == .pdf ? .pdf : .init(type: "text", subType: "csv", parameters: ["charset": "utf-8"])
+        response.headers.replaceOrAdd(
+            name: .contentDisposition,
+            value: "attachment; filename=\"norviq-tax-\(report.taxYear)-\(report.kind).\(format.rawValue)\""
+        )
+        return response
+    }
+
+    private func ownedReport(_ req: Request) async throws -> TaxReport {
+        let session = try req.auth.require(SessionToken.self)
+        try await requireTaxPro(req, userId: session.userId)
+        guard let rawID = req.parameters.get("reportId"),
+              let id = UUID(uuidString: rawID),
+              let report = try await TaxReport.query(on: req.db)
+              .filter(\.$id == id)
+              .filter(\.$userId == session.userId)
+              .first()
+        else { throw Abort(.notFound, reason: "Tax report not found.") }
+        return report
+    }
+
+    private func requireTaxPro(_ req: Request, userId: UUID) async throws {
+        try await req.usageCounterService.requirePremium(.taxOptimization, userId: userId, on: req.db)
+    }
+}
+
+private func reportResponse(_ model: TaxReport) -> TaxReportResponse {
+    TaxReportResponse(
+        id: model.id!.uuidString,
+        taxYear: model.taxYear,
+        kind: TaxReportKind(rawValue: model.kind) ?? .transactionWorkpaper,
+        format: TaxReportFormat(rawValue: model.format) ?? .csv,
+        status: model.status,
+        createdAt: taxISODate(model.createdAt ?? Date()),
+        expiresAt: model.expiresAt.map(taxISODate),
+        downloadPath: model.status == "ready" ? "/v1/tax/reports/\(model.id!.uuidString)/download" : nil
+    )
+}
+
+private func currentTaxYear() -> Int {
+    Calendar(identifier: .gregorian).component(.year, from: Date())
+}
+
+private func taxISODate(_ date: Date) -> String {
+    let formatter = ISO8601DateFormatter()
+    formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+    return formatter.string(from: date)
+}
