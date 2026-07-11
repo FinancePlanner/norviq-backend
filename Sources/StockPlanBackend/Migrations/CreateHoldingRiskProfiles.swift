@@ -8,8 +8,9 @@ struct CreateHoldingRiskProfiles: AsyncMigration {
             .field("asset_category", .string, .required).field("sector", .string).field("region", .string)
             .field("benchmark_proxy", .string).field("manual_value", .double).field("duration", .double)
             .field("convexity", .double).field("factor_overrides", .json, .required)
-            .field("created_at", .datetime).field("updated_at", .datetime).create()
-        try await database.createIndex(on: HoldingRiskProfileModel.schema, columns: ["user_id", "holding_id"], unique: true)
+            .field("created_at", .datetime).field("updated_at", .datetime)
+            .unique(on: "user_id", "holding_id")
+            .create()
         try await database.createIndex(on: HoldingRiskProfileModel.schema, columns: ["benchmark_proxy"])
     }
 
