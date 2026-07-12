@@ -10,6 +10,8 @@ import VaporTesting
 struct AIChatTests {
     private func withApp(_ test: @escaping (Application) async throws -> Void) async throws {
         try await DatabaseTestLock.withLock {
+            // Ensure the entitlement gate is active (ambient env may set BYPASS_BILLING=true).
+            setenv("BYPASS_BILLING", "false", 1)
             let app = try await Application.make(.testing)
             do {
                 try await configure(app)
@@ -115,6 +117,14 @@ struct AIChatTests {
     func freeUserGated() async throws {
         try await withApp { app in
             let user = try await registerUser(app: app)
+            // Registration grants a default trial (Pro-equivalent). Clear it so the
+            // user is genuinely free and the entitlement gate applies.
+            if let dbUser = try await User.find(user.userId, on: app.db) {
+                dbUser.trialStartedAt = nil
+                dbUser.trialDays = nil
+                dbUser.trialTier = nil
+                try await dbUser.save(on: app.db)
+            }
             app.aiChatService = DefaultAIChatService(client: ScriptedChatClient(toolName: nil, finalText: "hi"))
             try await app.testing().test(.POST, "v1/ai/chat", beforeRequest: { req in
                 req.headers.bearerAuthorization = .init(token: user.token)
