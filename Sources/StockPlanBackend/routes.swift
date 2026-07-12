@@ -88,6 +88,10 @@ func routes(_ app: Application) throws {
     try api.grouped(aiRateLimit).register(collection: AIChatController())
     try api.register(collection: BudgetController())
     try api.register(collection: ExpensesController())
+    // Receipt OCR is a paid vision call; rate-limit it. QR parsing is cheap but
+    // shares the group for simplicity.
+    let receiptsRateLimit = RateLimitMiddleware(limit: 30, interval: 60, keyPrefix: "ratelimit:receipts")
+    try api.grouped(receiptsRateLimit).register(collection: ReceiptsController())
     try api.register(collection: ReportsController())
     try api.register(collection: GoalsController())
     try api.register(collection: UserActivityController())

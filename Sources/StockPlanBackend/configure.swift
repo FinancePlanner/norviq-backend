@@ -95,6 +95,7 @@ public func configure(_ app: Application) async throws {
         ibkrConnectMode: ibkrConnectMode,
         tokenVault: app.tokenEncryptionService
     )
+    app.receiptOCRProvider = ReceiptOCRProviderBootstrap.fromEnvironment(app: app)
     app.marketDataRepository = DatabaseMarketDataRepository()
     let configuredMarketProvider = Environment.get("MARKET_PROVIDER")?
         .trimmingCharacters(in: .whitespacesAndNewlines)
