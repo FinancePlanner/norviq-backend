@@ -298,8 +298,8 @@ struct ExpenseCsvService {
         return value
     }
 
-    private func friendly(_ error: Error) -> String {
-        if let abort = error as? AbortError {
+    private func friendly(_ error: any Error) -> String {
+        if let abort = error as? any AbortError {
             return abort.reason
         }
         return "\(error)"

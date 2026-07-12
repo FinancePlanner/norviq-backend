@@ -12,6 +12,7 @@ struct PortfolioController: RouteCollection {
         let portfolio = protected.grouped("portfolio")
         portfolio.get("summary", use: summary)
         portfolio.get("performance", use: performance)
+        portfolio.get("sector-exposure", use: sectorExposure)
         portfolio.get("dividends", use: dividends)
         portfolio.group("lists") { lists in
             lists.get(use: listPortfolioLists)
@@ -77,6 +78,94 @@ struct PortfolioController: RouteCollection {
             annualProjectedIncome: annualProjectedIncome,
             upcomingDividends: upcoming,
             monthlyBreakdown: breakdown
+        )
+    }
+
+    @Sendable
+    func sectorExposure(req: Request) async throws -> PortfolioSectorExposureResponse {
+        let session = try req.auth.require(SessionToken.self)
+        let query = try req.query.decode(PortfolioFilterQuery.self)
+        let resolvedListId = try await resolvePortfolioListId(
+            requestedId: query.portfolioListId,
+            userId: session.userId,
+            on: req.db,
+            defaultWhenMissing: false
+        )
+
+        let stocksQuery = Stock.query(on: req.db)
+            .filter(\.$userId == session.userId)
+        if let resolvedListId {
+            stocksQuery.filter(\.$portfolioListId == resolvedListId)
+        }
+        async let stocksTask = stocksQuery.all()
+        async let cashBalanceTask = totalCashBalance(userId: session.userId, on: req.db)
+
+        let stocks = try await stocksTask
+        let cashBalance = try await cashBalanceTask
+        let symbols = uniqueSymbols(stocks.map(\.symbol))
+
+        let notes: [ResearchNote] = if symbols.isEmpty {
+            []
+        } else {
+            try await ResearchNote.query(on: req.db)
+                .filter(\.$userId == session.userId)
+                .filter(\.$symbol ~~ symbols)
+                .all()
+        }
+        let notesBySymbol = Dictionary(grouping: notes) { normalizeSymbol($0.symbol) }
+
+        var sectorValues: [String: Double] = [:]
+        var holdingsBySector: [String: [PortfolioSectorHoldingContribution]] = [:]
+
+        for stock in stocks {
+            let value = stock.shares * stock.buyPrice
+            let normalizedSymbol = normalizeSymbol(stock.symbol)
+            let sector = inferSector(for: normalizedSymbol, notes: notesBySymbol[normalizedSymbol] ?? [])
+            sectorValues[sector, default: 0] += value
+
+            holdingsBySector[sector, default: []].append(
+                PortfolioSectorHoldingContribution(
+                    symbol: normalizedSymbol,
+                    value: round2(value),
+                    weightPercent: 0
+                )
+            )
+        }
+
+        let totalPortfolioValue = sectorValues.values.reduce(0, +) + max(0, cashBalance)
+        let investedValue = sectorValues.values.reduce(0, +)
+
+        let sectors = sectorValues
+            .map { sector, sectorValue in
+                let holdings = (holdingsBySector[sector] ?? [])
+                    .map { holding in
+                        PortfolioSectorHoldingContribution(
+                            symbol: holding.symbol,
+                            value: holding.value,
+                            weightPercent: percentage(holding.value, of: max(sectorValue, 0))
+                        )
+                    }
+                    .sorted(by: { $0.value > $1.value })
+
+                return PortfolioSectorExposureItem(
+                    sector: sector,
+                    value: round2(sectorValue),
+                    weightPercent: percentage(sectorValue, of: max(investedValue, 0)),
+                    benchmarkWeightPercent: nil,
+                    overweightPercent: nil,
+                    holdings: holdings
+                )
+            }
+            .sorted(by: { $0.value > $1.value })
+
+        return PortfolioSectorExposureResponse(
+            baseCurrency: "USD",
+            totalValue: round2(totalPortfolioValue),
+            investedValue: round2(investedValue),
+            cashBalance: round2(max(0, cashBalance)),
+            benchmarkName: "S&P 500",
+            benchmarkAsOf: formatISODateOnly(Date()),
+            sectors: sectors
         )
     }
 
@@ -422,5 +511,73 @@ struct PortfolioController: RouteCollection {
         formatter.timeZone = TimeZone(secondsFromGMT: 0)
         formatter.dateFormat = "yyyy-MM-dd"
         return formatter.string(from: date)
+    }
+
+    private func uniqueSymbols(_ values: [String]) -> [String] {
+        var seen = Set<String>()
+        var result: [String] = []
+
+        for value in values {
+            let normalized = normalizeSymbol(value)
+            guard !normalized.isEmpty, !seen.contains(normalized) else { continue }
+            seen.insert(normalized)
+            result.append(normalized)
+        }
+
+        return result
+    }
+
+    private func normalizeSymbol(_ raw: String) -> String {
+        raw.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
+    }
+
+    private func inferSector(for symbol: String, notes: [ResearchNote]) -> String {
+        let blob = notes
+            .flatMap { [$0.title, $0.thesis, $0.risks, $0.catalysts] }
+            .compactMap(\.self)
+            .joined(separator: " ")
+            .lowercased()
+
+        if blob.contains("bank") || blob.contains("insurance") || blob.contains("financial") {
+            return "Financials"
+        }
+        if blob.contains("semiconductor") || blob.contains("software") || blob.contains("cloud") || blob.contains("ai") {
+            return "Technology"
+        }
+        if blob.contains("oil") || blob.contains("gas") || blob.contains("energy") {
+            return "Energy"
+        }
+        if blob.contains("health") || blob.contains("pharma") || blob.contains("biotech") {
+            return "Healthcare"
+        }
+        if blob.contains("retail") || blob.contains("consumer") {
+            return "Consumer"
+        }
+        if blob.contains("industrial") || blob.contains("manufacturing") {
+            return "Industrials"
+        }
+
+        if symbol.hasPrefix("XLE") {
+            return "Energy"
+        }
+        if symbol.hasPrefix("XLK") {
+            return "Technology"
+        }
+        if symbol.hasPrefix("XLF") {
+            return "Financials"
+        }
+        if symbol.hasPrefix("XLV") {
+            return "Healthcare"
+        }
+        return "Unknown"
+    }
+
+    private func percentage(_ value: Double, of total: Double) -> Double {
+        guard total > 0 else { return 0 }
+        return round2((value / total) * 100)
+    }
+
+    private func round2(_ value: Double) -> Double {
+        (value * 100).rounded() / 100
     }
 }

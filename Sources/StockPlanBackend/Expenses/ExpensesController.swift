@@ -186,7 +186,7 @@ struct ExpensesController: RouteCollection {
             on: req.db
         )
 
-        var response = Response(status: .ok)
+        let response = Response(status: .ok)
         try response.content.encode(result.items)
         if let nextCursor = result.nextCursor {
             response.headers.add(name: "X-Next-Cursor", value: nextCursor)

@@ -1,4 +1,5 @@
 import Foundation
+import Redis
 import Vapor
 
 /// The in-app assistant chat endpoint. First-party sessions only (MCP tokens are
@@ -77,7 +78,7 @@ struct AIChatController: RouteCollection {
             }
             return
         }
-        let day = ISO8601DateFormatter.dayBucket(Date())
+        let day = Self.dayBucket(Date())
         let key = RedisKey("ai_daily:\(userId.uuidString):\(day)")
         let count: Int
         do {
@@ -94,6 +95,13 @@ struct AIChatController: RouteCollection {
         guard count <= limit else {
             throw Abort(.tooManyRequests, reason: "Daily assistant limit reached. Try again tomorrow.")
         }
+    }
+
+    private static func dayBucket(_ date: Date) -> String {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(secondsFromGMT: 0) ?? .gmt
+        let c = calendar.dateComponents([.year, .month, .day], from: date)
+        return "\(c.year ?? 0)-\(c.month ?? 0)-\(c.day ?? 0)"
     }
 }
 
