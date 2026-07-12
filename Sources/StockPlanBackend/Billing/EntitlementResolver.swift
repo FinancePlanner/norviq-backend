@@ -140,6 +140,8 @@ enum BillingFeature: String {
     /// Server-side OCR of receipt photos for expense entry — Pro/trial only.
     /// (Structured fiscal-QR parsing is free; only image OCR is gated.)
     case receiptScan = "receipt_scan"
+    /// Read-only bank sync (Plaid, GoCardless) into the expense flow — Pro/trial only.
+    case bankSync = "bank_sync"
 }
 
 struct BillingPlanLimits {
@@ -192,7 +194,7 @@ struct BillingPlanLimits {
         case .brokerSync, .expensePlanner, .reports, .statistics, .marketFundamentals,
              .advancedResearch, .peerComparison, .earningsText,
              .householdPartner, .recurringTemplates, .yearOverview, .smartSuggestions,
-             .crypto, .aiInsights, .mcpAccess, .scenarioPlanning, .taxOptimization, .receiptScan:
+             .crypto, .aiInsights, .mcpAccess, .scenarioPlanning, .taxOptimization, .receiptScan, .bankSync:
             nil
         }
     }
@@ -295,7 +297,7 @@ struct DefaultUsageCounterService: UsageCounterService {
         case .brokerSync, .portfolioLists, .valuationCases, .expensePlanner, .reports,
              .statistics, .marketFundamentals, .advancedResearch, .peerComparison, .earningsText,
              .householdPartner, .recurringTemplates, .yearOverview, .smartSuggestions,
-             .crypto, .aiInsights, .mcpAccess, .scenarioPlanning, .taxOptimization, .receiptScan:
+             .crypto, .aiInsights, .mcpAccess, .scenarioPlanning, .taxOptimization, .receiptScan, .bankSync:
             0
         }
     }
@@ -315,7 +317,7 @@ struct DefaultUsageCounterService: UsageCounterService {
         case .brokerSync, .portfolioLists, .valuationCases, .expensePlanner, .reports,
              .statistics, .marketFundamentals, .advancedResearch, .peerComparison, .earningsText,
              .householdPartner, .recurringTemplates, .yearOverview, .smartSuggestions,
-             .crypto, .aiInsights, .mcpAccess, .scenarioPlanning, .taxOptimization, .receiptScan:
+             .crypto, .aiInsights, .mcpAccess, .scenarioPlanning, .taxOptimization, .receiptScan, .bankSync:
             break
         }
     }
