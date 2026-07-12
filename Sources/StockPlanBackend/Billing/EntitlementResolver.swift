@@ -137,6 +137,9 @@ enum BillingFeature: String {
     case scenarioPlanning = "scenario_planning"
     /// Tax projections, harvesting scenarios, workpapers, and alerts — Pro/trial only.
     case taxOptimization = "tax_optimization"
+    /// Server-side OCR of receipt photos for expense entry — Pro/trial only.
+    /// (Structured fiscal-QR parsing is free; only image OCR is gated.)
+    case receiptScan = "receipt_scan"
 }
 
 struct BillingPlanLimits {
@@ -189,7 +192,7 @@ struct BillingPlanLimits {
         case .brokerSync, .expensePlanner, .reports, .statistics, .marketFundamentals,
              .advancedResearch, .peerComparison, .earningsText,
              .householdPartner, .recurringTemplates, .yearOverview, .smartSuggestions,
-             .crypto, .aiInsights, .mcpAccess, .scenarioPlanning, .taxOptimization:
+             .crypto, .aiInsights, .mcpAccess, .scenarioPlanning, .taxOptimization, .receiptScan:
             nil
         }
     }
@@ -292,7 +295,7 @@ struct DefaultUsageCounterService: UsageCounterService {
         case .brokerSync, .portfolioLists, .valuationCases, .expensePlanner, .reports,
              .statistics, .marketFundamentals, .advancedResearch, .peerComparison, .earningsText,
              .householdPartner, .recurringTemplates, .yearOverview, .smartSuggestions,
-             .crypto, .aiInsights, .mcpAccess, .scenarioPlanning, .taxOptimization:
+             .crypto, .aiInsights, .mcpAccess, .scenarioPlanning, .taxOptimization, .receiptScan:
             0
         }
     }
@@ -312,7 +315,7 @@ struct DefaultUsageCounterService: UsageCounterService {
         case .brokerSync, .portfolioLists, .valuationCases, .expensePlanner, .reports,
              .statistics, .marketFundamentals, .advancedResearch, .peerComparison, .earningsText,
              .householdPartner, .recurringTemplates, .yearOverview, .smartSuggestions,
-             .crypto, .aiInsights, .mcpAccess, .scenarioPlanning, .taxOptimization:
+             .crypto, .aiInsights, .mcpAccess, .scenarioPlanning, .taxOptimization, .receiptScan:
             break
         }
     }

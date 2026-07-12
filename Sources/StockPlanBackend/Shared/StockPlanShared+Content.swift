@@ -215,3 +215,9 @@ extension RateMoveOddsDTO: @retroactive Content {}
 extension MacroItemDTO: @retroactive Content {}
 extension MacroItemsResponse: @retroactive Content {}
 extension MacroItemSeriesResponse: @retroactive Content {}
+
+// MARK: - Receipts
+
+extension ReceiptParseQRRequest: @retroactive Content {}
+extension ReceiptDraftResponse: @retroactive Content {}
+extension ReceiptDraft: @retroactive Content {}
