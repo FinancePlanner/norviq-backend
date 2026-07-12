@@ -1,0 +1,88 @@
+import Fluent
+import StockPlanShared
+import Vapor
+
+struct BankSyncResult: Sendable {
+    var added = 0
+    var modified = 0
+    var removed = 0
+}
+
+enum BankProviderError: Error, AbortError {
+    case notConfigured(BankProviderKind)
+    case unsupportedOperation
+
+    var status: HTTPResponseStatus {
+        switch self {
+        case .notConfigured: .serviceUnavailable
+        case .unsupportedOperation: .badRequest
+        }
+    }
+
+    var reason: String {
+        switch self {
+        case let .notConfigured(kind): "Bank provider \(kind.rawValue) is not configured."
+        case .unsupportedOperation: "Operation not supported by this bank provider."
+        }
+    }
+}
+
+/// A bank-data aggregator driver. Plaid (US) and GoCardless (EU, Phase 4)
+/// conform. Every operation is read-only against the institution — providers
+/// must never expose a way to move money or place a payment.
+protocol BankProvider: Sendable {
+    var kind: BankProviderKind { get }
+
+    /// Begin a hosted link flow (Plaid link_token / GoCardless hosted URL).
+    func createLinkSession(userId: UUID, on req: Request) async throws -> BankLinkSessionResponse
+
+    /// Complete linking, persist an encrypted connection, and fetch its accounts.
+    func exchange(_ request: BankExchangeRequest, userId: UUID, on req: Request) async throws -> BankConnection
+
+    /// Pull new/changed transactions into the staging table.
+    func sync(connection: BankConnection, on req: Request) async throws -> BankSyncResult
+
+    /// Revoke access at the provider (best-effort).
+    func disconnect(connection: BankConnection, on req: Request) async throws
+}
+
+/// Selects a provider by kind. GoCardless registers here in Phase 4.
+struct BankProviderRegistry: Sendable {
+    private let providers: [BankProviderKind: any BankProvider]
+
+    init(providers: [any BankProvider]) {
+        var map: [BankProviderKind: any BankProvider] = [:]
+        for provider in providers {
+            map[provider.kind] = provider
+        }
+        self.providers = map
+    }
+
+    func provider(for kind: BankProviderKind) throws -> any BankProvider {
+        guard let provider = providers[kind] else {
+            throw BankProviderError.notConfigured(kind)
+        }
+        return provider
+    }
+
+    var configuredKinds: [BankProviderKind] {
+        Array(providers.keys)
+    }
+}
+
+extension Application {
+    struct BankProviderRegistryKey: StorageKey {
+        typealias Value = BankProviderRegistry
+    }
+
+    var bankProviderRegistry: BankProviderRegistry {
+        get { storage[BankProviderRegistryKey.self] ?? BankProviderRegistry(providers: []) }
+        set { storage[BankProviderRegistryKey.self] = newValue }
+    }
+}
+
+extension Request {
+    var bankProviderRegistry: BankProviderRegistry {
+        application.bankProviderRegistry
+    }
+}

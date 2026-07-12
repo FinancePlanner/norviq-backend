@@ -50,6 +50,7 @@ func routes(_ app: Application) throws {
 
     try registerOpenAPIDocsRoutes(app)
     try app.register(collection: FinnhubWebhookController())
+    try app.register(collection: PlaidWebhookController())
     try app.register(collection: RevenueCatWebhookController())
     try app.register(collection: SharingController())
     // RFC 8414 authorization-server metadata lives at the root well-known path.
@@ -92,6 +93,10 @@ func routes(_ app: Application) throws {
     // shares the group for simplicity.
     let receiptsRateLimit = RateLimitMiddleware(limit: 30, interval: 60, keyPrefix: "ratelimit:receipts")
     try api.grouped(receiptsRateLimit).register(collection: ReceiptsController())
+    // Bank connect/sync hit the aggregator API; rate-limit and dedupe retried POSTs.
+    let bankRateLimit = RateLimitMiddleware(limit: 30, interval: 60, keyPrefix: "ratelimit:banks")
+    try api.grouped(bankRateLimit, IdempotencyMiddleware(keyPrefix: "idempotency:banks"))
+        .register(collection: BankController())
     try api.register(collection: ReportsController())
     try api.register(collection: GoalsController())
     try api.register(collection: UserActivityController())

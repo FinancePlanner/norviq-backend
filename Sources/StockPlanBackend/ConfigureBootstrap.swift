@@ -266,6 +266,7 @@ func registerMigrations(_ app: Application) {
     app.migrations.add(CreateHoldingRiskProfiles())
     app.migrations.add(CreateMarketPriceBars())
     app.migrations.add(EncryptBrokerConnectionTokens())
+    app.migrations.add(CreateBankTables())
 }
 
 func envBool(_ key: String, default defaultValue: Bool) -> Bool {

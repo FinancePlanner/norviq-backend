@@ -286,5 +286,6 @@ private struct BillingFeatureDescriptor {
         .init(feature: .earningsText, title: "Earnings detail", proOnly: true),
         .init(feature: .crypto, title: "Cryptocurrency", proOnly: true),
         .init(feature: .receiptScan, title: "Receipt photo scanning (OCR)", proOnly: true),
+        .init(feature: .bankSync, title: "Bank sync", proOnly: true),
     ]
 }

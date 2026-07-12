@@ -221,3 +221,13 @@ extension MacroItemSeriesResponse: @retroactive Content {}
 extension ReceiptParseQRRequest: @retroactive Content {}
 extension ReceiptDraftResponse: @retroactive Content {}
 extension ReceiptDraft: @retroactive Content {}
+
+// MARK: - Banking
+
+extension BankConnectionResponse: @retroactive Content {}
+extension BankAccountResponse: @retroactive Content {}
+extension BankTransactionResponse: @retroactive Content {}
+extension BankLinkSessionResponse: @retroactive Content {}
+extension BankExchangeRequest: @retroactive Content {}
+extension BankTransactionImportRequest: @retroactive Content {}
+extension BankSyncResponse: @retroactive Content {}

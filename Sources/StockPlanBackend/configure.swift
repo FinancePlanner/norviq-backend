@@ -96,6 +96,15 @@ public func configure(_ app: Application) async throws {
         tokenVault: app.tokenEncryptionService
     )
     app.receiptOCRProvider = ReceiptOCRProviderBootstrap.fromEnvironment(app: app)
+
+    // Bank aggregators (read-only). Plaid (US) now; GoCardless (EU) in Phase 4.
+    var bankProviders: [any BankProvider] = []
+    if let plaidConfig = PlaidConfiguration.fromEnvironment() {
+        bankProviders.append(PlaidProvider(client: PlaidClient(config: plaidConfig)))
+    } else {
+        app.logger.warning("Plaid is disabled. Configure PLAID_CLIENT_ID and PLAID_SECRET to enable US bank sync.")
+    }
+    app.bankProviderRegistry = BankProviderRegistry(providers: bankProviders)
     app.marketDataRepository = DatabaseMarketDataRepository()
     let configuredMarketProvider = Environment.get("MARKET_PROVIDER")?
         .trimmingCharacters(in: .whitespacesAndNewlines)
@@ -243,6 +252,7 @@ public func configure(_ app: Application) async throws {
     let cleanupIntervalMinutes = Environment.get("AUTH_TOKEN_CLEANUP_INTERVAL_MINUTES").flatMap(Int.init(_:)) ?? 60
     app.lifecycle.use(AuthTokenCleanup(interval: TimeInterval(cleanupIntervalMinutes * 60)))
     app.lifecycle.use(IBKRSyncJob())
+    app.lifecycle.use(BankSyncJob())
     let apnsAlertPollSeconds = Environment.get("APNS_ALERT_POLL_SECONDS").flatMap(Int64.init(_:)) ?? 300
     app.lifecycle.use(TargetAlertPoller(intervalSeconds: apnsAlertPollSeconds))
     let earningsAlertPollSeconds = Environment.get("EARNINGS_ALERT_POLL_SECONDS").flatMap(Int64.init(_:)) ?? 86400
