@@ -82,7 +82,7 @@ struct AIAssistantController: RouteCollection {
         let conversation = try await ownedConversation(req, userId)
         let content = try req.content.decode(CreateMessagePayload.self).content.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !content.isEmpty, content.count <= 12000 else { throw Abort(.badRequest, reason: "Message must contain 1 to 12,000 characters.") }
-        try await consumeFreePreview(userId, req.db)
+        try await consumeGeneration(userId, req)
         let message = try AIAssistantMessage(conversationId: conversation.requireID(), userId: userId,
                                              role: AIAssistantRole.user.rawValue,
                                              contentEncrypted: req.userPIIEncryptionService.encryptString(content))
@@ -137,8 +137,9 @@ struct AIAssistantController: RouteCollection {
         let start = monthStart()
         let used = try await AIAssistantUsage.query(on: req.db).filter(\.$userId == userId)
             .filter(\.$monthStart == start).first()?.requestCount ?? 0
+        let billing = try await req.application.billingContextService.context(userId: userId, on: req.db)
         return try json(AIAssistantUsageResponse(month: monthString(start), used: used,
-                                                 limit: 5, remaining: max(0, 5 - used), isPro: false))
+                                                 limit: billing.isPro ? nil : 5, remaining: billing.isPro ? nil : max(0, 5 - used), isPro: billing.isPro))
     }
 
     @Sendable private func listPendingActions(req: Request) async throws -> Response {
@@ -185,12 +186,15 @@ struct AIAssistantController: RouteCollection {
         let row = AIAssistantPreference(userId: userId); try await row.create(on: db); return row
     }
 
-    private func consumeFreePreview(_ userId: UUID, _ db: any Database) async throws {
+    private func consumeGeneration(_ userId: UUID, _ req: Request) async throws {
+        let billing = try await req.application.billingContextService.context(userId: userId, on: req.db)
         let start = monthStart()
-        try await db.transaction { transaction in
+        try await req.db.transaction { transaction in
             let row = try await AIAssistantUsage.query(on: transaction).filter(\.$userId == userId)
                 .filter(\.$monthStart == start).first() ?? AIAssistantUsage(userId: userId, monthStart: start)
-            guard row.requestCount < 5 else { throw Abort(.paymentRequired, reason: "The free AI preview includes 5 requests per month.") }
+            guard billing.isPro || row.requestCount < 5 else {
+                throw Abort(.paymentRequired, reason: "The free AI preview includes 5 requests per month.")
+            }
             row.requestCount += 1; try await row.save(on: transaction)
         }
     }

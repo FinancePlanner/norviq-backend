@@ -279,6 +279,8 @@ public func configure(_ app: Application) async throws {
         intervalSeconds: Environment.get("SCENARIO_HISTORY_REFRESH_SECONDS").flatMap(Int64.init) ?? 86400
     ))
     app.lifecycle.use(ScenarioRetentionJob())
+    app.lifecycle.use(AIAssistantRetentionJob())
+    app.lifecycle.use(AIDailyTipJob())
 
     // Macro / inflation (Nowflation parity). FRED is the keystone provider:
     // without FRED_API_KEY the US (and intl fallback) stay disabled while
