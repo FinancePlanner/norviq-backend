@@ -10,12 +10,12 @@ struct PlaidConfiguration: Sendable {
     let webhookURL: String?
 
     static func fromEnvironment() -> PlaidConfiguration? {
-        guard let clientID = Environment.get("PLAID_CLIENT_ID")?.trimmedNonEmpty,
-              let secret = Environment.get("PLAID_SECRET")?.trimmedNonEmpty
+        guard let clientID = bankingTrimmedNonEmpty(Environment.get("PLAID_CLIENT_ID")),
+              let secret = bankingTrimmedNonEmpty(Environment.get("PLAID_SECRET"))
         else {
             return nil
         }
-        let env = Environment.get("PLAID_ENV")?.trimmedNonEmpty?.lowercased() ?? "sandbox"
+        let env = bankingTrimmedNonEmpty(Environment.get("PLAID_ENV"))?.lowercased() ?? "sandbox"
         let host = switch env {
         case "production": "https://production.plaid.com"
         case "development": "https://development.plaid.com"
@@ -25,7 +25,7 @@ struct PlaidConfiguration: Sendable {
             clientID: clientID,
             secret: secret,
             baseURL: host,
-            webhookURL: Environment.get("PLAID_WEBHOOK_URL")?.trimmedNonEmpty
+            webhookURL: bankingTrimmedNonEmpty(Environment.get("PLAID_WEBHOOK_URL"))
         )
     }
 }
@@ -173,7 +173,7 @@ struct PlaidClient: Sendable {
         let uri = URI(string: config.baseURL + path)
         let response = try await req.client.post(uri) { clientReq in
             clientReq.headers.contentType = .json
-            try clientReq.content.encode(AnyEncodableDict(payload))
+            try clientReq.content.encode(AnyEncodableDict(payload), as: .json)
         }
 
         guard response.status == .ok else {

@@ -17,6 +17,7 @@ protocol TaxService: Sendable {
     func createActionPlan(userId: UUID, request: TaxActionPlanRequest, on db: any Database) async throws -> TaxActionPlanResponse
     func notificationPreferences(userId: UUID, on db: any Database) async throws -> TaxNotificationPreferences
     func saveNotificationPreferences(userId: UUID, request: TaxNotificationPreferences, on db: any Database) async throws -> TaxNotificationPreferences
+    func saveMarketAdmission(userId: UUID, instrumentId: UUID, status: TaxMarketAdmissionStatus, on db: any Database) async throws -> TaxInstrumentMarketOption
 }
 
 struct DefaultTaxService: TaxService {
@@ -57,13 +58,58 @@ struct DefaultTaxService: TaxService {
                 let comparison = $0.displayName.localizedCaseInsensitiveCompare($1.displayName)
                 return comparison == .orderedSame ? $0.id < $1.id : comparison == .orderedAscending
             }
+        let accountIDs = ownedAccounts.compactMap(\.id)
+        let transactionInstrumentIDs = accountIDs.isEmpty ? [] : try await Transaction.query(on: db)
+            .filter(\.$accountId ~~ accountIDs)
+            .all()
+            .map(\.instrumentId)
+        let lotInstrumentIDs = accountIDs.isEmpty ? [] : try await Lot.query(on: db)
+            .filter(\.$accountId ~~ accountIDs)
+            .all()
+            .map(\.instrumentId)
+        let instrumentIDs = Array(Set(transactionInstrumentIDs + lotInstrumentIDs))
+        let instruments = instrumentIDs.isEmpty ? [] : try await Instrument.query(on: db)
+            .filter(\.$id ~~ instrumentIDs)
+            .all()
+            .compactMap(taxInstrumentMarketOption)
+            .sorted {
+                ($0.symbol, $0.id) < ($1.symbol, $1.id)
+            }
         return TaxProfileContextResponse(
             jurisdiction: jurisdiction,
             taxYear: taxYear,
             defaultReportingCurrency: defaultCurrency(jurisdiction),
             profile: existing,
-            accounts: accounts
+            accounts: accounts,
+            instruments: instruments
         )
+    }
+
+    func saveMarketAdmission(
+        userId: UUID,
+        instrumentId: UUID,
+        status: TaxMarketAdmissionStatus,
+        on db: any Database
+    ) async throws -> TaxInstrumentMarketOption {
+        let accountIDs = try await Account.query(on: db)
+            .filter(\.$userId == userId)
+            .all()
+            .compactMap(\.id)
+        guard !accountIDs.isEmpty else { throw Abort(.notFound, reason: "Instrument not found.") }
+        let ownsTransaction = try await Transaction.query(on: db)
+            .filter(\.$accountId ~~ accountIDs)
+            .filter(\.$instrumentId == instrumentId)
+            .first() != nil
+        let ownsLot = try await Lot.query(on: db)
+            .filter(\.$accountId ~~ accountIDs)
+            .filter(\.$instrumentId == instrumentId)
+            .first() != nil
+        guard ownsTransaction || ownsLot,
+              let instrument = try await Instrument.find(instrumentId, on: db)
+        else { throw Abort(.notFound, reason: "Instrument not found.") }
+        instrument.regulatedMarketStatus = status.rawValue
+        try await instrument.save(on: db)
+        return taxInstrumentMarketOption(instrument)!
     }
 
     func profile(
@@ -559,6 +605,17 @@ struct DefaultTaxService: TaxService {
             disclaimer: taxDisclaimer
         )
     }
+}
+
+private func taxInstrumentMarketOption(_ instrument: Instrument) -> TaxInstrumentMarketOption? {
+    guard let id = instrument.id else { return nil }
+    return TaxInstrumentMarketOption(
+        id: id.uuidString,
+        symbol: instrument.symbol,
+        listingExchange: instrument.listingExchange,
+        marketAdmissionStatus: instrument.regulatedMarketStatus
+            .flatMap(TaxMarketAdmissionStatus.init(rawValue:)) ?? .unknown
+    )
 }
 
 private func defaultCurrency(_ jurisdiction: TaxJurisdiction) -> String {

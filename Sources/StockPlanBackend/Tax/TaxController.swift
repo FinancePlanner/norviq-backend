@@ -9,6 +9,10 @@ struct TaxController: RouteCollection {
         let taxYear: Int?
     }
 
+    private struct MarketAdmissionRequest: Content {
+        let status: TaxMarketAdmissionStatus
+    }
+
     func boot(routes: any RoutesBuilder) throws {
         let protected = routes.grouped(SessionToken.authenticator(), SessionToken.guardMiddleware())
         let tax = protected.grouped("tax")
@@ -16,6 +20,7 @@ struct TaxController: RouteCollection {
         tax.get("profile", use: getProfile)
         tax.get("profile", "context", use: getProfileContext)
         tax.put("profile", use: saveProfile)
+        tax.put("instruments", ":instrumentId", "market-admission", use: saveMarketAdmission)
         tax.get("dashboard", use: dashboard)
         tax.post("scenarios", use: createScenario)
         tax.get("scenarios", ":scenarioId", use: getScenario)
@@ -71,6 +76,21 @@ struct TaxController: RouteCollection {
             throw Abort(.unprocessableEntity, reason: "Tax year is outside the supported range.")
         }
         return try await req.application.taxService.saveProfile(userId: session.userId, request: payload, on: req.db)
+    }
+
+    @Sendable
+    private func saveMarketAdmission(req: Request) async throws -> TaxInstrumentMarketOption {
+        let session = try req.auth.require(SessionToken.self)
+        guard let rawID = req.parameters.get("instrumentId"),
+              let instrumentID = UUID(uuidString: rawID)
+        else { throw Abort(.badRequest, reason: "Invalid instrument id.") }
+        let payload = try req.content.decode(MarketAdmissionRequest.self)
+        return try await req.application.taxService.saveMarketAdmission(
+            userId: session.userId,
+            instrumentId: instrumentID,
+            status: payload.status,
+            on: req.db
+        )
     }
 
     @Sendable
@@ -197,6 +217,13 @@ struct TaxController: RouteCollection {
         let report = try await ownedReport(req)
         guard report.status == "ready", let path = report.filePath else {
             throw Abort(.conflict, reason: "Tax report is not ready.")
+        }
+        if let expiresAt = report.expiresAt, expiresAt <= Date() {
+            throw Abort(.gone, reason: "Tax report has expired.")
+        }
+        guard req.application.taxReportStorage.exists(at: path) else {
+            req.logger.warning("tax_report.download_missing report_id=\(report.id?.uuidString ?? "unknown")")
+            throw Abort(.gone, reason: "Tax report is no longer available.")
         }
         let response = req.fileio.streamFile(at: path)
         let format = TaxReportFormat(rawValue: report.format) ?? .csv

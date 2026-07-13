@@ -20,15 +20,27 @@ struct TaxReportGenerator: Sendable {
                 taxYear: report.taxYear,
                 on: application.db
             )
-            let directory = application.directory.workingDirectory
-                + ".build/tax-reports/\(report.userId.uuidString)"
-            try FileManager.default.createDirectory(atPath: directory, withIntermediateDirectories: true)
-            let path = "\(directory)/\(reportID.uuidString).\(report.format)"
-            if report.format == TaxReportFormat.csv.rawValue {
-                try csvData(dashboard).write(to: URL(fileURLWithPath: path), options: .atomic)
-            } else {
-                try simplePDFData(dashboard).write(to: URL(fileURLWithPath: path), options: .atomic)
-            }
+            let accountIDs = try await Account.query(on: application.db)
+                .filter(\.$userId == report.userId)
+                .all()
+                .compactMap(\.id)
+            let inferredBasisCount = accountIDs.isEmpty ? 0 : try await Transaction.query(on: application.db)
+                .filter(\.$accountId ~~ accountIDs)
+                .filter(\.$type == "OPENING_BALANCE")
+                .count()
+            let basisDisclosure = inferredBasisCount > 0
+                ? "Warning: \(inferredBasisCount) opening lot(s) use position-snapshot average cost because broker acquisition history was unavailable. Verify dates and basis before filing."
+                : nil
+            let format = TaxReportFormat(rawValue: report.format) ?? .pdf
+            let data = format == .csv
+                ? csvData(dashboard, basisDisclosure: basisDisclosure)
+                : simplePDFData(dashboard, basisDisclosure: basisDisclosure)
+            let path = try application.taxReportStorage.store(
+                data: data,
+                userID: report.userId,
+                reportID: reportID,
+                format: format
+            )
             report.status = "ready"
             report.filePath = path
             report.expiresAt = Calendar.current.date(byAdding: .day, value: 7, to: Date())
@@ -44,7 +56,7 @@ struct TaxReportGenerator: Sendable {
         }
     }
 
-    private func csvData(_ dashboard: TaxDashboardResponse) -> Data {
+    private func csvData(_ dashboard: TaxDashboardResponse, basisDisclosure: String?) -> Data {
         var rows = [
             "symbol,instrumentType,accountId,quantity,marketValue,unrealizedLoss,estimatedTaxBenefit,holdingPeriod,status,supportLevel,warnings",
         ]
@@ -64,13 +76,16 @@ struct TaxReportGenerator: Sendable {
             ].map(csvEscape).joined(separator: ",")
         }
         rows.append("")
+        if let basisDisclosure {
+            rows.append(csvEscape(basisDisclosure))
+        }
         rows.append(csvEscape("Advisor workpaper only. \(dashboard.disclaimer)"))
         return Data((["\u{FEFF}"] + rows).joined(separator: "\n").utf8)
     }
 
-    private func simplePDFData(_ dashboard: TaxDashboardResponse) -> Data {
+    private func simplePDFData(_ dashboard: TaxDashboardResponse, basisDisclosure: String?) -> Data {
         let currency = dashboard.summary.estimatedNetBenefit.currency
-        let lines = [
+        var lines = [
             "Norviq Tax Optimization Workpaper",
             "Jurisdiction: \(dashboard.jurisdiction.rawValue)   Tax year: \(dashboard.taxYear)",
             "Rule version: \(dashboard.ruleVersion)",
@@ -83,6 +98,9 @@ struct TaxReportGenerator: Sendable {
             "Advisor workpaper only. Not filing-ready.",
             dashboard.disclaimer,
         ]
+        if let basisDisclosure {
+            lines.insert(basisDisclosure, at: max(0, lines.count - 2))
+        }
         return MinimalPDF.make(lines: lines)
     }
 

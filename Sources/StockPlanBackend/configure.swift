@@ -259,6 +259,11 @@ public func configure(_ app: Application) async throws {
     app.lifecycle.use(EarningsNotificationPoller(intervalSeconds: earningsAlertPollSeconds))
     let taxProjectionPollSeconds = Int64(Environment.get("TAX_PROJECTION_POLL_SECONDS") ?? "86400") ?? 86400
     app.lifecycle.use(TaxProjectionPoller(intervalSeconds: taxProjectionPollSeconds))
+    let taxReportStoragePath = Environment.get("TAX_REPORT_STORAGE_PATH")
+        ?? app.directory.workingDirectory + "storage/tax-reports"
+    app.taxReportStorage = LocalTaxReportStorage(rootDirectory: taxReportStoragePath)
+    let taxReportCleanupSeconds = Int64(Environment.get("TAX_REPORT_CLEANUP_INTERVAL_SECONDS") ?? "3600") ?? 3600
+    app.lifecycle.use(TaxReportCleanupJob(intervalSeconds: taxReportCleanupSeconds))
     app.lifecycle.use(TrialExpirationJob())
     // Data Export cleanup (expire files after 7 days)
     app.lifecycle.use(DataExportCleanupJob(repository: app.dataExportRepository, interval: 86400))

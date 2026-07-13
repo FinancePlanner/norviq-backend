@@ -140,14 +140,32 @@ extension ScenarioEngine {
         }
         let weightTotal = spec.weights.reduce(0, +)
         let weights = weightTotal == 0 ? Array(repeating: 1 / Double(count), count: count) : spec.weights.map { $0 / weightTotal }
-        let monthlyCovariance = spec.annualCovariance.map { $0.map { $0 / 12 } }
-        guard let factor = cholesky(repairedCovariance(monthlyCovariance)) else {
+        let monthlyCovariance = repairedCovariance(spec.annualCovariance.map { $0.map { $0 / 12 } })
+        guard cholesky(monthlyCovariance) != nil else {
             return ScenarioSimulationOutput(bands: [], goalProbability: nil, expectedShortfall: nil, medianMaximumDrawdown: 0)
         }
+        // The result stores an aggregate portfolio path rather than individual asset paths. For fixed
+        // weights, projecting the repaired covariance is exactly equivalent to drawing the full vector
+        // Lz and then calculating wᵀLz, while avoiding an O(assetCount²) multiply on every step.
+        let portfolioVariance = monthlyCovariance.indices.reduce(0.0) { total, row in
+            total + monthlyCovariance[row].indices.reduce(0.0) { subtotal, column in
+                subtotal + weights[row] * monthlyCovariance[row][column] * weights[column]
+            }
+        }
+        let portfolioVolatility = sqrt(max(0, portfolioVariance))
+        let portfolioMean = zip(weights, spec.annualReturns).reduce(0.0) { $0 + $1.0 * $1.1 / 12 }
         let paths = max(1, min(spec.pathCount, 50000)); let months = max(1, min(spec.horizonMonths, 600))
         var generator = SplitMix64(seed: spec.seed)
         var columns = Array(repeating: [Double](), count: months + 1)
+        for index in columns.indices {
+            columns[index].reserveCapacity(paths)
+        }
         var drawdowns: [Double] = []; var successes = 0; var shortfalls: [Double] = []
+        drawdowns.reserveCapacity(paths); shortfalls.reserveCapacity(paths)
+        let contributions = (1 ... months).map { month in
+            spec.monthlyContribution * pow(1 + spec.annualContributionGrowth, Double((month - 1) / 12))
+        }
+        let inflatedTarget = spec.targetAmount.map { $0 * pow(1 + spec.annualInflation, Double(months) / 12) }
         for _ in 0 ..< paths {
             if Task.isCancelled {
                 break
@@ -155,35 +173,26 @@ extension ScenarioEngine {
             var value = spec.initialValue; var peak = value; var maximumDrawdown = 0.0
             columns[0].append(value)
             for month in 1 ... months {
-                let independent = (0 ..< count).map { _ in generator.normal() }
-                var correlated = Array(repeating: 0.0, count: count)
-                for row in 0 ..< count {
-                    correlated[row] = (0 ... row).reduce(0) { $0 + factor[row][$1] * independent[$1] }
-                }
+                var portfolioShock = portfolioVolatility * generator.normal()
                 if let degrees = spec.studentTDegreesOfFreedom {
                     let validDegrees = max(3, degrees); var chiSquared = 0.0
                     for _ in 0 ..< validDegrees {
                         let normal = generator.normal(); chiSquared += normal * normal
                     }
                     let scale = sqrt(Double(validDegrees - 2) / chiSquared)
-                    correlated = correlated.map { $0 * scale }
+                    portfolioShock *= scale
                 }
-                let portfolioReturn = (0 ..< count).reduce(0.0) {
-                    $0 + weights[$1] * (spec.annualReturns[$1] / 12 + correlated[$1])
-                }
-                let contribution = spec.monthlyContribution * pow(1 + spec.annualContributionGrowth, Double((month - 1) / 12))
-                value = max(0, value * (1 + portfolioReturn) + contribution); peak = max(peak, value)
+                value = max(0, value * (1 + portfolioMean + portfolioShock) + contributions[month - 1]); peak = max(peak, value)
                 if peak > 0 {
                     maximumDrawdown = max(maximumDrawdown, (peak - value) / peak)
                 }
                 columns[month].append(value)
             }
             drawdowns.append(maximumDrawdown)
-            if let target = spec.targetAmount {
-                let inflated = target * pow(1 + spec.annualInflation, Double(months) / 12)
-                if value >= inflated {
+            if let inflatedTarget {
+                if value >= inflatedTarget {
                     successes += 1
-                }; shortfalls.append(max(0, inflated - value))
+                }; shortfalls.append(max(0, inflatedTarget - value))
             }
         }
         let bands = columns.enumerated().map { month, values in

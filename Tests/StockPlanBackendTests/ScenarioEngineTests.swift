@@ -1,3 +1,4 @@
+import Foundation
 @testable import StockPlanBackend
 import Testing
 
@@ -112,6 +113,52 @@ struct ScenarioEngineTests {
     }
 
     @Test
+    func `cross asset covariance changes portfolio dispersion`() throws {
+        let common = (
+            weights: [0.5, 0.5],
+            returns: [0.06, 0.06],
+            positive: [[0.04, 0.039], [0.039, 0.04]],
+            negative: [[0.04, -0.039], [-0.039, 0.04]]
+        )
+        let positive = ScenarioEngine().simulateCorrelated(.init(
+            initialValue: 100_000, weights: common.weights, annualReturns: common.returns,
+            annualCovariance: common.positive, monthlyContribution: 0, annualContributionGrowth: 0,
+            annualInflation: 0, horizonMonths: 12, pathCount: 5000, seed: 17,
+            targetAmount: nil, studentTDegreesOfFreedom: nil
+        ))
+        let negative = ScenarioEngine().simulateCorrelated(.init(
+            initialValue: 100_000, weights: common.weights, annualReturns: common.returns,
+            annualCovariance: common.negative, monthlyContribution: 0, annualContributionGrowth: 0,
+            annualInflation: 0, horizonMonths: 12, pathCount: 5000, seed: 17,
+            targetAmount: nil, studentTDegreesOfFreedom: nil
+        ))
+        let positiveTerminal = try #require(positive.bands.last)
+        let negativeTerminal = try #require(negative.bands.last)
+        #expect(positiveTerminal.p90 - positiveTerminal.p10 > negativeTerminal.p90 - negativeTerminal.p10)
+    }
+
+    @Test(.enabled(if: ProcessInfo.processInfo.environment["RUN_SCENARIO_PERFORMANCE_TESTS"] == "true"))
+    func `10,000 paths over 30 years and 50 assets complete within 30 seconds`() {
+        let assetCount = 50
+        let covariance = (0 ..< assetCount).map { row in
+            (0 ..< assetCount).map { column in row == column ? 0.04 : 0.01 }
+        }
+        let started = Date()
+        let output = ScenarioEngine().simulateCorrelated(.init(
+            initialValue: 1_000_000,
+            weights: Array(repeating: 1 / Double(assetCount), count: assetCount),
+            annualReturns: Array(repeating: 0.07, count: assetCount),
+            annualCovariance: covariance,
+            monthlyContribution: 2000, annualContributionGrowth: 0.02,
+            annualInflation: 0.02, horizonMonths: 360, pathCount: 10000,
+            seed: 42, targetAmount: 4_000_000, studentTDegreesOfFreedom: nil
+        ))
+        let elapsed = Date().timeIntervalSince(started)
+        #expect(output.bands.count == 361)
+        #expect(elapsed < 30, "Acceptance workload took \(elapsed) seconds")
+    }
+
+    @Test
     func `zero covariance follows weighted expected return exactly`() throws {
         let output = ScenarioEngine().simulateCorrelated(.init(
             initialValue: 1000, weights: [0.75, 0.25], annualReturns: [0.12, 0],
@@ -160,5 +207,29 @@ struct ScenarioEngineTests {
         let ending = try #require(result.values["ending_value"]?.number)
         #expect(abs(ending - 200) < 0.001)
         #expect(result.values["class_contributions"]?.array?.count == 2)
+    }
+
+    @Test
+    func `custom rate shock uses versioned equity and REIT sensitivities`() throws {
+        let holdings: [ScenarioJSONValue] = [
+            .object([
+                "id": .string("equity"), "value_in_base_currency": .number(100),
+                "asset_category": .string("stock"), "currency": .string("USD"),
+            ]),
+            .object([
+                "id": .string("reit"), "value_in_base_currency": .number(100),
+                "asset_category": .string("real_estate"), "currency": .string("USD"),
+                "factor_overrides": .object(["rate_sensitivity": .number(3)]),
+            ]),
+        ]
+        let result = ScenarioRunProcessor().custom(
+            snapshot: ["holdings": .array(holdings)],
+            configuration: [
+                "parallel_rate_shift_bps": .number(100), "volatility_multiplier": .number(1.5),
+            ]
+        )
+        #expect(try abs(#require(result.values["ending_value"]?.number) - 195) < 0.001)
+        #expect(result.values["assumptions"]?.object?["volatility_multiplier"]?.number == 1.5)
+        #expect(result.values["assumptions"]?.object?["rate_sensitivity_defaults_version"]?.string == ScenarioEngine.version)
     }
 }

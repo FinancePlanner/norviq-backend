@@ -17,6 +17,12 @@ final class Instrument: Model, Content, @unchecked Sendable {
     @Field(key: "exchange")
     var exchange: String
 
+    @OptionalField(key: "listing_exchange")
+    var listingExchange: String?
+
+    @OptionalField(key: "regulated_market_status")
+    var regulatedMarketStatus: String?
+
     @Field(key: "currency")
     var currency: String
 

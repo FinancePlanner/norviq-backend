@@ -96,6 +96,40 @@ struct TaxLotMatcher: Sendable {
 struct TaxLotAccountingService: Sendable {
     private let matcher = TaxLotMatcher()
     private let washSaleMatcher = TaxWashSaleMatcher()
+    private let spainLossDeferralMatcher = SpainLossDeferralMatcher()
+
+    func recordAcquisition(transaction: Transaction, on database: any Database) async throws -> Lot {
+        guard let transactionID = transaction.id,
+              let quantity = transaction.quantity.map(abs), quantity > 0,
+              let price = transaction.price, price >= 0
+        else { throw TaxLotAccountingError.invalidQuantity }
+
+        if let existing = try await Lot.query(on: database)
+            .filter(\.$openTransactionId == transactionID)
+            .first()
+        {
+            return existing
+        }
+
+        let unitBasis = TaxAcquisitionBasisCalculator().unitBasis(
+            quantity: quantity,
+            price: price,
+            fees: transaction.fees ?? 0
+        )
+        let lot = Lot(
+            accountId: transaction.accountId,
+            instrumentId: transaction.instrumentId,
+            openTransactionId: transactionID,
+            openDate: transaction.tradeDate,
+            openQuantity: quantity,
+            remainingQuantity: quantity,
+            openPrice: unitBasis,
+            currency: transaction.currency,
+            status: "open"
+        )
+        try await lot.create(on: database)
+        return lot
+    }
 
     func recordDisposal(
         transaction: Transaction,
@@ -199,14 +233,12 @@ struct TaxLotAccountingService: Sendable {
             guard let start = calendar.date(byAdding: .day, value: -30, to: saleTransaction.tradeDate),
                   let end = calendar.date(byAdding: .day, value: 30, to: saleTransaction.tradeDate)
             else { return [] }
-            let soldLotIDs = Set(disposals.map(\.lotId))
             let replacementLots = try await Lot.query(on: db)
                 .filter(\.$accountId ~~ accountIDs)
                 .filter(\.$instrumentId ~~ matchingInstrumentIDs)
                 .filter(\.$openDate >= start)
                 .filter(\.$openDate <= end)
                 .all()
-                .filter { lot in lot.id.map { !soldLotIDs.contains($0) } ?? false }
             var availableByLot = Dictionary(uniqueKeysWithValues: replacementLots.compactMap { lot in
                 lot.id.map { ($0, max(0, lot.openQuantity)) }
             })
@@ -268,8 +300,116 @@ struct TaxLotAccountingService: Sendable {
         }
     }
 
+    func recordSpainLossDeferrals(
+        disposals: [LotDisposal],
+        saleTransaction: Transaction,
+        userId: UUID,
+        ruleVersion: String,
+        on database: any Database
+    ) async throws -> [WashSaleMatch] {
+        guard !disposals.isEmpty else { return [] }
+        return try await database.transaction { db in
+            let accountIDs = try await Account.query(on: db)
+                .filter(\.$userId == userId)
+                .all()
+                .compactMap(\.id)
+            guard !accountIDs.isEmpty,
+                  let soldInstrument = try await Instrument.find(saleTransaction.instrumentId, on: db)
+            else { return [] }
+            let windowMonths: Int
+            switch soldInstrument.regulatedMarketStatus {
+            case "regulated": windowMonths = 2
+            case "unlisted": windowMonths = 12
+            default: return []
+            }
+
+            let matchingInstrumentIDs = try await Instrument.query(on: db).all().compactMap { instrument -> UUID? in
+                guard let id = instrument.id else { return nil }
+                if id == soldInstrument.id {
+                    return id
+                }
+                guard let group = soldInstrument.taxIdentityGroup, !group.isEmpty else { return nil }
+                return instrument.taxIdentityGroup == group ? id : nil
+            }
+            let calendar = Calendar(identifier: .gregorian)
+            guard let start = calendar.date(byAdding: .month, value: -windowMonths, to: saleTransaction.tradeDate),
+                  let end = calendar.date(byAdding: .month, value: windowMonths, to: saleTransaction.tradeDate)
+            else { return [] }
+            let soldLotIDs = Set(disposals.map(\.lotId))
+            let replacementLots = try await Lot.query(on: db)
+                .filter(\.$accountId ~~ accountIDs)
+                .filter(\.$instrumentId ~~ matchingInstrumentIDs)
+                .filter(\.$openDate >= start)
+                .filter(\.$openDate <= end)
+                .all()
+                .filter { lot in lot.id.map { !soldLotIDs.contains($0) } ?? false }
+
+            var availableByLot = Dictionary(uniqueKeysWithValues: replacementLots.compactMap { lot in
+                lot.id.map { ($0, max(0, lot.remainingQuantity)) }
+            })
+            var persisted = [WashSaleMatch]()
+            for disposal in disposals where disposal.realizedPnl < 0 {
+                guard let disposalID = disposal.id else { continue }
+                let replacements = replacementLots.compactMap { lot -> SpainLossDeferralReplacement? in
+                    guard let lotID = lot.id else { return nil }
+                    return .init(
+                        lotId: lotID,
+                        acquisitionDate: lot.openDate,
+                        remainingQuantity: availableByLot[lotID] ?? 0
+                    )
+                }
+                let allocations = spainLossDeferralMatcher.match(
+                    saleDate: saleTransaction.tradeDate,
+                    soldQuantity: disposal.quantity,
+                    realizedPnL: disposal.realizedPnl,
+                    replacements: replacements,
+                    windowMonths: windowMonths,
+                    calendar: calendar
+                )
+                for allocation in allocations {
+                    if let existing = try await WashSaleMatch.query(on: db)
+                        .filter(\.$disposalId == disposalID)
+                        .filter(\.$replacementLotId == allocation.replacementLotId)
+                        .first()
+                    {
+                        persisted.append(existing)
+                        continue
+                    }
+                    let match = WashSaleMatch()
+                    match.disposalId = disposalID
+                    match.replacementLotId = allocation.replacementLotId
+                    match.matchedQuantity = allocation.matchedQuantity
+                    match.disallowedLoss = allocation.deferredLoss
+                    match.currency = saleTransaction.currency
+                    match.isPermanent = false
+                    match.ruleVersion = ruleVersion
+                    try await match.create(on: db)
+
+                    let adjustment = LotAdjustment()
+                    adjustment.lotId = allocation.replacementLotId
+                    adjustment.sourceTransactionId = saleTransaction.id
+                    adjustment.kind = "spain_homogeneous_security_deferred_loss"
+                    adjustment.amount = allocation.deferredLoss
+                    adjustment.quantity = allocation.matchedQuantity
+                    adjustment.currency = saleTransaction.currency
+                    adjustment.effectiveDate = saleTransaction.tradeDate
+                    try await adjustment.create(on: db)
+                    availableByLot[allocation.replacementLotId, default: 0] -= allocation.matchedQuantity
+                    persisted.append(match)
+                }
+            }
+            return persisted
+        }
+    }
+
     private func holdingPeriod(open: Date, close: Date) -> String {
         close.timeIntervalSince(open) > 365 * 86400 ? "long_term" : "short_term"
+    }
+}
+
+struct TaxAcquisitionBasisCalculator: Sendable {
+    func unitBasis(quantity: Double, price: Double, fees: Double) -> Double {
+        price + abs(fees) / quantity
     }
 }
 

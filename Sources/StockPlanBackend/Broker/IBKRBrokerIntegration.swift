@@ -1,5 +1,6 @@
 import Fluent
 import Foundation
+import StockPlanShared
 import Vapor
 
 struct IBKRBrokerGatewayClient {
@@ -58,6 +59,14 @@ struct IBKRBrokerGatewayClient {
         }
 
         throw Abort(.badGateway, reason: "IBKR positions response format was not recognized.")
+    }
+
+    func fetchContractInfo(conid: String, on req: Request) async throws -> IBKRContractInfo? {
+        let response = try await withRetry(on: req) {
+            try await get(path: "/iserver/contract/\(conid)/info", on: req)
+        }
+        guard response.status == .ok else { return nil }
+        return try? response.content.decode(IBKRContractInfoPayload.self).toContractInfo()
     }
 
     func fetchTransactions(accountID: String, from: Date, to: Date, on req: Request) async throws -> [IBKRBrokerTransaction] {
@@ -199,8 +208,16 @@ struct IBKRBrokerTransaction {
     let type: String
     let quantity: Double
     let amount: Double
+    let price: Double?
+    let fees: Double
     let currency: String
     let date: Date
+    let settleDate: Date?
+    let conid: String?
+}
+
+struct IBKRContractInfo: Sendable {
+    let listingExchange: String?
 }
 
 struct IBKRBrokerCashBalance {
@@ -289,10 +306,16 @@ struct IBKRBrokerSyncService {
             on: req.db
         )
 
-        let lastSyncDate = connection.lastSyncedAt ?? Date().addingTimeInterval(-30 * 24 * 3600)
+        let initialLookbackDays = Double(Environment.get("IBKR_TRANSACTION_LOOKBACK_DAYS") ?? "3650") ?? 3650
+        let overlapDays = Double(Environment.get("IBKR_TRANSACTION_OVERLAP_DAYS") ?? "7") ?? 7
+        let lastSyncDate = connection.lastSyncedAt
+            .map { $0.addingTimeInterval(-overlapDays * 24 * 3600) }
+            ?? Date().addingTimeInterval(-initialLookbackDays * 24 * 3600)
         _ = try await syncTransactions(
             accountID: account.externalID,
             sourceAccountId: sourceAccountID,
+            userId: userId,
+            positions: positions,
             from: lastSyncDate,
             to: Date(),
             on: req
@@ -334,6 +357,8 @@ struct IBKRBrokerSyncService {
     private func syncTransactions(
         accountID: String,
         sourceAccountId: UUID,
+        userId: UUID,
+        positions: [IBKRBrokerPosition],
         from: Date,
         to: Date,
         on req: Request
@@ -346,43 +371,241 @@ struct IBKRBrokerSyncService {
         )
 
         var syncedCount = 0
-        for ibkrTransaction in transactions {
-            let exists = try await Transaction.query(on: req.db)
+        var canonicalTransactions = [Transaction]()
+        for ibkrTransaction in transactions.sorted(by: {
+            ($0.date, $0.externalID) < ($1.date, $1.externalID)
+        }) {
+            let type = mapTransactionType(ibkrTransaction.type)
+            let existing = try await Transaction.query(on: req.db)
                 .filter(\.$accountId == sourceAccountId)
                 .filter(\.$externalId == ibkrTransaction.externalID)
-                .first() != nil
-
-            if exists {
-                continue
-            }
+                .first()
 
             let instrument = try await requireInstrument(
                 symbol: ibkrTransaction.symbol,
-                conid: nil,
+                conid: ibkrTransaction.conid,
                 currency: ibkrTransaction.currency,
                 on: req,
                 db: req.db
             )
-            let instrumentID = try instrument.requireID()
-
-            let transaction = Transaction(
-                accountId: sourceAccountId,
-                instrumentId: instrumentID,
-                externalId: ibkrTransaction.externalID,
-                type: mapTransactionType(ibkrTransaction.type),
-                quantity: ibkrTransaction.quantity,
-                price: ibkrTransaction.quantity != 0 ? abs(ibkrTransaction.amount / ibkrTransaction.quantity) : 0,
-                currency: ibkrTransaction.currency,
-                tradeDate: ibkrTransaction.date,
-                settleDate: ibkrTransaction.date
+            try await enrichMarketAdmission(
+                instrument: instrument,
+                conid: ibkrTransaction.conid,
+                on: req
             )
-            try await transaction.save(on: req.db)
-            // Business metric: transactions created via IBKR sync
-            req.application.businessMetrics.incrementTransactionsCreated()
-            syncedCount += 1
+            let instrumentID = try instrument.requireID()
+            let price = ibkrTransaction.price
+                ?? (ibkrTransaction.quantity != 0 ? abs(ibkrTransaction.amount / ibkrTransaction.quantity) : 0)
+
+            let transaction: Transaction
+            if let existing {
+                let existingID = try existing.requireID()
+                let hasLot = try await Lot.query(on: req.db)
+                    .filter(\.$openTransactionId == existingID)
+                    .first() != nil
+                let hasDisposal = try await LotDisposal.query(on: req.db)
+                    .filter(\.$transactionId == existingID)
+                    .first() != nil
+                if !hasLot, !hasDisposal {
+                    existing.instrumentId = instrumentID
+                    existing.type = type
+                    existing.quantity = ibkrTransaction.quantity
+                    existing.price = price
+                    existing.currency = ibkrTransaction.currency
+                    existing.tradeDate = ibkrTransaction.date
+                    existing.settleDate = ibkrTransaction.settleDate ?? ibkrTransaction.date
+                    existing.fees = ibkrTransaction.fees
+                    try await existing.save(on: req.db)
+                }
+                transaction = existing
+            } else {
+                transaction = Transaction(
+                    accountId: sourceAccountId,
+                    instrumentId: instrumentID,
+                    externalId: ibkrTransaction.externalID,
+                    type: type,
+                    quantity: ibkrTransaction.quantity,
+                    price: price,
+                    currency: ibkrTransaction.currency,
+                    tradeDate: ibkrTransaction.date,
+                    settleDate: ibkrTransaction.settleDate ?? ibkrTransaction.date,
+                    fees: ibkrTransaction.fees
+                )
+                try await transaction.save(on: req.db)
+                req.application.businessMetrics.incrementTransactionsCreated()
+                syncedCount += 1
+            }
+            canonicalTransactions.append(transaction)
+        }
+
+        let accounting = TaxLotAccountingService()
+        for transaction in canonicalTransactions where transaction.type == "BUY" {
+            _ = try await accounting.recordAcquisition(transaction: transaction, on: req.db)
+        }
+        try await reconcileOpeningLots(
+            positions: positions,
+            accountID: accountID,
+            sourceAccountId: sourceAccountId,
+            accounting: accounting,
+            on: req
+        )
+
+        let account = try await Account.find(sourceAccountId, on: req.db)
+        let method = account?.lotSelectionMethod.flatMap(TaxLotSelectionMethod.init(rawValue:))
+            ?? .jurisdictionDefault
+        let hasCompletedUSProfile = try await TaxProfile.query(on: req.db)
+            .filter(\.$userId == userId)
+            .filter(\.$jurisdiction == TaxJurisdiction.unitedStates.rawValue)
+            .filter(\.$isComplete == true)
+            .first() != nil
+        let hasCompletedSpainProfile = try await TaxProfile.query(on: req.db)
+            .filter(\.$userId == userId)
+            .filter(\.$jurisdiction == TaxJurisdiction.spain.rawValue)
+            .filter(\.$isComplete == true)
+            .first() != nil
+        let disposalMethod: TaxLotSelectionMethod = hasCompletedSpainProfile ? .fifo : method
+        let usRuleVersion = TaxRuleRegistry(validatedJurisdictions: [.unitedStates])
+            .pack(for: .unitedStates).ruleVersion
+        let spainRuleVersion = TaxRuleRegistry(validatedJurisdictions: [.spain])
+            .pack(for: .spain).ruleVersion
+
+        for transaction in canonicalTransactions where transaction.type == "SELL" {
+            do {
+                let disposals = try await accounting.recordDisposal(
+                    transaction: transaction,
+                    method: disposalMethod,
+                    on: req.db
+                )
+                if hasCompletedUSProfile {
+                    _ = try await accounting.recordUSWashSales(
+                        disposals: disposals,
+                        saleTransaction: transaction,
+                        userId: userId,
+                        ruleVersion: usRuleVersion,
+                        on: req.db
+                    )
+                } else if hasCompletedSpainProfile {
+                    _ = try await accounting.recordSpainLossDeferrals(
+                        disposals: disposals,
+                        saleTransaction: transaction,
+                        userId: userId,
+                        ruleVersion: spainRuleVersion,
+                        on: req.db
+                    )
+                }
+            } catch let TaxLotAccountingError.insufficientQuantity(available, requested) {
+                req.logger.warning("broker.ibkr disposal_unmatched", metadata: [
+                    "external_id": .string(transaction.externalId ?? "unknown"),
+                    "available_quantity": .string("\(available)"),
+                    "requested_quantity": .string("\(requested)"),
+                ])
+            }
         }
 
         return syncedCount
+    }
+
+    private func reconcileOpeningLots(
+        positions: [IBKRBrokerPosition],
+        accountID: String,
+        sourceAccountId: UUID,
+        accounting: TaxLotAccountingService,
+        on req: Request
+    ) async throws {
+        let reconciler = IBKROpeningLotReconciler()
+        for position in positions where position.quantity > 0 {
+            let instrument = try await requireInstrument(
+                symbol: position.symbol,
+                conid: position.conid,
+                currency: position.currency,
+                on: req,
+                db: req.db
+            )
+            let instrumentID = try instrument.requireID()
+            let trades = try await Transaction.query(on: req.db)
+                .filter(\.$accountId == sourceAccountId)
+                .filter(\.$instrumentId == instrumentID)
+                .all()
+            let bought = trades
+                .filter { $0.type == "BUY" }
+                .compactMap(\.quantity)
+                .reduce(0) { $0 + abs($1) }
+            let sold = trades
+                .filter { $0.type == "SELL" }
+                .compactMap(\.quantity)
+                .reduce(0) { $0 + abs($1) }
+            let requiredOpeningQuantity = reconciler.requiredQuantity(
+                position: position.quantity,
+                bought: bought,
+                sold: sold
+            )
+            guard requiredOpeningQuantity > 0.000_000_1 else { continue }
+
+            let externalID = "ibkr:opening:\(accountID):\(instrumentID.uuidString)"
+            if let existing = trades.first(where: { $0.externalId == externalID }),
+               let transactionID = existing.id,
+               let lot = try await Lot.query(on: req.db)
+               .filter(\.$openTransactionId == transactionID)
+               .first()
+            {
+                let consumed = max(0, lot.openQuantity - lot.remainingQuantity)
+                guard let remaining = try? reconciler.remainingQuantity(
+                    required: requiredOpeningQuantity,
+                    consumed: consumed
+                ) else {
+                    req.logger.warning("broker.ibkr inferred_basis_rebuild_required", metadata: [
+                        "external_id": .string(externalID),
+                        "required_quantity": .string("\(requiredOpeningQuantity)"),
+                        "consumed_quantity": .string("\(consumed)"),
+                    ])
+                    continue
+                }
+                existing.quantity = requiredOpeningQuantity
+                lot.openQuantity = requiredOpeningQuantity
+                lot.remainingQuantity = remaining
+                try await existing.save(on: req.db)
+                try await lot.save(on: req.db)
+                continue
+            }
+
+            let inferredDate = trades.map(\.tradeDate).min()
+                .map { $0.addingTimeInterval(-1) } ?? Date()
+            let transaction = Transaction(
+                accountId: sourceAccountId,
+                instrumentId: instrumentID,
+                externalId: externalID,
+                type: "OPENING_BALANCE",
+                quantity: requiredOpeningQuantity,
+                price: abs(position.averageCost),
+                currency: position.currency,
+                tradeDate: inferredDate,
+                settleDate: inferredDate,
+                fees: 0
+            )
+            try await transaction.create(on: req.db)
+            _ = try await accounting.recordAcquisition(transaction: transaction, on: req.db)
+            req.logger.notice("broker.ibkr inferred_opening_lot_created", metadata: [
+                "external_id": .string(externalID),
+                "quantity": .string("\(requiredOpeningQuantity)"),
+                "basis_source": .string("position_snapshot"),
+            ])
+        }
+    }
+
+    private func enrichMarketAdmission(
+        instrument: Instrument,
+        conid: String?,
+        on req: Request
+    ) async throws {
+        guard instrument.listingExchange == nil,
+              let conid, !conid.isEmpty,
+              let info = try await gatewayClient.fetchContractInfo(conid: conid, on: req),
+              let listingExchange = info.listingExchange?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !listingExchange.isEmpty
+        else { return }
+        instrument.listingExchange = listingExchange.uppercased()
+        instrument.regulatedMarketStatus = instrument.regulatedMarketStatus ?? "unknown"
+        try await instrument.save(on: req.db)
     }
 
     private func syncCashBalances(
@@ -810,9 +1033,15 @@ private struct IBKRBrokerTransactionPayload: Decodable {
     let type: String?
     let quantity: BrokerLossyValue?
     let amount: BrokerLossyValue?
+    let price: BrokerLossyValue?
+    let tradePrice: BrokerLossyValue?
+    let commission: BrokerLossyValue?
+    let fee: BrokerLossyValue?
     let currency: String?
     let date: String?
     let tradeDate: String?
+    let settleDate: String?
+    let conid: BrokerLossyValue?
 
     func toTransaction() -> IBKRBrokerTransaction? {
         let externalID = transactionID?.stringValue ?? id?.stringValue
@@ -820,9 +1049,7 @@ private struct IBKRBrokerTransactionPayload: Decodable {
         guard let symbol, !symbol.isEmpty else { return nil }
         guard let type, !type.isEmpty else { return nil }
 
-        let dateStr = date ?? tradeDate ?? ""
-        let formatter = ISO8601DateFormatter()
-        let parsedDate = formatter.date(from: dateStr) ?? Date()
+        guard let parsedDate = Self.parseDate(date ?? tradeDate) else { return nil }
 
         return IBKRBrokerTransaction(
             externalID: externalID,
@@ -830,9 +1057,39 @@ private struct IBKRBrokerTransactionPayload: Decodable {
             type: type.uppercased(),
             quantity: quantity?.doubleValue ?? 0,
             amount: amount?.doubleValue ?? 0,
+            price: tradePrice?.doubleValue ?? price?.doubleValue,
+            fees: abs(commission?.doubleValue ?? fee?.doubleValue ?? 0),
             currency: currency?.trimmingCharacters(in: .whitespacesAndNewlines).uppercased() ?? "USD",
-            date: parsedDate
+            date: parsedDate,
+            settleDate: Self.parseDate(settleDate),
+            conid: conid?.stringValue
         )
+    }
+
+    private static func parseDate(_ value: String?) -> Date? {
+        guard let value, !value.isEmpty else { return nil }
+        let iso = ISO8601DateFormatter()
+        if let date = iso.date(from: value) {
+            return date
+        }
+        for format in ["yyyy-MM-dd", "yyyyMMdd"] {
+            let formatter = DateFormatter()
+            formatter.locale = Locale(identifier: "en_US_POSIX")
+            formatter.timeZone = TimeZone(secondsFromGMT: 0)
+            formatter.dateFormat = format
+            if let date = formatter.date(from: value) {
+                return date
+            }
+        }
+        return nil
+    }
+}
+
+private struct IBKRContractInfoPayload: Decodable {
+    let listingExchange: String?
+
+    func toContractInfo() -> IBKRContractInfo {
+        .init(listingExchange: listingExchange)
     }
 }
 

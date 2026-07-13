@@ -262,6 +262,7 @@ func registerMigrations(_ app: Application) {
     app.migrations.add(CreatePersonalAccessTokens())
     app.migrations.add(CreateOAuthServerTables())
     app.migrations.add(CreateTaxOptimizationTables())
+    app.migrations.add(AddInstrumentMarketAdmissionFields())
     app.migrations.add(CreateScenarioPlanningTables())
     app.migrations.add(CreateHoldingRiskProfiles())
     app.migrations.add(CreateMarketPriceBars())

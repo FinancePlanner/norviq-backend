@@ -1,5 +1,5 @@
 {
-  "originHash" : "16276f7c761cad85293e6877559908419502372c1d862a1011d1810b448472af",
+  "originHash" : "39834c38260706be8a02a1e7e3fef1b030a17204608f3c336c3b79dc2aa8c376",
   "pins" : [
     {
       "identity" : "apns",
@@ -150,8 +150,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/FinancePlanner/norviq-shared.git",
       "state" : {
-        "revision" : "11db412c7eaef8145bd1f2ba109875c93721cfef",
-        "version" : "3.11.0"
+        "revision" : "1ae0e0fba8de5730bfe5d45f8ece68f30a4c4d72",
+        "version" : "3.12.0"
       }
     },
     {

@@ -21,9 +21,9 @@ struct BankTransactionImportService: Sendable {
         userId: UUID,
         on req: Request
     ) async throws -> ExpenseResponse {
-        let title = request.titleOverride?.trimmedNonEmpty
-            ?? transaction.merchant?.trimmedNonEmpty
-            ?? transaction.descriptionText?.trimmedNonEmpty
+        let title = bankingTrimmedNonEmpty(request.titleOverride)
+            ?? bankingTrimmedNonEmpty(transaction.merchant)
+            ?? bankingTrimmedNonEmpty(transaction.descriptionText)
             ?? "Bank transaction"
 
         let expenseRequest = ExpenseRequest(

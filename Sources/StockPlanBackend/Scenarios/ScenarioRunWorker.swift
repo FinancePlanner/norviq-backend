@@ -137,13 +137,31 @@ final class ScenarioRunWorker: LifecycleHandler, @unchecked Sendable {
 
 struct ScenarioRunProcessor {
     func process(run: ScenarioRunModel, on database: any Database) async throws -> ScenarioJSON {
-        let configuration = run.scenario.configuration.values
+        var configuration = run.scenario.configuration.values
         let snapshot = run.snapshot.payload.values
         let initialValue = snapshot["total_value"]?.number ?? 0
         guard initialValue > 0 else { throw Abort(.unprocessableEntity, reason: "Snapshot total_value must be positive") }
 
+        if run.scenario.kind == "monte_carlo", let goalID = run.scenario.financialGoalId,
+           let goal = try await FinancialGoalModel.owned(by: run.userId, on: database).filter(\.$id == goalID).first()
+        {
+            configuration["target_amount"] = .number(goal.targetAmount)
+            configuration["monthly_contribution"] = .number(goal.monthlyContribution)
+            configuration["annual_contribution_growth"] = .number(goal.annualContributionGrowth)
+            configuration["inflation"] = .number(goal.inflationAssumption)
+            let calendar = Calendar(identifier: .gregorian)
+            let targetMonths = calendar.dateComponents(
+                [.month], from: run.snapshot.valuationTimestamp, to: goal.targetDate
+            ).month ?? 1
+            configuration["horizon_months"] = .number(Double(max(1, min(targetMonths, 600))))
+            configuration["financial_goal_id"] = .string(goalID.uuidString)
+        }
+
         switch run.scenario.kind {
-        case "monte_carlo": return monteCarlo(initialValue: initialValue, configuration: configuration, seed: run.seed)
+        case "monte_carlo": return try await monteCarlo(
+                initialValue: initialValue, snapshot: snapshot, configuration: configuration,
+                seed: run.seed, valuationDate: run.snapshot.valuationTimestamp, on: database
+            )
         case "custom": return custom(snapshot: snapshot, configuration: configuration)
         case "historical": return try await historical(snapshot: snapshot, configuration: configuration, on: database)
         default: throw Abort(.unprocessableEntity, reason: "Unsupported scenario kind")
@@ -189,7 +207,7 @@ struct ScenarioRunProcessor {
         }
         let allDates = Set(seriesByHolding.values.flatMap { $0.map(\.date) }).sorted()
         var timeline: [ScenarioJSONValue] = []; var peak = initial; var maximumDrawdown = 0.0
-        for (day, date) in allDates.enumerated() {
+        for date in allDates {
             var portfolioValue = 0.0
             for (id, series) in seriesByHolding {
                 guard let first = series.first?.close else { portfolioValue += valueByHolding[id] ?? 0; continue }
@@ -201,7 +219,7 @@ struct ScenarioRunProcessor {
                 maximumDrawdown = max(maximumDrawdown, (peak - portfolioValue) / peak)
             }
             timeline.append(.object([
-                "elapsed_days": .number(Double(day)), "date": .string(formatter.string(from: date)),
+                "elapsed_days": .number(max(0, date.timeIntervalSince(start) / 86400)), "date": .string(formatter.string(from: date)),
                 "value": .number(portfolioValue), "percentage_change": .number(initial > 0 ? portfolioValue / initial - 1 : 0),
             ]))
         }
@@ -212,6 +230,7 @@ struct ScenarioRunProcessor {
             "timeline": .array(timeline), "maximum_drawdown": .number(maximumDrawdown), "ending_value": .number(ending),
             "holding_contributions": .array(contributions), "warnings": .array(warnings),
             "catalog_id": .string(preset), "catalog_version": .string(ScenarioCatalog.version),
+            "assumptions": .object(["valuation_currency": snapshot["base_currency"] ?? .null]),
         ])
     }
 
@@ -237,6 +256,7 @@ struct ScenarioRunProcessor {
         let regionShocks = shocks(configuration["region_shocks"])
         let currencyShocks = shocks(configuration["currency_shocks"])
         let rateShift = (configuration["parallel_rate_shift_bps"]?.number ?? 0) / 10000
+        let volatilityMultiplier = max(0, configuration["volatility_multiplier"]?.number ?? 1)
         let initial = holdings.reduce(0) { $0 + ($1["value_in_base_currency"]?.number ?? 0) }
         var stressed = 0.0
         var holdingContributions: [ScenarioJSONValue] = []
@@ -262,6 +282,10 @@ struct ScenarioRunProcessor {
                     multiplier *= 1 - duration * rateShift + 0.5 * convexity * rateShift * rateShift
                 } else if assetClass == "cash" {
                     multiplier *= 1 + rateShift / 12
+                } else if ["stock", "etf", "mutual_fund", "real_estate"].contains(assetClass) {
+                    let overrides = holding["factor_overrides"]?.object
+                    let sensitivity = overrides?["rate_sensitivity"]?.number ?? Self.defaultRateSensitivity[assetClass] ?? 0
+                    multiplier *= max(0, 1 - sensitivity * rateShift)
                 }
             }
             let result = max(0, value * multiplier); let contribution = result - value
@@ -284,8 +308,18 @@ struct ScenarioRunProcessor {
             "class_contributions": .array(classTotals.sorted(by: { $0.key < $1.key }).map {
                 .object(["key": .string($0.key), "amount": .number($0.value), "percentage_points": .number(initial == 0 ? 0 : $0.value / initial)])
             }),
+            "assumptions": .object([
+                "parallel_rate_shift_bps": configuration["parallel_rate_shift_bps"] ?? .number(0),
+                "volatility_multiplier": .number(volatilityMultiplier),
+                "rate_sensitivity_defaults_version": .string(ScenarioEngine.version),
+                "recovery": .string(recovery),
+            ]),
         ])
     }
+
+    private static let defaultRateSensitivity = [
+        "stock": 2.0, "etf": 2.0, "mutual_fund": 2.0, "real_estate": 4.0,
+    ]
 
     private func shocks(_ value: ScenarioJSONValue?) -> [String: Double] {
         Dictionary(uniqueKeysWithValues: (value?.array ?? []).compactMap { item in
@@ -305,14 +339,31 @@ struct ScenarioRunProcessor {
         }
     }
 
-    private func monteCarlo(initialValue: Double, configuration: [String: ScenarioJSONValue], seed: String) -> ScenarioJSON {
+    private func monteCarlo(
+        initialValue: Double, snapshot: [String: ScenarioJSONValue],
+        configuration: [String: ScenarioJSONValue], seed: String,
+        valuationDate: Date, on database: any Database
+    ) async throws -> ScenarioJSON {
         let pathCount = max(1, min(Int(configuration["path_count"]?.number ?? 10000), 50000))
         let months = max(1, min(Int(configuration["horizon_months"]?.number ?? 360), 600))
         let distribution: ScenarioSimulationDistribution
+        var warnings: [ScenarioJSONValue] = []
         switch configuration["distribution"]?.string {
         case "student_t": distribution = .studentT(degreesOfFreedom: Int(configuration["degrees_of_freedom"]?.number ?? 5))
         case "block_bootstrap":
-            let returns = configuration["historical_monthly_returns"]?.array?.compactMap(\.number) ?? []
+            var returns = configuration["historical_monthly_returns"]?.array?.compactMap(\.number) ?? []
+            if returns.isEmpty {
+                let history = try await historicalPortfolioMonthlyReturns(
+                    snapshot: snapshot, valuationDate: valuationDate, on: database
+                )
+                returns = history.returns; warnings = history.warnings
+            }
+            if returns.isEmpty {
+                warnings.append(.object([
+                    "code": .string("missing_bootstrap_history"),
+                    "message": .string("Historical monthly returns were unavailable; expected return was used."),
+                ]))
+            }
             distribution = .blockBootstrap(monthlyReturns: returns, blockMonths: Int(configuration["bootstrap_block_months"]?.number ?? 6))
         default: distribution = .normal
         }
@@ -330,7 +381,7 @@ struct ScenarioRunProcessor {
                 horizonMonths: months, pathCount: pathCount, seed: UInt64(seed) ?? 0,
                 targetAmount: configuration["target_amount"]?.number, studentTDegreesOfFreedom: studentDegrees
             ))
-            return simulationJSON(correlated, pathCount: pathCount, months: months)
+            return simulationJSON(correlated, pathCount: pathCount, months: months, configuration: configuration, warnings: warnings)
         }
         let output = ScenarioEngine().simulate(.init(
             initialValue: initialValue, monthlyContribution: configuration["monthly_contribution"]?.number ?? 0,
@@ -341,10 +392,13 @@ struct ScenarioRunProcessor {
             horizonMonths: months, pathCount: pathCount, seed: UInt64(seed) ?? 0,
             targetAmount: configuration["target_amount"]?.number, distribution: distribution
         ))
-        return simulationJSON(output, pathCount: pathCount, months: months)
+        return simulationJSON(output, pathCount: pathCount, months: months, configuration: configuration, warnings: warnings)
     }
 
-    private func simulationJSON(_ output: ScenarioSimulationOutput, pathCount: Int, months: Int) -> ScenarioJSON {
+    private func simulationJSON(
+        _ output: ScenarioSimulationOutput, pathCount: Int, months: Int,
+        configuration: [String: ScenarioJSONValue], warnings: [ScenarioJSONValue]
+    ) -> ScenarioJSON {
         ScenarioJSON([
             "path_count": .number(Double(pathCount)), "horizon_months": .number(Double(months)),
             "percentile_bands": .array(output.bands.map { .object([
@@ -354,6 +408,79 @@ struct ScenarioRunProcessor {
             "goal_probability": output.goalProbability.map(ScenarioJSONValue.number) ?? .null,
             "expected_shortfall": output.expectedShortfall.map(ScenarioJSONValue.number) ?? .null,
             "maximum_drawdown": .number(output.medianMaximumDrawdown),
+            "warnings": .array(warnings),
+            "assumptions": .object([
+                "distribution": configuration["distribution"] ?? .string("normal"),
+                "annual_return": configuration["annual_return"] ?? .number(0.07),
+                "annual_volatility": configuration["annual_volatility"] ?? .number(0.15),
+                "inflation": configuration["inflation"] ?? .number(0.02),
+                "monthly_contribution": configuration["monthly_contribution"] ?? .number(0),
+                "annual_contribution_growth": configuration["annual_contribution_growth"] ?? .number(0),
+                "financial_goal_id": configuration["financial_goal_id"] ?? .null,
+            ]),
         ])
+    }
+
+    private func historicalPortfolioMonthlyReturns(
+        snapshot: [String: ScenarioJSONValue], valuationDate: Date, on database: any Database
+    ) async throws -> (returns: [Double], warnings: [ScenarioJSONValue]) {
+        let holdings = snapshot["holdings"]?.array?.compactMap(\.object) ?? []
+        let calendar = Calendar(identifier: .gregorian)
+        let start = calendar.date(byAdding: .year, value: -10, to: valuationDate) ?? valuationDate
+        let total = holdings.reduce(0.0) { $0 + max(0, $1["value_in_base_currency"]?.number ?? 0) }
+        guard total > 0 else { return ([], []) }
+        var returnsByHolding: [(weight: Double, values: [Int: Double])] = []
+        var warnings: [ScenarioJSONValue] = []
+
+        for holding in holdings {
+            let id = holding["id"]?.string ?? "unknown"
+            let value = max(0, holding["value_in_base_currency"]?.number ?? 0)
+            guard value > 0 else { continue }
+            let instrument = holding["instrument_key"]?.string ?? ""
+            var series = try await MarketPriceBarRepository().adjustedCloses(
+                instrumentKey: instrument, from: start, to: valuationDate, on: database
+            )
+            if series.count < 2, let proxy = holding["benchmark_proxy"]?.string {
+                series = try await MarketPriceBarRepository().adjustedCloses(
+                    instrumentKey: proxy, from: start, to: valuationDate, on: database
+                )
+                if series.count >= 2 {
+                    warnings.append(.object([
+                        "code": .string("proxy_used"), "holding_id": .string(id),
+                        "message": .string("Used benchmark proxy \(proxy) for bootstrap history."),
+                    ]))
+                }
+            }
+            var monthEnds: [Int: Double] = [:]
+            for point in series {
+                let components = calendar.dateComponents([.year, .month], from: point.date)
+                guard let year = components.year, let month = components.month else { continue }
+                monthEnds[year * 12 + month] = point.close
+            }
+            let months = monthEnds.keys.sorted()
+            var monthlyReturns: [Int: Double] = [:]
+            for index in 1 ..< months.count where months[index] == months[index - 1] + 1 {
+                let previous = monthEnds[months[index - 1]] ?? 0
+                if previous > 0, let current = monthEnds[months[index]] {
+                    monthlyReturns[months[index]] = current / previous - 1
+                }
+            }
+            if monthlyReturns.isEmpty {
+                warnings.append(.object([
+                    "code": .string("missing_history"), "holding_id": .string(id),
+                    "message": .string("No monthly history was available for bootstrap sampling."),
+                ]))
+            }
+            returnsByHolding.append((value / total, monthlyReturns))
+        }
+
+        let alignedMonths = Set(returnsByHolding.flatMap(\.values.keys)).sorted()
+        let portfolioReturns = alignedMonths.compactMap { month -> Double? in
+            let available = returnsByHolding.filter { $0.values[month] != nil }
+            let coveredWeight = available.reduce(0.0) { $0 + $1.weight }
+            guard coveredWeight >= 0.5 else { return nil }
+            return available.reduce(0.0) { $0 + $1.weight * ($1.values[month] ?? 0) } / coveredWeight
+        }
+        return (portfolioReturns, warnings)
     }
 }

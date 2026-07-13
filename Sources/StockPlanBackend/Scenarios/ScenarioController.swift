@@ -94,7 +94,7 @@ struct ScenarioController: RouteCollection {
 
     @Sendable func createGoal(req: Request) async throws -> FinancialGoalModel {
         let user = try await authorize(req); let input = try req.content.decode(FinancialGoalInput.self)
-        guard !input.name.trimmingCharacters(in: .whitespaces).isEmpty, input.targetAmount > 0, input.baseCurrency.count == 3 else { throw Abort(.badRequest, reason: "Invalid financial goal") }
+        try validateGoal(input)
         try await requirePortfolio(input.portfolioListId, user: user, db: req.db)
         let goal = FinancialGoalModel(userId: user, portfolioListId: input.portfolioListId, name: input.name,
                                       targetAmount: input.targetAmount, targetDate: input.targetDate, baseCurrency: input.baseCurrency.uppercased(),
@@ -109,6 +109,7 @@ struct ScenarioController: RouteCollection {
 
     @Sendable func updateGoal(req: Request) async throws -> FinancialGoalModel {
         let user = try await authorize(req); let goal = try await ownedGoal(req, user: user); let input = try req.content.decode(FinancialGoalInput.self)
+        try validateGoal(input)
         try await requirePortfolio(input.portfolioListId, user: user, db: req.db)
         goal.portfolioListId = input.portfolioListId; goal.name = input.name; goal.targetAmount = input.targetAmount
         goal.targetDate = input.targetDate; goal.baseCurrency = input.baseCurrency.uppercased()
@@ -148,7 +149,7 @@ struct ScenarioController: RouteCollection {
         let user = try await authorize(req); let input = try req.content.decode(SnapshotInput.self); try await requirePortfolio(input.portfolioListId, user: user, db: req.db)
         let baseCurrency = input.baseCurrency.uppercased()
         guard baseCurrency.count == 3 else { throw Abort(.badRequest, reason: "Invalid base currency") }
-        let snapshot: ScenarioSnapshotModel = if let payload = input.payload {
+        let snapshot: ScenarioSnapshotModel = if req.application.environment == .testing, let payload = input.payload {
             ScenarioSnapshotModel(userId: user, portfolioListId: input.portfolioListId, baseCurrency: baseCurrency, valuationTimestamp: input.valuationTimestamp ?? Date(), payload: payload, warnings: input.warnings ?? ScenarioJSON())
         } else {
             try await ScenarioSnapshotCaptureService().capture(
@@ -176,7 +177,10 @@ struct ScenarioController: RouteCollection {
         guard let snapshot = try await ScenarioSnapshotModel.owned(by: user, on: req.db).filter(\.$id == input.snapshotId).first() else { throw Abort(.notFound) }
         guard let snapshotId = snapshot.id else { throw Abort(.internalServerError) }
         let seed = input.seed ?? UInt64.random(in: .min ... .max)
-        let hashSource = "\(scenarioId)|\(snapshotId)|\(seed)|\(scenario.configuration.values)|\(ScenarioCatalog.version)|\(ScenarioEngine.version)"
+        let hashSource = [
+            canonicalJSON(scenario.configuration), canonicalJSON(snapshot.payload), canonicalJSON(snapshot.warnings),
+            String(seed), ScenarioCatalog.version, ScenarioEngine.version,
+        ].joined(separator: "|")
         let hash = SHA256.hash(data: Data(hashSource.utf8)).map { String(format: "%02x", $0) }.joined()
         if let existing = try await ScenarioRunModel.owned(by: user, on: req.db).filter(\.$deduplicationHash == hash).filter(\.$state == "completed").first() {
             return try existing.encodeResponse(status: HTTPResponseStatus.ok)
@@ -248,6 +252,22 @@ struct ScenarioController: RouteCollection {
         guard let raw = req.parameters.get("id"), let id = UUID(uuidString: raw) else { throw Abort(.badRequest, reason: "Invalid id") }; return id
     }
 
+    private func validateGoal(_ input: FinancialGoalInput) throws {
+        guard !input.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              input.targetAmount.isFinite, input.targetAmount > 0,
+              input.baseCurrency.count == 3,
+              input.monthlyContribution.map({ $0.isFinite && $0 >= 0 }) ?? true,
+              input.annualContributionGrowth.map({ $0.isFinite && $0 > -1 && $0 <= 10 }) ?? true,
+              input.inflationAssumption.map({ $0.isFinite && $0 > -1 && $0 <= 10 }) ?? true
+        else { throw Abort(.badRequest, reason: "Invalid financial goal") }
+    }
+
+    private func canonicalJSON(_ value: ScenarioJSON) -> String {
+        let encoder = JSONEncoder(); encoder.outputFormatting = [.sortedKeys]
+        guard let data = try? encoder.encode(value) else { return "{}" }
+        return String(decoding: data, as: UTF8.self)
+    }
+
     private func requirePortfolio(_ id: UUID, user: UUID, db: any Database) async throws {
         guard try await PortfolioList.query(on: db).filter(\.$id == id).filter(\.$userId == user).first() != nil else { throw Abort(.notFound) }
     }
@@ -269,9 +289,31 @@ struct ScenarioController: RouteCollection {
     }
 
     private func persistScenario(_ req: Request, user: UUID, existing: ScenarioDefinitionModel?) async throws -> ScenarioDefinitionModel {
-        let input = try req.content.decode(ScenarioInput.self); guard ["historical", "custom", "monte_carlo"].contains(input.kind) else { throw Abort(.badRequest, reason: "Invalid scenario kind") }; try await requirePortfolio(input.portfolioListId, user: user, db: req.db); if let goalId = input.financialGoalId, try await FinancialGoalModel.owned(by: user, on: req.db).filter(\.$id == goalId).first() == nil {
+        let input = try req.content.decode(ScenarioInput.self); try validateScenario(input); try await requirePortfolio(input.portfolioListId, user: user, db: req.db); if let goalId = input.financialGoalId, try await FinancialGoalModel.owned(by: user, on: req.db).filter(\.$id == goalId).first() == nil {
             throw Abort(.notFound, reason: "Financial goal not found")
         }; let scenario = existing ?? ScenarioDefinitionModel(userId: user, portfolioListId: input.portfolioListId, financialGoalId: input.financialGoalId, name: input.name, kind: input.kind, configuration: input.configuration, isSaved: input.isSaved ?? true); scenario.portfolioListId = input.portfolioListId; scenario.financialGoalId = input.financialGoalId; scenario.name = input.name; scenario.kind = input.kind; scenario.configuration = input.configuration; scenario.isSaved = input.isSaved ?? true; try await scenario.save(on: req.db); return scenario
+    }
+
+    private func validateScenario(_ input: ScenarioInput) throws {
+        guard ["historical", "custom", "monte_carlo"].contains(input.kind),
+              !input.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        else { throw Abort(.badRequest, reason: "Invalid scenario") }
+        let values = input.configuration.values
+        if input.kind == "custom" {
+            let months = values["horizon_months"]?.number ?? 1
+            guard months.isFinite, (1 ... 120).contains(months) else { throw Abort(.badRequest, reason: "Custom horizon must be between 1 and 120 months") }
+        }
+        if input.kind == "monte_carlo" {
+            let paths = values["path_count"]?.number ?? 10000
+            let months = values["horizon_months"]?.number ?? 360
+            let degrees = values["degrees_of_freedom"]?.number ?? 5
+            let block = values["bootstrap_block_months"]?.number ?? 6
+            guard paths.isFinite, paths.rounded() == paths, (1 ... 50000).contains(paths),
+                  months.isFinite, months.rounded() == months, (1 ... 600).contains(months),
+                  degrees.isFinite, degrees > 2, degrees <= 100,
+                  block.isFinite, block.rounded() == block, (1 ... 120).contains(block)
+            else { throw Abort(.badRequest, reason: "Invalid Monte Carlo configuration") }
+        }
     }
 }
 
