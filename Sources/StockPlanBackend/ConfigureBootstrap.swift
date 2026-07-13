@@ -278,6 +278,7 @@ func registerMigrations(_ app: Application) {
     app.migrations.add(CreateMarketPriceBars())
     app.migrations.add(EncryptBrokerConnectionTokens())
     app.migrations.add(CreateBankTables())
+    app.migrations.add(CreateAIAssistantTables())
 }
 
 func envBool(_ key: String, default defaultValue: Bool) -> Bool {
