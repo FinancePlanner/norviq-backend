@@ -316,6 +316,9 @@ struct TaxLotAccountingService: Sendable {
             guard !accountIDs.isEmpty,
                   let soldInstrument = try await Instrument.find(saleTransaction.instrumentId, on: db)
             else { return [] }
+            guard soldInstrument.regulatedMarketSource != nil,
+                  soldInstrument.regulatedMarketReviewedAt != nil
+            else { return [] }
             let windowMonths: Int
             switch soldInstrument.regulatedMarketStatus {
             case "regulated": windowMonths = 2

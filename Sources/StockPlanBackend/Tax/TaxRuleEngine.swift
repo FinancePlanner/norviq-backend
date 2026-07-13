@@ -28,15 +28,20 @@ struct ConfiguredTaxRulePack: TaxRulePack {
             return .professionalReview
         }
         if jurisdiction == .germany {
-            // InvStG partial exemptions require fund classification metadata that is
-            // not currently present in imported instruments.
-            return normalized == "etf" ? .professionalReview : .estimateOnly
+            // Fund support is decided per instrument from its persisted InvStG
+            // classification; the static capability matrix cannot prove that metadata.
+            if normalized == "etf" {
+                return .professionalReview
+            }
+            return isValidated ? .supported : .estimateOnly
         }
-        // Portugal is evidence-backed for FIFO and headline-rate estimates, but remains
-        // estimate-only until annual Category G aggregation elections and carried losses
-        // are represented explicitly in the profile contract.
         if jurisdiction == .portugal {
-            return .estimateOnly
+            return isValidated ? .supported : .estimateOnly
+        }
+        if jurisdiction == .spain, normalized == "etf" {
+            // The two-month versus one-year branch requires evidence-backed market
+            // admission metadata for each instrument.
+            return .professionalReview
         }
         return isValidated ? .supported : .estimateOnly
     }
@@ -142,8 +147,12 @@ struct TaxRuleRegistry: Sendable {
             values.append("FIFO is applied separately per imported brokerage account or depot.")
             values.append("Church tax is estimated only when an 8% or 9% profile rate is supplied; foreign-tax credits, pre-2009 holdings, substantial shareholdings, business assets, and non-resident cases require professional review.")
             if ["etf", "fund"].contains(instrumentType.lowercased()) {
-                values.append("Fund partial exemptions require investment-fund classification metadata and are not estimated by this rule version.")
+                values.append("Fund partial exemptions and advance lump sums require an instrument classification plus complete annual fund values; missing metadata remains professional-review only.")
             }
+        }
+        if pack.jurisdiction == .spain {
+            values.append("Homogeneous securities are matched FIFO across owned accounts using the two-month window only when official-market admission is verified.")
+            values.append("Non-admitted securities use the one-year window only after the user verifies the status against documentary evidence.")
         }
         if !pack.isValidated {
             values.append("Professional validation required before actionable recommendations are enabled.")

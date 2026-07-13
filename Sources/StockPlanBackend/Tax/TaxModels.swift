@@ -149,6 +149,8 @@ final class TaxReport: Model, @unchecked Sendable {
     @Field(key: "kind") var kind: String
     @Field(key: "format") var format: String
     @Field(key: "status") var status: String
+    @OptionalField(key: "attempt_count") var attemptCount: Int?
+    @OptionalField(key: "next_attempt_at") var nextAttemptAt: Date?
     @OptionalField(key: "file_path") var filePath: String?
     @OptionalField(key: "expires_at") var expiresAt: Date?
     @OptionalField(key: "error_message") var errorMessage: String?

@@ -6,6 +6,8 @@ extension TaxProfileResponse: @retroactive Content {}
 extension TaxProfileContextResponse: @retroactive Content {}
 extension TaxInstrumentMarketOption: @retroactive Content {}
 extension TaxFundClassificationRequest: @retroactive Content {}
+extension TaxFundAnnualInputRequest: @retroactive Content {}
+extension TaxFundAdvanceLumpSumResponse: @retroactive Content {}
 extension TaxCapabilitiesResponse: @retroactive Content {}
 extension TaxDashboardResponse: @retroactive Content {}
 extension TaxScenarioRequest: @retroactive Content {}

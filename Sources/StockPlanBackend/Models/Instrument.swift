@@ -23,6 +23,12 @@ final class Instrument: Model, Content, @unchecked Sendable {
     @OptionalField(key: "regulated_market_status")
     var regulatedMarketStatus: String?
 
+    @OptionalField(key: "regulated_market_source")
+    var regulatedMarketSource: String?
+
+    @OptionalField(key: "regulated_market_reviewed_at")
+    var regulatedMarketReviewedAt: Date?
+
     @Field(key: "currency")
     var currency: String
 

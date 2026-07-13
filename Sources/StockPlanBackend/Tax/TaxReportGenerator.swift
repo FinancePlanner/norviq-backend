@@ -98,13 +98,14 @@ struct TaxReportGenerator: Sendable {
         }
         rows.append("")
         if let carryforwardLedger {
-            rows.append("lossCarryforwardSourceYear,expiresAfterTaxYear,originalAmount,remainingAmount,currency,ruleVersion,applicationHistory")
+            rows.append("lossCarryforwardSourceYear,category,expiresAfterTaxYear,originalAmount,remainingAmount,currency,ruleVersion,applicationHistory")
             rows += carryforwardLedger.balances.map { balance in
                 let applicationHistory = balance.applications.map {
                     "\($0.targetTaxYear):\(money($0.amount.amount)) \($0.amount.currency)"
                 }.joined(separator: "; ")
                 return [
                     String(balance.sourceTaxYear),
+                    balance.category?.rawValue ?? "unspecified",
                     String(balance.expiresAfterTaxYear),
                     money(balance.originalAmount.amount),
                     money(balance.remainingAmount.amount),
@@ -144,12 +145,12 @@ struct TaxReportGenerator: Sendable {
         if let carryforwardLedger {
             lines += [
                 "",
-                "Portugal carried tax losses",
+                "\(dashboard.jurisdiction.rawValue) carried tax losses",
                 "Available for \(carryforwardLedger.asOfTaxYear): \(money(carryforwardLedger.totalAvailable.amount)) \(carryforwardLedger.totalAvailable.currency)",
             ]
             for balance in carryforwardLedger.balances {
                 lines.append(
-                    "\(balance.sourceTaxYear): \(money(balance.remainingAmount.amount)) \(balance.remainingAmount.currency) remaining; expires after \(balance.expiresAfterTaxYear)"
+                    "\(balance.sourceTaxYear) [\(balance.category?.rawValue ?? "unspecified")]: \(money(balance.remainingAmount.amount)) \(balance.remainingAmount.currency) remaining; expires after \(balance.expiresAfterTaxYear)"
                 )
                 for application in balance.applications {
                     lines.append(

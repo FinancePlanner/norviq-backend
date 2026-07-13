@@ -64,10 +64,10 @@ struct DefaultTaxService: TaxService {
             .filter(\.$accountId ~~ accountIDs)
             .all()
             .map(\.instrumentId)
-        let lotInstrumentIDs = accountIDs.isEmpty ? [] : try await Lot.query(on: db)
+        let ownedLots = accountIDs.isEmpty ? [] : try await Lot.query(on: db)
             .filter(\.$accountId ~~ accountIDs)
             .all()
-            .map(\.instrumentId)
+        let lotInstrumentIDs = ownedLots.map(\.instrumentId)
         let instrumentIDs = Array(Set(transactionInstrumentIDs + lotInstrumentIDs))
         let instruments = instrumentIDs.isEmpty ? [] : try await Instrument.query(on: db)
             .filter(\.$id ~~ instrumentIDs)
@@ -76,13 +76,34 @@ struct DefaultTaxService: TaxService {
             .sorted {
                 ($0.symbol, $0.id) < ($1.symbol, $1.id)
             }
+        let fundInstrumentIDs = try await Set(Instrument.query(on: db)
+            .filter(\.$id ~~ instrumentIDs)
+            .all()
+            .compactMap { instrument -> UUID? in
+                guard let id = instrument.id,
+                      ["etf", "fund", "mutual_fund"].contains(instrument.instrumentType?.lowercased() ?? "")
+                else { return nil }
+                return id
+            })
+        let fundLots = ownedLots.compactMap { lot -> TaxFundLotOption? in
+            guard let id = lot.id, fundInstrumentIDs.contains(lot.instrumentId) else { return nil }
+            return TaxFundLotOption(
+                id: id.uuidString,
+                accountId: lot.accountId.uuidString,
+                instrumentId: lot.instrumentId.uuidString,
+                openedAt: isoDate(lot.openDate),
+                originalQuantity: Decimal(lot.openQuantity),
+                remainingQuantity: Decimal(lot.remainingQuantity)
+            )
+        }.sorted { ($0.openedAt, $0.id) < ($1.openedAt, $1.id) }
         return TaxProfileContextResponse(
             jurisdiction: jurisdiction,
             taxYear: taxYear,
             defaultReportingCurrency: defaultCurrency(jurisdiction),
             profile: existing,
             accounts: accounts,
-            instruments: instruments
+            instruments: instruments,
+            fundLots: fundLots
         )
     }
 
@@ -109,6 +130,8 @@ struct DefaultTaxService: TaxService {
               let instrument = try await Instrument.find(instrumentId, on: db)
         else { throw Abort(.notFound, reason: "Instrument not found.") }
         instrument.regulatedMarketStatus = status.rawValue
+        instrument.regulatedMarketSource = status == .unknown ? nil : "user_verified_document"
+        instrument.regulatedMarketReviewedAt = status == .unknown ? nil : Date()
         try await instrument.save(on: db)
         return taxInstrumentMarketOption(instrument)!
     }
@@ -647,11 +670,16 @@ struct DefaultTaxService: TaxService {
             let fundDisposals = fundTransactionIDs.isEmpty ? [] : try await LotDisposal.query(on: db)
                 .filter(\.$transactionId ~~ fundTransactionIDs)
                 .all()
+            let fundDisposalIDs = Set(fundDisposals.compactMap(\.id))
+            let advanceAllocations = try await GermanyFundAdvanceAllocationService().reconcile(
+                disposalIDs: fundDisposalIDs,
+                on: db
+            )
             let adjustedFundResult = fundDisposals.reduce(Decimal.zero) { result, disposal in
                 guard let transaction = transactionByID[disposal.transactionId],
                       let classification = fundClassifications[transaction.instrumentId],
                       let adjusted = GermanyFundPartialExemptionCalculator.taxableAmount(
-                          Decimal(disposal.realizedPnl),
+                          Decimal(disposal.realizedPnl) - (disposal.id.flatMap { advanceAllocations[$0] } ?? 0),
                           classification: classification
                       )
                 else { return result }
@@ -803,8 +831,9 @@ private func taxInstrumentMarketOption(_ instrument: Instrument) -> TaxInstrumen
         id: id.uuidString,
         symbol: instrument.symbol,
         listingExchange: instrument.listingExchange,
-        marketAdmissionStatus: instrument.regulatedMarketStatus
-            .flatMap(TaxMarketAdmissionStatus.init(rawValue:)) ?? .unknown,
+        marketAdmissionStatus: instrument.regulatedMarketSource == nil
+            ? .unknown
+            : instrument.regulatedMarketStatus.flatMap(TaxMarketAdmissionStatus.init(rawValue:)) ?? .unknown,
         fundClassification: instrument.fundClassification.flatMap(TaxFundClassification.init(rawValue:))
     )
 }
@@ -831,7 +860,7 @@ private func decode<T: Decodable>(_ type: T.Type, from value: String) throws -> 
     try JSONDecoder().decode(type, from: Data(value.utf8))
 }
 
-private func isoDate(_ date: Date) -> String {
+func isoDate(_ date: Date) -> String {
     let formatter = ISO8601DateFormatter()
     formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
     return formatter.string(from: date)

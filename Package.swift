@@ -29,7 +29,7 @@ let package = Package(
         // Prometheus metrics exporter for Swift Metrics
         .package(url: "https://github.com/vapor/redis.git", from: "4.8.0"),
         // Shared API contracts used by backend and iOS app.
-        .package(url: "https://github.com/FinancePlanner/norviq-shared.git", exact: "3.18.0"),
+        .package(url: "https://github.com/FinancePlanner/norviq-shared.git", exact: "3.22.0"),
         // Container packaging without Dockerfile builds in CI.
         .package(url: "https://github.com/apple/swift-container-plugin.git", from: "1.3.0"),
         .package(url: "https://github.com/realm/SwiftLint.git", from: "0.50.3"),

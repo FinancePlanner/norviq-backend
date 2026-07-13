@@ -262,6 +262,8 @@ public func configure(_ app: Application) async throws {
     let taxReportStoragePath = Environment.get("TAX_REPORT_STORAGE_PATH")
         ?? app.directory.workingDirectory + "storage/tax-reports"
     app.taxReportStorage = LocalTaxReportStorage(rootDirectory: taxReportStoragePath)
+    let taxReportGenerationPollSeconds = Int64(Environment.get("TAX_REPORT_GENERATION_POLL_SECONDS") ?? "10") ?? 10
+    app.lifecycle.use(TaxReportGenerationPoller(intervalSeconds: taxReportGenerationPollSeconds))
     let taxReportCleanupSeconds = Int64(Environment.get("TAX_REPORT_CLEANUP_INTERVAL_SECONDS") ?? "3600") ?? 3600
     app.lifecycle.use(TaxReportCleanupJob(intervalSeconds: taxReportCleanupSeconds))
     app.lifecycle.use(TrialExpirationJob())

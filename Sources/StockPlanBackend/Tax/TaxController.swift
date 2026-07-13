@@ -13,6 +13,12 @@ struct TaxController: RouteCollection {
         let status: TaxMarketAdmissionStatus
     }
 
+    private struct FundAnnualInputQuery: Content {
+        let accountId: UUID
+        let instrumentId: UUID
+        let calculationYear: Int
+    }
+
     func boot(routes: any RoutesBuilder) throws {
         let protected = routes.grouped(SessionToken.authenticator(), SessionToken.guardMiddleware())
         let tax = protected.grouped("tax")
@@ -22,6 +28,8 @@ struct TaxController: RouteCollection {
         tax.put("profile", use: saveProfile)
         tax.put("instruments", ":instrumentId", "market-admission", use: saveMarketAdmission)
         tax.put("instruments", ":instrumentId", "fund-classification", use: saveFundClassification)
+        tax.put("funds", "annual-inputs", use: saveFundAnnualInput)
+        tax.get("funds", "annual-inputs", use: getFundAnnualInput)
         tax.get("dashboard", use: dashboard)
         tax.post("scenarios", use: createScenario)
         tax.get("scenarios", ":scenarioId", use: getScenario)
@@ -131,6 +139,32 @@ struct TaxController: RouteCollection {
     }
 
     @Sendable
+    private func saveFundAnnualInput(req: Request) async throws -> TaxFundAdvanceLumpSumResponse {
+        let session = try req.auth.require(SessionToken.self)
+        try await requireTaxPro(req, userId: session.userId)
+        let payload = try req.content.decode(TaxFundAnnualInputRequest.self)
+        return try await GermanyFundAnnualInputService().save(
+            userId: session.userId,
+            request: payload,
+            on: req.db
+        )
+    }
+
+    @Sendable
+    private func getFundAnnualInput(req: Request) async throws -> TaxFundAdvanceLumpSumResponse {
+        let session = try req.auth.require(SessionToken.self)
+        let query = try req.query.decode(FundAnnualInputQuery.self)
+        guard let response = try await GermanyFundAnnualInputService().get(
+            userId: session.userId,
+            accountId: query.accountId,
+            instrumentId: query.instrumentId,
+            calculationYear: query.calculationYear,
+            on: req.db
+        ) else { throw Abort(.notFound, reason: "Annual fund input not found.") }
+        return response
+    }
+
+    @Sendable
     private func dashboard(req: Request) async throws -> TaxDashboardResponse {
         let session = try req.auth.require(SessionToken.self)
         let query = try req.query.decode(TaxQuery.self)
@@ -224,11 +258,10 @@ struct TaxController: RouteCollection {
         model.kind = payload.kind.rawValue
         model.format = payload.format.rawValue
         model.status = "pending"
+        model.attemptCount = 0
+        model.nextAttemptAt = Date()
         try await model.create(on: req.db)
         try await req.usageCounterService.incrementUsage(.reportGenerations, userId: session.userId, by: 1, on: req.db)
-        let application = req.application
-        let reportID = model.id!
-        Task { await application.taxReportGenerator.generate(reportID: reportID, application: application) }
         return reportResponse(model)
     }
 
