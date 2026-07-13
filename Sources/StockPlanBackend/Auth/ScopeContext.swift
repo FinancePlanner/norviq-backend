@@ -10,6 +10,7 @@ enum APIScope: String, CaseIterable, Codable, Sendable {
     case marketRead = "market:read"
     case insightsRead = "insights:read"
     case bankRead = "bank:read"
+    case taxRead = "tax:read"
 
     var humanDescription: String {
         switch self {
@@ -19,6 +20,7 @@ enum APIScope: String, CaseIterable, Codable, Sendable {
         case .marketRead: "Read market data"
         case .insightsRead: "Read market insights"
         case .bankRead: "Read your synced bank accounts and transactions"
+        case .taxRead: "Read your tax dashboard and loss carryforwards"
         }
     }
 
