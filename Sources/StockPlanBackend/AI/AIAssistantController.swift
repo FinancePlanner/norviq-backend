@@ -19,6 +19,7 @@ struct AIAssistantController: RouteCollection {
         group.get("conversations", ":id", use: getConversation)
         group.delete("conversations", ":id", use: deleteConversation)
         group.post("conversations", ":id", "messages", use: createMessage)
+        group.post("conversations", ":id", "chat", use: chat)
         group.get("preferences", use: getPreferences)
         group.put("preferences", use: updatePreferences)
         group.get("tips", use: listTips)
@@ -27,6 +28,7 @@ struct AIAssistantController: RouteCollection {
         group.get("usage", use: getUsage)
         group.get("actions", use: listPendingActions)
         group.post("actions", ":id", "cancel", use: cancelAction)
+        group.post("actions", ":id", "confirm", use: confirmAction)
     }
 
     @Sendable private func listConversations(req: Request) async throws -> Response {
