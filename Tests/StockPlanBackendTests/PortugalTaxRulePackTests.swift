@@ -20,8 +20,8 @@ struct PortugalTaxRulePackTests {
     }
 
     @Test
-    func `remains estimate only until annual netting is modeled`() {
-        #expect(pack.supportLevel(instrumentType: "stock", wrapper: .taxable) == .estimateOnly)
+    func `supports validated securities while escalating unsupported instruments`() {
+        #expect(pack.supportLevel(instrumentType: "stock", wrapper: .taxable) == .supported)
         #expect(pack.supportLevel(instrumentType: "option", wrapper: .taxable) == .professionalReview)
         #expect(pack.assumptions(taxYear: 2026).contains { $0.contains("Article 43") })
     }

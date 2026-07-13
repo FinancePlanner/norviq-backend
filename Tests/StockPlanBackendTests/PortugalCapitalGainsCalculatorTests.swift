@@ -17,7 +17,7 @@ struct PortugalCapitalGainsCalculatorTests {
             eligibleLossCarryforward: 0
         )
         #expect(result.annualBalance == 600)
-        #expect(result.estimatedTax == 168)
+        #expect(abs(result.estimatedTax - 168) < 0.000_001)
         #expect(!result.aggregationApplied)
     }
 

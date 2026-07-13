@@ -115,6 +115,14 @@ struct TaxController: RouteCollection {
               let instrumentID = UUID(uuidString: rawID)
         else { throw Abort(.badRequest, reason: "Invalid instrument id.") }
         let payload = try req.content.decode(MarketAdmissionRequest.self)
+        if payload.status != .unknown,
+           req.headers.first(name: "X-Tax-Evidence-Attested")?.lowercased() != "true"
+        {
+            throw Abort(
+                .unprocessableEntity,
+                reason: "Verify market admission against a broker statement or official listing before classification."
+            )
+        }
         return try await req.application.taxService.saveMarketAdmission(
             userId: session.userId,
             instrumentId: instrumentID,
@@ -247,7 +255,10 @@ struct TaxController: RouteCollection {
         try await req.usageCounterService.enforceResourceLimit(
             .reportGenerations,
             userId: session.userId,
-            currentCount: TaxReport.query(on: req.db).filter(\.$userId == session.userId).count(),
+            currentCount: TaxReport.query(on: req.db)
+                .filter(\.$userId == session.userId)
+                .filter(\.$status ~~ ["pending", "retry", "generating", "ready"])
+                .count(),
             adding: 1,
             on: req.db
         )
@@ -268,7 +279,6 @@ struct TaxController: RouteCollection {
     @Sendable
     private func listReports(req: Request) async throws -> [TaxReportResponse] {
         let session = try req.auth.require(SessionToken.self)
-        try await requireTaxPro(req, userId: session.userId)
         return try await TaxReport.query(on: req.db)
             .filter(\.$userId == session.userId)
             .sort(\.$createdAt, .descending)
@@ -278,7 +288,7 @@ struct TaxController: RouteCollection {
 
     @Sendable
     private func getReport(req: Request) async throws -> TaxReportResponse {
-        let report = try await ownedReport(req)
+        let report = try await ownedReport(req, requiresPro: false)
         return reportResponse(report)
     }
 
@@ -305,9 +315,11 @@ struct TaxController: RouteCollection {
         return response
     }
 
-    private func ownedReport(_ req: Request) async throws -> TaxReport {
+    private func ownedReport(_ req: Request, requiresPro: Bool = true) async throws -> TaxReport {
         let session = try req.auth.require(SessionToken.self)
-        try await requireTaxPro(req, userId: session.userId)
+        if requiresPro {
+            try await requireTaxPro(req, userId: session.userId)
+        }
         guard let rawID = req.parameters.get("reportId"),
               let id = UUID(uuidString: rawID),
               let report = try await TaxReport.query(on: req.db)

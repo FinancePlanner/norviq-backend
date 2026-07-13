@@ -49,7 +49,7 @@ struct GermanyAdvanceLumpSumCalculatorTests {
 
         #expect(result.acquisitionYearFactor == 0.25)
         #expect(result.grossAdvanceLumpSum == 67.2)
-        #expect(result.taxableAdvanceLumpSum == 57.12)
+        #expect(abs(result.taxableAdvanceLumpSum - 57.12) < 0.000_001)
     }
 
     @Test("rejects years without an official configured rate")

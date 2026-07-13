@@ -316,15 +316,11 @@ struct TaxLotAccountingService: Sendable {
             guard !accountIDs.isEmpty,
                   let soldInstrument = try await Instrument.find(saleTransaction.instrumentId, on: db)
             else { return [] }
-            guard soldInstrument.regulatedMarketSource != nil,
-                  soldInstrument.regulatedMarketReviewedAt != nil
-            else { return [] }
-            let windowMonths: Int
-            switch soldInstrument.regulatedMarketStatus {
-            case "regulated": windowMonths = 2
-            case "unlisted": windowMonths = 12
-            default: return []
-            }
+            guard let windowMonths = SpainMarketAdmissionPolicy.windowMonths(
+                status: soldInstrument.regulatedMarketStatus,
+                source: soldInstrument.regulatedMarketSource,
+                reviewedAt: soldInstrument.regulatedMarketReviewedAt
+            ) else { return [] }
 
             let matchingInstrumentIDs = try await Instrument.query(on: db).all().compactMap { instrument -> UUID? in
                 guard let id = instrument.id else { return nil }

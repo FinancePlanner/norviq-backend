@@ -13,7 +13,7 @@ struct GermanyCapitalGainsCalculatorTests {
         #expect(result.currentYearStockLosses == 4000)
         #expect(result.taxableStockGains == 8000)
         #expect(result.endingStockLossCarryforward == 0)
-        #expect(result.estimatedTax == 2110)
+        #expect(abs(result.estimatedTax - 2110) < 0.000_001)
     }
 
     @Test("applies prior stock losses only up to current stock gains")

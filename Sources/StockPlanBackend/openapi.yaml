@@ -5849,6 +5849,11 @@ paths:
       security: [{ bearerAuth: [] }]
       parameters:
         - { name: instrumentId, in: path, required: true, schema: { type: string, format: uuid } }
+        - name: X-Tax-Evidence-Attested
+          in: header
+          required: false
+          description: Must be true when status is regulated or unlisted, confirming verification against a broker statement or official listing.
+          schema: { type: boolean }
       requestBody:
         required: true
         content:
@@ -5859,6 +5864,7 @@ paths:
         '400': { description: Invalid instrument id or classification }
         '401': { description: Unauthorized }
         '404': { description: Instrument not found for the authenticated user }
+        '422': { description: Documentary evidence was not attested for a non-unknown classification }
   /v1/tax/instruments/{instrumentId}/fund-classification:
     put:
       operationId: saveTaxInstrumentFundClassification
@@ -5980,6 +5986,7 @@ paths:
       requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/TaxReportRequest' } } } }
       responses:
         '200': { description: Queued tax report, content: { application/json: { schema: { $ref: '#/components/schemas/TaxReportResponse' } } } }
+        '403': { description: Pro subscription required }
   /v1/tax/reports/{reportId}:
     get:
       operationId: getTaxReport
@@ -5998,7 +6005,9 @@ paths:
         - { name: reportId, in: path, required: true, schema: { type: string, format: uuid } }
       responses:
         '200': { description: Advisor workpaper, content: { application/octet-stream: { schema: { type: string, format: binary } } } }
+        '403': { description: Pro subscription required }
         '409': { description: Report is not ready }
+        '410': { description: Report has expired }
 
   /v1/financial-goals:
     get:

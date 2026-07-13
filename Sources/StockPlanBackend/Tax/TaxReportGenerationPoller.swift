@@ -75,13 +75,17 @@ final class TaxReportGenerationPoller: LifecycleHandler, @unchecked Sendable {
             return
         }
 
-        let delay = min(3600, 30 * (1 << max(0, attempt - 1)))
+        let delay = Self.retryDelaySeconds(for: attempt)
         refreshed.status = "retry"
         refreshed.nextAttemptAt = Date().addingTimeInterval(TimeInterval(delay))
         try await refreshed.save(on: app.db)
         app.logger.warning(
             "tax_report.generation_retry report_id=\(reportID) attempt=\(attempt) delay_seconds=\(delay)"
         )
+    }
+
+    static func retryDelaySeconds(for attempt: Int) -> Int {
+        min(3600, 30 * (1 << max(0, attempt - 1)))
     }
 }
 

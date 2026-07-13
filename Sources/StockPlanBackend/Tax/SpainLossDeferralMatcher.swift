@@ -1,5 +1,16 @@
 import Foundation
 
+enum SpainMarketAdmissionPolicy {
+    static func windowMonths(status: String?, source: String?, reviewedAt: Date?) -> Int? {
+        guard source?.isEmpty == false, reviewedAt != nil else { return nil }
+        return switch status {
+        case "regulated": 2
+        case "unlisted": 12
+        default: nil
+        }
+    }
+}
+
 struct SpainLossDeferralReplacement: Sendable, Equatable {
     let lotId: UUID
     let acquisitionDate: Date
