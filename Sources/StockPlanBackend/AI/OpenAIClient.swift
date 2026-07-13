@@ -187,7 +187,7 @@ func makeOpenAIChatClient(_ app: Application) -> any OpenAIChatClient {
     }
     return DefaultOpenAIChatClient(
         apiKey: key,
-        model: Environment.get("OPENAI_MODEL") ?? "gpt-4.1-nano",
+        model: Environment.get("OPENAI_MODEL") ?? "gpt-5.6-terra",
         baseURL: Environment.get("OPENAI_BASE_URL") ?? "https://api.openai.com/v1",
         maxTokens: Environment.get("OPENAI_MAX_TOKENS").flatMap(Int.init) ?? 700
     )
