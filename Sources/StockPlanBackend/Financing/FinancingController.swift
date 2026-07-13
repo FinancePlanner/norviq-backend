@@ -128,8 +128,9 @@ struct FinancingController: RouteCollection {
               let host = components.host?.lowercased(),
               !Self.blockedHost(host)
         else { throw Abort(.badRequest, reason: "Only public HTTPS offer pages can be imported.") }
-        let response = try await req.client.get(URI(string: raw), headers: [.userAgent: "Norviq Financing Import/1.0"])
-        guard response.status == .ok, let body = response.body, body.readableBytes <= maxImportBytes else {
+        let headers = HTTPHeaders([("User-Agent", "Norviq Financing Import/1.0")])
+        let response = try await req.client.get(URI(string: raw), headers: headers)
+        guard response.status == HTTPResponseStatus.ok, let body = response.body, body.readableBytes <= maxImportBytes else {
             throw Abort(.badRequest, reason: "The offer page could not be imported.")
         }
         return FinancingOfferExtractor.extract(text: body.getString(at: body.readerIndex, length: body.readableBytes) ?? "", sourceDomain: host)

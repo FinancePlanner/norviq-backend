@@ -2,16 +2,16 @@ import Fluent
 import Foundation
 import StockPlanShared
 
-final class GermanyStockLossYear: Model, @unchecked Sendable {
-    static let schema = "germany_stock_loss_years"
+final class GermanyGeneralLossYear: Model, @unchecked Sendable {
+    static let schema = "germany_general_loss_years"
 
     @ID(key: .id) var id: UUID?
     @Field(key: "user_id") var userId: UUID
     @Field(key: "tax_year") var taxYear: Int
-    @Field(key: "net_stock_result") var netStockResult: Double
+    @Field(key: "net_capital_result") var netCapitalResult: Double
     @Field(key: "loss_generated") var lossGenerated: Double
     @Field(key: "prior_loss_applied") var priorLossApplied: Double
-    @Field(key: "taxable_stock_gain") var taxableStockGain: Double
+    @Field(key: "taxable_capital_gain") var taxableCapitalGain: Double
     @Field(key: "ending_loss_carryforward") var endingLossCarryforward: Double
     @Field(key: "rule_version") var ruleVersion: String
     @Timestamp(key: "created_at", on: .create) var createdAt: Date?
@@ -19,20 +19,20 @@ final class GermanyStockLossYear: Model, @unchecked Sendable {
 
     init() {}
 
-    init(userId: UUID, taxYear: Int, netStockResult: Decimal, ruleVersion: String) {
+    init(userId: UUID, taxYear: Int, netCapitalResult: Decimal, ruleVersion: String) {
         self.userId = userId
         self.taxYear = taxYear
-        self.netStockResult = NSDecimalNumber(decimal: netStockResult).doubleValue
+        self.netCapitalResult = NSDecimalNumber(decimal: netCapitalResult).doubleValue
         lossGenerated = 0
         priorLossApplied = 0
-        taxableStockGain = 0
+        taxableCapitalGain = 0
         endingLossCarryforward = 0
         self.ruleVersion = ruleVersion
     }
 }
 
-final class GermanyStockLossApplication: Model, @unchecked Sendable {
-    static let schema = "germany_stock_loss_applications"
+final class GermanyGeneralLossApplication: Model, @unchecked Sendable {
+    static let schema = "germany_general_loss_applications"
 
     @ID(key: .id) var id: UUID?
     @Field(key: "source_year_id") var sourceYearId: UUID
@@ -50,36 +50,35 @@ final class GermanyStockLossApplication: Model, @unchecked Sendable {
     }
 }
 
-struct GermanyStockLossLedgerResult: Equatable, Sendable {
+struct GermanyGeneralLossLedgerResult: Equatable, Sendable {
     let taxYear: Int
-    let netStockResult: Decimal
+    let netCapitalResult: Decimal
     let lossGenerated: Decimal
     let priorLossApplied: Decimal
-    let taxableStockGain: Decimal
+    let taxableCapitalGain: Decimal
     let endingLossCarryforward: Decimal
 }
 
-struct GermanyStockLossLedger: Sendable {
-    func response(
+struct GermanyGeneralLossLedger: Sendable {
+    func balances(
         userId: UUID,
         asOfTaxYear: Int,
         on database: any Database
-    ) async throws -> TaxLossCarryforwardLedgerResponse {
-        let years = try await GermanyStockLossYear.query(on: database)
+    ) async throws -> [TaxLossCarryforwardBalanceResponse] {
+        let years = try await GermanyGeneralLossYear.query(on: database)
             .filter(\.$userId == userId)
             .filter(\.$taxYear <= asOfTaxYear)
             .sort(\.$taxYear, .ascending)
             .all()
-
         let yearIDs = years.compactMap(\.id)
-        let applications = yearIDs.isEmpty ? [] : try await GermanyStockLossApplication.query(on: database)
+        let applications = yearIDs.isEmpty ? [] : try await GermanyGeneralLossApplication.query(on: database)
             .filter(\.$sourceYearId ~~ yearIDs)
             .sort(\.$targetTaxYear, .ascending)
             .all()
         let applicationsBySource = Dictionary(grouping: applications, by: \.sourceYearId)
 
-        let balances = years.compactMap { year -> TaxLossCarryforwardBalanceResponse? in
-            let generated = max(0, -Decimal(year.netStockResult))
+        return years.compactMap { year -> TaxLossCarryforwardBalanceResponse? in
+            let generated = max(0, -Decimal(year.netCapitalResult))
             guard generated > 0, let id = year.id else { return nil }
             let sourceApplications = applicationsBySource[id] ?? []
             let applied = sourceApplications.reduce(Decimal.zero) { $0 + Decimal($1.amount) }
@@ -91,7 +90,7 @@ struct GermanyStockLossLedger: Sendable {
                 originalAmount: TaxMoney(amount: generated, currency: "EUR"),
                 remainingAmount: TaxMoney(amount: max(0, generated - applied), currency: "EUR"),
                 ruleVersion: year.ruleVersion,
-                category: .stock,
+                category: .generalCapital,
                 applications: sourceApplications.compactMap { application in
                     guard let applicationID = application.id else { return nil }
                     return TaxLossCarryforwardApplicationResponse(
@@ -103,54 +102,36 @@ struct GermanyStockLossLedger: Sendable {
                 }
             )
         }
-        let generalBalances = try await GermanyGeneralLossLedger().balances(
-            userId: userId,
-            asOfTaxYear: asOfTaxYear,
-            on: database
-        )
-        let combinedBalances = (balances + generalBalances).sorted {
-            ($0.sourceTaxYear, $0.category?.rawValue ?? "") < ($1.sourceTaxYear, $1.category?.rawValue ?? "")
-        }
-        let total = combinedBalances.reduce(Decimal.zero) { $0 + $1.remainingAmount.amount }
-        return TaxLossCarryforwardLedgerResponse(
-            generatedAt: ISO8601DateFormatter().string(from: Date()),
-            jurisdiction: .germany,
-            asOfTaxYear: asOfTaxYear,
-            totalAvailable: TaxMoney(amount: total, currency: "EUR"),
-            balances: combinedBalances
-        )
     }
 
     func reconcile(
         userId: UUID,
         taxYear: Int,
-        netStockResult: Decimal,
+        netCapitalResult: Decimal,
         ruleVersion: String,
         on database: any Database
-    ) async throws -> GermanyStockLossLedgerResult {
+    ) async throws -> GermanyGeneralLossLedgerResult {
         try await database.transaction { transaction in
-            let storedYear = try await GermanyStockLossYear.query(on: transaction)
+            let storedYear = try await GermanyGeneralLossYear.query(on: transaction)
                 .filter(\.$userId == userId)
                 .filter(\.$taxYear == taxYear)
                 .first()
-                ?? GermanyStockLossYear(
+                ?? GermanyGeneralLossYear(
                     userId: userId,
                     taxYear: taxYear,
-                    netStockResult: netStockResult,
+                    netCapitalResult: netCapitalResult,
                     ruleVersion: ruleVersion
                 )
-
-            storedYear.netStockResult = NSDecimalNumber(decimal: netStockResult).doubleValue
+            storedYear.netCapitalResult = NSDecimalNumber(decimal: netCapitalResult).doubleValue
             storedYear.ruleVersion = ruleVersion
             try await storedYear.save(on: transaction)
 
-            let years = try await GermanyStockLossYear.query(on: transaction)
+            let years = try await GermanyGeneralLossYear.query(on: transaction)
                 .filter(\.$userId == userId)
                 .sort(\.$taxYear, .ascending)
                 .all()
-
             let yearIDs = years.compactMap(\.id)
-            let existingApplications = yearIDs.isEmpty ? [] : try await GermanyStockLossApplication.query(on: transaction)
+            let existingApplications = yearIDs.isEmpty ? [] : try await GermanyGeneralLossApplication.query(on: transaction)
                 .filter(\.$sourceYearId ~~ yearIDs)
                 .all()
             let existingByKey = Dictionary(uniqueKeysWithValues: existingApplications.map {
@@ -158,10 +139,10 @@ struct GermanyStockLossLedger: Sendable {
             })
             var retainedApplicationIDs = Set<UUID>()
             var lossBuckets = [(sourceYearId: UUID, remaining: Decimal)]()
-            var requestedResult: GermanyStockLossLedgerResult?
+            var requestedResult: GermanyGeneralLossLedgerResult?
 
             for year in years {
-                let annualResult = Decimal(year.netStockResult)
+                let annualResult = Decimal(year.netCapitalResult)
                 let gain = max(0, annualResult)
                 let generatedLoss = max(0, -annualResult)
                 var remainingGain = gain
@@ -177,7 +158,7 @@ struct GermanyStockLossLedger: Sendable {
                     let sourceYearID = lossBuckets[index].sourceYearId
                     let key = "\(sourceYearID.uuidString):\(year.taxYear)"
                     let application = existingByKey[key]
-                        ?? GermanyStockLossApplication(
+                        ?? GermanyGeneralLossApplication(
                             sourceYearId: sourceYearID,
                             targetTaxYear: year.taxYear,
                             amount: amount
@@ -188,25 +169,25 @@ struct GermanyStockLossLedger: Sendable {
                         retainedApplicationIDs.insert(applicationID)
                     }
                 }
+
                 let taxableGain = gain - appliedLoss
                 if generatedLoss > 0, let yearID = year.id {
                     lossBuckets.append((sourceYearId: yearID, remaining: generatedLoss))
                 }
                 let carryforward = lossBuckets.reduce(Decimal.zero) { $0 + $1.remaining }
-
                 year.lossGenerated = NSDecimalNumber(decimal: generatedLoss).doubleValue
                 year.priorLossApplied = NSDecimalNumber(decimal: appliedLoss).doubleValue
-                year.taxableStockGain = NSDecimalNumber(decimal: taxableGain).doubleValue
+                year.taxableCapitalGain = NSDecimalNumber(decimal: taxableGain).doubleValue
                 year.endingLossCarryforward = NSDecimalNumber(decimal: carryforward).doubleValue
                 try await year.save(on: transaction)
 
                 if year.taxYear == taxYear {
-                    requestedResult = GermanyStockLossLedgerResult(
+                    requestedResult = GermanyGeneralLossLedgerResult(
                         taxYear: year.taxYear,
-                        netStockResult: annualResult,
+                        netCapitalResult: annualResult,
                         lossGenerated: generatedLoss,
                         priorLossApplied: appliedLoss,
-                        taxableStockGain: taxableGain,
+                        taxableCapitalGain: taxableGain,
                         endingLossCarryforward: carryforward
                     )
                 }
@@ -218,24 +199,14 @@ struct GermanyStockLossLedger: Sendable {
                 else { continue }
                 try await application.delete(on: transaction)
             }
-
             guard let requestedResult else {
-                throw GermanyStockLossLedgerError.reconciliationResultMissing
+                throw GermanyGeneralLossLedgerError.reconciliationResultMissing
             }
             return requestedResult
         }
     }
-
-    func balance(userId: UUID, through taxYear: Int, on database: any Database) async throws -> Decimal {
-        let stored = try await GermanyStockLossYear.query(on: database)
-            .filter(\.$userId == userId)
-            .filter(\.$taxYear <= taxYear)
-            .sort(\.$taxYear, .descending)
-            .first()
-        return stored.map { Decimal($0.endingLossCarryforward) } ?? 0
-    }
 }
 
-enum GermanyStockLossLedgerError: Error {
+enum GermanyGeneralLossLedgerError: Error {
     case reconciliationResultMissing
 }

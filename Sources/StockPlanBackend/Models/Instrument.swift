@@ -32,6 +32,9 @@ final class Instrument: Model, Content, @unchecked Sendable {
     @OptionalField(key: "instrument_type")
     var instrumentType: String?
 
+    @OptionalField(key: "fund_classification")
+    var fundClassification: String?
+
     @OptionalField(key: "isin")
     var isin: String?
 

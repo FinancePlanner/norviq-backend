@@ -5859,6 +5859,23 @@ paths:
         '400': { description: Invalid instrument id or classification }
         '401': { description: Unauthorized }
         '404': { description: Instrument not found for the authenticated user }
+  /v1/tax/instruments/{instrumentId}/fund-classification:
+    put:
+      operationId: saveTaxInstrumentFundClassification
+      tags: [Tax]
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: instrumentId, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/TaxFundClassificationRequest' }
+      responses:
+        '200': { description: Saved fund classification, content: { application/json: { schema: { $ref: '#/components/schemas/TaxInstrumentMarketOption' } } } }
+        '400': { description: Invalid instrument id or classification }
+        '401': { description: Unauthorized }
+        '404': { description: Instrument not found for the authenticated user }
   /v1/tax/dashboard:
     get:
       operationId: getTaxDashboard
@@ -6335,7 +6352,7 @@ components:
       type: object
       required: [amount, currency]
       properties:
-        amount: { type: number }
+        amount: { type: number, format: double }
         currency: { type: string }
     TaxAccountClassification:
       type: object
@@ -6367,6 +6384,8 @@ components:
         shortTermCapitalGainsRate: { type: number, nullable: true }
         longTermCapitalGainsRate: { type: number, nullable: true }
         capitalGainsTaxationMode: { type: string, enum: [jurisdiction_default, autonomous, aggregate_with_income], nullable: true }
+        remainingCapitalIncomeAllowance: { type: number, nullable: true, minimum: 0 }
+        churchTaxRate: { type: number, nullable: true, minimum: 0, maximum: 0.09 }
         priorShortTermLossCarryover: { type: number }
         priorLongTermLossCarryover: { type: number }
         members: { type: array, items: { $ref: '#/components/schemas/TaxHouseholdMember' } }
@@ -6412,11 +6431,20 @@ components:
         symbol: { type: string }
         listingExchange: { type: string, nullable: true }
         marketAdmissionStatus: { $ref: '#/components/schemas/TaxMarketAdmissionStatus' }
+        fundClassification: { allOf: [{ $ref: '#/components/schemas/TaxFundClassification' }], nullable: true }
     TaxMarketAdmissionRequest:
       type: object
       required: [status]
       properties:
         status: { $ref: '#/components/schemas/TaxMarketAdmissionStatus' }
+    TaxFundClassification:
+      type: string
+      enum: [equity, mixed, real_estate, foreign_real_estate, other, unknown]
+    TaxFundClassificationRequest:
+      type: object
+      required: [classification]
+      properties:
+        classification: { $ref: '#/components/schemas/TaxFundClassification' }
     TaxRuleCapability:
       type: object
       required: [jurisdiction, taxYear, ruleVersion, instrumentType, supportLevel, supportedAccountWrappers, limitations]
@@ -6453,7 +6481,11 @@ components:
         originalAmount: { $ref: '#/components/schemas/TaxMoney' }
         remainingAmount: { $ref: '#/components/schemas/TaxMoney' }
         ruleVersion: { type: string }
+        category: { allOf: [{ $ref: '#/components/schemas/TaxLossCarryforwardCategory' }], nullable: true }
         applications: { type: array, items: { $ref: '#/components/schemas/TaxLossCarryforwardApplicationResponse' } }
+    TaxLossCarryforwardCategory:
+      type: string
+      enum: [stock, general_capital, securities, short_term, long_term, unspecified]
     TaxLossCarryforwardLedgerResponse:
       type: object
       required: [generatedAt, jurisdiction, asOfTaxYear, totalAvailable, balances]
@@ -6612,29 +6644,29 @@ components:
       properties:
         id: { type: string }
         name: { type: string }
-        purchaseAmount: { type: number }
-        downPayment: { type: number }
-        financedAmount: { type: number, nullable: true }
+        purchaseAmount: { type: number, format: double }
+        downPayment: { type: number, format: double }
+        financedAmount: { type: number, format: double, nullable: true }
         termMonths: { type: integer, minimum: 1, maximum: 480 }
         firstPaymentDate: { type: string, format: date }
-        quotedMonthlyPayment: { type: number, nullable: true }
-        nominalAnnualRate: { type: number, nullable: true }
-        effectiveAnnualRate: { type: number, nullable: true }
+        quotedMonthlyPayment: { type: number, format: double, nullable: true }
+        nominalAnnualRate: { type: number, format: double, nullable: true }
+        effectiveAnnualRate: { type: number, format: double, nullable: true }
         rateType: { $ref: '#/components/schemas/FinancingRateType' }
-        upfrontFees: { type: number }
-        financedFees: { type: number }
-        balloonPayment: { type: number }
+        upfrontFees: { type: number, format: double }
+        financedFees: { type: number, format: double }
+        balloonPayment: { type: number, format: double }
         additionalCosts: { type: array, items: { $ref: '#/components/schemas/FinancingAdditionalCost' } }
     FinancingAffordabilityAssumptions:
       type: object
       required: [incomeScope, externalMonthlyDebtPayments, safetyBufferPercent]
       properties:
         incomeScope: { type: string, enum: [personal, household] }
-        netMonthlyIncomeOverride: { type: number, nullable: true }
-        grossMonthlyIncome: { type: number, nullable: true }
-        externalMonthlyDebtPayments: { type: number }
-        safetyBufferPercent: { type: number }
-        monthlySavingsTargetOverride: { type: number, nullable: true }
+        netMonthlyIncomeOverride: { type: number, format: double, nullable: true }
+        grossMonthlyIncome: { type: number, format: double, nullable: true }
+        externalMonthlyDebtPayments: { type: number, format: double }
+        safetyBufferPercent: { type: number, format: double }
+        monthlySavingsTargetOverride: { type: number, format: double, nullable: true }
     FinancingSimulationRequest:
       type: object
       required: [market, purchaseType, currency, offers]
@@ -6649,9 +6681,9 @@ components:
       required: [status, message]
       properties:
         status: { type: string, enum: [pass, above_guidance, not_evaluated, stale] }
-        ratio: { type: number, nullable: true }
-        guidanceMinimum: { type: number, nullable: true }
-        guidanceMaximum: { type: number, nullable: true }
+        ratio: { type: number, format: double, nullable: true }
+        guidanceMinimum: { type: number, format: double, nullable: true }
+        guidanceMaximum: { type: number, format: double, nullable: true }
         incomeBasis: { type: string, nullable: true }
         sourceURL: { type: string, nullable: true }
         reviewedAt: { type: string, format: date, nullable: true }
@@ -6662,13 +6694,13 @@ components:
       properties:
         cashFlowStatus: { type: string, enum: [doable, tight, not_doable, insufficient_data] }
         benchmark: { $ref: '#/components/schemas/FinancingBenchmarkResult' }
-        monthlyIncome: { type: number, nullable: true }
-        baselineSpending: { type: number }
-        savingsTarget: { type: number }
-        safetyBuffer: { type: number }
-        monthlyFinancing: { type: number }
-        residualAfterPlan: { type: number, nullable: true }
-        stressedResidual: { type: number, nullable: true }
+        monthlyIncome: { type: number, format: double, nullable: true }
+        baselineSpending: { type: number, format: double }
+        savingsTarget: { type: number, format: double }
+        safetyBuffer: { type: number, format: double }
+        monthlyFinancing: { type: number, format: double }
+        residualAfterPlan: { type: number, format: double, nullable: true }
+        stressedResidual: { type: number, format: double, nullable: true }
         message: { type: string }
     FinancingProjectionResponse:
       type: object
@@ -6678,9 +6710,9 @@ components:
         offerId: { type: string }
         installmentNumber: { type: integer }
         dueDate: { type: string, format: date }
-        paymentAmount: { type: number }
-        additionalCostAmount: { type: number }
-        totalAmount: { type: number }
+        paymentAmount: { type: number, format: double }
+        additionalCostAmount: { type: number, format: double }
+        totalAmount: { type: number, format: double }
         currency: { type: string }
         status: { type: string, enum: [projected, due, overdue, matched, cancelled, completed] }
         matchedExpenseId: { type: string, nullable: true }
@@ -6689,10 +6721,10 @@ components:
       required: [offer, monthlyPayment, totalLoanPayments, totalOutOfPocket, totalCreditCost, projections, affordability, warnings]
       properties:
         offer: { $ref: '#/components/schemas/FinancingOfferTerms' }
-        monthlyPayment: { type: number }
-        totalLoanPayments: { type: number }
-        totalOutOfPocket: { type: number }
-        totalCreditCost: { type: number }
+        monthlyPayment: { type: number, format: double }
+        totalLoanPayments: { type: number, format: double }
+        totalOutOfPocket: { type: number, format: double }
+        totalCreditCost: { type: number, format: double }
         projections: { type: array, items: { $ref: '#/components/schemas/FinancingProjectionResponse' } }
         affordability: { $ref: '#/components/schemas/FinancingAffordabilityAssessment' }
         warnings: { type: array, items: { type: string } }
@@ -6711,7 +6743,7 @@ components:
         market: { $ref: '#/components/schemas/FinancingMarket' }
         purchaseType: { $ref: '#/components/schemas/FinancingPurchaseType' }
         currency: { type: string }
-        userSharePercent: { type: number }
+        userSharePercent: { type: number, format: double }
         terms: { $ref: '#/components/schemas/FinancingOfferTerms' }
         sourceDomain: { type: string, nullable: true }
     FinancingPlanResponse:
@@ -6724,7 +6756,7 @@ components:
         purchaseType: { $ref: '#/components/schemas/FinancingPurchaseType' }
         currency: { type: string }
         status: { type: string, enum: [active, paused, completed, cancelled] }
-        userSharePercent: { type: number }
+        userSharePercent: { type: number, format: double }
         terms: { $ref: '#/components/schemas/FinancingOfferTerms' }
         sourceDomain: { type: string, nullable: true }
         createdAt: { type: string, format: date-time, nullable: true }

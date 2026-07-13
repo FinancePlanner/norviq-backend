@@ -60,8 +60,9 @@ struct ConfiguredTaxRulePack: TaxRulePack {
         }
         if jurisdiction == .germany {
             // EStG section 32d: 25%; SolzG section 4: 5.5% of that tax.
-            // Church tax is excluded until denomination and state are collected.
-            return 0.26375
+            let churchRate = max(0, profile.churchTaxRate ?? 0)
+            guard churchRate > 0 else { return 0.26375 }
+            return (1 + churchRate + GermanyCapitalGainsCalculator.solidaritySurchargeRate) / (4 + churchRate)
         }
         return profile.marginalIncomeTaxRate
     }
@@ -77,7 +78,7 @@ struct ConfiguredTaxRulePack: TaxRulePack {
             values.append("German fungible securities are matched FIFO within each imported brokerage account or depot under EStG Article 20(4).")
             values.append("The estimate applies 25% investment-income tax plus the 5.5% solidarity surcharge on that tax, for a combined 26.375% rate.")
             values.append("Stock-disposal losses are isolated from other capital income and carried forward separately under EStG Article 20(6).")
-            values.append("The saver allowance is not deducted because complete capital income across financial institutions is unavailable.")
+            values.append("Any entered remaining saver allowance is deducted after stock-loss offsets; leave it empty when capital income across institutions is incomplete.")
         }
         if !isValidated {
             values.append("This rule pack has not been enabled for actionable recommendations; results are estimates for review.")
@@ -139,7 +140,7 @@ struct TaxRuleRegistry: Sendable {
         }
         if pack.jurisdiction == .germany {
             values.append("FIFO is applied separately per imported brokerage account or depot.")
-            values.append("Church tax, foreign-tax credits, pre-2009 holdings, substantial shareholdings, business assets, and non-resident cases require professional review.")
+            values.append("Church tax is estimated only when an 8% or 9% profile rate is supplied; foreign-tax credits, pre-2009 holdings, substantial shareholdings, business assets, and non-resident cases require professional review.")
             if ["etf", "fund"].contains(instrumentType.lowercased()) {
                 values.append("Fund partial exemptions require investment-fund classification metadata and are not estimated by this rule version.")
             }

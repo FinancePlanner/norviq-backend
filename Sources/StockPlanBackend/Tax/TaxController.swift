@@ -21,6 +21,7 @@ struct TaxController: RouteCollection {
         tax.get("profile", "context", use: getProfileContext)
         tax.put("profile", use: saveProfile)
         tax.put("instruments", ":instrumentId", "market-admission", use: saveMarketAdmission)
+        tax.put("instruments", ":instrumentId", "fund-classification", use: saveFundClassification)
         tax.get("dashboard", use: dashboard)
         tax.post("scenarios", use: createScenario)
         tax.get("scenarios", ":scenarioId", use: getScenario)
@@ -110,6 +111,21 @@ struct TaxController: RouteCollection {
             userId: session.userId,
             instrumentId: instrumentID,
             status: payload.status,
+            on: req.db
+        )
+    }
+
+    @Sendable
+    private func saveFundClassification(req: Request) async throws -> TaxInstrumentMarketOption {
+        let session = try req.auth.require(SessionToken.self)
+        guard let rawID = req.parameters.get("instrumentId"),
+              let instrumentID = UUID(uuidString: rawID)
+        else { throw Abort(.badRequest, reason: "Invalid instrument id.") }
+        let payload = try req.content.decode(TaxFundClassificationRequest.self)
+        return try await req.application.taxService.saveFundClassification(
+            userId: session.userId,
+            instrumentId: instrumentID,
+            classification: payload.classification,
             on: req.db
         )
     }

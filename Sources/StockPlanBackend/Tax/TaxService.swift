@@ -18,6 +18,7 @@ protocol TaxService: Sendable {
     func notificationPreferences(userId: UUID, on db: any Database) async throws -> TaxNotificationPreferences
     func saveNotificationPreferences(userId: UUID, request: TaxNotificationPreferences, on db: any Database) async throws -> TaxNotificationPreferences
     func saveMarketAdmission(userId: UUID, instrumentId: UUID, status: TaxMarketAdmissionStatus, on db: any Database) async throws -> TaxInstrumentMarketOption
+    func saveFundClassification(userId: UUID, instrumentId: UUID, classification: TaxFundClassification, on db: any Database) async throws -> TaxInstrumentMarketOption
 }
 
 struct DefaultTaxService: TaxService {
@@ -108,6 +109,33 @@ struct DefaultTaxService: TaxService {
               let instrument = try await Instrument.find(instrumentId, on: db)
         else { throw Abort(.notFound, reason: "Instrument not found.") }
         instrument.regulatedMarketStatus = status.rawValue
+        try await instrument.save(on: db)
+        return taxInstrumentMarketOption(instrument)!
+    }
+
+    func saveFundClassification(
+        userId: UUID,
+        instrumentId: UUID,
+        classification: TaxFundClassification,
+        on db: any Database
+    ) async throws -> TaxInstrumentMarketOption {
+        let accountIDs = try await Account.query(on: db)
+            .filter(\.$userId == userId)
+            .all()
+            .compactMap(\.id)
+        guard !accountIDs.isEmpty else { throw Abort(.notFound, reason: "Instrument not found.") }
+        let ownsTransaction = try await Transaction.query(on: db)
+            .filter(\.$accountId ~~ accountIDs)
+            .filter(\.$instrumentId == instrumentId)
+            .first() != nil
+        let ownsLot = try await Lot.query(on: db)
+            .filter(\.$accountId ~~ accountIDs)
+            .filter(\.$instrumentId == instrumentId)
+            .first() != nil
+        guard ownsTransaction || ownsLot,
+              let instrument = try await Instrument.find(instrumentId, on: db)
+        else { throw Abort(.notFound, reason: "Instrument not found.") }
+        instrument.fundClassification = classification.rawValue
         try await instrument.save(on: db)
         return taxInstrumentMarketOption(instrument)!
     }
@@ -226,12 +254,29 @@ struct DefaultTaxService: TaxService {
             else { continue }
             let wrapper = TaxAccountWrapper(rawValue: account.taxWrapper ?? "") ?? .unknown
             let instrumentType = instrument.instrumentType ?? "stock"
-            let support = pack.supportLevel(instrumentType: instrumentType, wrapper: wrapper)
+            var support = pack.supportLevel(instrumentType: instrumentType, wrapper: wrapper)
             let position = positionsByKey[positionKey(account: lot.accountId, instrument: lot.instrumentId)]
             let price = position?.lastPrice ?? position.map(\.averageCost) ?? lot.openPrice
             let marketValue = Decimal(price * lot.remainingQuantity)
             let basis = Decimal(lot.openPrice * lot.remainingQuantity)
             let gain = marketValue - basis
+            var taxableGain = gain
+            let normalizedType = instrumentType.lowercased()
+            let isGermanFund = pack.jurisdiction == .germany
+                && ["etf", "fund", "mutual_fund"].contains(normalizedType)
+            if isGermanFund {
+                if let classification = instrument.fundClassification.flatMap(TaxFundClassification.init(rawValue:)),
+                   let adjusted = GermanyFundPartialExemptionCalculator.taxableAmount(
+                       gain,
+                       classification: classification
+                   )
+                {
+                    taxableGain = adjusted
+                    support = .estimateOnly
+                } else {
+                    support = .professionalReview
+                }
+            }
             let isLongTerm = now.timeIntervalSince(lot.openDate) > 365 * 86400
 
             guard support == .supported || support == .estimateOnly else {
@@ -243,12 +288,12 @@ struct DefaultTaxService: TaxService {
                 continue
             }
             if gain >= 0 {
-                embeddedLiability += gain * rate
+                embeddedLiability += taxableGain * rate
                 continue
             }
 
             let loss = -gain
-            let benefit = loss * rate
+            let benefit = max(0, -taxableGain) * rate
             let recentReplacement = try await hasRecentReplacement(
                 userId: userId,
                 instrument: instrument,
@@ -263,6 +308,9 @@ struct DefaultTaxService: TaxService {
             }
             if support != .supported {
                 warnings.append("This rule pack is estimate-only until professional validation is enabled.")
+            }
+            if isGermanFund {
+                warnings.append("The estimate applies the configured German fund partial exemption to both gains and losses.")
             }
             opportunities.append(TaxOpportunityResponse(
                 id: lot.id!.uuidString,
@@ -544,6 +592,10 @@ struct DefaultTaxService: TaxService {
             return result.estimatedTax
         }
         if pack.jurisdiction == .germany {
+            guard let owner = try await Account.query(on: db)
+                .filter(\.$id ~~ accountIDs)
+                .first()
+            else { return 0 }
             let transactions = try await Transaction.query(on: db)
                 .filter(\.$accountId ~~ accountIDs)
                 .filter(\.$type == "SELL")
@@ -577,7 +629,46 @@ struct DefaultTaxService: TaxService {
                 ruleVersion: pack.ruleVersion,
                 on: db
             )
-            return reconciled.taxableStockGain * GermanyCapitalGainsCalculator.combinedRate
+            let transactionByID = Dictionary(uniqueKeysWithValues: transactions.compactMap { transaction in
+                transaction.id.map { ($0, transaction) }
+            })
+            let fundClassifications = Dictionary(uniqueKeysWithValues: instruments.compactMap { instrument -> (UUID, TaxFundClassification)? in
+                guard let id = instrument.id,
+                      ["etf", "fund", "mutual_fund"].contains(instrument.instrumentType?.lowercased() ?? ""),
+                      let classification = instrument.fundClassification.flatMap(TaxFundClassification.init(rawValue:)),
+                      GermanyFundPartialExemptionCalculator.exemptionRate(for: classification) != nil
+                else { return nil }
+                return (id, classification)
+            })
+            let fundTransactionIDs = transactions.compactMap { transaction -> UUID? in
+                guard fundClassifications[transaction.instrumentId] != nil else { return nil }
+                return transaction.id
+            }
+            let fundDisposals = fundTransactionIDs.isEmpty ? [] : try await LotDisposal.query(on: db)
+                .filter(\.$transactionId ~~ fundTransactionIDs)
+                .all()
+            let adjustedFundResult = fundDisposals.reduce(Decimal.zero) { result, disposal in
+                guard let transaction = transactionByID[disposal.transactionId],
+                      let classification = fundClassifications[transaction.instrumentId],
+                      let adjusted = GermanyFundPartialExemptionCalculator.taxableAmount(
+                          Decimal(disposal.realizedPnl),
+                          classification: classification
+                      )
+                else { return result }
+                return result + adjusted
+            }
+            let generalReconciled = try await GermanyGeneralLossLedger().reconcile(
+                userId: owner.userId,
+                taxYear: taxYear,
+                netCapitalResult: reconciled.taxableStockGain + adjustedFundResult,
+                ruleVersion: pack.ruleVersion,
+                on: db
+            )
+            return GermanyCapitalGainsCalculator.estimatedTax(
+                taxableStockGain: generalReconciled.taxableCapitalGain,
+                remainingCapitalIncomeAllowance: profile.remainingCapitalIncomeAllowance,
+                churchTaxRate: profile.churchTaxRate
+            )
         }
         let lots = try await Lot.query(on: db)
             .filter(\.$accountId ~~ accountIDs)
@@ -713,7 +804,8 @@ private func taxInstrumentMarketOption(_ instrument: Instrument) -> TaxInstrumen
         symbol: instrument.symbol,
         listingExchange: instrument.listingExchange,
         marketAdmissionStatus: instrument.regulatedMarketStatus
-            .flatMap(TaxMarketAdmissionStatus.init(rawValue:)) ?? .unknown
+            .flatMap(TaxMarketAdmissionStatus.init(rawValue:)) ?? .unknown,
+        fundClassification: instrument.fundClassification.flatMap(TaxFundClassification.init(rawValue:))
     )
 }
 

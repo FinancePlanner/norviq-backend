@@ -20,14 +20,23 @@ struct TaxReportGenerator: Sendable {
                 taxYear: report.taxYear,
                 on: application.db
             )
-            let carryforwardLedger = jurisdiction == .portugal
-                ? try await PortugalLossCarryforwardLedger().response(
+            let carryforwardLedger: TaxLossCarryforwardLedgerResponse? = switch jurisdiction {
+            case .portugal:
+                try await PortugalLossCarryforwardLedger().response(
                     userId: report.userId,
                     jurisdiction: jurisdiction,
                     asOfTaxYear: report.taxYear,
                     on: application.db
                 )
-                : nil
+            case .germany:
+                try await GermanyStockLossLedger().response(
+                    userId: report.userId,
+                    asOfTaxYear: report.taxYear,
+                    on: application.db
+                )
+            default:
+                nil
+            }
             let accountIDs = try await Account.query(on: application.db)
                 .filter(\.$userId == report.userId)
                 .all()
