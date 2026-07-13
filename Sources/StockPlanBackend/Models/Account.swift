@@ -11,6 +11,9 @@ final class Account: Model, Content, @unchecked Sendable {
     @Field(key: "user_id")
     var userId: UUID
 
+    @OptionalField(key: "portfolio_id")
+    var portfolioId: UUID?
+
     @Field(key: "external_id")
     var externalId: String
 
@@ -49,10 +52,12 @@ final class Account: Model, Content, @unchecked Sendable {
         externalId: String,
         broker: String,
         displayName: String? = nil,
-        baseCurrency: String
+        baseCurrency: String,
+        portfolioId: UUID? = nil
     ) {
         self.id = id
         self.userId = userId
+        self.portfolioId = portfolioId
         self.externalId = externalId
         self.broker = broker
         self.displayName = displayName
