@@ -480,6 +480,105 @@ struct DefaultTaxService: TaxService {
         let calendar = Calendar(identifier: .gregorian)
         let start = calendar.date(from: DateComponents(year: taxYear, month: 1, day: 1))!
         let end = calendar.date(from: DateComponents(year: taxYear + 1, month: 1, day: 1))!
+        if profile.jurisdiction == .portugal {
+            guard let owner = try await Account.query(on: db)
+                .filter(\.$id ~~ accountIDs)
+                .first()
+            else { return 0 }
+            let sourceLots = try await Lot.query(on: db)
+                .filter(\.$accountId ~~ accountIDs)
+                .all()
+            let lotByID = Dictionary(uniqueKeysWithValues: sourceLots.compactMap { lot in
+                lot.id.map { ($0, lot) }
+            })
+            let lotIDs = Array(lotByID.keys)
+            guard !lotIDs.isEmpty else { return 0 }
+            let disposals = try await LotDisposal.query(on: db)
+                .filter(\.$lotId ~~ lotIDs)
+                .all()
+            let transactionIDs = Array(Set(disposals.map(\.transactionId)))
+            let transactions = transactionIDs.isEmpty ? [] : try await Transaction.query(on: db)
+                .filter(\.$id ~~ transactionIDs)
+                .filter(\.$tradeDate >= start)
+                .filter(\.$tradeDate < end)
+                .all()
+            let transactionByID = Dictionary(uniqueKeysWithValues: transactions.compactMap { transaction in
+                transaction.id.map { ($0, transaction) }
+            })
+            let positions = disposals.compactMap { disposal -> PortugalRealizedPosition? in
+                guard let lot = lotByID[disposal.lotId],
+                      let transaction = transactionByID[disposal.transactionId]
+                else { return nil }
+                let holdingDays = max(0, calendar.dateComponents(
+                    [.day],
+                    from: lot.openDate,
+                    to: transaction.tradeDate
+                ).day ?? 0)
+                return .init(realizedPnL: Decimal(disposal.realizedPnl), holdingDays: holdingDays)
+            }
+            let ledger = PortugalLossCarryforwardLedger()
+            let persistedCarryforward = try await ledger.available(
+                userId: owner.userId,
+                taxYear: taxYear,
+                on: db
+            )
+            let manuallyEnteredCarryforward = max(
+                0,
+                profile.priorShortTermLossCarryover + profile.priorLongTermLossCarryover
+            )
+            let result = PortugalCapitalGainsCalculator().calculate(
+                positions: positions,
+                estimatedTaxableIncome: profile.estimatedTaxableIncome,
+                marginalRate: profile.marginalIncomeTaxRate ?? PortugalCapitalGainsCalculator.autonomousRate,
+                taxationMode: profile.capitalGainsTaxationMode,
+                eligibleLossCarryforward: max(persistedCarryforward, manuallyEnteredCarryforward)
+            )
+            try await ledger.reconcile(
+                userId: owner.userId,
+                taxYear: taxYear,
+                currency: profile.reportingCurrency,
+                ruleVersion: pack.ruleVersion,
+                result: result,
+                on: db
+            )
+            return result.estimatedTax
+        }
+        if pack.jurisdiction == .germany {
+            let transactions = try await Transaction.query(on: db)
+                .filter(\.$accountId ~~ accountIDs)
+                .filter(\.$type == "SELL")
+                .filter(\.$tradeDate >= start)
+                .filter(\.$tradeDate < end)
+                .all()
+            let instrumentIDs = Set(transactions.map(\.instrumentId))
+            let instruments = instrumentIDs.isEmpty ? [] : try await Instrument.query(on: db)
+                .filter(\.$id ~~ Array(instrumentIDs))
+                .all()
+            let stockInstrumentIDs = Set(instruments.compactMap { instrument -> UUID? in
+                guard let id = instrument.id,
+                      ["stock", "equity"].contains(instrument.instrumentType?.lowercased() ?? "")
+                else { return nil }
+                return id
+            })
+            let transactionIDs = transactions.compactMap { transaction -> UUID? in
+                guard stockInstrumentIDs.contains(transaction.instrumentId) else { return nil }
+                return transaction.id
+            }
+            let disposals = transactionIDs.isEmpty ? [] : try await LotDisposal.query(on: db)
+                .filter(\.$transactionId ~~ transactionIDs)
+                .all()
+            let annualResult = disposals.reduce(Decimal.zero) { result, disposal in
+                result + Decimal(disposal.realizedPnl)
+            }
+            let reconciled = try await GermanyStockLossLedger().reconcile(
+                userId: owner.userId,
+                taxYear: taxYear,
+                netStockResult: annualResult,
+                ruleVersion: pack.ruleVersion,
+                on: db
+            )
+            return reconciled.taxableStockGain * GermanyCapitalGainsCalculator.combinedRate
+        }
         let lots = try await Lot.query(on: db)
             .filter(\.$accountId ~~ accountIDs)
             .filter(\.$closeDate >= start)

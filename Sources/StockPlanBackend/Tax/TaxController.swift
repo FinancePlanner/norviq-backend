@@ -26,11 +26,32 @@ struct TaxController: RouteCollection {
         tax.get("scenarios", ":scenarioId", use: getScenario)
         tax.post("action-plans", use: createActionPlan)
         tax.get("notifications", use: getNotificationPreferences)
+        tax.get("loss-carryforwards", use: lossCarryforwards)
         tax.put("notifications", use: saveNotificationPreferences)
         tax.post("reports", use: createReport)
         tax.get("reports", use: listReports)
         tax.get("reports", ":reportId", use: getReport)
         tax.get("reports", ":reportId", "download", use: downloadReport)
+    }
+
+    private func lossCarryforwards(req: Request) async throws -> TaxLossCarryforwardLedgerResponse {
+        let session = try req.auth.require(SessionToken.self)
+        let query = try req.query.decode(TaxQuery.self)
+        let jurisdiction = query.jurisdiction ?? .unitedStates
+        let taxYear = query.taxYear ?? Calendar.current.component(.year, from: Date())
+        if jurisdiction == .germany {
+            return try await GermanyStockLossLedger().response(
+                userId: session.userId,
+                asOfTaxYear: taxYear,
+                on: req.db
+            )
+        }
+        return try await PortugalLossCarryforwardLedger().response(
+            userId: session.userId,
+            jurisdiction: jurisdiction,
+            asOfTaxYear: taxYear,
+            on: req.db
+        )
     }
 
     @Sendable

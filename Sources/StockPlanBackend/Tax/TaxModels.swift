@@ -175,3 +175,34 @@ final class TaxProjectionJob: Model, @unchecked Sendable {
 
     init() {}
 }
+
+final class TaxLossCarryforward: Model, @unchecked Sendable {
+    static let schema = "tax_loss_carryforwards"
+
+    @ID(key: .id) var id: UUID?
+    @Field(key: "user_id") var userId: UUID
+    @Field(key: "jurisdiction") var jurisdiction: String
+    @Field(key: "source_tax_year") var sourceTaxYear: Int
+    @Field(key: "expires_after_tax_year") var expiresAfterTaxYear: Int
+    @Field(key: "original_amount") var originalAmount: Double
+    @Field(key: "remaining_amount") var remainingAmount: Double
+    @Field(key: "currency") var currency: String
+    @Field(key: "rule_version") var ruleVersion: String
+    @Timestamp(key: "created_at", on: .create) var createdAt: Date?
+    @Timestamp(key: "updated_at", on: .update) var updatedAt: Date?
+
+    init() {}
+}
+
+final class TaxLossCarryforwardApplication: Model, @unchecked Sendable {
+    static let schema = "tax_loss_carryforward_applications"
+
+    @ID(key: .id) var id: UUID?
+    @Field(key: "carryforward_id") var carryforwardId: UUID
+    @Field(key: "target_tax_year") var targetTaxYear: Int
+    @Field(key: "amount") var amount: Double
+    @Timestamp(key: "created_at", on: .create) var createdAt: Date?
+    @Timestamp(key: "updated_at", on: .update) var updatedAt: Date?
+
+    init() {}
+}

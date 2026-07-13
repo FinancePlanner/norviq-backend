@@ -21,6 +21,16 @@ final class ScenarioRetentionJob: LifecycleHandler, @unchecked Sendable {
         do {
             try await ScenarioRunModel.query(on: app.db)
                 .filter(\.$expiresAt < Date()).filter(\.$state ~~ ["completed", "failed", "cancelled"]).delete()
+            let unsaved = try await ScenarioDefinitionModel.query(on: app.db)
+                .filter(\.$isSaved == false).all()
+            for scenario in unsaved {
+                guard let id = scenario.id else { continue }
+                let runCount = try await ScenarioRunModel.query(on: app.db)
+                    .filter(\.$scenario.$id == id).count()
+                if runCount == 0 {
+                    try await scenario.delete(on: app.db)
+                }
+            }
         } catch { app.logger.warning("scenario_retention failed error=\(error)") }
     }
 }

@@ -40,6 +40,8 @@ struct ScenarioControllerTests {
         let seed: UInt64
     }
 
+    private struct CompareRequest: Content { let runIds: [UUID] }
+
     private func withApp(_ test: (Application) async throws -> Void) async throws {
         try await DatabaseTestLock.withLock {
             let previousFlag = getenv("SCENARIO_PLANNING_ENABLED").map { String(cString: $0) }
@@ -237,6 +239,7 @@ struct ScenarioControllerTests {
             try await grantPro(owner.userId, on: app)
             try await grantPro(other.userId, on: app)
             let portfolioId = try await makePortfolio(for: owner.userId, suffix: "Run", on: app)
+            let otherPortfolioId = try await makePortfolio(for: owner.userId, suffix: "Other Run", on: app)
 
             let scenario: ScenarioDefinitionModel = try await request(
                 .POST,
@@ -269,6 +272,26 @@ struct ScenarioControllerTests {
             )
             let scenarioId = try #require(scenario.id)
             let snapshotId = try #require(snapshot.id)
+            let mismatchedSnapshot: ScenarioSnapshotModel = try await request(
+                .POST,
+                "v1/portfolio/scenario-snapshots",
+                token: owner.token,
+                body: SnapshotRequest(
+                    portfolioListId: otherPortfolioId,
+                    baseCurrency: "USD",
+                    valuationTimestamp: Date(),
+                    payload: ScenarioJSON(["totalValue": .number(100_000)]),
+                    warnings: ScenarioJSON()
+                ),
+                as: ScenarioSnapshotModel.self,
+                on: app
+            )
+            try await app.testing().test(.POST, "v1/scenarios/\(scenarioId)/runs", beforeRequest: { req in
+                req.headers.bearerAuthorization = .init(token: owner.token)
+                try req.content.encode(RunRequest(snapshotId: #require(mismatchedSnapshot.id), seed: 7))
+            }, afterResponse: { response async in
+                #expect(response.status == .unprocessableEntity)
+            })
             let run: ScenarioRunModel = try await request(
                 .POST,
                 "v1/scenarios/\(scenarioId)/runs",
@@ -309,6 +332,7 @@ struct ScenarioControllerTests {
             let auth = try await registerUser("goalworker", on: app)
             try await grantPro(auth.userId, on: app)
             let portfolioId = try await makePortfolio(for: auth.userId, suffix: "Goal", on: app)
+            let otherPortfolioId = try await makePortfolio(for: auth.userId, suffix: "Other Goal", on: app)
             let targetDate = Calendar(identifier: .gregorian).date(byAdding: .month, value: 18, to: Date())!
             let goal: FinancialGoalModel = try await request(
                 .POST,
@@ -323,6 +347,17 @@ struct ScenarioControllerTests {
                 on: app
             )
             let goalId = try #require(goal.id)
+            try await app.testing().test(.POST, "v1/scenarios", beforeRequest: { req in
+                req.headers.bearerAuthorization = .init(token: auth.token)
+                try req.content.encode(ScenarioRequest(
+                    portfolioListId: otherPortfolioId, financialGoalId: goalId,
+                    name: "Mismatched goal", kind: "monte_carlo",
+                    configuration: ScenarioJSON(["distribution": .string("normal")]),
+                    isSaved: true
+                ))
+            }, afterResponse: { response async in
+                #expect(response.status == .unprocessableEntity)
+            })
             let scenario: ScenarioDefinitionModel = try await request(
                 .POST,
                 "v1/scenarios",
@@ -373,6 +408,19 @@ struct ScenarioControllerTests {
             #expect(assumptions["annual_contribution_growth"]?.number == 0.04)
             #expect(assumptions["inflation"]?.number == 0.025)
             #expect(assumptions["financial_goal_id"]?.string == goalId.uuidString)
+
+            let comparison: ComparisonResponse = try await request(
+                .POST,
+                "v1/scenario-runs/compare",
+                token: auth.token,
+                body: CompareRequest(runIds: [#require(run.id)]),
+                as: ComparisonResponse.self,
+                on: app
+            )
+            #expect(comparison.series.count == 1)
+            #expect(comparison.series[0].points.first?.elapsedDays == 0)
+            #expect(comparison.series[0].points.first?.percentageChange == 0)
+            #expect(comparison.series[0].points.last?.elapsedDays ?? 0 > 0)
 
             let duplicate: ScenarioRunModel = try await request(
                 .POST,

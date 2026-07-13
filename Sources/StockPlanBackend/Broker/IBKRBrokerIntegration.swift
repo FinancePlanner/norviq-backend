@@ -463,7 +463,19 @@ struct IBKRBrokerSyncService {
             .filter(\.$jurisdiction == TaxJurisdiction.spain.rawValue)
             .filter(\.$isComplete == true)
             .first() != nil
-        let disposalMethod: TaxLotSelectionMethod = hasCompletedSpainProfile ? .fifo : method
+        let hasCompletedPortugalProfile = try await TaxProfile.query(on: req.db)
+            .filter(\.$userId == userId)
+            .filter(\.$jurisdiction == TaxJurisdiction.portugal.rawValue)
+            .filter(\.$isComplete == true)
+            .first() != nil
+        let hasCompletedGermanyProfile = try await TaxProfile.query(on: req.db)
+            .filter(\.$userId == userId)
+            .filter(\.$jurisdiction == TaxJurisdiction.germany.rawValue)
+            .filter(\.$isComplete == true)
+            .first() != nil
+        let disposalMethod: TaxLotSelectionMethod = hasCompletedSpainProfile || hasCompletedPortugalProfile || hasCompletedGermanyProfile
+            ? .fifo
+            : method
         let usRuleVersion = TaxRuleRegistry(validatedJurisdictions: [.unitedStates])
             .pack(for: .unitedStates).ruleVersion
         let spainRuleVersion = TaxRuleRegistry(validatedJurisdictions: [.spain])

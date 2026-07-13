@@ -79,6 +79,13 @@ final class TaxProjectionPoller: LifecycleHandler, @unchecked Sendable {
                     .first(),
                     let jurisdiction = TaxJurisdiction(rawValue: profile.jurisdiction)
                 else { throw Abort(.notFound, reason: "Tax profile not found for projection job.") }
+                if jurisdiction == .germany {
+                    try await reconcileGermanStockLosses(
+                        userId: job.userId,
+                        taxYear: job.taxYear,
+                        on: app.db
+                    )
+                }
                 let dashboard = try await app.taxService.dashboard(
                     userId: job.userId,
                     jurisdiction: jurisdiction,
@@ -101,6 +108,69 @@ final class TaxProjectionPoller: LifecycleHandler, @unchecked Sendable {
             }
             try await job.save(on: app.db)
         }
+    }
+
+    private func reconcileGermanStockLosses(
+        userId: UUID,
+        taxYear: Int,
+        on database: any Database
+    ) async throws {
+        let accountIDs = try await Account.query(on: database)
+            .filter(\.$userId == userId)
+            .all()
+            .compactMap(\.id)
+
+        var calendar = Calendar(identifier: .iso8601)
+        calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+        guard !accountIDs.isEmpty,
+              let yearStart = calendar.date(from: DateComponents(year: taxYear, month: 1, day: 1)),
+              let nextYearStart = calendar.date(from: DateComponents(year: taxYear + 1, month: 1, day: 1))
+        else {
+            _ = try await GermanyStockLossLedger().reconcile(
+                userId: userId,
+                taxYear: taxYear,
+                netStockResult: 0,
+                ruleVersion: "DE-2026.1",
+                on: database
+            )
+            return
+        }
+
+        let transactions = try await Transaction.query(on: database)
+            .filter(\.$accountId ~~ accountIDs)
+            .filter(\.$type == "SELL")
+            .filter(\.$tradeDate >= yearStart)
+            .filter(\.$tradeDate < nextYearStart)
+            .all()
+        let instrumentIDs = Set(transactions.map(\.instrumentId))
+        let instruments = instrumentIDs.isEmpty ? [] : try await Instrument.query(on: database)
+            .filter(\.$id ~~ Array(instrumentIDs))
+            .all()
+        let stockInstrumentIDs = Set(instruments.compactMap { instrument -> UUID? in
+            guard let id = instrument.id,
+                  ["stock", "equity"].contains(instrument.instrumentType?.lowercased() ?? "")
+            else { return nil }
+            return id
+        })
+        let transactionIDs = transactions.compactMap { transaction -> UUID? in
+            guard stockInstrumentIDs.contains(transaction.instrumentId) else { return nil }
+            return transaction.id
+        }
+        let disposals = transactionIDs.isEmpty ? [] : try await LotDisposal.query(on: database)
+            .filter(\.$transactionId ~~ transactionIDs)
+            .all()
+        let annualResult = disposals.reduce(Decimal.zero) { partial, disposal in
+            partial + Decimal(disposal.realizedPnl)
+        }
+        let ruleVersion = TaxRuleRegistry(validatedJurisdictions: [.germany])
+            .pack(for: .germany).ruleVersion
+        _ = try await GermanyStockLossLedger().reconcile(
+            userId: userId,
+            taxYear: taxYear,
+            netStockResult: annualResult,
+            ruleVersion: ruleVersion,
+            on: database
+        )
     }
 
     private static let dayFormatter: DateFormatter = {

@@ -21,18 +21,18 @@ struct ScenarioShockSet: Sendable {
 }
 
 struct ScenarioEngine {
-    static let version = "1.0.0"
+    static let version = "1.1.0"
 
     func customValue(for holding: ScenarioEngineHolding, shocks: ScenarioShockSet) -> Double {
-        if let override = shocks.holdings[holding.id] {
-            return holding.value * (1 + override)
-        }
-
         var multiplier = 1.0
-        multiplier *= 1 + (shocks.assetClasses[holding.assetClass] ?? 0)
-        multiplier *= 1 + (holding.sector.flatMap { shocks.sectors[$0] } ?? 0)
-        multiplier *= 1 + (holding.region.flatMap { shocks.regions[$0] } ?? 0)
-        multiplier *= 1 + (shocks.currencies[holding.currency] ?? 0)
+        if let override = shocks.holdings[holding.id] {
+            multiplier = 1 + override
+        } else {
+            multiplier *= 1 + (shocks.assetClasses[holding.assetClass] ?? 0)
+            multiplier *= 1 + (holding.sector.flatMap { shocks.sectors[$0] } ?? 0)
+            multiplier *= 1 + (holding.region.flatMap { shocks.regions[$0] } ?? 0)
+            multiplier *= 1 + (shocks.currencies[holding.currency] ?? 0)
+        }
 
         let rateShift = shocks.parallelRateShiftBps / 10000
         if holding.assetClass == "bond", let duration = holding.duration {

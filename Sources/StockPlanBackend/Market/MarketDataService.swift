@@ -324,7 +324,10 @@ struct DefaultMarketDataService: MarketDataService {
             let fresh = try await provider.history(
                 symbol: symbol, from: fromDate, to: toDate, on: req
             )
-            try await upsertHistoryBars(symbol: symbol, bars: fresh.bars, on: req.db)
+            try await upsertHistoryBars(
+                symbol: symbol, currency: fresh.currency, provider: provider.name,
+                bars: fresh.bars, on: req.db
+            )
             let merged = try await loadCachedHistory(
                 symbol: symbol, from: fromDate, to: toDate, on: req.db
             )
@@ -384,7 +387,10 @@ struct DefaultMarketDataService: MarketDataService {
         let (fromDate, toDate) = try parseHistoryRange(from: rawFrom, to: rawTo)
         let fresh = try await provider.history(symbol: symbol, from: fromDate, to: toDate, on: req)
 
-        try await upsertHistoryBars(symbol: symbol, bars: fresh.bars, on: req.db)
+        try await upsertHistoryBars(
+            symbol: symbol, currency: fresh.currency, provider: provider.name,
+            bars: fresh.bars, on: req.db
+        )
         let archivedBars = try await loadCachedHistory(
             symbol: symbol, from: fromDate, to: toDate, on: req.db
         )
@@ -1731,6 +1737,8 @@ extension DefaultMarketDataService {
 
     func upsertHistoryBars(
         symbol: String,
+        currency: String,
+        provider: String,
         bars: [MarketProviderPriceBar],
         on db: any Database
     ) async throws {
@@ -1760,6 +1768,22 @@ extension DefaultMarketDataService {
                 volume: bar.volume
             )
             try await model.save(on: db)
+        }
+        // Keep the canonical scenario history store in sync while legacy history readers are retired.
+        // This is best-effort so a partially rolled-out schema cannot break the existing market API.
+        let canonicalBars = bars.map {
+            PriceBarResponse(
+                date: formatISODateOnly($0.date), open: $0.open, high: $0.high,
+                low: $0.low, close: $0.close, volume: $0.volume
+            )
+        }
+        do {
+            try await MarketPriceBarRepository().upsert(
+                instrumentKey: symbol, currency: currency, provider: provider,
+                bars: canonicalBars, on: db
+            )
+        } catch {
+            db.logger.warning("market history canonical dual-write failed symbol=\(symbol) error=\(error)")
         }
     }
 

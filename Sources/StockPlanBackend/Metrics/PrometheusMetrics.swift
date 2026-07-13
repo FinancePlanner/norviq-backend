@@ -40,6 +40,13 @@ final class PrometheusMetrics: @unchecked Sendable {
     let scenarioPathsTotal = ManagedAtomic<Int64>(0)
     let scenarioQueueDepth = ManagedAtomic<Int64>(0)
     let scenarioDurationMilliseconds = ManagedAtomic<Int64>(0)
+    let scenarioProxyUsage = ManagedAtomic<Int64>(0)
+    let scenarioMissingHistory = ManagedAtomic<Int64>(0)
+    let scenarioHistoryBarsCovered = ManagedAtomic<Int64>(0)
+    let scenarioHistoryBarsExpected = ManagedAtomic<Int64>(0)
+    let taxCarryforwardReconciliations = ManagedAtomic<Int64>(0)
+    let taxCarryforwardGeneratedCents = ManagedAtomic<Int64>(0)
+    let taxCarryforwardAppliedCents = ManagedAtomic<Int64>(0)
 
     // MARK: - Recording
 
@@ -107,6 +114,24 @@ final class PrometheusMetrics: @unchecked Sendable {
         scenarioQueueDepth.store(Int64(value), ordering: .relaxed)
     }
 
+    func recordScenarioDataQuality(proxyCount: Int, missingHistoryCount: Int) {
+        scenarioProxyUsage.wrappingIncrement(by: Int64(proxyCount), ordering: .relaxed)
+        scenarioMissingHistory.wrappingIncrement(by: Int64(missingHistoryCount), ordering: .relaxed)
+    }
+
+    func recordScenarioHistoryCoverage(covered: Int, expected: Int) {
+        scenarioHistoryBarsCovered.wrappingIncrement(by: Int64(max(0, covered)), ordering: .relaxed)
+        scenarioHistoryBarsExpected.wrappingIncrement(by: Int64(max(0, expected)), ordering: .relaxed)
+    }
+
+    func recordTaxCarryforwardReconciliation(generated: Decimal, applied: Decimal) {
+        taxCarryforwardReconciliations.wrappingIncrement(ordering: .relaxed)
+        let generatedCents = NSDecimalNumber(decimal: max(0, generated) * 100).int64Value
+        let appliedCents = NSDecimalNumber(decimal: max(0, applied) * 100).int64Value
+        taxCarryforwardGeneratedCents.wrappingIncrement(by: generatedCents, ordering: .relaxed)
+        taxCarryforwardAppliedCents.wrappingIncrement(by: appliedCents, ordering: .relaxed)
+    }
+
     // MARK: - Render
 
     /// Render all registered metric values as Prometheus text format.
@@ -161,6 +186,16 @@ final class PrometheusMetrics: @unchecked Sendable {
         out.append("# TYPE scenario_simulation_paths_total counter\nscenario_simulation_paths_total \(scenarioPathsTotal.load(ordering: .relaxed))\n")
         out.append("# TYPE scenario_queue_depth gauge\nscenario_queue_depth \(scenarioQueueDepth.load(ordering: .relaxed))\n")
         out.append("# TYPE scenario_run_duration_milliseconds_total counter\nscenario_run_duration_milliseconds_total \(scenarioDurationMilliseconds.load(ordering: .relaxed))\n")
+        out.append("# TYPE scenario_proxy_usage_total counter\nscenario_proxy_usage_total \(scenarioProxyUsage.load(ordering: .relaxed))\n")
+        out.append("# TYPE scenario_missing_history_total counter\nscenario_missing_history_total \(scenarioMissingHistory.load(ordering: .relaxed))\n")
+        let covered = scenarioHistoryBarsCovered.load(ordering: .relaxed)
+        let expected = scenarioHistoryBarsExpected.load(ordering: .relaxed)
+        let coverage = expected > 0 ? Double(covered) / Double(expected) : 0
+        let coverageText = String(format: "%.6f", coverage)
+        out.append("# TYPE scenario_history_coverage_ratio gauge\nscenario_history_coverage_ratio \(coverageText)\n")
+        out.append("# TYPE tax_carryforward_reconciliations_total counter\ntax_carryforward_reconciliations_total \(taxCarryforwardReconciliations.load(ordering: .relaxed))\n")
+        out.append("# TYPE tax_carryforward_generated_cents_total counter\ntax_carryforward_generated_cents_total \(taxCarryforwardGeneratedCents.load(ordering: .relaxed))\n")
+        out.append("# TYPE tax_carryforward_applied_cents_total counter\ntax_carryforward_applied_cents_total \(taxCarryforwardAppliedCents.load(ordering: .relaxed))\n")
 
         return out
     }

@@ -17,6 +17,18 @@ struct ScenarioEngineTests {
     }
 
     @Test
+    func `holding override still applies independent bond rate shock`() {
+        let holding = ScenarioEngineHolding(
+            id: "bond", value: 1000, assetClass: "bond", sector: nil,
+            region: nil, currency: "USD", duration: 5, convexity: 20
+        )
+        let shocks = ScenarioShockSet(
+            holdings: ["bond": -0.1], assetClasses: ["bond": -0.5], parallelRateShiftBps: 100
+        )
+        #expect(abs(ScenarioEngine().customValue(for: holding, shocks: shocks) - 855.9) < 0.0001)
+    }
+
+    @Test
     func `applicable broad shocks compound`() {
         let holding = ScenarioEngineHolding(
             id: "one", value: 100, assetClass: "stock", sector: "technology",

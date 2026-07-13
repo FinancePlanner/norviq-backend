@@ -20,6 +20,14 @@ struct TaxReportGenerator: Sendable {
                 taxYear: report.taxYear,
                 on: application.db
             )
+            let carryforwardLedger = jurisdiction == .portugal
+                ? try await PortugalLossCarryforwardLedger().response(
+                    userId: report.userId,
+                    jurisdiction: jurisdiction,
+                    asOfTaxYear: report.taxYear,
+                    on: application.db
+                )
+                : nil
             let accountIDs = try await Account.query(on: application.db)
                 .filter(\.$userId == report.userId)
                 .all()
@@ -33,8 +41,8 @@ struct TaxReportGenerator: Sendable {
                 : nil
             let format = TaxReportFormat(rawValue: report.format) ?? .pdf
             let data = format == .csv
-                ? csvData(dashboard, basisDisclosure: basisDisclosure)
-                : simplePDFData(dashboard, basisDisclosure: basisDisclosure)
+                ? csvData(dashboard, carryforwardLedger: carryforwardLedger, basisDisclosure: basisDisclosure)
+                : simplePDFData(dashboard, carryforwardLedger: carryforwardLedger, basisDisclosure: basisDisclosure)
             let path = try application.taxReportStorage.store(
                 data: data,
                 userID: report.userId,
@@ -56,7 +64,11 @@ struct TaxReportGenerator: Sendable {
         }
     }
 
-    private func csvData(_ dashboard: TaxDashboardResponse, basisDisclosure: String?) -> Data {
+    private func csvData(
+        _ dashboard: TaxDashboardResponse,
+        carryforwardLedger: TaxLossCarryforwardLedgerResponse?,
+        basisDisclosure: String?
+    ) -> Data {
         var rows = [
             "symbol,instrumentType,accountId,quantity,marketValue,unrealizedLoss,estimatedTaxBenefit,holdingPeriod,status,supportLevel,warnings",
         ]
@@ -76,6 +88,27 @@ struct TaxReportGenerator: Sendable {
             ].map(csvEscape).joined(separator: ",")
         }
         rows.append("")
+        if let carryforwardLedger {
+            rows.append("lossCarryforwardSourceYear,expiresAfterTaxYear,originalAmount,remainingAmount,currency,ruleVersion,applicationHistory")
+            rows += carryforwardLedger.balances.map { balance in
+                let applicationHistory = balance.applications.map {
+                    "\($0.targetTaxYear):\(money($0.amount.amount)) \($0.amount.currency)"
+                }.joined(separator: "; ")
+                return [
+                    String(balance.sourceTaxYear),
+                    String(balance.expiresAfterTaxYear),
+                    money(balance.originalAmount.amount),
+                    money(balance.remainingAmount.amount),
+                    balance.remainingAmount.currency,
+                    balance.ruleVersion,
+                    applicationHistory,
+                ].map(csvEscape).joined(separator: ",")
+            }
+            rows.append(csvEscape(
+                "Total available for \(carryforwardLedger.asOfTaxYear): \(money(carryforwardLedger.totalAvailable.amount)) \(carryforwardLedger.totalAvailable.currency)"
+            ))
+            rows.append("")
+        }
         if let basisDisclosure {
             rows.append(csvEscape(basisDisclosure))
         }
@@ -83,7 +116,11 @@ struct TaxReportGenerator: Sendable {
         return Data((["\u{FEFF}"] + rows).joined(separator: "\n").utf8)
     }
 
-    private func simplePDFData(_ dashboard: TaxDashboardResponse, basisDisclosure: String?) -> Data {
+    private func simplePDFData(
+        _ dashboard: TaxDashboardResponse,
+        carryforwardLedger: TaxLossCarryforwardLedgerResponse?,
+        basisDisclosure: String?
+    ) -> Data {
         let currency = dashboard.summary.estimatedNetBenefit.currency
         var lines = [
             "Norviq Tax Optimization Workpaper",
@@ -94,10 +131,25 @@ struct TaxReportGenerator: Sendable {
             "Harvestable losses: \(money(dashboard.summary.harvestableLosses.amount)) \(currency)",
             "Estimated net benefit: \(money(dashboard.summary.estimatedNetBenefit.amount)) \(currency)",
             "Opportunities: \(dashboard.opportunities.count)",
-            "",
-            "Advisor workpaper only. Not filing-ready.",
-            dashboard.disclaimer,
         ]
+        if let carryforwardLedger {
+            lines += [
+                "",
+                "Portugal carried tax losses",
+                "Available for \(carryforwardLedger.asOfTaxYear): \(money(carryforwardLedger.totalAvailable.amount)) \(carryforwardLedger.totalAvailable.currency)",
+            ]
+            for balance in carryforwardLedger.balances {
+                lines.append(
+                    "\(balance.sourceTaxYear): \(money(balance.remainingAmount.amount)) \(balance.remainingAmount.currency) remaining; expires after \(balance.expiresAfterTaxYear)"
+                )
+                for application in balance.applications {
+                    lines.append(
+                        "  Applied in \(application.targetTaxYear): \(money(application.amount.amount)) \(application.amount.currency)"
+                    )
+                }
+            }
+        }
+        lines += ["", "Advisor workpaper only. Not filing-ready.", dashboard.disclaimer]
         if let basisDisclosure {
             lines.insert(basisDisclosure, at: max(0, lines.count - 2))
         }
@@ -115,14 +167,26 @@ struct TaxReportGenerator: Sendable {
 
 private enum MinimalPDF {
     static func make(lines: [String]) -> Data {
-        let content = contentStream(lines)
-        let objects = [
+        let pageSize = 27
+        let pages = lines.isEmpty ? [[]] : stride(from: 0, to: lines.count, by: pageSize).map {
+            Array(lines[$0 ..< min($0 + pageSize, lines.count)])
+        }
+        let fontObjectNumber = 3 + pages.count * 2
+        let pageObjectNumbers = pages.indices.map { 3 + $0 * 2 }
+        let kids = pageObjectNumbers.map { "\($0) 0 R" }.joined(separator: " ")
+        var objects = [
             "<< /Type /Catalog /Pages 2 0 R >>",
-            "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
-            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 5 0 R >> >> /Contents 4 0 R >>",
-            "<< /Length \(content.utf8.count) >>\nstream\n\(content)\nendstream",
-            "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
+            "<< /Type /Pages /Kids [\(kids)] /Count \(pages.count) >>",
         ]
+        for (index, pageLines) in pages.enumerated() {
+            let content = contentStream(pageLines)
+            let contentObjectNumber = 4 + index * 2
+            objects.append(
+                "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 \(fontObjectNumber) 0 R >> >> /Contents \(contentObjectNumber) 0 R >>"
+            )
+            objects.append("<< /Length \(content.utf8.count) >>\nstream\n\(content)\nendstream")
+        }
+        objects.append("<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>")
         var pdf = "%PDF-1.4\n"
         var offsets = [Int]()
         for (index, object) in objects.enumerated() {

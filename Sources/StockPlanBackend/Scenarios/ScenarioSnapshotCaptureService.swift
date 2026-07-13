@@ -119,11 +119,16 @@ struct ScenarioSnapshotCaptureService {
             if quote == nil {
                 warnings.append(warning("stale_price", holding.id, "Live crypto quote unavailable; average purchase price used."))
             }
-            let value = holding.quantity * price; totalValue += value
+            let quoteCurrency = "USD"
+            let fxRate = await conversionRate(
+                from: quoteCurrency, to: baseCurrency, req: req,
+                holdingID: holding.id, warnings: &warnings
+            )
+            let value = holding.quantity * price * fxRate; totalValue += value
             items.append(.object([
                 "id": .string(holding.id?.uuidString ?? ""), "instrument_key": .string("CRYPTO:\(holding.symbol.uppercased())"),
                 "symbol": .string(holding.symbol.uppercased()), "quantity": .number(holding.quantity), "price": .number(price),
-                "currency": .string(baseCurrency), "fx_rate": .number(1), "value_in_base_currency": .number(value),
+                "currency": .string(quoteCurrency), "fx_rate": .number(fxRate), "value_in_base_currency": .number(value),
                 "asset_category": .string("crypto"),
             ]))
         }

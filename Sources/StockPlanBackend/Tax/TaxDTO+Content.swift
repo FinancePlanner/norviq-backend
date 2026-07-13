@@ -13,4 +13,7 @@ extension TaxActionPlanRequest: @retroactive Content {}
 extension TaxActionPlanResponse: @retroactive Content {}
 extension TaxReportRequest: @retroactive Content {}
 extension TaxReportResponse: @retroactive Content {}
+extension TaxLossCarryforwardApplicationResponse: @retroactive Content {}
+extension TaxLossCarryforwardBalanceResponse: @retroactive Content {}
+extension TaxLossCarryforwardLedgerResponse: @retroactive Content {}
 extension TaxNotificationPreferences: @retroactive Content {}

@@ -27,6 +27,17 @@ struct ConfiguredTaxRulePack: TaxRulePack {
         guard ["stock", "equity", "etf"].contains(normalized) else {
             return .professionalReview
         }
+        if jurisdiction == .germany {
+            // InvStG partial exemptions require fund classification metadata that is
+            // not currently present in imported instruments.
+            return normalized == "etf" ? .professionalReview : .estimateOnly
+        }
+        // Portugal is evidence-backed for FIFO and headline-rate estimates, but remains
+        // estimate-only until annual Category G aggregation elections and carried losses
+        // are represented explicitly in the profile contract.
+        if jurisdiction == .portugal {
+            return .estimateOnly
+        }
         return isValidated ? .supported : .estimateOnly
     }
 
@@ -34,11 +45,40 @@ struct ConfiguredTaxRulePack: TaxRulePack {
         if jurisdiction == .unitedStates {
             return isLongTerm ? profile.longTermCapitalGainsRate : profile.shortTermCapitalGainsRate
         }
+        if jurisdiction == .portugal {
+            // CIRS Article 72(1)(c): autonomous 28% rate on the positive securities balance.
+            // Article 72(14) mandates aggregation for assets held under 365 days when
+            // taxable income, including that balance, reaches the final Article 68 band.
+            let topBandThreshold2026: Decimal = 86634
+            if profile.capitalGainsTaxationMode == .aggregateWithIncome {
+                return profile.marginalIncomeTaxRate
+            }
+            if !isLongTerm, profile.estimatedTaxableIncome >= topBandThreshold2026 {
+                return profile.marginalIncomeTaxRate
+            }
+            return 0.28
+        }
+        if jurisdiction == .germany {
+            // EStG section 32d: 25%; SolzG section 4: 5.5% of that tax.
+            // Church tax is excluded until denomination and state are collected.
+            return 0.26375
+        }
         return profile.marginalIncomeTaxRate
     }
 
     func assumptions(taxYear: Int) -> [String] {
         var values = ["Rule pack \(jurisdiction.rawValue) \(ruleVersion) was used for tax year \(taxYear)."]
+        if jurisdiction == .portugal {
+            values.append("Portuguese securities are matched FIFO within each imported account or custodian under CIRS Article 43(8)(d) and (9).")
+            values.append("The estimate applies the 28% autonomous rate, or the entered marginal rate for sub-365-day holdings above the 2026 mandatory-aggregation threshold of EUR 86,634.")
+            values.append("Annual Category G netting and eligible five-year carried losses are calculated from imported disposals; incomplete broker history requires professional review.")
+        }
+        if jurisdiction == .germany {
+            values.append("German fungible securities are matched FIFO within each imported brokerage account or depot under EStG Article 20(4).")
+            values.append("The estimate applies 25% investment-income tax plus the 5.5% solidarity surcharge on that tax, for a combined 26.375% rate.")
+            values.append("Stock-disposal losses are isolated from other capital income and carried forward separately under EStG Article 20(6).")
+            values.append("The saver allowance is not deducted because complete capital income across financial institutions is unavailable.")
+        }
         if !isValidated {
             values.append("This rule pack has not been enabled for actionable recommendations; results are estimates for review.")
         }
@@ -52,7 +92,11 @@ struct TaxRuleRegistry: Sendable {
 
     init(validatedJurisdictions: Set<TaxJurisdiction>) {
         packs = Dictionary(uniqueKeysWithValues: TaxJurisdiction.allCases.map { jurisdiction in
-            let version = "\(jurisdiction.rawValue)-2026.1"
+            let version = switch jurisdiction {
+            case .portugal: "PT-2026.2"
+            case .germany: "DE-2026.1"
+            default: "\(jurisdiction.rawValue)-2026.1"
+            }
             return (jurisdiction, ConfiguredTaxRulePack(
                 jurisdiction: jurisdiction,
                 ruleVersion: version,
@@ -88,6 +132,18 @@ struct TaxRuleRegistry: Sendable {
 
     private func limitations(pack: ConfiguredTaxRulePack, instrumentType: String) -> [String] {
         var values = [String]()
+        if pack.jurisdiction == .portugal {
+            values.append("FIFO is applied separately per imported account or custodian.")
+            values.append("Annual Category G balance netting depends on complete disposal history from every custodian.")
+            values.append("Five-year securities-loss carryforward is applied only when aggregation is elected or mandatory.")
+        }
+        if pack.jurisdiction == .germany {
+            values.append("FIFO is applied separately per imported brokerage account or depot.")
+            values.append("Church tax, foreign-tax credits, pre-2009 holdings, substantial shareholdings, business assets, and non-resident cases require professional review.")
+            if ["etf", "fund"].contains(instrumentType.lowercased()) {
+                values.append("Fund partial exemptions require investment-fund classification metadata and are not estimated by this rule version.")
+            }
+        }
         if !pack.isValidated {
             values.append("Professional validation required before actionable recommendations are enabled.")
         }

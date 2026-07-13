@@ -39,7 +39,22 @@ private struct RunInput: Content {
 }
 
 private struct CompareInput: Content { let runIds: [UUID] }
-struct ComparisonResponse: Content { let runs: [ScenarioRunModel] }
+struct ScenarioComparisonPoint: Content {
+    let elapsedDays: Double
+    let value: Double
+    let percentageChange: Double
+}
+
+struct ScenarioComparisonSeries: Content {
+    let runId: UUID
+    let points: [ScenarioComparisonPoint]
+}
+
+struct ComparisonResponse: Content {
+    let runs: [ScenarioRunModel]
+    let series: [ScenarioComparisonSeries]
+}
+
 private struct RiskProfileInput: Content {
     let holdingId: UUID
     let assetCategory: String
@@ -175,6 +190,9 @@ struct ScenarioController: RouteCollection {
         let user = try await authorize(req); let scenario = try await ownedScenario(req, user: user); let input = try req.content.decode(RunInput.self)
         guard let scenarioId = scenario.id else { throw Abort(.internalServerError) }
         guard let snapshot = try await ScenarioSnapshotModel.owned(by: user, on: req.db).filter(\.$id == input.snapshotId).first() else { throw Abort(.notFound) }
+        guard snapshot.portfolioListId == scenario.portfolioListId else {
+            throw Abort(.unprocessableEntity, reason: "Snapshot and scenario must use the same portfolio")
+        }
         guard let snapshotId = snapshot.id else { throw Abort(.internalServerError) }
         let seed = input.seed ?? UInt64.random(in: .min ... .max)
         let hashSource = [
@@ -214,7 +232,45 @@ struct ScenarioController: RouteCollection {
     }
 
     @Sendable func compareRuns(req: Request) async throws -> ComparisonResponse {
-        let user = try await authorize(req); let input = try req.content.decode(CompareInput.self); guard (1 ... 4).contains(input.runIds.count) else { throw Abort(.badRequest, reason: "Compare between one and four runs") }; let runs = try await ScenarioRunModel.owned(by: user, on: req.db).filter(\.$id ~~ input.runIds).all(); guard runs.count == Set(input.runIds).count else { throw Abort(.notFound) }; return ComparisonResponse(runs: runs)
+        let user = try await authorize(req)
+        let input = try req.content.decode(CompareInput.self)
+        guard (1 ... 4).contains(input.runIds.count) else {
+            throw Abort(.badRequest, reason: "Compare between one and four runs")
+        }
+        let fetched = try await ScenarioRunModel.owned(by: user, on: req.db)
+            .filter(\.$id ~~ input.runIds).all()
+        guard fetched.count == Set(input.runIds).count else { throw Abort(.notFound) }
+        let byID = Dictionary(uniqueKeysWithValues: fetched.compactMap { run in run.id.map { ($0, run) } })
+        let runs = input.runIds.compactMap { byID[$0] }
+        guard runs.allSatisfy({ $0.state == "completed" && $0.result != nil }) else {
+            throw Abort(.conflict, reason: "Only completed runs can be compared")
+        }
+        return ComparisonResponse(runs: runs, series: runs.compactMap(normalizedComparisonSeries))
+    }
+
+    private func normalizedComparisonSeries(_ run: ScenarioRunModel) -> ScenarioComparisonSeries? {
+        guard let id = run.id, let result = run.result else { return nil }
+        var source = result.values["timeline"]?.array?.compactMap(\.object) ?? []
+        var valueKey = "value"
+        if source.isEmpty {
+            source = result.values["percentile_bands"]?.array?.compactMap(\.object) ?? []
+            valueKey = "p50"
+        }
+        let raw = source.compactMap { point -> (Double, Double)? in
+            guard let value = point[valueKey]?.number else { return nil }
+            if let days = point["elapsed_days"]?.number {
+                return (days, value)
+            }
+            guard let months = point["elapsed_months"]?.number else { return nil }
+            return (months * 30.4375, value)
+        }.sorted { $0.0 < $1.0 }
+        guard let initial = raw.first?.1 else { return ScenarioComparisonSeries(runId: id, points: []) }
+        return ScenarioComparisonSeries(runId: id, points: raw.map {
+            ScenarioComparisonPoint(
+                elapsedDays: $0.0, value: $0.1,
+                percentageChange: initial == 0 ? 0 : $0.1 / initial - 1
+            )
+        })
     }
 
     @Sendable func listRiskProfiles(req: Request) async throws -> [HoldingRiskProfileModel] {
@@ -289,9 +345,30 @@ struct ScenarioController: RouteCollection {
     }
 
     private func persistScenario(_ req: Request, user: UUID, existing: ScenarioDefinitionModel?) async throws -> ScenarioDefinitionModel {
-        let input = try req.content.decode(ScenarioInput.self); try validateScenario(input); try await requirePortfolio(input.portfolioListId, user: user, db: req.db); if let goalId = input.financialGoalId, try await FinancialGoalModel.owned(by: user, on: req.db).filter(\.$id == goalId).first() == nil {
-            throw Abort(.notFound, reason: "Financial goal not found")
-        }; let scenario = existing ?? ScenarioDefinitionModel(userId: user, portfolioListId: input.portfolioListId, financialGoalId: input.financialGoalId, name: input.name, kind: input.kind, configuration: input.configuration, isSaved: input.isSaved ?? true); scenario.portfolioListId = input.portfolioListId; scenario.financialGoalId = input.financialGoalId; scenario.name = input.name; scenario.kind = input.kind; scenario.configuration = input.configuration; scenario.isSaved = input.isSaved ?? true; try await scenario.save(on: req.db); return scenario
+        let input = try req.content.decode(ScenarioInput.self)
+        try validateScenario(input)
+        try await requirePortfolio(input.portfolioListId, user: user, db: req.db)
+        if let goalId = input.financialGoalId {
+            guard let goal = try await FinancialGoalModel.owned(by: user, on: req.db)
+                .filter(\.$id == goalId).first()
+            else { throw Abort(.notFound, reason: "Financial goal not found") }
+            guard goal.portfolioListId == input.portfolioListId else {
+                throw Abort(.unprocessableEntity, reason: "Financial goal and scenario must use the same portfolio")
+            }
+        }
+        let scenario = existing ?? ScenarioDefinitionModel(
+            userId: user, portfolioListId: input.portfolioListId,
+            financialGoalId: input.financialGoalId, name: input.name, kind: input.kind,
+            configuration: input.configuration, isSaved: input.isSaved ?? true
+        )
+        scenario.portfolioListId = input.portfolioListId
+        scenario.financialGoalId = input.financialGoalId
+        scenario.name = input.name
+        scenario.kind = input.kind
+        scenario.configuration = input.configuration
+        scenario.isSaved = input.isSaved ?? true
+        try await scenario.save(on: req.db)
+        return scenario
     }
 
     private func validateScenario(_ input: ScenarioInput) throws {
@@ -299,21 +376,78 @@ struct ScenarioController: RouteCollection {
               !input.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         else { throw Abort(.badRequest, reason: "Invalid scenario") }
         let values = input.configuration.values
+        if input.kind == "historical" {
+            let catalogID = values["catalogId"]?.string ?? values["catalog_id"]?.string
+            let supported = Set(ScenarioCatalog.response.historicalScenarios.map(\.id))
+            guard let catalogID, supported.contains(catalogID) else {
+                throw Abort(.badRequest, reason: "Unknown historical scenario")
+            }
+        }
         if input.kind == "custom" {
             let months = values["horizon_months"]?.number ?? 1
-            guard months.isFinite, (1 ... 120).contains(months) else { throw Abort(.badRequest, reason: "Custom horizon must be between 1 and 120 months") }
+            let rateShift = values["parallel_rate_shift_bps"]?.number ?? 0
+            let volatility = values["volatility_multiplier"]?.number ?? 1
+            let recovery = values["recovery"]?.string ?? "none"
+            guard months.isFinite, months.rounded() == months, (1 ... 120).contains(months),
+                  rateShift.isFinite, (-5000 ... 5000).contains(rateShift),
+                  volatility.isFinite, (0 ... 10).contains(volatility),
+                  ["none", "linear", "mean_reverting"].contains(recovery),
+                  validShockList(values["holding_shocks"]),
+                  validShockList(values["sector_shocks"]),
+                  validShockList(values["region_shocks"]),
+                  validShockList(values["currency_shocks"]),
+                  validShockList(values["asset_class_shocks"])
+            else { throw Abort(.badRequest, reason: "Invalid custom scenario configuration") }
         }
         if input.kind == "monte_carlo" {
             let paths = values["path_count"]?.number ?? 10000
             let months = values["horizon_months"]?.number ?? 360
             let degrees = values["degrees_of_freedom"]?.number ?? 5
             let block = values["bootstrap_block_months"]?.number ?? 6
+            let distribution = values["distribution"]?.string ?? "block_bootstrap"
             guard paths.isFinite, paths.rounded() == paths, (1 ... 50000).contains(paths),
                   months.isFinite, months.rounded() == months, (1 ... 600).contains(months),
                   degrees.isFinite, degrees > 2, degrees <= 100,
-                  block.isFinite, block.rounded() == block, (1 ... 120).contains(block)
+                  block.isFinite, block.rounded() == block, (1 ... 120).contains(block),
+                  ["block_bootstrap", "normal", "student_t"].contains(distribution),
+                  validMonteCarloAssumptions(values)
             else { throw Abort(.badRequest, reason: "Invalid Monte Carlo configuration") }
         }
+    }
+
+    private func validShockList(_ value: ScenarioJSONValue?) -> Bool {
+        guard let value else { return true }
+        guard let shocks = value.array else { return false }
+        return shocks.allSatisfy { item in
+            guard let object = item.object,
+                  let target = object["target"]?.string?.trimmingCharacters(in: .whitespacesAndNewlines),
+                  let percentage = object["percentage"]?.number
+            else { return false }
+            return !target.isEmpty && percentage.isFinite && (-1 ... 10).contains(percentage)
+        }
+    }
+
+    private func validMonteCarloAssumptions(_ values: [String: ScenarioJSONValue]) -> Bool {
+        let weights = values["asset_weights"]?.array?.compactMap(\.number) ?? []
+        let returns = values["asset_annual_returns"]?.array?.compactMap(\.number) ?? []
+        let covariance = values["annual_covariance"]?.array?.compactMap { $0.array?.compactMap(\.number) } ?? []
+        if weights.isEmpty, returns.isEmpty, covariance.isEmpty {
+            return true
+        }
+        let count = weights.count
+        guard (2 ... 50).contains(count), returns.count == count, covariance.count == count,
+              covariance.allSatisfy({ $0.count == count }),
+              weights.allSatisfy({ $0.isFinite && (0 ... 1).contains($0) }),
+              abs(weights.reduce(0, +) - 1) <= 0.001,
+              returns.allSatisfy({ $0.isFinite && (-1 ... 10).contains($0) })
+        else { return false }
+        for row in 0 ..< count {
+            guard covariance[row].allSatisfy(\.isFinite), covariance[row][row] >= 0 else { return false }
+            for column in 0 ..< count where abs(covariance[row][column] - covariance[column][row]) > 0.000_001 {
+                return false
+            }
+        }
+        return true
     }
 }
 

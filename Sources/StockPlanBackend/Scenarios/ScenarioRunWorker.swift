@@ -92,6 +92,15 @@ final class ScenarioRunWorker: LifecycleHandler, @unchecked Sendable {
             run.completedAt = Date(); run.leaseOwner = nil; run.leaseExpiresAt = nil
             try await run.save(on: app.db)
             await cache(result: result, runID: id, app: app)
+            let warningCodes = result.values["warnings"]?.array?.compactMap {
+                $0.object?["code"]?.string
+            } ?? []
+            PrometheusMetrics.shared.recordScenarioDataQuality(
+                proxyCount: warningCodes.count(where: { $0 == "proxy_used" }),
+                missingHistoryCount: warningCodes.count(where: {
+                    $0 == "missing_history" || $0 == "missing_bootstrap_history"
+                })
+            )
             let paths = Int(run.scenario.configuration.values["path_count"]?.number ?? 0)
             PrometheusMetrics.shared.recordScenarioCompleted(paths: paths, duration: started.duration(to: clock.now))
         } catch {
@@ -277,16 +286,18 @@ struct ScenarioRunProcessor {
                 multiplier *= 1 + (sector.flatMap { sectorShocks[$0] } ?? 0)
                 multiplier *= 1 + (region.flatMap { regionShocks[$0] } ?? 0)
                 multiplier *= 1 + (currencyShocks[currency] ?? 0)
-                if assetClass == "bond", let duration = holding["duration"]?.number {
-                    let convexity = holding["convexity"]?.number ?? 0
-                    multiplier *= 1 - duration * rateShift + 0.5 * convexity * rateShift * rateShift
-                } else if assetClass == "cash" {
-                    multiplier *= 1 + rateShift / 12
-                } else if ["stock", "etf", "mutual_fund", "real_estate"].contains(assetClass) {
-                    let overrides = holding["factor_overrides"]?.object
-                    let sensitivity = overrides?["rate_sensitivity"]?.number ?? Self.defaultRateSensitivity[assetClass] ?? 0
-                    multiplier *= max(0, 1 - sensitivity * rateShift)
-                }
+            }
+            // A holding override replaces broader percentage shocks, but independent rate-factor
+            // effects still apply to the holding.
+            if assetClass == "bond", let duration = holding["duration"]?.number {
+                let convexity = holding["convexity"]?.number ?? 0
+                multiplier *= 1 - duration * rateShift + 0.5 * convexity * rateShift * rateShift
+            } else if assetClass == "cash" {
+                multiplier *= 1 + rateShift / 12
+            } else if ["stock", "etf", "mutual_fund", "real_estate"].contains(assetClass) {
+                let overrides = holding["factor_overrides"]?.object
+                let sensitivity = overrides?["rate_sensitivity"]?.number ?? Self.defaultRateSensitivity[assetClass] ?? 0
+                multiplier *= max(0, 1 - sensitivity * rateShift)
             }
             let result = max(0, value * multiplier); let contribution = result - value
             stressed += result; classTotals[assetClass, default: 0] += contribution

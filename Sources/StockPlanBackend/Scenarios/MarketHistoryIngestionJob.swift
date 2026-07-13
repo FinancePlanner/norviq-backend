@@ -49,6 +49,13 @@ final class MarketHistoryIngestionJob: LifecycleHandler, @unchecked Sendable {
         try await MarketPriceBarRepository().upsert(
             instrumentKey: symbol, currency: response.currency, provider: "market", bars: response.bars, on: app.db
         )
+        let updatedCoverage = try await MarketPriceBarRepository().coverage(
+            instrumentKey: symbol, from: fallbackStart, to: today, on: app.db
+        )
+        PrometheusMetrics.shared.recordScenarioHistoryCoverage(
+            covered: updatedCoverage.barCount,
+            expected: updatedCoverage.barCount + updatedCoverage.missingWeekdays
+        )
     }
 
     private static func day(_ date: Date) -> String {
