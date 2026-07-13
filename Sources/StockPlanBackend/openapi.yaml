@@ -4586,6 +4586,307 @@ paths:
         '401':
           description: Unauthorized
 
+  /v1/ai/assistant/conversations:
+    get:
+      operationId: listAIConversations
+      tags: [AI]
+      summary: List retained assistant conversations
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Conversations ordered by most recently updated
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/AIConversationSummaryResponse'
+        '401':
+          description: Unauthorized
+    post:
+      operationId: createAIConversation
+      tags: [AI]
+      summary: Create an assistant conversation
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AICreateConversationRequest'
+      responses:
+        '201':
+          description: Conversation created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AIConversationResponse'
+        '401':
+          description: Unauthorized
+
+  /v1/ai/assistant/conversations/{id}:
+    parameters:
+      - in: path
+        name: id
+        required: true
+        schema:
+          type: string
+          format: uuid
+    get:
+      operationId: getAIConversation
+      tags: [AI]
+      summary: Get a conversation and its decrypted messages
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Conversation
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AIConversationResponse'
+        '404':
+          description: Conversation not found
+    delete:
+      operationId: deleteAIConversation
+      tags: [AI]
+      summary: Delete a conversation
+      security:
+        - bearerAuth: []
+      responses:
+        '204':
+          description: Deleted
+        '404':
+          description: Conversation not found
+
+  /v1/ai/assistant/conversations/{id}/messages:
+    post:
+      operationId: createAIConversationMessage
+      tags: [AI]
+      summary: Persist a conversation message without generating a turn
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AIMessageRequest'
+      responses:
+        '201':
+          description: Message created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AIMessageResponse'
+        '402':
+          description: Free preview exhausted
+
+  /v1/ai/assistant/conversations/{id}/chat:
+    post:
+      operationId: createAIAssistantTurn
+      tags: [AI]
+      summary: Generate and persist an assistant turn
+      description: Uses the OpenAI Responses API with server-side financial context. Mutations are returned as pending actions and are never executed by this endpoint.
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AIMessageRequest'
+      responses:
+        '200':
+          description: Assistant message or confirmation request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AIAssistantTurnResponse'
+        '402':
+          description: Free preview exhausted
+        '503':
+          description: AI assistant is not configured
+
+  /v1/ai/assistant/preferences:
+    get:
+      operationId: getAIAssistantPreferences
+      tags: [AI]
+      summary: Get assistant tip and push preferences
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Preferences
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AIAssistantPreferencesResponse'
+    put:
+      operationId: updateAIAssistantPreferences
+      tags: [AI]
+      summary: Update assistant tip and push preferences
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AIAssistantPreferencesResponse'
+      responses:
+        '200':
+          description: Updated preferences
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AIAssistantPreferencesResponse'
+
+  /v1/ai/assistant/tips:
+    get:
+      operationId: listAIAssistantTips
+      tags: [AI]
+      summary: List active proactive tips
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Active tips
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/AITipResponse'
+
+  /v1/ai/assistant/tips/{id}/seen:
+    post:
+      operationId: markAIAssistantTipSeen
+      tags: [AI]
+      summary: Mark a proactive tip as seen
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '204':
+          description: Updated
+
+  /v1/ai/assistant/tips/{id}:
+    delete:
+      operationId: dismissAIAssistantTip
+      tags: [AI]
+      summary: Dismiss a proactive tip
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '204':
+          description: Dismissed
+
+  /v1/ai/assistant/usage:
+    get:
+      operationId: getAIAssistantUsage
+      tags: [AI]
+      summary: Get current-month assistant usage
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Usage
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AIAssistantUsageResponse'
+
+  /v1/ai/assistant/actions:
+    get:
+      operationId: listAIPendingActions
+      tags: [AI]
+      summary: List unexpired pending assistant actions
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Pending actions
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/AIPendingActionResponse'
+
+  /v1/ai/assistant/actions/{id}/confirm:
+    post:
+      operationId: confirmAIPendingAction
+      tags: [AI]
+      summary: Confirm and transactionally execute a pending assistant action
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Action executed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AIConfirmedActionResponse'
+        '409':
+          description: Action expired or already handled
+
+  /v1/ai/assistant/actions/{id}/cancel:
+    post:
+      operationId: cancelAIPendingAction
+      tags: [AI]
+      summary: Cancel a pending assistant action
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '204':
+          description: Cancelled
+        '409':
+          description: Action already handled
+
   /v1/ai/insights/expenses:
     get:
       operationId: aiInsightsExpenses
@@ -10232,6 +10533,205 @@ components:
         financialHealth:
           $ref: '#/components/schemas/DashboardFinancialHealthDTO'
       required: [savingsRate, budgetStreak, watchlistCount, cashBuffer, financialHealth]
+
+    AIAssistantRole:
+      type: string
+      enum: [user, assistant, tool]
+
+    AIActionStatus:
+      type: string
+      enum: [pending, confirmed, completed, cancelled, expired, failed]
+
+    AIAssistantTurnKind:
+      type: string
+      enum: [message, confirmation_required]
+
+    AICreateConversationRequest:
+      type: object
+      properties:
+        title:
+          type: string
+          nullable: true
+
+    AIMessageRequest:
+      type: object
+      properties:
+        content:
+          type: string
+          minLength: 1
+          maxLength: 12000
+      required: [content]
+
+    AIConversationSummaryResponse:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        title:
+          type: string
+        lastMessagePreview:
+          type: string
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+      required: [id, title, createdAt, updatedAt]
+
+    AIMessageResponse:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        conversationId:
+          type: string
+          format: uuid
+        role:
+          $ref: '#/components/schemas/AIAssistantRole'
+        content:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+      required: [id, conversationId, role, content, createdAt]
+
+    AIConversationResponse:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        title:
+          type: string
+        messages:
+          type: array
+          items:
+            $ref: '#/components/schemas/AIMessageResponse'
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+      required: [id, title, messages, createdAt, updatedAt]
+
+    AIAssistantPreferencesResponse:
+      type: object
+      properties:
+        proactiveTipsEnabled:
+          type: boolean
+        pushEnabled:
+          type: boolean
+        timezone:
+          type: string
+      required: [proactiveTipsEnabled, pushEnabled, timezone]
+
+    AIAssistantUsageResponse:
+      type: object
+      properties:
+        month:
+          type: string
+          pattern: '^\\d{4}-\\d{2}$'
+        used:
+          type: integer
+        limit:
+          type: integer
+          nullable: true
+        remaining:
+          type: integer
+          nullable: true
+        isPro:
+          type: boolean
+      required: [month, used, isPro]
+
+    AITipResponse:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        kind:
+          type: string
+        title:
+          type: string
+        body:
+          type: string
+        importance:
+          type: integer
+          minimum: 1
+          maximum: 3
+        actionPath:
+          type: string
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+        expiresAt:
+          type: string
+          format: date-time
+      required: [id, kind, title, body, importance, createdAt, expiresAt]
+
+    AIPendingActionResponse:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        conversationId:
+          type: string
+          format: uuid
+          nullable: true
+        toolName:
+          type: string
+        summary:
+          type: string
+        arguments:
+          type: string
+        status:
+          $ref: '#/components/schemas/AIActionStatus'
+        expiresAt:
+          type: string
+          format: date-time
+        createdAt:
+          type: string
+          format: date-time
+      required: [id, toolName, summary, arguments, status, expiresAt, createdAt]
+
+    AIAssistantTurnResponse:
+      type: object
+      properties:
+        kind:
+          $ref: '#/components/schemas/AIAssistantTurnKind'
+        conversationId:
+          type: string
+          format: uuid
+        message:
+          $ref: '#/components/schemas/AIMessageResponse'
+        pendingAction:
+          allOf:
+            - $ref: '#/components/schemas/AIPendingActionResponse'
+          nullable: true
+      required: [kind, conversationId, message]
+
+    AIConfirmedActionResponse:
+      type: object
+      properties:
+        actionId:
+          type: string
+          format: uuid
+        status:
+          $ref: '#/components/schemas/AIActionStatus'
+        resultId:
+          type: string
+          format: uuid
+          nullable: true
+        message:
+          type: string
+      required: [actionId, status, message]
 
     AIInsightKind:
       type: string
