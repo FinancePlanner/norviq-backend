@@ -135,6 +135,53 @@ jobs:
             export APP_IMAGE
             export APP_PORT=8080
 
+            # Advanced reporting is production-critical. Validate its runtime
+            # configuration before changing any containers.
+            for REQUIRED_VAR in \
+              REPORT_DOWNLOAD_SIGNING_SECRET \
+              PUBLIC_API_BASE_URL \
+              GOTENBERG_BASE_URL \
+              ADVANCED_REPORT_STORAGE_PATH; do
+              if ! grep -Eq "^${REQUIRED_VAR}=.+$" .env.production; then
+                echo "${REQUIRED_VAR} is missing from .env.production"
+                exit 1
+              fi
+            done
+            REPORT_SIGNING_SECRET="$(grep '^REPORT_DOWNLOAD_SIGNING_SECRET=' .env.production | tail -1 | cut -d= -f2-)"
+            if [ "${#REPORT_SIGNING_SECRET}" -lt 32 ]; then
+              echo "REPORT_DOWNLOAD_SIGNING_SECRET must contain at least 32 characters"
+              exit 1
+            fi
+
+            # Start the internal PDF renderer and prepare retained storage for
+            # the API's unprivileged vapor user.
+            APP_PORT=8080 APP_IMAGE="${APP_IMAGE}" docker compose -p prod \
+              -f docker-compose.production.yml \
+              --env-file .env.production \
+              up -d gotenberg
+            GOTENBERG_HEALTHY=0
+            for ATTEMPT in $(seq 1 30); do
+              if APP_PORT=8080 APP_IMAGE="${APP_IMAGE}" docker compose -p prod \
+                -f docker-compose.production.yml \
+                --env-file .env.production \
+                exec -T gotenberg curl -fsS http://127.0.0.1:3000/health >/dev/null 2>&1; then
+                GOTENBERG_HEALTHY=1
+                break
+              fi
+              sleep 2
+            done
+            if [ "${GOTENBERG_HEALTHY}" -ne 1 ]; then
+              APP_PORT=8080 APP_IMAGE="${APP_IMAGE}" docker compose -p prod \
+                -f docker-compose.production.yml \
+                --env-file .env.production \
+                logs --tail=120 gotenberg
+              exit 1
+            fi
+            APP_PORT=8080 APP_IMAGE="${APP_IMAGE}" docker compose -p prod \
+              -f docker-compose.production.yml \
+              --env-file .env.production \
+              run --rm report-storage-init
+
             # Run migrations
             APP_PORT=8080 APP_IMAGE="${APP_IMAGE}" docker compose -p prod \
               -f docker-compose.production.yml \
