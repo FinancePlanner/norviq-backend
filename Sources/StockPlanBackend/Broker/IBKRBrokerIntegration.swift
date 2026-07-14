@@ -733,12 +733,14 @@ private extension IBKRBrokerSyncService {
             return existing
         }
 
+        let defaultPortfolioId = try await ensureDefaultPortfolioListId(userId: userId, on: db)
         let created = Account(
             userId: userId,
             externalId: account.externalID,
             broker: provider,
             displayName: account.displayName,
-            baseCurrency: gatewayClient.defaultCurrency
+            baseCurrency: gatewayClient.defaultCurrency,
+            portfolioId: defaultPortfolioId
         )
         try await created.save(on: db)
         return created

@@ -405,13 +405,19 @@ private extension CsvPortfolioImportService {
         }
 
         guard createIfMissing else { return nil }
+        let resolvedPortfolioId = try await requirePortfolioListId(
+            requestedId: portfolioListId,
+            userId: userId,
+            on: db
+        )
 
         let account = Account(
             userId: userId,
             externalId: externalId,
             broker: provider,
             displayName: "\(provider.uppercased()) CSV Import",
-            baseCurrency: "USD"
+            baseCurrency: "USD",
+            portfolioId: resolvedPortfolioId
         )
         try await account.save(on: db)
         return account

@@ -22,6 +22,8 @@ struct PortfolioManagementController: RouteCollection {
                 portfolio.post("archive", use: archive)
                 portfolio.post("clone", use: clone)
                 portfolio.get("members", use: members)
+                portfolio.delete("members", ":membershipId", use: revokeMember)
+                portfolio.post("leave", use: leavePortfolio)
                 portfolio.get("invitations", use: invitations)
                 portfolio.post("invitations", use: invite)
                 portfolio.delete("invitations", ":invitationId", use: revokeInvitation)
@@ -173,6 +175,12 @@ struct PortfolioManagementController: RouteCollection {
         guard context.portfolio.isDefault == false else {
             throw Abort(.badRequest, reason: "The default portfolio cannot be deleted.")
         }
+        let connectedAccounts = try await Account.query(on: req.db)
+            .filter(\.$portfolioId == context.portfolio.requireID())
+            .count()
+        guard connectedAccounts == 0 else {
+            throw Abort(.conflict, reason: "Move connected accounts to another portfolio before deleting this portfolio.")
+        }
         try await context.portfolio.delete(on: req.db)
         return .noContent
     }
@@ -258,6 +266,28 @@ struct PortfolioManagementController: RouteCollection {
         }
         let email = payload.email.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         guard email.contains("@") else { throw Abort(.badRequest, reason: "A valid email is required.") }
+        if let invitedUser = try await User.query(on: req.db).filter(\.$email == email).first() {
+            guard invitedUser.id != context.portfolio.userId else {
+                throw Abort(.conflict, reason: "The portfolio owner is already a member.")
+            }
+            if let invitedUserId = invitedUser.id,
+               try await PortfolioMembershipRecord.query(on: req.db)
+               .filter(\.$portfolioId == context.portfolio.requireID())
+               .filter(\.$userId == invitedUserId)
+               .filter(\.$status == PortfolioMembershipStatus.active.rawValue)
+               .first() != nil
+            {
+                throw Abort(.conflict, reason: "This person is already a portfolio member.")
+            }
+        }
+        if try await PortfolioInvitationRecord.query(on: req.db)
+            .filter(\.$portfolioId == context.portfolio.requireID())
+            .filter(\.$email == email)
+            .filter(\.$status == PortfolioInvitationStatus.pending.rawValue)
+            .first() != nil
+        {
+            throw Abort(.conflict, reason: "An active invitation already exists for this email address.")
+        }
 
         let activeCount = try await PortfolioMembershipRecord.query(on: req.db)
             .filter(\.$portfolioId == context.portfolio.requireID())
@@ -355,6 +385,43 @@ struct PortfolioManagementController: RouteCollection {
         else { throw Abort(.notFound, reason: "Invitation not found.") }
         record.status = "revoked"
         try await record.save(on: req.db)
+        try await collapseJointOwnershipIfEmpty(context.portfolio, on: req.db)
+        return .noContent
+    }
+
+    @Sendable
+    func revokeMember(req: Request) async throws -> HTTPStatus {
+        let session = try req.auth.require(SessionToken.self)
+        let context = try await access(req, userId: session.userId, ownerOnly: true)
+        let membershipId = try parameter(req, "membershipId")
+        guard let membership = try await PortfolioMembershipRecord.query(on: req.db)
+            .filter(\.$id == membershipId)
+            .filter(\.$portfolioId == context.portfolio.requireID())
+            .filter(\.$status == PortfolioMembershipStatus.active.rawValue)
+            .first()
+        else { throw Abort(.notFound, reason: "Portfolio member not found.") }
+        membership.status = PortfolioMembershipStatus.revoked.rawValue
+        try await membership.save(on: req.db)
+        try await collapseJointOwnershipIfEmpty(context.portfolio, on: req.db)
+        return .noContent
+    }
+
+    @Sendable
+    func leavePortfolio(req: Request) async throws -> HTTPStatus {
+        let session = try req.auth.require(SessionToken.self)
+        let context = try await access(req, userId: session.userId)
+        guard context.role == .editor else {
+            throw Abort(.badRequest, reason: "A portfolio owner cannot leave their own portfolio.")
+        }
+        guard let membership = try await PortfolioMembershipRecord.query(on: req.db)
+            .filter(\.$portfolioId == context.portfolio.requireID())
+            .filter(\.$userId == session.userId)
+            .filter(\.$status == PortfolioMembershipStatus.active.rawValue)
+            .first()
+        else { throw Abort(.notFound, reason: "Portfolio membership not found.") }
+        membership.status = PortfolioMembershipStatus.left.rawValue
+        try await membership.save(on: req.db)
+        try await collapseJointOwnershipIfEmpty(context.portfolio, on: req.db)
         return .noContent
     }
 
@@ -566,6 +633,25 @@ struct PortfolioManagementController: RouteCollection {
             ownerOnly: ownerOnly,
             on: req.db
         )
+    }
+
+    private func collapseJointOwnershipIfEmpty(
+        _ portfolio: PortfolioList,
+        on database: any Database
+    ) async throws {
+        let portfolioId = try portfolio.requireID()
+        let active = try await PortfolioMembershipRecord.query(on: database)
+            .filter(\.$portfolioId == portfolioId)
+            .filter(\.$status == PortfolioMembershipStatus.active.rawValue)
+            .count()
+        let pending = try await PortfolioInvitationRecord.query(on: database)
+            .filter(\.$portfolioId == portfolioId)
+            .filter(\.$status == PortfolioInvitationStatus.pending.rawValue)
+            .count()
+        if active == 0, pending == 0 {
+            portfolio.ownership = PortfolioOwnership.individual.rawValue
+            try await portfolio.save(on: database)
+        }
     }
 
     private func makeResponse(_ context: PortfolioAccessContext) -> Portfolio {

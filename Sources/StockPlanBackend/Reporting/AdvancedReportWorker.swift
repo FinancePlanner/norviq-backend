@@ -51,13 +51,10 @@ final class AdvancedReportWorker: LifecycleHandler, @unchecked Sendable {
     }
 
     private func enqueueDueSchedules(_ app: Application) async throws {
-        let due = try await AdvancedReportScheduleRecord.query(on: app.db)
-            .filter(\.$pausedReason == nil)
-            .filter(\.$nextRunAt != nil)
-            .filter(\.$nextRunAt <= Date())
-            .limit(20)
-            .all()
-        for schedule in due {
+        for _ in 0 ..< 20 {
+            guard let scheduleId = try await claimDueSchedule(app),
+                  let schedule = try await AdvancedReportScheduleRecord.find(scheduleId, on: app.db)
+            else { break }
             let entitlement = try await app.entitlementResolver.resolve(userId: schedule.ownerUserId, on: app.db)
             guard entitlement.isPro else {
                 schedule.nextRunAt = nil
@@ -77,6 +74,23 @@ final class AdvancedReportWorker: LifecycleHandler, @unchecked Sendable {
                 continue
             }
             let scheduledFor = schedule.nextRunAt
+            let generatedToday = try await requestedArtifactCountToday(
+                userId: schedule.ownerUserId,
+                on: app.db
+            )
+            if generatedToday + input.outputFormats.count > 100 {
+                schedule.lastRunAt = scheduledFor
+                schedule.nextRunAt = try ReportRecurrenceCalculator().next(
+                    after: scheduledFor ?? Date(),
+                    recurrence: input.recurrence
+                )
+                schedule.pausedReason = nil
+                try await schedule.save(on: app.db)
+                app.logger.warning(
+                    "advanced_report.schedule_skipped reason=daily_limit schedule_id=\(schedule.id?.uuidString ?? "unknown")"
+                )
+                continue
+            }
             let run = try AdvancedReportRunRecord(
                 templateId: templateId,
                 scheduleId: schedule.requireID(),
@@ -95,7 +109,45 @@ final class AdvancedReportWorker: LifecycleHandler, @unchecked Sendable {
                 after: scheduledFor ?? Date(),
                 recurrence: input.recurrence
             )
+            schedule.pausedReason = nil
             try await schedule.save(on: app.db)
+        }
+    }
+
+    private func claimDueSchedule(_ app: Application) async throws -> UUID? {
+        guard let sql = app.db as? any SQLDatabase else { return nil }
+        let rows = try await sql.raw("""
+        WITH candidate AS (
+            SELECT id FROM advanced_report_schedules
+            WHERE next_run_at <= NOW()
+              AND (
+                paused_reason IS NULL
+                OR (paused_reason = 'processing' AND updated_at < NOW() - INTERVAL '10 minutes')
+              )
+            ORDER BY next_run_at ASC
+            FOR UPDATE SKIP LOCKED
+            LIMIT 1
+        )
+        UPDATE advanced_report_schedules AS schedule
+        SET paused_reason = 'processing', updated_at = NOW()
+        FROM candidate WHERE schedule.id = candidate.id
+        RETURNING schedule.id
+        """).all()
+        return try rows.first?.decode(column: "id", as: UUID.self)
+    }
+
+    private func requestedArtifactCountToday(
+        userId: UUID,
+        on database: any Database
+    ) async throws -> Int {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(secondsFromGMT: 0) ?? .current
+        let runs = try await AdvancedReportRunRecord.query(on: database)
+            .filter(\.$requestedByUserId == userId)
+            .filter(\.$createdAt >= calendar.startOfDay(for: Date()))
+            .all()
+        return try runs.reduce(0) { total, run in
+            try total + (decodeReportJSON([ReportOutputFormat].self, run.outputFormatsJSON).count)
         }
     }
 

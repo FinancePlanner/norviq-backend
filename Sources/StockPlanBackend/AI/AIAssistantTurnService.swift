@@ -133,10 +133,11 @@ struct AIAssistantTurnService {
         let spent = expenses.reduce(0) { $0 + $1.amount * max(0, min(100, $1.userSharePercent)) / 100 }
         let portfolioValue = stocks.reduce(0) { $0 + ($1.shares * $1.buyPrice) }
         let openGoals = goals.filter { $0.status != "completed" }.count
+        let netIncome = budget.map { String(round2($0.netSalary)) } ?? "not configured"
         return """
         Current-month expense count: \(expenses.count)
         Current-month spending: \(round2(spent))
-        Current-month net income: \(budget.map { round2($0.netSalary) }.map(String.init) ?? "not configured")
+        Current-month net income: \(netIncome)
         Portfolio position count: \(stocks.count)
         Portfolio cost-basis value: \(round2(portfolioValue))
         Open manual goals: \(openGoals)
