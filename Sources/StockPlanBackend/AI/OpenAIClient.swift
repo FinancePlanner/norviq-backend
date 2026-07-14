@@ -178,18 +178,19 @@ struct DefaultOpenAIChatClient: OpenAIChatClient {
     }
 }
 
-/// Builds the chat client from environment config, falling back to a disabled
-/// client when `OPENAI_API_KEY` is absent so the app still boots.
+/// Builds the OpenAI-compatible chat client from provider-neutral config.
 func makeOpenAIChatClient(_ app: Application) -> any OpenAIChatClient {
-    guard let key = Environment.get("OPENAI_API_KEY"), !key.isEmpty else {
-        app.logger.warning("OPENAI_API_KEY is not configured; AI insights are disabled.")
+    let configuration = AIProviderConfiguration.load()
+    guard configuration.isConfigured else {
+        app.logger.warning("AI provider key is not configured; AI insights are disabled.")
         return DisabledOpenAIChatClient()
     }
+    app.logger.notice("ai_provider configured provider=\(configuration.provider.rawValue) model=\(configuration.defaultModel)")
     return DefaultOpenAIChatClient(
-        apiKey: key,
-        model: Environment.get("OPENAI_MODEL") ?? "gpt-5.6-terra",
-        baseURL: Environment.get("OPENAI_BASE_URL") ?? "https://api.openai.com/v1",
-        maxTokens: Environment.get("OPENAI_MAX_TOKENS").flatMap(Int.init) ?? 700
+        apiKey: configuration.apiKey,
+        model: configuration.defaultModel,
+        baseURL: configuration.baseURL,
+        maxTokens: configuration.maxTokens
     )
 }
 

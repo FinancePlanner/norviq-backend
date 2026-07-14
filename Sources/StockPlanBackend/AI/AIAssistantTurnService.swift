@@ -80,14 +80,12 @@ struct AIAssistantTurnService {
         \(history)
         user: \(userMessage)
         """
-        let apiKey = Environment.get("OPENAI_API_KEY") ?? ""
-        guard !apiKey.isEmpty else { throw Abort(.serviceUnavailable, reason: "AI assistant is not configured.") }
-        let baseURL = (Environment.get("OPENAI_BASE_URL") ?? "https://api.openai.com/v1")
-            .trimmingCharacters(in: CharacterSet(charactersIn: "/"))
-        let response = try await req.client.post(URI(string: "\(baseURL)/responses")) { request in
-            request.headers.bearerAuthorization = .init(token: apiKey)
+        let provider = AIProviderConfiguration.load()
+        guard provider.isConfigured else { throw Abort(.serviceUnavailable, reason: "AI assistant is not configured.") }
+        let response = try await req.client.post(URI(string: "\(provider.baseURL)/responses")) { request in
+            request.headers.bearerAuthorization = .init(token: provider.apiKey)
             try request.content.encode(RequestPayload(
-                model: Environment.get("AI_CHAT_MODEL") ?? "gpt-5.6-terra",
+                model: provider.chatModel,
                 input: input,
                 tools: Self.tools,
                 store: false,

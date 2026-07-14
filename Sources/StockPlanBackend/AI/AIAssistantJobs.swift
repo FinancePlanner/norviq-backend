@@ -78,8 +78,8 @@ final class AIDailyTipJob: LifecycleHandler, @unchecked Sendable {
     private var scheduled: RepeatedTask?
 
     func didBoot(_ app: Application) throws {
-        guard Environment.get("OPENAI_API_KEY")?.isEmpty == false else {
-            app.logger.notice("ai_assistant.daily_tips disabled reason=missing_openai_key")
+        guard AIProviderConfiguration.load().isConfigured else {
+            app.logger.notice("ai_assistant.daily_tips disabled reason=missing_ai_provider_key")
             return
         }
         scheduled = app.eventLoopGroup.next().scheduleRepeatedTask(
@@ -170,13 +170,10 @@ final class AIDailyTipJob: LifecycleHandler, @unchecked Sendable {
         importance must be 1, 2, or 3. Use 3 only for a difference of at least 25 percent.
         """
 
-        let apiKey = Environment.get("OPENAI_API_KEY") ?? ""
-        let baseURL = (Environment.get("OPENAI_BASE_URL") ?? "https://api.openai.com/v1")
-            .trimmingCharacters(in: CharacterSet(charactersIn: "/"))
-        let model = Environment.get("AI_TIPS_MODEL") ?? "gpt-5.6-luna"
-        let response = try await app.client.post(URI(string: "\(baseURL)/responses")) { request in
-            request.headers.bearerAuthorization = .init(token: apiKey)
-            try request.content.encode(ResponsesRequest(model: model, input: prompt, store: false, maxOutputTokens: 350))
+        let provider = AIProviderConfiguration.load()
+        let response = try await app.client.post(URI(string: "\(provider.baseURL)/responses")) { request in
+            request.headers.bearerAuthorization = .init(token: provider.apiKey)
+            try request.content.encode(ResponsesRequest(model: provider.tipsModel, input: prompt, store: false, maxOutputTokens: 350))
         }
         guard response.status == .ok else {
             throw Abort(.badGateway, reason: "OpenAI Responses API returned \(response.status.code).")
