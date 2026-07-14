@@ -107,14 +107,10 @@ struct ExpensesController: RouteCollection {
         writeScoped.on(.POST, "import", body: .collect(maxSize: "1mb"), use: importCSV)
         readScoped.get("export.csv", use: exportCSV)
 
-        firstParty.group("recurring") { rec in
-            rec.get(use: getRecurringTemplates)
-            rec.post(use: createRecurringTemplate)
-            rec.group(":templateId") { t in
-                t.patch(use: updateRecurringTemplate)
-                t.delete(use: deleteRecurringTemplate)
-            }
-        }
+        readScoped.get("recurring", use: getRecurringTemplates)
+        writeScoped.post("recurring", use: createRecurringTemplate)
+        writeScoped.patch("recurring", ":templateId", use: updateRecurringTemplate)
+        writeScoped.delete("recurring", ":templateId", use: deleteRecurringTemplate)
 
         readScoped.get(use: getExpenses)
         writeScoped.post(use: createExpense)

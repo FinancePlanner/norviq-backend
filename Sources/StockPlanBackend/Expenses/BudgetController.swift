@@ -92,27 +92,20 @@ struct BudgetController: RouteCollection {
     }
 
     func boot(routes: any RoutesBuilder) throws {
-        let protected = routes.grouped(SessionToken.authenticator(), SessionToken.guardMiddleware())
+        let protected = routes.grouped(ScopedBearerAuthenticator(), SessionToken.guardMiddleware())
         let budget = protected.grouped("budget")
+        let readable = budget.grouped(ScopeRequirementMiddleware(.expensesRead))
+        let writable = budget.grouped(ScopeRequirementMiddleware(.expensesWrite))
 
-        let snapshots = budget.grouped("snapshots")
-        snapshots.get(use: getSnapshots)
-        snapshots.post(use: createSnapshot)
-
-        snapshots.group(":snapshotId") { snapshot in
-            snapshot.patch(use: updateSnapshot)
-            snapshot.delete(use: deleteSnapshot)
-            snapshot.get("items", use: getSnapshotItems)
-        }
-
-        let items = budget.grouped("items")
-        items.get(use: getAllPlanItems)
-        items.post(use: createPlanItem)
-
-        items.group(":itemId") { item in
-            item.patch(use: updatePlanItem)
-            item.delete(use: deletePlanItem)
-        }
+        readable.get("snapshots", use: getSnapshots)
+        writable.post("snapshots", use: createSnapshot)
+        writable.patch("snapshots", ":snapshotId", use: updateSnapshot)
+        writable.delete("snapshots", ":snapshotId", use: deleteSnapshot)
+        readable.get("snapshots", ":snapshotId", "items", use: getSnapshotItems)
+        readable.get("items", use: getAllPlanItems)
+        writable.post("items", use: createPlanItem)
+        writable.patch("items", ":itemId", use: updatePlanItem)
+        writable.delete("items", ":itemId", use: deletePlanItem)
     }
 
     // MARK: - Snapshots
