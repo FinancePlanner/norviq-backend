@@ -194,18 +194,23 @@ jobs:
               --env-file .env.production \
               up -d --no-deps app
 
-            # Bootstrap MCP once its shared introspection secret is provisioned.
-            # Subsequent MCP releases deploy from the norviq-mcp workflow.
-            if grep -Eq '^MCP_INTROSPECTION_SECRET=.+$' .env.production; then
+            # MCP is owned by the norviq-mcp deployment workflow. Bootstrap it
+            # here only when an explicit image is provisioned for this host;
+            # the backend repository token cannot read the private MCP package.
+            MCP_ENABLED=0
+            if grep -Eq '^MCP_INTROSPECTION_SECRET=.+$' .env.production && \
+              grep -Eq '^MCP_IMAGE=.+$' .env.production; then
               MCP_IMAGE="$(sed -n 's/^MCP_IMAGE=//p' .env.production | tail -1)"
-              MCP_IMAGE="${MCP_IMAGE:-ghcr.io/financeplanner/norviq-mcp:350d030459277a9dbd5a71549fe01aadc3feb684}"
               docker pull "${MCP_IMAGE}"
               MCP_IMAGE="${MCP_IMAGE}" docker compose -p prod \
                 -f docker-compose.production.yml \
                 --env-file .env.production \
                 up -d --no-deps mcp
-            else
+              MCP_ENABLED=1
+            elif ! grep -Eq '^MCP_INTROSPECTION_SECRET=.+$' .env.production; then
               echo "MCP rollout skipped: MCP_INTROSPECTION_SECRET is not provisioned"
+            else
+              echo "MCP rollout skipped: MCP_IMAGE is not provisioned; norviq-mcp owns deployment"
             fi
 
             # Ensure observability stack is running (idempotent)
@@ -236,7 +241,7 @@ jobs:
               exit 1
             fi
 
-            if grep -Eq '^MCP_INTROSPECTION_SECRET=.+$' .env.production; then
+            if [ "${MCP_ENABLED}" -eq 1 ]; then
               MCP_DOMAIN="$(sed -n 's/^MCP_DOMAIN=//p' .env.production | tail -1)"
               MCP_DOMAIN="${MCP_DOMAIN:-mcp.norviq.org}"
               MCP_HEALTHY=0
