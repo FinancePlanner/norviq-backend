@@ -3507,6 +3507,71 @@ struct StockPlanBackendTests {
         }
     }
 
+    @Test("Wealth forecast lifecycle persists updates and deletion")
+    func wealthForecastLifecycle() async throws {
+        try await withApp { app in
+            let (token, userId) = try await registerTestUser(app: app)
+            let seeded = try await seedDefaultLists(userId: userId, on: app.db)
+            try await grantPremium(userId: userId, on: app)
+            let create = NetWorthForecastUpsertRequest(
+                name: "Retirement", baseCurrency: "EUR", horizonMonths: 240,
+                annualIncomeGrowth: 0.03, monthlyIncomeOverride: 5000,
+                monthlySpendingOverride: 3000, targetAmount: 1_000_000, pathCount: 2000
+            )
+            var created: NetWorthForecastDefinition?
+            try await app.testing().test(
+                .POST,
+                "v1/net-worth-forecasts?portfolio_list_id=\(seeded.portfolioListId.uuidString)",
+                beforeRequest: { req in req.headers.bearerAuthorization = .init(token: token); try req.content.encode(create) },
+                afterResponse: { res async throws in #expect(res.status == .ok); created = try res.content.decode(NetWorthForecastDefinition.self) }
+            )
+            let forecast = try #require(created)
+            let update = NetWorthForecastUpsertRequest(name: "Retirement plan", baseCurrency: "USD", horizonMonths: 300, pathCount: 3000)
+            try await app.testing().test(.PUT, "v1/net-worth-forecasts/\(forecast.id)", beforeRequest: { req in
+                req.headers.bearerAuthorization = .init(token: token); try req.content.encode(update)
+            }, afterResponse: { res async throws in
+                #expect(res.status == .ok)
+                let body = try res.content.decode(NetWorthForecastDefinition.self)
+                #expect(body.name == "Retirement plan"); #expect(body.baseCurrency == "USD"); #expect(body.pathCount == 3000)
+            })
+            try await app.testing().test(.DELETE, "v1/net-worth-forecasts/\(forecast.id)", beforeRequest: { req in
+                req.headers.bearerAuthorization = .init(token: token)
+            }, afterResponse: { res async throws in #expect(res.status == .noContent) })
+            let forecastID = try #require(UUID(uuidString: forecast.id))
+            #expect(try await NetWorthForecastModel.find(forecastID, on: app.db) == nil)
+        }
+    }
+
+    @Test("Notification inbox cursor is stable when timestamps tie")
+    func notificationInboxStableCursor() async throws {
+        try await withApp { app in
+            let (token, userId) = try await registerTestUser(app: app)
+            let timestamp = Date(timeIntervalSince1970: 1_750_000_000)
+            for index in 1 ... 3 {
+                let event = NotificationEventModel(
+                    userId: userId, kind: .budget, deduplicationKey: "cursor-\(index)",
+                    title: "Alert \(index)", body: "Body \(index)"
+                )
+                event.id = UUID(uuidString: String(format: "00000000-0000-0000-0000-%012d", index))
+                event.createdAt = timestamp
+                try await event.create(on: app.db)
+            }
+            var firstPage: NotificationInboxPage?
+            try await app.testing().test(.GET, "v1/notifications/inbox?limit=2", beforeRequest: { req in
+                req.headers.bearerAuthorization = .init(token: token)
+            }, afterResponse: { res async throws in #expect(res.status == .ok); firstPage = try res.content.decode(NotificationInboxPage.self) })
+            let first = try #require(firstPage)
+            #expect(first.items.count == 2); let cursor = try #require(first.nextCursor)
+            var secondPage: NotificationInboxPage?
+            try await app.testing().test(.GET, "v1/notifications/inbox?limit=2&cursor=\(cursor)", beforeRequest: { req in
+                req.headers.bearerAuthorization = .init(token: token)
+            }, afterResponse: { res async throws in #expect(res.status == .ok); secondPage = try res.content.decode(NotificationInboxPage.self) })
+            let second = try #require(secondPage)
+            #expect(second.items.count == 1)
+            #expect(Set(first.items.map(\.id)).isDisjoint(with: Set(second.items.map(\.id))))
+        }
+    }
+
     actor TestPushSenderState {
         private var summaries: [TargetPushSendSummary]
         private var calls: [(symbol: String, scenario: String)] = []
@@ -3534,6 +3599,14 @@ struct StockPlanBackendTests {
 
     struct TestPushNotificationSender: PushNotificationSending {
         let state: TestPushSenderState
+
+        func sendAutomationAlert(
+            message _: AutomationPushMessage,
+            devices: [PushDevice],
+            req _: Request
+        ) async -> TargetPushSendSummary {
+            .init(delivered: devices.count, failed: 0)
+        }
 
         func sendTargetHit(
             target: Target,

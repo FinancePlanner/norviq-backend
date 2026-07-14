@@ -44,6 +44,23 @@ struct DefaultTargetAlertEvaluator: TargetAlertEvaluating {
             return
         }
 
+        do {
+            let targetId = try target.requireID()
+            _ = try await NotificationEventPublisher.publish(
+                userId: target.userId,
+                kind: .priceTarget,
+                deduplicationKey: "price-target:\(targetId.uuidString)",
+                title: "Price target reached",
+                body: "\(target.symbol) reached \(currentPrice).",
+                deepLink: "norviq://stocks/\(target.symbol)",
+                payload: ["target_id": targetId.uuidString, "symbol": target.symbol],
+                on: req.db
+            )
+        } catch {
+            req.logger.warning("target-alert inbox persistence failed symbol=\(target.symbol)")
+            return
+        }
+
         let devices: [PushDevice]
         do {
             devices = try await req.pushDeviceService.activeDevices(userId: target.userId, on: req.db)
@@ -54,9 +71,7 @@ struct DefaultTargetAlertEvaluator: TargetAlertEvaluating {
             return
         }
 
-        guard !devices.isEmpty else {
-            return
-        }
+        guard !devices.isEmpty else { return }
 
         let summary = await req.application.pushNotificationSender.sendTargetHit(
             target: target,
@@ -73,21 +88,13 @@ struct DefaultTargetAlertEvaluator: TargetAlertEvaluating {
         }
 
         do {
-            let marked = try await markTriggeredIfNeeded(targetId: target.id, price: currentPrice, on: req.db)
-            guard marked else {
-                req.logger.debug(
-                    "target-alert already triggered by another worker symbol=\(target.symbol)"
-                )
-                return
-            }
-            req.logger.info(
-                "target-alert marked triggered symbol=\(target.symbol) scenario=\(target.scenario) currentPrice=\(currentPrice)"
-            )
+            guard try await markTriggeredIfNeeded(targetId: target.id, price: currentPrice, on: req.db) else { return }
         } catch {
-            req.logger.warning(
-                "target-alert save failed symbol=\(target.symbol) error_type=\(String(reflecting: type(of: error)))"
-            )
+            req.logger.warning("target-alert state update failed symbol=\(target.symbol)")
+            return
         }
+
+        req.logger.info("target-alert push delivered symbol=\(target.symbol) currentPrice=\(currentPrice)")
     }
 
     private func shouldTrigger(target: Target, currentPrice: Double) -> Bool {

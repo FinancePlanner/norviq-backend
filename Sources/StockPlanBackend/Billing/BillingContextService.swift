@@ -292,5 +292,8 @@ private struct BillingFeatureDescriptor {
         .init(feature: .advancedReportTemplates, title: "Advanced report templates", proOnly: true),
         .init(feature: .advancedReportSchedules, title: "Scheduled report delivery", proOnly: true),
         .init(feature: .advancedReportRuns, title: "PDF and Excel reports", proOnly: true),
+        .init(feature: .netWorthForecasting, title: "Net worth forecasting", proOnly: true),
+        .init(feature: .smartScreening, title: "Smart watchlist screening", proOnly: true),
+        .init(feature: .rebalancingRules, title: "Custom rebalancing rules", proOnly: true),
     ]
 }

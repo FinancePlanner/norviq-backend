@@ -303,6 +303,11 @@ public func configure(_ app: Application) async throws {
     app.lifecycle.use(AdvancedReportRetentionJob(
         intervalSeconds: Environment.get("ADVANCED_REPORT_CLEANUP_INTERVAL_SECONDS").flatMap(Int64.init) ?? 3600
     ))
+    app.lifecycle.use(WealthAutomationDailyJob(
+        intervalSeconds: Environment.get("WEALTH_AUTOMATION_INTERVAL_SECONDS").flatMap(Int64.init) ?? 86400,
+        rebalanceCooldownSeconds: Environment.get("WEALTH_AUTOMATION_REBALANCE_COOLDOWN_SECONDS")
+            .flatMap(Int64.init) ?? 604_800
+    ))
 
     // Macro / inflation (Nowflation parity). FRED is the keystone provider:
     // without FRED_API_KEY the US (and intl fallback) stay disabled while

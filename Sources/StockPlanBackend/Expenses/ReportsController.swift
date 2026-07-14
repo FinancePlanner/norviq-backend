@@ -99,10 +99,9 @@ struct ReportsController: RouteCollection {
         let latestMonthSummary = monthlyReports.first { $0.monthStart == currentMonthStart }
             ?? monthlyReports.reversed().first { $0.actual > 0 }
             ?? monthlyReports.last
+        let parsedLatestMonthStart = latestMonthSummary.flatMap { parseMonthStart($0.monthStart) }
 
-        let latestPillarSummaries: [PillarPlanningSummaryResponse] = if let latestMonthSummary,
-                                                                        let monthStart = makeDateFormatter().date(from: latestMonthSummary.monthStart)
-        {
+        let latestPillarSummaries: [PillarPlanningSummaryResponse] = if latestMonthSummary != nil, let monthStart = parsedLatestMonthStart {
             try await req.expensesService.getPillarPlanningSummaries(
                 userId: session.userId,
                 monthStart: monthStart,
@@ -418,6 +417,19 @@ struct ReportsController: RouteCollection {
         dateFormatter.locale = Locale(identifier: "en_US_POSIX")
         dateFormatter.timeZone = TimeZone(secondsFromGMT: 0)
         return dateFormatter
+    }
+
+    private func parseMonthStart(_ value: String) -> Date? {
+        let parts = value.split(separator: "-").compactMap { Int($0) }
+        guard parts.count == 3 else { return nil }
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+        return calendar.date(from: DateComponents(
+            timeZone: calendar.timeZone,
+            year: parts[0],
+            month: parts[1],
+            day: parts[2]
+        ))
     }
 
     private func formatPercent(_ value: Double) -> String {

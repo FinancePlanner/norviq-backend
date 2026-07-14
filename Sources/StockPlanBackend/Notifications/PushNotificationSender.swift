@@ -10,6 +10,15 @@ struct TargetPushSendSummary {
     let failed: Int
 }
 
+struct AutomationPushMessage: Sendable {
+    let eventId: UUID
+    let kind: NotificationEventKind
+    let title: String
+    let body: String
+    let deepLink: String?
+    let payload: [String: String]
+}
+
 protocol PushNotificationSending: Sendable {
     func sendTargetHit(
         target: Target,
@@ -39,9 +48,26 @@ protocol PushNotificationSending: Sendable {
         devices: [PushDevice],
         req: Request
     ) async -> TargetPushSendSummary
+
+    func sendAutomationAlert(
+        message: AutomationPushMessage,
+        devices: [PushDevice],
+        req: Request
+    ) async -> TargetPushSendSummary
 }
 
 struct NoopPushNotificationSender: PushNotificationSending {
+    func sendAutomationAlert(
+        message: AutomationPushMessage,
+        devices: [PushDevice],
+        req: Request
+    ) async -> TargetPushSendSummary {
+        req.logger.debug(
+            "push.notifications disabled automation kind=\(message.kind.rawValue) devices=\(devices.count)"
+        )
+        return .init(delivered: 0, failed: devices.count)
+    }
+
     func sendTaxOpportunity(
         opportunity: TaxOpportunityResponse,
         devices: [PushDevice],
@@ -134,7 +160,59 @@ struct APNSPushNotificationSender: PushNotificationSending {
         let deepLink: String
     }
 
+    struct AutomationAlertPayload: Codable {
+        let schemaVersion: Int
+        let type: String
+        let eventId: String
+        let deepLink: String?
+        let data: [String: String]
+    }
+
     let topic: String
+
+    func sendAutomationAlert(
+        message: AutomationPushMessage,
+        devices: [PushDevice],
+        req: Request
+    ) async -> TargetPushSendSummary {
+        guard devices.isEmpty == false else { return .init(delivered: 0, failed: 0) }
+        let payload = AutomationAlertPayload(
+            schemaVersion: 1,
+            type: message.kind.rawValue,
+            eventId: message.eventId.uuidString,
+            deepLink: message.deepLink,
+            data: message.payload
+        )
+        let notification = APNSAlertNotification(
+            alert: .init(title: .raw(message.title), body: .raw(message.body)),
+            expiration: .immediately,
+            priority: .immediately,
+            topic: topic,
+            payload: payload,
+            threadID: "automation-\(message.kind.rawValue)",
+            category: "WEALTH_AUTOMATION"
+        )
+        var delivered = 0
+        var failed = 0
+        for device in devices {
+            do {
+                _ = try await client(for: device, req: req).sendAlertNotification(
+                    notification,
+                    deviceToken: device.deviceToken
+                )
+                delivered += 1
+            } catch {
+                failed += 1
+                req.logger.warning(
+                    "push.notifications send failed automation kind=\(message.kind.rawValue) error_type=\(String(reflecting: type(of: error)))"
+                )
+                if isInvalidTokenError(error) {
+                    try? await req.pushDeviceService.deactivate(deviceToken: device.deviceToken, on: req.db)
+                }
+            }
+        }
+        return .init(delivered: delivered, failed: failed)
+    }
 
     func sendTaxOpportunity(
         opportunity: TaxOpportunityResponse,

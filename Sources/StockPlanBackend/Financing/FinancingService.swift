@@ -6,6 +6,11 @@ import Vapor
 struct FinancingService: Sendable {
     private let calculator = FinancingCalculator()
 
+    func forecastBudgetContext(userId: UUID, on db: any Database) async throws -> FinancingBudgetContext {
+        let stored = try await assumptions(userId: userId, on: db)
+        return try await budgetContext(userId: userId, assumptions: stored, on: db)
+    }
+
     func simulation(userId: UUID, request: FinancingSimulationRequest, on db: any Database) async throws -> FinancingSimulationResponse {
         let stored = try await assumptions(userId: userId, on: db)
         let applied = request.assumptions ?? stored
