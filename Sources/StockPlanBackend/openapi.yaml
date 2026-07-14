@@ -28,6 +28,8 @@ tags:
   - name: Webhooks
     description: Public inbound webhook endpoints for provider event delivery.
   - name: Portfolio
+  - name: Retirement
+  - name: AdvancedReporting
   - name: Scenarios
   - name: Brokers
   - name: Statistics
@@ -6534,6 +6536,158 @@ paths:
       tags: [Scenarios]
       security: [{ bearerAuth: [] }]
       responses: { '204': { description: Deleted } }
+  /v1/portfolios:
+    get:
+      operationId: listPortfolios
+      tags: [Portfolio]
+      security: [{ bearerAuth: [] }]
+      responses: { '200': { description: Owned and shared portfolios, content: { application/json: { schema: { $ref: '#/components/schemas/ScenarioJSON' } } } } }
+    post:
+      operationId: createPortfolio
+      tags: [Portfolio]
+      security: [{ bearerAuth: [] }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/ScenarioJSON' } } } }
+      responses: { '201': { description: Portfolio created, content: { application/json: { schema: { $ref: '#/components/schemas/ScenarioJSON' } } } } }
+  /v1/portfolios/compare:
+    get:
+      operationId: comparePortfolios
+      tags: [Portfolio]
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: left, in: query, required: true, schema: { type: string, format: uuid } }
+        - { name: right, in: query, required: true, schema: { type: string, format: uuid } }
+      responses: { '200': { description: Side-by-side portfolio comparison, content: { application/json: { schema: { $ref: '#/components/schemas/ScenarioJSON' } } } } }
+  /v1/portfolios/{portfolioId}:
+    parameters: [{ name: portfolioId, in: path, required: true, schema: { type: string, format: uuid } }]
+    get:
+      operationId: getPortfolio
+      tags: [Portfolio]
+      security: [{ bearerAuth: [] }]
+      responses: { '200': { description: Portfolio, content: { application/json: { schema: { $ref: '#/components/schemas/ScenarioJSON' } } } } }
+    patch:
+      operationId: updatePortfolio
+      tags: [Portfolio]
+      security: [{ bearerAuth: [] }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/ScenarioJSON' } } } }
+      responses: { '200': { description: Updated portfolio, content: { application/json: { schema: { $ref: '#/components/schemas/ScenarioJSON' } } } } }
+    delete:
+      operationId: deletePortfolio
+      tags: [Portfolio]
+      security: [{ bearerAuth: [] }]
+      responses: { '204': { description: Portfolio deleted } }
+  /v1/portfolios/{portfolioId}/clone:
+    parameters: [{ name: portfolioId, in: path, required: true, schema: { type: string, format: uuid } }]
+    post:
+      operationId: clonePortfolio
+      tags: [Portfolio]
+      security: [{ bearerAuth: [] }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/ScenarioJSON' } } } }
+      responses: { '201': { description: Fixed hypothetical sandbox clone, content: { application/json: { schema: { $ref: '#/components/schemas/ScenarioJSON' } } } } }
+  /v1/portfolios/{portfolioId}/members:
+    parameters: [{ name: portfolioId, in: path, required: true, schema: { type: string, format: uuid } }]
+    get:
+      operationId: listPortfolioMembers
+      tags: [Portfolio]
+      security: [{ bearerAuth: [] }]
+      responses: { '200': { description: Portfolio members, content: { application/json: { schema: { type: array, items: { $ref: '#/components/schemas/ScenarioJSON' } } } } } }
+  /v1/portfolios/{portfolioId}/invitations:
+    parameters: [{ name: portfolioId, in: path, required: true, schema: { type: string, format: uuid } }]
+    get:
+      operationId: listPortfolioInvitations
+      tags: [Portfolio]
+      security: [{ bearerAuth: [] }]
+      responses: { '200': { description: Pending invitations, content: { application/json: { schema: { type: array, items: { $ref: '#/components/schemas/ScenarioJSON' } } } } } }
+    post:
+      operationId: createPortfolioInvitation
+      tags: [Portfolio]
+      security: [{ bearerAuth: [] }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/ScenarioJSON' } } } }
+      responses: { '201': { description: Invitation created, content: { application/json: { schema: { $ref: '#/components/schemas/ScenarioJSON' } } } } }
+  /v1/portfolios/{portfolioId}/cash:
+    parameters: [{ name: portfolioId, in: path, required: true, schema: { type: string, format: uuid } }]
+    get:
+      operationId: listPortfolioCash
+      tags: [Portfolio]
+      security: [{ bearerAuth: [] }]
+      responses: { '200': { description: Portfolio cash positions, content: { application/json: { schema: { type: array, items: { $ref: '#/components/schemas/ScenarioJSON' } } } } } }
+    post:
+      operationId: createPortfolioCash
+      tags: [Portfolio]
+      security: [{ bearerAuth: [] }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/ScenarioJSON' } } } }
+      responses: { '201': { description: Cash position created, content: { application/json: { schema: { $ref: '#/components/schemas/ScenarioJSON' } } } } }
+  /v1/retirement/rules/{jurisdiction}:
+    parameters: [{ name: jurisdiction, in: path, required: true, schema: { type: string, enum: [US, PT, ES, DE, FR, IT] } }]
+    get:
+      operationId: getRetirementRules
+      tags: [Retirement]
+      security: [{ bearerAuth: [] }]
+      parameters: [{ name: version, in: query, required: false, schema: { type: string } }]
+      responses: { '200': { description: Versioned retirement rule pack, content: { application/json: { schema: { $ref: '#/components/schemas/ScenarioJSON' } } } } }
+  /v1/portfolios/{portfolioId}/retirement-plan:
+    parameters: [{ name: portfolioId, in: path, required: true, schema: { type: string, format: uuid } }]
+    get:
+      operationId: getRetirementPlan
+      tags: [Retirement]
+      security: [{ bearerAuth: [] }]
+      responses: { '200': { description: Retirement plan, content: { application/json: { schema: { $ref: '#/components/schemas/ScenarioJSON' } } } } }
+    put:
+      operationId: saveRetirementPlan
+      tags: [Retirement]
+      security: [{ bearerAuth: [] }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/ScenarioJSON' } } } }
+      responses: { '200': { description: Saved retirement plan, content: { application/json: { schema: { $ref: '#/components/schemas/ScenarioJSON' } } } } }
+  /v1/portfolios/{portfolioId}/retirement-plan/project:
+    parameters: [{ name: portfolioId, in: path, required: true, schema: { type: string, format: uuid } }]
+    post:
+      operationId: projectRetirementPlan
+      tags: [Retirement]
+      security: [{ bearerAuth: [] }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/ScenarioJSON' } } } }
+      responses: { '200': { description: Monte Carlo retirement projection, content: { application/json: { schema: { $ref: '#/components/schemas/ScenarioJSON' } } } } }
+  /v1/reporting/templates:
+    get:
+      operationId: listAdvancedReportTemplates
+      tags: [AdvancedReporting]
+      security: [{ bearerAuth: [] }]
+      responses: { '200': { description: Report templates, content: { application/json: { schema: { $ref: '#/components/schemas/ScenarioJSON' } } } } }
+    post:
+      operationId: createAdvancedReportTemplate
+      tags: [AdvancedReporting]
+      security: [{ bearerAuth: [] }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/ScenarioJSON' } } } }
+      responses: { '201': { description: Report template created, content: { application/json: { schema: { $ref: '#/components/schemas/ScenarioJSON' } } } } }
+  /v1/reporting/schedules:
+    get:
+      operationId: listAdvancedReportSchedules
+      tags: [AdvancedReporting]
+      security: [{ bearerAuth: [] }]
+      responses: { '200': { description: Report schedules, content: { application/json: { schema: { $ref: '#/components/schemas/ScenarioJSON' } } } } }
+    post:
+      operationId: createAdvancedReportSchedule
+      tags: [AdvancedReporting]
+      security: [{ bearerAuth: [] }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/ScenarioJSON' } } } }
+      responses: { '201': { description: Report schedule created, content: { application/json: { schema: { $ref: '#/components/schemas/ScenarioJSON' } } } } }
+  /v1/reporting/runs:
+    get:
+      operationId: listAdvancedReportRuns
+      tags: [AdvancedReporting]
+      security: [{ bearerAuth: [] }]
+      responses: { '200': { description: Generated report history, content: { application/json: { schema: { $ref: '#/components/schemas/ScenarioJSON' } } } } }
+    post:
+      operationId: createAdvancedReportRun
+      tags: [AdvancedReporting]
+      security: [{ bearerAuth: [] }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/ScenarioJSON' } } } }
+      responses: { '202': { description: Report generation queued, content: { application/json: { schema: { $ref: '#/components/schemas/ScenarioJSON' } } } } }
+  /v1/reporting/artifacts/{artifactId}/link:
+    parameters: [{ name: artifactId, in: path, required: true, schema: { type: string, format: uuid } }]
+    get:
+      operationId: createAdvancedReportArtifactLink
+      tags: [AdvancedReporting]
+      security: [{ bearerAuth: [] }]
+      responses: { '200': { description: Short-lived private download link, content: { application/json: { schema: { $ref: '#/components/schemas/ScenarioJSON' } } } } }
 components:
   parameters:
     ScenarioResourceID:

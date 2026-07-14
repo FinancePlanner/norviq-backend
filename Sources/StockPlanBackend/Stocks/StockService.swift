@@ -407,7 +407,11 @@ struct StockServiceImpl: StockService {
             }
 
             // 2. Find or create a default manual account for cash proceeds.
-            let account = try await findOrCreateDefaultManualAccount(userId: userId, on: transactionDB)
+            let account = try await findOrCreateDefaultManualAccount(
+                userId: userId,
+                portfolioId: stock.portfolioListId,
+                on: transactionDB
+            )
 
             // 3. Update CashBalance
             let currency = account.baseCurrency
@@ -538,9 +542,32 @@ struct StockServiceImpl: StockService {
         return value
     }
 
-    private func findOrCreateDefaultManualAccount(userId: UUID, on db: any Database) async throws -> Account {
-        if let existing = try await Account.query(on: db).filter(\.$userId == userId).first() {
+    private func findOrCreateDefaultManualAccount(
+        userId: UUID,
+        portfolioId: UUID,
+        on db: any Database
+    ) async throws -> Account {
+        if let existing = try await Account.query(on: db)
+            .filter(\.$userId == userId)
+            .filter(\.$portfolioId == portfolioId)
+            .filter(\.$broker == "manual")
+            .first()
+        {
             return existing
+        }
+
+        // Accounts created before multi-portfolio support have no portfolio.
+        // Adopt the user's legacy manual account so its cash balance is retained
+        // and the stable external ID is not inserted a second time.
+        if let legacy = try await Account.query(on: db)
+            .filter(\.$userId == userId)
+            .filter(\.$portfolioId == nil)
+            .filter(\.$broker == "manual")
+            .first()
+        {
+            legacy.portfolioId = portfolioId
+            try await legacy.save(on: db)
+            return legacy
         }
 
         let account = Account(
@@ -548,7 +575,8 @@ struct StockServiceImpl: StockService {
             externalId: "manual-\(userId.uuidString.lowercased())",
             broker: "manual",
             displayName: "Manual Cash Account",
-            baseCurrency: "USD"
+            baseCurrency: "USD",
+            portfolioId: portfolioId
         )
         try await account.save(on: db)
         return account

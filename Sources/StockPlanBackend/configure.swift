@@ -188,6 +188,21 @@ public func configure(_ app: Application) async throws {
     )
     app.entitlementResolver = DefaultEntitlementResolver(environment: app.environment, premiumEmails: premiumEmails)
     app.usageCounterService = DefaultUsageCounterService(entitlementResolver: app.entitlementResolver)
+    app.portfolioAccessService = PortfolioAccessService(entitlementResolver: app.entitlementResolver)
+    let advancedReportStoragePath = Environment.get("ADVANCED_REPORT_STORAGE_PATH")
+        ?? app.directory.workingDirectory + "storage/advanced-reports"
+    app.advancedReportStorage = LocalAdvancedReportStorage(rootDirectory: advancedReportStoragePath)
+    let reportSigningSecret = Environment.get("REPORT_DOWNLOAD_SIGNING_SECRET")?
+        .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    if app.environment == .production, reportSigningSecret.count < 32 {
+        throw Abort(
+            .internalServerError,
+            reason: "REPORT_DOWNLOAD_SIGNING_SECRET must contain at least 32 characters in production."
+        )
+    }
+    app.reportDownloadSigner = ReportDownloadSigner(
+        secret: reportSigningSecret.isEmpty ? "development-report-signing-secret-change-me" : reportSigningSecret
+    )
     app.billingContextService = DefaultBillingContextService(
         entitlementResolver: app.entitlementResolver,
         usageCounterService: app.usageCounterService,
@@ -281,6 +296,13 @@ public func configure(_ app: Application) async throws {
     app.lifecycle.use(ScenarioRetentionJob())
     app.lifecycle.use(AIAssistantRetentionJob())
     app.lifecycle.use(AIDailyTipJob())
+    app.lifecycle.use(AdvancedReportWorker(
+        gotenbergBaseURL: Environment.get("GOTENBERG_BASE_URL") ?? "http://gotenberg:3000",
+        intervalSeconds: Environment.get("ADVANCED_REPORT_WORKER_INTERVAL_SECONDS").flatMap(Int64.init) ?? 10
+    ))
+    app.lifecycle.use(AdvancedReportRetentionJob(
+        intervalSeconds: Environment.get("ADVANCED_REPORT_CLEANUP_INTERVAL_SECONDS").flatMap(Int64.init) ?? 3600
+    ))
 
     // Macro / inflation (Nowflation parity). FRED is the keystone provider:
     // without FRED_API_KEY the US (and intl fallback) stay disabled while

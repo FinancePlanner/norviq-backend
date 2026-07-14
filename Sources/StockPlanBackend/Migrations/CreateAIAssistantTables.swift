@@ -1,4 +1,5 @@
 import Fluent
+import FluentSQL
 
 struct CreateAIAssistantTables: AsyncMigration {
     func prepare(on database: any Database) async throws {
@@ -6,12 +7,12 @@ struct CreateAIAssistantTables: AsyncMigration {
             .field("user_id", .uuid, .required, .references("users", "id", onDelete: .cascade))
             .field("title_encrypted", .data, .required).field("created_at", .datetime)
             .field("updated_at", .datetime).field("expires_at", .datetime, .required)
-            .index("user_id", "updated_at").create()
+            .create()
         try await database.schema(AIAssistantMessage.schema).id()
             .field("conversation_id", .uuid, .required, .references(AIConversation.schema, "id", onDelete: .cascade))
             .field("user_id", .uuid, .required, .references("users", "id", onDelete: .cascade))
             .field("role", .string, .required).field("content_encrypted", .data, .required)
-            .field("created_at", .datetime).index("conversation_id", "created_at").create()
+            .field("created_at", .datetime).create()
         try await database.schema(AIAssistantPreference.schema).id()
             .field("user_id", .uuid, .required, .references("users", "id", onDelete: .cascade))
             .field("proactive_tips_enabled", .bool, .required, .sql(.default(false)))
@@ -30,20 +31,27 @@ struct CreateAIAssistantTables: AsyncMigration {
             .field("action_path", .string).field("is_seen", .bool, .required, .sql(.default(false)))
             .field("is_dismissed", .bool, .required, .sql(.default(false)))
             .field("created_at", .datetime).field("expires_at", .datetime, .required)
-            .index("user_id", "created_at").create()
+            .create()
         try await database.schema(AIPendingAction.schema).id()
             .field("user_id", .uuid, .required, .references("users", "id", onDelete: .cascade))
             .field("conversation_id", .uuid, .references(AIConversation.schema, "id", onDelete: .setNull))
             .field("tool_name", .string, .required).field("arguments_encrypted", .data, .required)
             .field("summary_encrypted", .data, .required).field("status", .string, .required)
             .field("expires_at", .datetime, .required).field("created_at", .datetime)
-            .field("updated_at", .datetime).index("user_id", "status").create()
+            .field("updated_at", .datetime).create()
         try await database.schema(AIActionAudit.schema).id()
             .field("user_id", .uuid, .required, .references("users", "id", onDelete: .cascade))
             .field("pending_action_id", .uuid, .required, .references(AIPendingAction.schema, "id", onDelete: .cascade))
             .field("tool_name", .string, .required).field("status", .string, .required)
             .field("details_encrypted", .data).field("created_at", .datetime)
-            .index("pending_action_id", "created_at").create()
+            .create()
+
+        guard let sql = database as? any SQLDatabase else { return }
+        try await sql.raw("CREATE INDEX ai_conversations_user_updated_idx ON ai_conversations (user_id, updated_at)").run()
+        try await sql.raw("CREATE INDEX ai_messages_conversation_created_idx ON ai_messages (conversation_id, created_at)").run()
+        try await sql.raw("CREATE INDEX ai_tips_user_created_idx ON ai_tips (user_id, created_at)").run()
+        try await sql.raw("CREATE INDEX ai_pending_actions_user_status_idx ON ai_pending_actions (user_id, status)").run()
+        try await sql.raw("CREATE INDEX ai_action_audits_pending_created_idx ON ai_action_audits (pending_action_id, created_at)").run()
     }
 
     func revert(on database: any Database) async throws {

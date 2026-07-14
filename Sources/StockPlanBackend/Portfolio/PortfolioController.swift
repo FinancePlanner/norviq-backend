@@ -1,10 +1,19 @@
 import Fluent
 import Foundation
+import StockPlanShared
 import Vapor
 
 struct PortfolioController: RouteCollection {
     private struct PortfolioFilterQuery: Content {
         let portfolioListId: String?
+        let portfolioId: String?
+    }
+
+    private struct ResolvedPortfolioFilter {
+        let portfolioId: UUID?
+        let portfolioIds: [UUID]
+        let dataOwnerUserId: UUID
+        let baseCurrency: String
     }
 
     func boot(routes: any RoutesBuilder) throws {
@@ -32,17 +41,10 @@ struct PortfolioController: RouteCollection {
     func dividends(req: Request) async throws -> PortfolioDividendsResponse {
         let session = try req.auth.require(SessionToken.self)
         let query = try req.query.decode(PortfolioFilterQuery.self)
-        let resolvedListId = try await resolvePortfolioListId(
-            requestedId: query.portfolioListId,
-            userId: session.userId,
-            on: req.db,
-            defaultWhenMissing: false
-        )
+        let filter = try await resolveFilter(query, userId: session.userId, req: req)
 
-        let stocksQuery = Stock.query(on: req.db).filter(\.$userId == session.userId)
-        if let resolvedListId {
-            stocksQuery.filter(\.$portfolioListId == resolvedListId)
-        }
+        let stocksQuery = Stock.query(on: req.db).filter(\.$userId == filter.dataOwnerUserId)
+        stocksQuery.filter(\.$portfolioListId ~~ filter.portfolioIds)
         let stocks = try await stocksQuery.all()
 
         var upcoming = [DividendProjectedItem]()
@@ -85,20 +87,17 @@ struct PortfolioController: RouteCollection {
     func sectorExposure(req: Request) async throws -> PortfolioSectorExposureResponse {
         let session = try req.auth.require(SessionToken.self)
         let query = try req.query.decode(PortfolioFilterQuery.self)
-        let resolvedListId = try await resolvePortfolioListId(
-            requestedId: query.portfolioListId,
-            userId: session.userId,
-            on: req.db,
-            defaultWhenMissing: false
-        )
+        let filter = try await resolveFilter(query, userId: session.userId, req: req)
 
         let stocksQuery = Stock.query(on: req.db)
-            .filter(\.$userId == session.userId)
-        if let resolvedListId {
-            stocksQuery.filter(\.$portfolioListId == resolvedListId)
-        }
+            .filter(\.$userId == filter.dataOwnerUserId)
+        stocksQuery.filter(\.$portfolioListId ~~ filter.portfolioIds)
         async let stocksTask = stocksQuery.all()
-        async let cashBalanceTask = totalCashBalance(userId: session.userId, on: req.db)
+        async let cashBalanceTask = totalCashBalance(
+            userId: filter.dataOwnerUserId,
+            portfolioId: filter.portfolioId,
+            on: req.db
+        )
 
         let stocks = try await stocksTask
         let cashBalance = try await cashBalanceTask
@@ -108,7 +107,7 @@ struct PortfolioController: RouteCollection {
             []
         } else {
             try await ResearchNote.query(on: req.db)
-                .filter(\.$userId == session.userId)
+                .filter(\.$userId == filter.dataOwnerUserId)
                 .filter(\.$symbol ~~ symbols)
                 .all()
         }
@@ -159,7 +158,7 @@ struct PortfolioController: RouteCollection {
             .sorted(by: { $0.value > $1.value })
 
         return PortfolioSectorExposureResponse(
-            baseCurrency: "USD",
+            baseCurrency: filter.baseCurrency,
             totalValue: round2(totalPortfolioValue),
             investedValue: round2(investedValue),
             cashBalance: round2(max(0, cashBalance)),
@@ -173,27 +172,24 @@ struct PortfolioController: RouteCollection {
     func summary(req: Request) async throws -> PortfolioSummaryResponse {
         let session = try req.auth.require(SessionToken.self)
         let query = try req.query.decode(PortfolioFilterQuery.self)
-        let resolvedListId = try await resolvePortfolioListId(
-            requestedId: query.portfolioListId,
-            userId: session.userId,
-            on: req.db,
-            defaultWhenMissing: false
-        )
+        let filter = try await resolveFilter(query, userId: session.userId, req: req)
 
         let stocksQuery = Stock.query(on: req.db)
-            .filter(\.$userId == session.userId)
-        if let resolvedListId {
-            stocksQuery.filter(\.$portfolioListId == resolvedListId)
-        }
+            .filter(\.$userId == filter.dataOwnerUserId)
+        stocksQuery.filter(\.$portfolioListId ~~ filter.portfolioIds)
         let stocks = try await stocksQuery.all()
-        let cashBalance = try await totalCashBalance(userId: session.userId, on: req.db)
+        let cashBalance = try await totalCashBalance(
+            userId: filter.dataOwnerUserId,
+            portfolioId: filter.portfolioId,
+            on: req.db
+        )
 
         var allocation = stocks
             .map { stock in
                 AllocationItem(
                     symbol: stock.symbol,
                     value: stock.shares * stock.buyPrice,
-                    currency: "USD"
+                    currency: filter.baseCurrency
                 )
             }
         if cashBalance > 0 {
@@ -201,7 +197,7 @@ struct PortfolioController: RouteCollection {
                 AllocationItem(
                     symbol: "CASH",
                     value: cashBalance,
-                    currency: "USD"
+                    currency: filter.baseCurrency
                 )
             )
         }
@@ -210,7 +206,7 @@ struct PortfolioController: RouteCollection {
         let totalCost = allocation.reduce(0.0) { $0 + $1.value }
 
         return PortfolioSummaryResponse(
-            baseCurrency: "USD",
+            baseCurrency: filter.baseCurrency,
             totalValue: totalCost,
             totalCost: totalCost,
             unrealizedPnl: 0,
@@ -224,21 +220,18 @@ struct PortfolioController: RouteCollection {
     func performance(req: Request) async throws -> PortfolioPerformanceResponse {
         let session = try req.auth.require(SessionToken.self)
         let query = try req.query.decode(PortfolioFilterQuery.self)
-        let resolvedListId = try await resolvePortfolioListId(
-            requestedId: query.portfolioListId,
-            userId: session.userId,
-            on: req.db,
-            defaultWhenMissing: false
-        )
+        let filter = try await resolveFilter(query, userId: session.userId, req: req)
         let stocksQuery = Stock.query(on: req.db)
-            .filter(\.$userId == session.userId)
-        if let resolvedListId {
-            stocksQuery.filter(\.$portfolioListId == resolvedListId)
-        }
+            .filter(\.$userId == filter.dataOwnerUserId)
+        stocksQuery.filter(\.$portfolioListId ~~ filter.portfolioIds)
         let stocks = try await stocksQuery.all()
 
         let holdingsValue = stocks.reduce(0.0) { $0 + ($1.shares * $1.buyPrice) }
-        let cashBalance = try await totalCashBalance(userId: session.userId, on: req.db)
+        let cashBalance = try await totalCashBalance(
+            userId: filter.dataOwnerUserId,
+            portfolioId: filter.portfolioId,
+            on: req.db
+        )
         let totalValue = holdingsValue + cashBalance
 
         let calendar = Calendar(identifier: .gregorian)
@@ -254,7 +247,7 @@ struct PortfolioController: RouteCollection {
         }
 
         return PortfolioPerformanceResponse(
-            baseCurrency: "USD",
+            baseCurrency: filter.baseCurrency,
             points: points
         )
     }
@@ -460,16 +453,59 @@ struct PortfolioController: RouteCollection {
         return .noContent
     }
 
-    private func totalCashBalance(userId: UUID, on db: any Database) async throws -> Double {
-        let accounts = try await Account.query(on: db)
-            .filter(\.$userId == userId)
-            .all()
-        let accountIds = accounts.compactMap(\.id)
-        guard !accountIds.isEmpty else { return 0 }
+    private func resolveFilter(
+        _ query: PortfolioFilterQuery,
+        userId: UUID,
+        req: Request
+    ) async throws -> ResolvedPortfolioFilter {
+        let requested = query.portfolioId ?? query.portfolioListId
+        guard let requested else {
+            var actualPortfolioIds = try await PortfolioList.query(on: req.db)
+                .filter(\.$userId == userId)
+                .filter(\.$mode == PortfolioMode.actual.rawValue)
+                .filter(\.$archivedAt == nil)
+                .all()
+                .compactMap(\.id)
+            if actualPortfolioIds.isEmpty {
+                actualPortfolioIds = try await [ensureDefaultPortfolioListId(userId: userId, on: req.db)]
+            }
+            return ResolvedPortfolioFilter(
+                portfolioId: nil,
+                portfolioIds: actualPortfolioIds,
+                dataOwnerUserId: userId,
+                baseCurrency: "USD"
+            )
+        }
+        guard let portfolioId = UUID(uuidString: requested) else {
+            throw Abort(.badRequest, reason: "Invalid portfolio ID.")
+        }
+        let context = try await req.portfolioAccessService.require(
+            portfolioId: portfolioId,
+            userId: userId,
+            on: req.db
+        )
+        return ResolvedPortfolioFilter(
+            portfolioId: portfolioId,
+            portfolioIds: [portfolioId],
+            dataOwnerUserId: context.portfolio.userId,
+            baseCurrency: context.portfolio.baseCurrency
+        )
+    }
 
-        let balances = try await CashBalance.query(on: db)
-            .filter(\.$accountId ~~ accountIds)
-            .all()
+    private func totalCashBalance(
+        userId: UUID,
+        portfolioId: UUID?,
+        on db: any Database
+    ) async throws -> Double {
+        let accountQuery = Account.query(on: db).filter(\.$userId == userId)
+        if let portfolioId {
+            accountQuery.filter(\.$portfolioId == portfolioId)
+        }
+        let accounts = try await accountQuery.all()
+        let accountIds = accounts.compactMap(\.id)
+        let balances = accountIds.isEmpty
+            ? []
+            : try await CashBalance.query(on: db).filter(\.$accountId ~~ accountIds).all()
         var latestByAccountCurrency: [String: CashBalance] = [:]
         for balance in balances {
             let key = "\(balance.accountId.uuidString.lowercased())::\(balance.currency.uppercased())"
@@ -483,7 +519,13 @@ struct PortfolioController: RouteCollection {
             }
         }
 
-        return latestByAccountCurrency.values.reduce(0) { $0 + max(0, $1.balance) }
+        let accountCash = latestByAccountCurrency.values.reduce(0) { $0 + max(0, $1.balance) }
+        guard let portfolioId else { return accountCash }
+        let manualCash = try await PortfolioCashPositionRecord.query(on: db)
+            .filter(\.$portfolioId == portfolioId)
+            .all()
+            .reduce(0) { $0 + max(0, $1.balance) }
+        return accountCash + manualCash
     }
 
     private func requireUUIDParameter(_ req: Request, name: String, reason: String) throws -> UUID {

@@ -287,5 +287,10 @@ private struct BillingFeatureDescriptor {
         .init(feature: .crypto, title: "Cryptocurrency", proOnly: true),
         .init(feature: .receiptScan, title: "Receipt photo scanning (OCR)", proOnly: true),
         .init(feature: .bankSync, title: "Bank sync", proOnly: true),
+        .init(feature: .advancedPortfolios, title: "Retirement and hypothetical portfolios", proOnly: true),
+        .init(feature: .jointPortfolios, title: "Joint portfolio collaboration", proOnly: true),
+        .init(feature: .advancedReportTemplates, title: "Advanced report templates", proOnly: true),
+        .init(feature: .advancedReportSchedules, title: "Scheduled report delivery", proOnly: true),
+        .init(feature: .advancedReportRuns, title: "PDF and Excel reports", proOnly: true),
     ]
 }

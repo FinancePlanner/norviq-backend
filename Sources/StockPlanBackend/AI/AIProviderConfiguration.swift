@@ -11,6 +11,13 @@ enum AIProviderKind: String, Sendable {
 /// workloads. OpenRouter is the multi-model production path because it
 /// normalizes tool calling and Responses payloads across upstream providers.
 struct AIProviderConfiguration: Sendable {
+    private struct ProviderDefaults {
+        let key: String
+        let baseURL: String
+        let model: String
+        let tipsModel: String
+    }
+
     let provider: AIProviderKind
     let apiKey: String
     let baseURL: String
@@ -27,23 +34,23 @@ struct AIProviderConfiguration: Sendable {
         let provider = AIProviderKind(
             rawValue: (Environment.get("AI_PROVIDER") ?? "openai").lowercased()
         ) ?? .custom
-        let defaults: (key: String, baseURL: String, model: String, tipsModel: String) = switch provider {
+        let defaults = switch provider {
         case .openAI:
-            (
-                Environment.get("OPENAI_API_KEY") ?? "",
-                "https://api.openai.com/v1",
-                "gpt-5.6-terra",
-                "gpt-5.6-luna"
+            ProviderDefaults(
+                key: Environment.get("OPENAI_API_KEY") ?? "",
+                baseURL: "https://api.openai.com/v1",
+                model: "gpt-5.6-terra",
+                tipsModel: "gpt-5.6-luna"
             )
         case .openRouter:
-            (
-                Environment.get("OPENROUTER_API_KEY") ?? "",
-                "https://openrouter.ai/api/v1",
-                "anthropic/claude-sonnet-4.6",
-                "google/gemini-3.5-flash"
+            ProviderDefaults(
+                key: Environment.get("OPENROUTER_API_KEY") ?? "",
+                baseURL: "https://openrouter.ai/api/v1",
+                model: "anthropic/claude-sonnet-4.6",
+                tipsModel: "google/gemini-3.5-flash"
             )
         case .custom:
-            ("", "", "", "")
+            ProviderDefaults(key: "", baseURL: "", model: "", tipsModel: "")
         }
 
         let legacyBaseURL = provider == .openAI ? Environment.get("OPENAI_BASE_URL") : nil

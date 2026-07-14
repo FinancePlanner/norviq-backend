@@ -1,2 +1,3 @@
 --swiftversion 6.0
 --exclude .build,.swiftpm
+--disable redundantSendable

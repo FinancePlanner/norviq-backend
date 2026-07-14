@@ -142,6 +142,16 @@ enum BillingFeature: String {
     case receiptScan = "receipt_scan"
     /// Read-only bank sync (Plaid, GoCardless) into the expense flow — Pro/trial only.
     case bankSync = "bank_sync"
+    /// Retirement, joint, and hypothetical portfolios beyond the free personal portfolio.
+    case advancedPortfolios = "advanced_portfolios"
+    /// Sharing a portfolio with verified editor accounts.
+    case jointPortfolios = "joint_portfolios"
+    /// Composable PDF/XLSX report templates.
+    case advancedReportTemplates = "advanced_report_templates"
+    /// Scheduled report generation and email delivery.
+    case advancedReportSchedules = "advanced_report_schedules"
+    /// On-demand advanced PDF/XLSX generation.
+    case advancedReportRuns = "advanced_report_runs"
 }
 
 struct BillingPlanLimits {
@@ -194,7 +204,9 @@ struct BillingPlanLimits {
         case .brokerSync, .expensePlanner, .reports, .statistics, .marketFundamentals,
              .advancedResearch, .peerComparison, .earningsText,
              .householdPartner, .recurringTemplates, .yearOverview, .smartSuggestions,
-             .crypto, .aiInsights, .mcpAccess, .scenarioPlanning, .taxOptimization, .receiptScan, .bankSync:
+             .crypto, .aiInsights, .mcpAccess, .scenarioPlanning, .taxOptimization, .receiptScan, .bankSync,
+             .advancedPortfolios, .jointPortfolios, .advancedReportTemplates,
+             .advancedReportSchedules, .advancedReportRuns:
             nil
         }
     }
@@ -297,7 +309,9 @@ struct DefaultUsageCounterService: UsageCounterService {
         case .brokerSync, .portfolioLists, .valuationCases, .expensePlanner, .reports,
              .statistics, .marketFundamentals, .advancedResearch, .peerComparison, .earningsText,
              .householdPartner, .recurringTemplates, .yearOverview, .smartSuggestions,
-             .crypto, .aiInsights, .mcpAccess, .scenarioPlanning, .taxOptimization, .receiptScan, .bankSync:
+             .crypto, .aiInsights, .mcpAccess, .scenarioPlanning, .taxOptimization, .receiptScan, .bankSync,
+             .advancedPortfolios, .jointPortfolios, .advancedReportTemplates,
+             .advancedReportSchedules, .advancedReportRuns:
             0
         }
     }
@@ -317,7 +331,9 @@ struct DefaultUsageCounterService: UsageCounterService {
         case .brokerSync, .portfolioLists, .valuationCases, .expensePlanner, .reports,
              .statistics, .marketFundamentals, .advancedResearch, .peerComparison, .earningsText,
              .householdPartner, .recurringTemplates, .yearOverview, .smartSuggestions,
-             .crypto, .aiInsights, .mcpAccess, .scenarioPlanning, .taxOptimization, .receiptScan, .bankSync:
+             .crypto, .aiInsights, .mcpAccess, .scenarioPlanning, .taxOptimization, .receiptScan, .bankSync,
+             .advancedPortfolios, .jointPortfolios, .advancedReportTemplates,
+             .advancedReportSchedules, .advancedReportRuns:
             break
         }
     }

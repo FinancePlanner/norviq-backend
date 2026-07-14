@@ -69,6 +69,46 @@ extension DividendMonthlyBreakdown: @retroactive Content {}
 extension TransactionResponse: @retroactive Content {}
 extension LotResponse: @retroactive Content {}
 extension PnlResponse: @retroactive Content {}
+extension PortfolioCapabilities: @retroactive Content {}
+extension Portfolio: @retroactive Content {}
+extension PortfolioCreateRequest: @retroactive Content {}
+extension PortfolioUpdateRequest: @retroactive Content {}
+extension PortfolioCloneRequest: @retroactive Content {}
+extension PortfolioPageResponse: @retroactive Content {}
+extension PortfolioMembership: @retroactive Content {}
+extension PortfolioInvitation: @retroactive Content {}
+extension PortfolioInvitationCreateRequest: @retroactive Content {}
+extension PortfolioInvitationAcceptRequest: @retroactive Content {}
+extension PortfolioCashPosition: @retroactive Content {}
+extension PortfolioCashPositionRequest: @retroactive Content {}
+extension PortfolioAccountAssignmentRequest: @retroactive Content {}
+extension PortfolioComparisonHolding: @retroactive Content {}
+extension PortfolioComparisonColumn: @retroactive Content {}
+extension PortfolioComparison: @retroactive Content {}
+
+// MARK: - Retirement Planning
+
+extension RetirementPlanInput: @retroactive Content {}
+extension RetirementPlan: @retroactive Content {}
+extension RetirementPlanUpsertRequest: @retroactive Content {}
+extension RetirementRulePack: @retroactive Content {}
+extension RetirementProjectionRequest: @retroactive Content {}
+extension RetirementProjectionPoint: @retroactive Content {}
+extension RetirementProjectionSummary: @retroactive Content {}
+extension RetirementProjection: @retroactive Content {}
+
+// MARK: - Advanced Reporting
+
+extension ReportTemplateInput: @retroactive Content {}
+extension ReportTemplate: @retroactive Content {}
+extension ReportTemplatePageResponse: @retroactive Content {}
+extension ReportScheduleInput: @retroactive Content {}
+extension ReportSchedule: @retroactive Content {}
+extension ReportSchedulePageResponse: @retroactive Content {}
+extension ReportRunCreateRequest: @retroactive Content {}
+extension ReportRun: @retroactive Content {}
+extension ReportRunPageResponse: @retroactive Content {}
+extension ReportArtifactDownloadResponse: @retroactive Content {}
 
 // MARK: - User Profile
 
