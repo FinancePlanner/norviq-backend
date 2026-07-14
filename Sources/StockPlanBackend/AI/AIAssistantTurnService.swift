@@ -132,7 +132,7 @@ struct AIAssistantTurnService {
         let (expenses, budget, stocks, goals) = try await (expensesTask, budgetTask, stocksTask, goalsTask)
         let spent = expenses.reduce(0) { $0 + $1.amount * max(0, min(100, $1.userSharePercent)) / 100 }
         let portfolioValue = stocks.reduce(0) { $0 + ($1.shares * $1.buyPrice) }
-        let openGoals = goals.filter { $0.status != "completed" }.count
+        let openGoals = goals.count(where: { $0.status != "completed" })
         let netIncome = budget.map { String(round2($0.netSalary)) } ?? "not configured"
         return """
         Current-month expense count: \(expenses.count)
