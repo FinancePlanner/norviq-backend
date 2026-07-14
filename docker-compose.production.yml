@@ -13,6 +13,7 @@ volumes:
   db_data:
   redis_data:
   traefik_certificates:
+  advanced_report_data:
 
 networks:
   internal:
@@ -52,6 +53,8 @@ services:
     restart: unless-stopped
     ports:
       - "127.0.0.1:${APP_PORT:-8080}:8080"
+    volumes:
+      - advanced_report_data:/var/lib/norviq/advanced-reports
     networks:
       - internal
       - external
@@ -60,12 +63,39 @@ services:
         condition: service_healthy
       redis:
         condition: service_started
+      gotenberg:
+        condition: service_healthy
     labels:
       - "traefik.enable=true"
       - "traefik.http.routers.app.rule=Host(`${DOMAIN:?DOMAIN is required}`)"
       - "traefik.http.routers.app.entrypoints=websecure"
       - "traefik.http.routers.app.tls.certresolver=letsencrypt"
       - "traefik.http.services.app.loadbalancer.server.port=8080"
+
+  # Internal-only HTML-to-PDF renderer for the Advanced Reporting Center.
+  gotenberg:
+    image: docker.io/gotenberg/gotenberg:8.23.2
+    restart: unless-stopped
+    networks:
+      - internal
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "http://127.0.0.1:3000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 15s
+
+  # Named volumes are root-owned on first creation. Initialize permissions for
+  # the unprivileged vapor user before starting a newly deployed API image.
+  report-storage-init:
+    image: ${APP_IMAGE:?APP_IMAGE is required}
+    user: root
+    entrypoint: ["/bin/sh", "-c"]
+    command: ["chown -R vapor:vapor /var/lib/norviq/advanced-reports"]
+    volumes:
+      - advanced_report_data:/var/lib/norviq/advanced-reports
+    profiles:
+      - tools
 
   # PostgreSQL database
   mcp:
