@@ -20,6 +20,7 @@ struct AIAssistantController: RouteCollection {
         group.delete("conversations", ":id", use: deleteConversation)
         group.post("conversations", ":id", "messages", use: createMessage)
         group.post("conversations", ":id", "chat", use: chat)
+        group.post("conversations", ":id", "stream", use: streamChat)
         group.get("preferences", use: getPreferences)
         group.put("preferences", use: updatePreferences)
         group.get("tips", use: listTips)

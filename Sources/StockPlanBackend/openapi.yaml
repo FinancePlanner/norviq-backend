@@ -4724,6 +4724,39 @@ paths:
         '503':
           description: AI assistant is not configured
 
+  /v1/ai/assistant/conversations/{id}/stream:
+    post:
+      operationId: streamAIAssistantTurn
+      tags: [AI]
+      summary: Stream and persist an assistant turn
+      description: Emits Server-Sent Events named started, turn, error, and done. The turn event contains an AIAssistantTurnResponse after the assistant message and any pending action have been persisted.
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AIMessageRequest'
+      responses:
+        '200':
+          description: Assistant turn event stream
+          content:
+            text/event-stream:
+              schema:
+                type: string
+        '402':
+          description: Free preview exhausted
+        '503':
+          description: AI assistant is not configured
+
   /v1/ai/assistant/preferences:
     get:
       operationId: getAIAssistantPreferences

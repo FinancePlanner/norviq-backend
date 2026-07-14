@@ -1,4 +1,5 @@
 import Foundation
+import NIOCore
 import Redis
 import Vapor
 
@@ -27,45 +28,60 @@ struct AIChatController: RouteCollection {
             throw Abort(.badRequest, reason: "At least one user message is required.")
         }
 
-        let collector = ChatEventCollector()
-        do {
-            try await req.application.aiChatService.stream(
-                history: Array(history), userId: session.userId,
-                onEvent: { event in await collector.append(event) }, on: req
-            )
-        } catch {
-            await collector.append(.message("Sorry — I couldn't complete that just now. Please try again."))
-            req.logger.error("ai_chat error userId=\(session.userId) error=\(String(reflecting: error).prefix(300))")
-        }
-
-        let sse = await Self.encodeSSE(collector.events())
         let res = Response(status: .ok)
         res.headers.replaceOrAdd(name: .contentType, value: "text/event-stream; charset=utf-8")
         res.headers.replaceOrAdd(name: .cacheControl, value: "no-cache")
         res.headers.replaceOrAdd(name: "X-Accel-Buffering", value: "no")
-        res.body = .init(string: sse)
+        res.body = .init(managedAsyncStream: { writer in
+            do {
+                try await req.application.aiChatService.stream(
+                    history: Array(history),
+                    userId: session.userId,
+                    onEvent: { event in
+                        try? await Self.write(event, to: writer)
+                    },
+                    on: req
+                )
+            } catch {
+                try? await Self.write(
+                    .message("Sorry — I couldn't complete that just now. Please try again."),
+                    to: writer
+                )
+                req.logger.error("ai_chat error userId=\(session.userId) error=\(String(reflecting: error).prefix(300))")
+            }
+            try await Self.writeFrame(event: "done", encodedData: "{}", to: writer)
+        })
         return res
     }
 
     // MARK: - SSE encoding
 
-    static func encodeSSE(_ events: [AIChatEvent]) -> String {
-        var out = ""
-        for event in events {
-            switch event {
-            case let .toolActivity(label):
-                out += sseFrame(event: "tool", data: ["label": label])
-            case let .message(text):
-                out += sseFrame(event: "message", data: ["content": text])
-            }
+    static func write(_ event: AIChatEvent, to writer: any AsyncBodyStreamWriter) async throws {
+        switch event {
+        case let .toolActivity(label):
+            try await writeFrame(event: "tool", data: ["label": label], to: writer)
+        case let .message(text):
+            try await writeFrame(event: "message", data: ["content": text], to: writer)
         }
-        out += sseFrame(event: "done", data: [:])
-        return out
     }
 
-    private static func sseFrame(event: String, data: [String: String]) -> String {
+    static func writeFrame(
+        event: String,
+        data: [String: String],
+        to writer: any AsyncBodyStreamWriter
+    ) async throws {
         let encoded = (try? JSONEncoder().encode(data)).flatMap { String(data: $0, encoding: .utf8) } ?? "{}"
-        return "event: \(event)\ndata: \(encoded)\n\n"
+        try await writeFrame(event: event, encodedData: encoded, to: writer)
+    }
+
+    static func writeFrame(
+        event: String,
+        encodedData: String,
+        to writer: any AsyncBodyStreamWriter
+    ) async throws {
+        var buffer = ByteBufferAllocator().buffer(capacity: event.utf8.count + encodedData.utf8.count + 16)
+        buffer.writeString("event: \(event)\ndata: \(encodedData)\n\n")
+        try await writer.writeBuffer(buffer)
     }
 
     // MARK: - Daily cap (mirrors AIInsightsController)
@@ -102,18 +118,6 @@ struct AIChatController: RouteCollection {
         calendar.timeZone = TimeZone(secondsFromGMT: 0) ?? .gmt
         let c = calendar.dateComponents([.year, .month, .day], from: date)
         return "\(c.year ?? 0)-\(c.month ?? 0)-\(c.day ?? 0)"
-    }
-}
-
-/// Serializes chat events from the (sequential) tool loop.
-actor ChatEventCollector {
-    private var stored: [AIChatEvent] = []
-    func append(_ event: AIChatEvent) {
-        stored.append(event)
-    }
-
-    func events() -> [AIChatEvent] {
-        stored
     }
 }
 
