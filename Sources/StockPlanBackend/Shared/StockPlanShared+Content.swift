@@ -86,6 +86,30 @@ extension PortfolioComparisonHolding: @retroactive Content {}
 extension PortfolioComparisonColumn: @retroactive Content {}
 extension PortfolioComparison: @retroactive Content {}
 
+// MARK: - Portfolio Rebalancing
+
+extension AllocationTargetLeaf: @retroactive Content {}
+extension AllocationTargetBucket: @retroactive Content {}
+extension AllocationModel: @retroactive Content {}
+extension AllocationModelUpsertRequest: @retroactive Content {}
+extension RebalancingValuationWarning: @retroactive Content {}
+extension RebalancingAllocationRow: @retroactive Content {}
+extension RebalancingOverview: @retroactive Content {}
+extension RebalanceTradeOverride: @retroactive Content {}
+extension RebalancingSimulationRequest: @retroactive Content {}
+extension RebalanceTrade: @retroactive Content {}
+extension RebalancingSimulation: @retroactive Content {}
+extension RebalancePlanCreateRequest: @retroactive Content {}
+extension RebalancePlan: @retroactive Content {}
+extension RebalancePlanCompletionRequest: @retroactive Content {}
+extension RebalancingHistorySummary: @retroactive Content {}
+extension RebalancingAlert: @retroactive Content {}
+extension RebalancingNotificationPreferences: @retroactive Content {}
+extension UpdateRebalancingNotificationPreferencesRequest: @retroactive Content {}
+extension AllocationModelBulkCopyRequest: @retroactive Content {}
+extension AllocationModelBulkCopyResult: @retroactive Content {}
+extension RebalancingDashboardSummary: @retroactive Content {}
+
 // MARK: - Retirement Planning
 
 extension RetirementPlanInput: @retroactive Content {}

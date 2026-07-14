@@ -28,6 +28,8 @@ tags:
   - name: Webhooks
     description: Public inbound webhook endpoints for provider event delivery.
   - name: Portfolio
+  - name: Rebalancing
+    description: Rule-based allocation policies, drift monitoring, simulations, and planning records. These endpoints never submit broker orders.
   - name: Retirement
   - name: AdvancedReporting
   - name: Scenarios
@@ -7086,6 +7088,173 @@ paths:
         - { in: path, name: eventID, required: true, schema: { type: string, format: uuid } }
       requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/NotificationReadRequest' } } } }
       responses: { '200': { description: Updated notification, content: { application/json: { schema: { $ref: '#/components/schemas/NotificationInboxItem' } } } } }
+  /v1/rebalancing/dashboard:
+    get:
+      operationId: getRebalancingDashboard
+      tags: [Rebalancing]
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200': { description: Cross-portfolio drift summary, content: { application/json: { schema: { $ref: '#/components/schemas/RebalancingDocument' } } } }
+  /v1/rebalancing/alerts:
+    get:
+      operationId: listRebalancingAlerts
+      tags: [Rebalancing]
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200': { description: User drift alerts, content: { application/json: { schema: { type: array, items: { $ref: '#/components/schemas/RebalancingDocument' } } } } }
+  /v1/rebalancing/alerts/{alertId}/acknowledge:
+    post:
+      operationId: acknowledgeRebalancingAlert
+      tags: [Rebalancing]
+      security: [{ bearerAuth: [] }]
+      parameters: [{ name: alertId, in: path, required: true, schema: { type: string, format: uuid } }]
+      responses:
+        '200': { description: Acknowledged alert, content: { application/json: { schema: { $ref: '#/components/schemas/RebalancingDocument' } } } }
+  /v1/portfolios/{portfolioId}/rebalancing/models:
+    parameters: [{ name: portfolioId, in: path, required: true, schema: { type: string, format: uuid } }]
+    get:
+      operationId: listAllocationModels
+      tags: [Rebalancing]
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200': { description: Allocation models, content: { application/json: { schema: { type: array, items: { $ref: '#/components/schemas/RebalancingDocument' } } } } }
+    post:
+      operationId: createAllocationModel
+      tags: [Rebalancing]
+      security: [{ bearerAuth: [] }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/RebalancingDocument' } } } }
+      responses:
+        '201': { description: Created allocation model, content: { application/json: { schema: { $ref: '#/components/schemas/RebalancingDocument' } } } }
+  /v1/portfolios/{portfolioId}/rebalancing/models/{modelId}:
+    put:
+      operationId: updateAllocationModel
+      tags: [Rebalancing]
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: portfolioId, in: path, required: true, schema: { type: string, format: uuid } }
+        - { name: modelId, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/RebalancingDocument' } } } }
+      responses:
+        '200': { description: Updated allocation model, content: { application/json: { schema: { $ref: '#/components/schemas/RebalancingDocument' } } } }
+        '409': { description: Model revision conflict }
+  /v1/portfolios/{portfolioId}/rebalancing/models/{modelId}/activate:
+    post:
+      operationId: activateAllocationModel
+      tags: [Rebalancing]
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: portfolioId, in: path, required: true, schema: { type: string, format: uuid } }
+        - { name: modelId, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200': { description: Activated model, content: { application/json: { schema: { $ref: '#/components/schemas/RebalancingDocument' } } } }
+  /v1/portfolios/{portfolioId}/rebalancing/models/{modelId}/copy:
+    post:
+      operationId: copyAllocationModel
+      tags: [Rebalancing]
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: portfolioId, in: path, required: true, schema: { type: string, format: uuid } }
+        - { name: modelId, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/RebalancingDocument' } } } }
+      responses:
+        '200': { description: Copied allocation models, content: { application/json: { schema: { $ref: '#/components/schemas/RebalancingDocument' } } } }
+  /v1/portfolios/{portfolioId}/rebalancing/overview:
+    get:
+      operationId: getRebalancingOverview
+      tags: [Rebalancing]
+      security: [{ bearerAuth: [] }]
+      parameters: [{ name: portfolioId, in: path, required: true, schema: { type: string, format: uuid } }]
+      responses:
+        '200': { description: Current allocation and drift, content: { application/json: { schema: { $ref: '#/components/schemas/RebalancingDocument' } } } }
+  /v1/portfolios/{portfolioId}/rebalancing/simulate:
+    post:
+      operationId: simulateRebalancing
+      tags: [Rebalancing]
+      security: [{ bearerAuth: [] }]
+      parameters: [{ name: portfolioId, in: path, required: true, schema: { type: string, format: uuid } }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/RebalancingDocument' } } } }
+      responses:
+        '200': { description: Exact proposed trades and post-trade allocation, content: { application/json: { schema: { $ref: '#/components/schemas/RebalancingDocument' } } } }
+        '409': { description: Stale model revision }
+  /v1/portfolios/{portfolioId}/rebalancing/plans:
+    parameters: [{ name: portfolioId, in: path, required: true, schema: { type: string, format: uuid } }]
+    get:
+      operationId: listRebalancingPlans
+      tags: [Rebalancing]
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200': { description: Saved planning records, content: { application/json: { schema: { type: array, items: { $ref: '#/components/schemas/RebalancingDocument' } } } } }
+    post:
+      operationId: createRebalancingPlan
+      tags: [Rebalancing]
+      security: [{ bearerAuth: [] }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/RebalancingDocument' } } } }
+      responses:
+        '201': { description: Saved planning record, content: { application/json: { schema: { $ref: '#/components/schemas/RebalancingDocument' } } } }
+  /v1/portfolios/{portfolioId}/rebalancing/plans/{planId}/complete:
+    post:
+      operationId: completeRebalancingPlan
+      tags: [Rebalancing]
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: portfolioId, in: path, required: true, schema: { type: string, format: uuid } }
+        - { name: planId, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody: { content: { application/json: { schema: { $ref: '#/components/schemas/RebalancingDocument' } } } }
+      responses:
+        '200': { description: Completed discipline record, content: { application/json: { schema: { $ref: '#/components/schemas/RebalancingDocument' } } } }
+  /v1/portfolios/{portfolioId}/rebalancing/plans/{planId}/cancel:
+    post:
+      operationId: cancelRebalancingPlan
+      tags: [Rebalancing]
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: portfolioId, in: path, required: true, schema: { type: string, format: uuid } }
+        - { name: planId, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200': { description: Cancelled planning record, content: { application/json: { schema: { $ref: '#/components/schemas/RebalancingDocument' } } } }
+  /v1/portfolios/{portfolioId}/rebalancing/plans/{planId}/export.csv:
+    get:
+      operationId: exportRebalancingPlanCSV
+      tags: [Rebalancing]
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: portfolioId, in: path, required: true, schema: { type: string, format: uuid } }
+        - { name: planId, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200': { description: CSV manual order instructions, content: { text/csv: { schema: { type: string } } } }
+  /v1/portfolios/{portfolioId}/rebalancing/plans/{planId}/export.pdf:
+    get:
+      operationId: exportRebalancingPlanPDF
+      tags: [Rebalancing]
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: portfolioId, in: path, required: true, schema: { type: string, format: uuid } }
+        - { name: planId, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200': { description: PDF planning report, content: { application/pdf: { schema: { type: string, format: binary } } } }
+  /v1/portfolios/{portfolioId}/rebalancing/history:
+    get:
+      operationId: getRebalancingHistory
+      tags: [Rebalancing]
+      security: [{ bearerAuth: [] }]
+      parameters: [{ name: portfolioId, in: path, required: true, schema: { type: string, format: uuid } }]
+      responses:
+        '200': { description: Discipline metrics, content: { application/json: { schema: { $ref: '#/components/schemas/RebalancingDocument' } } } }
+  /v1/portfolios/{portfolioId}/rebalancing/preferences:
+    parameters: [{ name: portfolioId, in: path, required: true, schema: { type: string, format: uuid } }]
+    get:
+      operationId: getRebalancingPreferences
+      tags: [Rebalancing]
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200': { description: Drift notification preferences, content: { application/json: { schema: { $ref: '#/components/schemas/RebalancingDocument' } } } }
+    put:
+      operationId: updateRebalancingPreferences
+      tags: [Rebalancing]
+      security: [{ bearerAuth: [] }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/RebalancingDocument' } } } }
+      responses:
+        '200': { description: Updated drift notification preferences, content: { application/json: { schema: { $ref: '#/components/schemas/RebalancingDocument' } } } }
 components:
   parameters:
     ScenarioResourceID:
@@ -7138,6 +7307,10 @@ components:
       name: Authorization
       description: Shared secret for inbound RevenueCat webhook delivery. Configure the backend with `REVENUECAT_WEBHOOK_SECRET`.
   schemas:
+    RebalancingDocument:
+      type: object
+      description: Rebalancing contract defined in the versioned StockPlanShared package.
+      additionalProperties: true
     ScenarioJSON:
       type: object
       additionalProperties: true

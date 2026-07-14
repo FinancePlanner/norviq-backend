@@ -49,6 +49,7 @@ extension PushDeviceRegistrationResponse {
 
         let formatter = ISO8601DateFormatter()
         formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        let capabilities = (try? JSONDecoder().decode([String].self, from: Data(model.capabilitiesJSON.utf8))) ?? []
 
         self = .init(
             id: id.uuidString,
@@ -57,7 +58,8 @@ extension PushDeviceRegistrationResponse {
             apnsEnvironment: apnsEnvironment,
             authorizationStatus: authorizationStatus,
             isActive: model.isActive,
-            lastSeenAt: formatter.string(from: model.lastSeenAt)
+            lastSeenAt: formatter.string(from: model.lastSeenAt),
+            capabilities: capabilities
         )
     }
 }

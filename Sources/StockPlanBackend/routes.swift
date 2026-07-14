@@ -73,6 +73,7 @@ func routes(_ app: Application) throws {
     try api.grouped(macroRateLimit).register(collection: MacroController())
     try api.register(collection: PortfolioController())
     try api.register(collection: PortfolioManagementController())
+    try api.register(collection: RebalancingController())
     try api.register(collection: RetirementController())
     try api.register(collection: AdvancedReportingController())
     // Broker connect/sync hit third-party APIs and mutate stored credentials; rate limit
