@@ -5,15 +5,17 @@ import Vapor
 
 struct GoalsController: RouteCollection {
     func boot(routes: any RoutesBuilder) throws {
-        let protected = routes.grouped(SessionToken.authenticator(), SessionToken.guardMiddleware())
+        let protected = routes.grouped(ScopedBearerAuthenticator(), SessionToken.guardMiddleware())
         let goals = protected.grouped("goals")
+        let readable = goals.grouped(ScopeRequirementMiddleware(.expensesRead))
+        let writable = goals.grouped(ScopeRequirementMiddleware(.expensesWrite))
 
-        goals.get(use: index)
-        goals.post(use: create)
-        goals.get(":id", use: show)
-        goals.patch(":id", use: update)
-        goals.patch(":id", "status", use: updateStatus)
-        goals.delete(":id", use: delete)
+        readable.get(use: index)
+        writable.post(use: create)
+        readable.get(":id", use: show)
+        writable.patch(":id", use: update)
+        writable.patch(":id", "status", use: updateStatus)
+        writable.delete(":id", use: delete)
     }
 
     @Sendable
