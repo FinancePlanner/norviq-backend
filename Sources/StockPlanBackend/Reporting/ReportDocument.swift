@@ -2,8 +2,8 @@ import Fluent
 import Foundation
 import StockPlanShared
 
-struct ReportDocument: Sendable {
-    struct PortfolioSection: Sendable {
+struct ReportDocument {
+    struct PortfolioSection {
         let id: UUID
         let name: String
         let currency: String
@@ -19,7 +19,7 @@ struct ReportDocument: Sendable {
         }
     }
 
-    struct Holding: Sendable {
+    struct Holding {
         let symbol: String
         let shares: Double
         let price: Double

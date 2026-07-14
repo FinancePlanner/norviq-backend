@@ -38,7 +38,7 @@ struct LocalAdvancedReportStorage: AdvancedReportStorage {
     }
 }
 
-struct ReportDownloadSigner: Sendable {
+struct ReportDownloadSigner {
     let secret: String
 
     func signature(artifactId: UUID, expiresAt: Date, recipientUserId: UUID?) -> String {

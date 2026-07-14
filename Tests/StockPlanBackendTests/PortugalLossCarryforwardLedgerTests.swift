@@ -53,7 +53,7 @@ struct PortugalLossCarryforwardLedgerTests {
                 on: app.db
             )
             #expect(response.totalAvailable.amount == 300)
-            #expect(response.balances.filter { $0.sourceTaxYear < 2024 }.count == 2)
+            #expect(response.balances.count(where: { $0.sourceTaxYear < 2024 }) == 2)
             #expect(response.balances.flatMap(\.applications).count == 2)
         }
     }

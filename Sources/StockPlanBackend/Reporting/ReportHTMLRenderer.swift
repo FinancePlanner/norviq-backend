@@ -1,6 +1,6 @@
 import Foundation
 
-struct ReportHTMLRenderer: Sendable {
+struct ReportHTMLRenderer {
     func render(_ document: ReportDocument) -> String {
         let cards = document.portfolios.map { portfolio in
             let rows = portfolio.holdings.map { holding in

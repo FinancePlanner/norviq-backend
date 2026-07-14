@@ -3,7 +3,7 @@ import NIOCore
 import StockPlanShared
 import Vapor
 
-struct AdvancedReportGenerator: Sendable {
+struct AdvancedReportGenerator {
     let gotenbergBaseURL: String
 
     func generate(

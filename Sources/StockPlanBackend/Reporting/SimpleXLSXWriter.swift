@@ -1,6 +1,6 @@
 import Foundation
 
-struct SimpleXLSXWriter: Sendable {
+struct SimpleXLSXWriter {
     func makeWorkbook(_ document: ReportDocument) -> Data {
         let summaryRows = document.portfolios.enumerated().map { index, portfolio in
             let row = index + 4

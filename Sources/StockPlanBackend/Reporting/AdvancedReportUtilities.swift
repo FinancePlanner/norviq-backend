@@ -15,7 +15,7 @@ func decodeReportJSON<T: Decodable>(_ type: T.Type, _ value: String) throws -> T
     try JSONDecoder.backendAPI.decode(type, from: Data(value.utf8))
 }
 
-struct ReportRecurrenceCalculator: Sendable {
+struct ReportRecurrenceCalculator {
     func next(after date: Date, recurrence: ReportRecurrence) throws -> Date {
         guard let timeZone = TimeZone(identifier: recurrence.timeZone) else {
             throw Abort(.badRequest, reason: "Invalid report schedule time zone.")
@@ -64,7 +64,7 @@ struct ReportRecurrenceCalculator: Sendable {
     }
 }
 
-struct AdvancedReportMapper: Sendable {
+struct AdvancedReportMapper {
     func template(_ record: AdvancedReportTemplateRecord) throws -> ReportTemplate {
         try ReportTemplate(
             id: record.requireID().uuidString,
