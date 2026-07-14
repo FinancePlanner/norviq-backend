@@ -556,6 +556,20 @@ struct StockServiceImpl: StockService {
             return existing
         }
 
+        // Accounts created before multi-portfolio support have no portfolio.
+        // Adopt the user's legacy manual account so its cash balance is retained
+        // and the stable external ID is not inserted a second time.
+        if let legacy = try await Account.query(on: db)
+            .filter(\.$userId == userId)
+            .filter(\.$portfolioId == nil)
+            .filter(\.$broker == "manual")
+            .first()
+        {
+            legacy.portfolioId = portfolioId
+            try await legacy.save(on: db)
+            return legacy
+        }
+
         let account = Account(
             userId: userId,
             externalId: "manual-\(userId.uuidString.lowercased())",
