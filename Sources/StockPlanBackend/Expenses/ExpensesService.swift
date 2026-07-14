@@ -206,14 +206,7 @@ final class DefaultExpensesService: ExpensesService {
             throw Abort(.internalServerError, reason: "Could not normalize monthStart.")
         }
 
-        // Use a date range to find the record to be more robust against DB date/time comparison issues
-        let nextMonth = calendar.date(byAdding: .month, value: 1, to: monthStart)!
-
-        let existing = try await BudgetSnapshot.query(on: db)
-            .filter(\.$user.$id == userId)
-            .filter(\.$monthStart >= monthStart)
-            .filter(\.$monthStart < nextMonth)
-            .first()
+        let existing = try await findSnapshot(userId: userId, matchingMonth: monthStart, on: db)
 
         if let snapshot = existing {
             // Update existing
@@ -230,8 +223,20 @@ final class DefaultExpensesService: ExpensesService {
                 netSalary: request.netSalary,
                 targetShares: request.targetShares
             )
-            try await snapshot.create(on: db)
-            return mapSnapshot(snapshot)
+            do {
+                try await snapshot.create(on: db)
+                return mapSnapshot(snapshot)
+            } catch {
+                // A concurrent expense import may have created this month's
+                // snapshot after the lookup. Treat the unique row as the winner.
+                if let concurrent = try await findSnapshot(userId: userId, matchingMonth: monthStart, on: db) {
+                    concurrent.netSalary = request.netSalary
+                    concurrent.targetShares = request.targetShares
+                    try await concurrent.update(on: db)
+                    return mapSnapshot(concurrent)
+                }
+                throw error
+            }
         }
     }
 
@@ -355,7 +360,6 @@ final class DefaultExpensesService: ExpensesService {
 
     func getExpenses(userId: UUID, from: Date?, to: Date?, limit: Int, cursor: Date?, on db: any Database) async throws -> (items: [ExpenseResponse], nextCursor: String?) {
         var query = Expense.query(on: db).filter(\.$user.$id == userId)
-
         if let from {
             query = query.filter(\.$occurredOn >= from)
         }
@@ -363,8 +367,12 @@ final class DefaultExpensesService: ExpensesService {
             query = query.filter(\.$occurredOn <= to)
         }
         if let cursor {
-            // Keyset: fetch records with occurredOn strictly before cursor (older records)
-            query = query.filter(\.$occurredOn < cursor)
+            var calendar = Calendar(identifier: .gregorian)
+            calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+            // occurred_on is a DATE column. Move to the preceding calendar day
+            // before binding so timezone conversion cannot re-include the cursor day.
+            let precedingDay = calendar.date(byAdding: .day, value: -1, to: cursor) ?? cursor
+            query = query.filter(\.$occurredOn <= precedingDay)
         }
 
         let maxLimit = 200
@@ -623,22 +631,26 @@ final class DefaultExpensesService: ExpensesService {
     // MARK: - Reports
 
     func getMonthlyReports(userId: UUID, from: Date?, to: Date?, on db: any Database) async throws -> [BudgetMonthSummaryResponse] {
-        var snapshotsQuery = BudgetSnapshot.query(on: db).filter(\.$user.$id == userId)
         let itemsQuery = BudgetPlanItem.query(on: db).filter(\.$user.$id == userId)
-        var expensesQuery = Expense.query(on: db).filter(\.$user.$id == userId)
-
-        if let from {
-            snapshotsQuery = snapshotsQuery.filter(\.$monthStart >= from)
-            expensesQuery = expensesQuery.filter(\.$occurredOn >= from)
-        }
-        if let to {
-            snapshotsQuery = snapshotsQuery.filter(\.$monthStart <= to)
-            expensesQuery = expensesQuery.filter(\.$occurredOn <= to)
-        }
-
-        let snapshots = try await snapshotsQuery.all()
+        let allSnapshots = try await BudgetSnapshot.query(on: db)
+            .filter(\.$user.$id == userId)
+            .all()
         let items = try await itemsQuery.all()
-        let expenses = try await expensesQuery.all()
+        let allExpenses = try await Expense.query(on: db)
+            .filter(\.$user.$id == userId)
+            .all()
+
+        // PostgreSQL DATE columns do not compare reliably with Swift Date
+        // parameters across every configured timezone. Filter decoded values
+        // here so report boundaries stay calendar-date based.
+        let snapshots = allSnapshots.filter { snapshot in
+            (from.map { snapshot.monthStart >= $0 } ?? true)
+                && (to.map { snapshot.monthStart <= $0 } ?? true)
+        }
+        let expenses = allExpenses.filter { expense in
+            (from.map { expense.occurredOn >= $0 } ?? true)
+                && (to.map { expense.occurredOn <= $0 } ?? true)
+        }
 
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = TimeZone(secondsFromGMT: 0)!
@@ -660,7 +672,7 @@ final class DefaultExpensesService: ExpensesService {
         var summaries: [BudgetMonthSummaryResponse] = []
 
         for snapshot in snapshots.sorted(by: { $0.monthStart < $1.monthStart }) {
-            let monthStart = snapshot.monthStart
+            let monthStart = normalizedMonthStart(for: snapshot.monthStart)
 
             var snapshotItems: [BudgetPlanItem] = []
             if let id = snapshot.id {
@@ -829,14 +841,12 @@ final class DefaultExpensesService: ExpensesService {
         let normalizedMonthStart = normalizedMonthStart(for: monthStart)
         let nextMonthStart = calendar.date(byAdding: .month, value: 1, to: normalizedMonthStart)
 
-        var snapshotQuery = BudgetSnapshot.query(on: db)
+        let snapshots = try await BudgetSnapshot.query(on: db)
             .filter(\.$user.$id == userId)
-            .filter(\.$monthStart >= normalizedMonthStart)
-        if let nextMonthStart {
-            snapshotQuery = snapshotQuery.filter(\.$monthStart < nextMonthStart)
-        }
-
-        guard let snapshot = try await snapshotQuery.first()
+            .all()
+        guard let snapshot = snapshots.first(where: {
+            calendar.isDate($0.monthStart, equalTo: normalizedMonthStart, toGranularity: .month)
+        })
         else {
             return []
         }
@@ -1029,17 +1039,7 @@ extension DefaultExpensesService {
         monthStart: Date,
         on db: any Database
     ) async throws {
-        var calendar = Calendar(identifier: .gregorian)
-        calendar.timeZone = TimeZone(secondsFromGMT: 0)!
-        let nextMonthStart = calendar.date(byAdding: .month, value: 1, to: monthStart)
-
-        var existingQuery = BudgetSnapshot.query(on: db)
-            .filter(\.$user.$id == userId)
-            .filter(\.$monthStart >= monthStart)
-        if let nextMonthStart {
-            existingQuery = existingQuery.filter(\.$monthStart < nextMonthStart)
-        }
-        if try await existingQuery.first() != nil {
+        if try await findSnapshot(userId: userId, matchingMonth: monthStart, on: db) != nil {
             return
         }
 
@@ -1089,6 +1089,21 @@ extension DefaultExpensesService {
                 newItem.$category.id = item.$category.id
                 try await newItem.create(on: db)
             }
+        }
+    }
+
+    func findSnapshot(
+        userId: UUID,
+        matchingMonth monthStart: Date,
+        on db: any Database
+    ) async throws -> BudgetSnapshot? {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+        let snapshots = try await BudgetSnapshot.query(on: db)
+            .filter(\.$user.$id == userId)
+            .all()
+        return snapshots.first {
+            calendar.isDate($0.monthStart, equalTo: monthStart, toGranularity: .month)
         }
     }
 

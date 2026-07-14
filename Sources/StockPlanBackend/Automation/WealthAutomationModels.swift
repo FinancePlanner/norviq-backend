@@ -105,11 +105,13 @@ final class RebalancingPolicyModel: Model, @unchecked Sendable {
     @ID(key: .id) var id: UUID?
     @Field(key: "user_id") var userId: UUID
     @Field(key: "portfolio_list_id") var portfolioListId: UUID
+    @Field(key: "base_currency") var baseCurrency: String
     @Field(key: "cadence") var cadence: String
     @OptionalField(key: "drift_threshold") var driftThreshold: Double?
     @Field(key: "targets") var targets: ScenarioJSON
     @Field(key: "enabled") var enabled: Bool
     @OptionalField(key: "last_confirmed_at") var lastConfirmedAt: Date?
+    @OptionalField(key: "last_triggered_at") var lastTriggeredAt: Date?
     @Timestamp(key: "created_at", on: .create) var createdAt: Date?
     @Timestamp(key: "updated_at", on: .update) var updatedAt: Date?
 
@@ -126,6 +128,7 @@ final class RebalanceEventModel: Model, @unchecked Sendable {
     @Field(key: "preview") var preview: ScenarioJSON
     @Timestamp(key: "created_at", on: .create) var createdAt: Date?
     @OptionalField(key: "confirmed_at") var confirmedAt: Date?
+    @OptionalField(key: "dismissed_at") var dismissedAt: Date?
 
     init() {}
 }

@@ -13,12 +13,11 @@ struct WatchlistScreenEvaluator: Sendable {
         .init(id: "pe_ratio", label: "P/E ratio", category: .valuation, supportedPeriods: [.ttm, .annual, .quarterly], supportedComparisons: numeric, unit: "ratio", favorableDirection: "lower"),
         .init(id: "price_to_sales", label: "Price to sales", category: .valuation, supportedPeriods: [.ttm, .annual, .quarterly], supportedComparisons: numeric, unit: "ratio", favorableDirection: "lower"),
         .init(id: "net_profit_margin", label: "Net profit margin", category: .profitability, supportedPeriods: [.ttm, .annual, .quarterly], supportedComparisons: trend, unit: "percent", favorableDirection: "higher"),
-        .init(id: "return_on_equity", label: "Return on equity", category: .profitability, supportedPeriods: [.ttm, .annual, .quarterly], supportedComparisons: trend, unit: "percent", favorableDirection: "higher"),
-        .init(id: "revenue_growth", label: "Revenue growth", category: .growth, supportedPeriods: [.ttm, .annual, .quarterly], supportedComparisons: trend, unit: "percent", favorableDirection: "higher"),
-        .init(id: "eps_growth", label: "EPS growth", category: .growth, supportedPeriods: [.ttm, .annual, .quarterly], supportedComparisons: trend, unit: "percent", favorableDirection: "higher"),
+        .init(id: "revenue_growth", label: "Revenue growth", category: .growth, supportedPeriods: [.annual, .quarterly], supportedComparisons: trend, unit: "percent", favorableDirection: "higher"),
+        .init(id: "eps_growth", label: "EPS growth", category: .growth, supportedPeriods: [.annual, .quarterly], supportedComparisons: trend, unit: "percent", favorableDirection: "higher"),
         .init(id: "debt_to_equity", label: "Debt to equity", category: .leverage, supportedPeriods: [.ttm, .annual, .quarterly], supportedComparisons: trend, unit: "ratio", favorableDirection: "lower"),
         .init(id: "current_ratio", label: "Current ratio", category: .liquidity, supportedPeriods: [.ttm, .annual, .quarterly], supportedComparisons: trend, unit: "ratio", favorableDirection: "higher"),
-        .init(id: "free_cash_flow", label: "Free cash flow", category: .cashFlow, supportedPeriods: [.ttm, .annual, .quarterly], supportedComparisons: trend, unit: "currency", favorableDirection: "higher"),
+        .init(id: "free_cash_flow", label: "Free cash flow per share", category: .cashFlow, supportedPeriods: [.ttm, .annual, .quarterly], supportedComparisons: trend, unit: "currency", favorableDirection: "higher"),
         .init(id: "dividend_yield", label: "Dividend yield", category: .dividend, supportedPeriods: [.ttm, .annual, .quarterly], supportedComparisons: trend, unit: "percent", favorableDirection: "higher"),
     ]
 
@@ -85,10 +84,24 @@ struct RebalancingEngine: Sendable {
         try policy.validate()
         let total = valuations.reduce(0) { $0 + $1.value }
         guard total > 0 else { throw WealthAutomationValidationError.invalidAmount }
-        let values = Dictionary(uniqueKeysWithValues: valuations.map { (key(kind: $0.kind, symbol: $0.symbol), $0) })
+        let values = valuations.reduce(into: [String: RebalanceValuation]()) { result, valuation in
+            let valuationKey = key(kind: valuation.kind, symbol: valuation.symbol)
+            if let existing = result[valuationKey] {
+                result[valuationKey] = RebalanceValuation(
+                    kind: valuation.kind,
+                    symbol: valuation.symbol,
+                    value: existing.value + valuation.value,
+                    price: existing.price ?? valuation.price
+                )
+            } else {
+                result[valuationKey] = valuation
+            }
+        }
         var maximumDrift = 0.0
-        let trades = policy.targets.map { target in
-            let valuation = values[key(kind: target.kind, symbol: target.symbol)]
+        let targetKeys = Set(policy.targets.map { key(kind: $0.kind, symbol: $0.symbol) })
+        var trades = policy.targets.map { target in
+            let targetKey = key(kind: target.kind, symbol: target.symbol)
+            let valuation = values[targetKey]
             let currentValue = valuation?.value ?? 0
             let currentWeight = currentValue / total
             let delta = target.targetWeight * total - currentValue
@@ -105,6 +118,24 @@ struct RebalancingEngine: Sendable {
                 approximateShares: valuation?.price.flatMap { $0 > 0 ? abs(delta) / $0 : nil }
             )
         }
+        let liquidationTrades = values
+            .filter { targetKeys.contains($0.key) == false && abs($0.value.value) >= 0.01 }
+            .sorted { $0.key < $1.key }
+            .map { valuationKey, valuation in
+                let currentWeight = valuation.value / total
+                maximumDrift = max(maximumDrift, abs(currentWeight))
+                return RebalanceTradeDraft(
+                    id: "liquidate:\(valuationKey)",
+                    kind: valuation.kind,
+                    symbol: valuation.symbol,
+                    action: .sell,
+                    currentWeight: currentWeight,
+                    targetWeight: 0,
+                    amount: abs(valuation.value),
+                    approximateShares: valuation.price.flatMap { $0 > 0 ? abs(valuation.value) / $0 : nil }
+                )
+            }
+        trades.append(contentsOf: liquidationTrades)
         var reasons: [RebalanceTriggerReason] = []
         if let threshold = policy.driftThreshold, maximumDrift > threshold {
             reasons.append(.drift)
@@ -123,7 +154,8 @@ struct RebalancingEngine: Sendable {
 
     private func cadenceDue(policy: RebalancingPolicy, now: Date) -> Bool {
         guard policy.cadence != .disabled else { return false }
-        guard let raw = policy.lastConfirmedAt, let last = ISO8601DateFormatter().date(from: raw) else { return true }
+        let rawReference = policy.lastConfirmedAt ?? policy.createdAt
+        guard let rawReference, let reference = ISO8601DateFormatter().date(from: rawReference) else { return false }
         let months: Int
         switch policy.cadence {
         case .monthly: months = 1
@@ -132,7 +164,7 @@ struct RebalancingEngine: Sendable {
         case .annual: months = 12
         case .disabled: return false
         }
-        return Calendar(identifier: .gregorian).date(byAdding: .month, value: months, to: last).map { now >= $0 } ?? false
+        return Calendar(identifier: .gregorian).date(byAdding: .month, value: months, to: reference).map { now >= $0 } ?? false
     }
 
     private func key(kind: RebalanceAssetKind, symbol: String?) -> String {

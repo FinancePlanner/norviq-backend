@@ -56,7 +56,6 @@ struct DefaultTargetAlertEvaluator: TargetAlertEvaluating {
                 payload: ["target_id": targetId.uuidString, "symbol": target.symbol],
                 on: req.db
             )
-            guard try await markTriggeredIfNeeded(targetId: target.id, price: currentPrice, on: req.db) else { return }
         } catch {
             req.logger.warning("target-alert inbox persistence failed symbol=\(target.symbol)")
             return
@@ -85,6 +84,13 @@ struct DefaultTargetAlertEvaluator: TargetAlertEvaluating {
             req.logger.warning(
                 "target-alert no successful deliveries symbol=\(target.symbol) failed=\(summary.failed)"
             )
+            return
+        }
+
+        do {
+            guard try await markTriggeredIfNeeded(targetId: target.id, price: currentPrice, on: req.db) else { return }
+        } catch {
+            req.logger.warning("target-alert state update failed symbol=\(target.symbol)")
             return
         }
 

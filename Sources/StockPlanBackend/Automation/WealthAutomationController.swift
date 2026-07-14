@@ -40,6 +40,7 @@ struct WealthAutomationController: RouteCollection {
             policy.post("preview", use: previewRebalancingPolicy)
             policy.get("events", use: rebalanceEvents)
             policy.post("events", ":eventID", "confirm", use: confirmRebalanceEvent)
+            policy.post("events", ":eventID", "dismiss", use: dismissRebalanceEvent)
         }
 
         protected.group("notifications", "inbox") { inbox in
@@ -264,6 +265,7 @@ struct WealthAutomationController: RouteCollection {
         let input = try req.content.decode(RebalancingPolicyUpsertRequest.self)
         let validation = RebalancingPolicy(
             id: "validation", portfolioListId: portfolioListId.uuidString,
+            baseCurrency: input.baseCurrency,
             cadence: input.cadence, driftThreshold: input.driftThreshold, targets: input.targets, enabled: input.enabled
         )
         do { try validation.validate() } catch { throw Abort(.badRequest, reason: "Invalid rebalancing policy: \(error)") }
@@ -271,6 +273,7 @@ struct WealthAutomationController: RouteCollection {
             .filter(\.$portfolioListId == portfolioListId).first() ?? RebalancingPolicyModel()
         model.userId = userId
         model.portfolioListId = portfolioListId
+        model.baseCurrency = input.baseCurrency.uppercased()
         model.cadence = input.cadence.rawValue
         model.driftThreshold = input.driftThreshold
         model.targets = try WealthAutomationCoding.json(["targets": input.targets])
@@ -327,6 +330,22 @@ struct WealthAutomationController: RouteCollection {
         return try rebalanceEventResponse(event)
     }
 
+    @Sendable
+    private func dismissRebalanceEvent(req: Request) async throws -> RebalanceEvent {
+        let (userId, portfolioListId) = try await rebalanceContext(req)
+        guard let eventId = req.parameters.get("eventID", as: UUID.self),
+              let policy = try await RebalancingPolicyModel.owned(by: userId, on: req.db)
+              .filter(\.$portfolioListId == portfolioListId).first(),
+              let event = try await RebalanceEventModel.query(on: req.db)
+              .filter(\.$id == eventId).filter(\.$userId == userId)
+              .filter(\.$policy.$id == policy.requireID()).first() else { throw Abort(.notFound) }
+        guard event.status == RebalanceEventStatus.pending.rawValue else { throw Abort(.conflict) }
+        event.status = RebalanceEventStatus.dismissed.rawValue
+        event.dismissedAt = Date()
+        try await event.update(on: req.db)
+        return try rebalanceEventResponse(event)
+    }
+
     // MARK: Inbox
 
     @Sendable
@@ -340,12 +359,42 @@ struct WealthAutomationController: RouteCollection {
             query = query.filter(\.$readAt == nil)
         }
         if let kind {
+            guard NotificationEventKind(rawValue: kind) != nil else {
+                throw Abort(.badRequest, reason: "Invalid notification kind.")
+            }
             query = query.filter(\.$kind == kind)
         }
-        let events = try await query.sort(\.$createdAt, .descending).limit(limit).all()
+        let rawCursor = req.query[String.self, at: "cursor"]
+        if rawCursor != nil {
+            guard let cursor = NotificationListCursor.parse(rawCursor) else {
+                throw Abort(.badRequest, reason: "Invalid notification cursor.")
+            }
+            if let cursorId = cursor.id {
+                query.group(.or) { group in
+                    group.filter(\.$createdAt < cursor.createdAt)
+                    group.group(.and) { tie in
+                        tie.filter(\.$createdAt == cursor.createdAt)
+                        tie.filter(\.$id < cursorId)
+                    }
+                }
+            } else {
+                query.filter(\.$createdAt < cursor.createdAt)
+            }
+        }
+        let page = try await query.sort(\.$createdAt, .descending).sort(\.$id, .descending).limit(limit + 1).all()
+        let hasMore = page.count > limit
+        let events = Array(page.prefix(limit))
+        let nextCursor: String? = hasMore ? events.last.flatMap { event in
+            guard let createdAt = event.createdAt, let id = event.id else { return nil }
+            return NotificationListCursor.encode(createdAt: createdAt, id: id)
+        } : nil
         let unreadCount = try await NotificationEventModel.query(on: req.db)
             .filter(\.$userId == session.userId).filter(\.$readAt == nil).count()
-        return NotificationInboxPage(items: events.compactMap(notificationResponse), unreadCount: unreadCount)
+        return NotificationInboxPage(
+            items: events.compactMap(notificationResponse),
+            unreadCount: unreadCount,
+            nextCursor: nextCursor
+        )
     }
 
     @Sendable
@@ -529,7 +578,8 @@ struct WealthAutomationController: RouteCollection {
         for condition in input.groups.flatMap(\.conditions) {
             guard let descriptor = catalog[condition.metric],
                   descriptor.supportedPeriods.contains(condition.period),
-                  descriptor.supportedComparisons.contains(condition.comparison)
+                  descriptor.supportedComparisons.contains(condition.comparison),
+                  !(condition.period == .ttm && [.improving, .deteriorating].contains(condition.comparison))
             else {
                 throw Abort(.badRequest, reason: "Unsupported metric, period, or comparison.")
             }
@@ -622,8 +672,9 @@ struct WealthAutomationController: RouteCollection {
                     deduplicationKey: "screen:\(screen.requireID()):\(Calendar.current.startOfDay(for: now).timeIntervalSince1970)",
                     title: "New smart-screen matches",
                     body: "\(newSymbols.joined(separator: ", ")) entered \(screen.name).",
-                    deepLink: "norviq://watchlist/screens/\(screen.requireID())",
-                    payload: ["screen_id": screen.requireID().uuidString], on: req.db
+                    deepLink: "financeplan://automation/screens/\(screen.requireID())",
+                    payload: ["screen_id": screen.requireID().uuidString],
+                    req: req
                 )
             }
         }
@@ -671,7 +722,6 @@ struct WealthAutomationController: RouteCollection {
         case "pe_ratio": value.priceToEarningsRatioTTM
         case "price_to_sales": value.priceToSalesRatioTTM
         case "net_profit_margin": value.netProfitMarginTTM
-        case "return_on_equity": nil
         case "debt_to_equity": value.debtToEquityRatioTTM
         case "current_ratio": value.currentRatioTTM
         case "free_cash_flow": value.freeCashFlowPerShareTTM
@@ -685,7 +735,6 @@ struct WealthAutomationController: RouteCollection {
         case "pe_ratio": value.priceToEarningsRatio
         case "price_to_sales": value.priceToSalesRatio
         case "net_profit_margin": value.netProfitMargin
-        case "return_on_equity": nil
         case "debt_to_equity": value.debtToEquityRatio
         case "current_ratio": value.currentRatio
         case "free_cash_flow": value.freeCashFlowPerShare
@@ -722,9 +771,11 @@ struct WealthAutomationController: RouteCollection {
         let envelope = try WealthAutomationCoding.decode(RebalanceTargetsEnvelope.self, from: model.targets)
         return .init(
             id: model.id?.uuidString ?? "", portfolioListId: model.portfolioListId.uuidString,
+            baseCurrency: model.baseCurrency,
             cadence: RebalanceCadence(rawValue: model.cadence) ?? .disabled,
             driftThreshold: model.driftThreshold, targets: envelope.targets, enabled: model.enabled,
             lastConfirmedAt: WealthAutomationCoding.timestamp(model.lastConfirmedAt),
+            lastTriggeredAt: WealthAutomationCoding.timestamp(model.lastTriggeredAt),
             createdAt: WealthAutomationCoding.timestamp(model.createdAt),
             updatedAt: WealthAutomationCoding.timestamp(model.updatedAt)
         )
@@ -736,26 +787,44 @@ struct WealthAutomationController: RouteCollection {
         req: Request
     ) async throws -> RebalancePreview {
         let policy = try rebalancingPolicyResponse(model)
-        let stocks = try await Stock.query(on: req.db)
-            .filter(\.$userId == userId).filter(\.$portfolioListId == model.portfolioListId).all()
-        var valuations: [RebalanceValuation] = []
-        for stock in stocks {
-            guard let quote = try? await req.application.marketDataService.quote(symbol: stock.symbol, on: req),
-                  quote.currentPrice > 0
+        let snapshot = try await ScenarioSnapshotCaptureService().capture(
+            portfolioListId: model.portfolioListId,
+            userId: userId,
+            baseCurrency: policy.baseCurrency,
+            cryptoHoldingIds: [],
+            req: req
+        )
+        let holdings = snapshot.payload.values["holdings"]?.array ?? []
+        let valuations = try holdings.compactMap { value -> RebalanceValuation? in
+            guard let item = value.object,
+                  let amount = item["value_in_base_currency"]?.number,
+                  amount >= 0
             else {
-                throw Abort(.unprocessableEntity, reason: "Live price unavailable for \(stock.symbol); rebalancing was not evaluated.")
+                throw Abort(.unprocessableEntity, reason: "Rebalancing requires non-negative valuations.")
             }
-            valuations.append(.init(kind: .symbol, symbol: stock.symbol, value: stock.shares * quote.currentPrice, price: quote.currentPrice))
+            let category = item["asset_category"]?.string
+            if category == "cash" {
+                return amount == 0 ? nil : .init(kind: .cash, symbol: nil, value: amount, price: nil)
+            }
+            guard let symbol = item["symbol"]?.string else { return nil }
+            let price = item["price"]?.number
+            let fxRate = item["fx_rate"]?.number ?? 1
+            return .init(kind: .symbol, symbol: symbol, value: amount, price: price.map { $0 * fxRate })
         }
-        let accounts = try await Account.query(on: req.db).filter(\.$userId == userId).all()
-        let balances = try await CashBalance.query(on: req.db).filter(\.$accountId ~~ accounts.compactMap(\.id)).all()
-        let latest = Dictionary(grouping: balances, by: { "\($0.accountId):\($0.currency)" })
-            .compactMapValues { $0.max(by: { $0.asOf < $1.asOf }) }
-        let cash = latest.values.reduce(0) { $0 + $1.balance }
-        if cash != 0 {
-            valuations.append(.init(kind: .cash, symbol: nil, value: cash, price: nil))
-        }
-        return try RebalancingEngine().preview(policy: policy, valuations: valuations, currency: "EUR")
+        let warningMessages = (snapshot.warnings.values["items"]?.array ?? []).compactMap { $0.object?["message"]?.string }
+        let preview = try RebalancingEngine().preview(
+            policy: policy,
+            valuations: valuations,
+            currency: policy.baseCurrency
+        )
+        return RebalancePreview(
+            portfolioValue: preview.portfolioValue,
+            currency: preview.currency,
+            maximumDrift: preview.maximumDrift,
+            triggerReasons: preview.triggerReasons,
+            trades: preview.trades,
+            warnings: warningMessages
+        )
     }
 
     private func rebalanceEventResponse(_ model: RebalanceEventModel) throws -> RebalanceEvent {
@@ -764,7 +833,8 @@ struct WealthAutomationController: RouteCollection {
             id: model.id?.uuidString ?? "", policyId: model.$policy.id.uuidString,
             status: RebalanceEventStatus(rawValue: model.status) ?? .pending,
             preview: preview, createdAt: WealthAutomationCoding.timestamp(model.createdAt) ?? "",
-            confirmedAt: WealthAutomationCoding.timestamp(model.confirmedAt)
+            confirmedAt: WealthAutomationCoding.timestamp(model.confirmedAt),
+            dismissedAt: WealthAutomationCoding.timestamp(model.dismissedAt)
         )
     }
 
@@ -786,14 +856,18 @@ struct WealthAutomationController: RouteCollection {
         body: String,
         deepLink: String?,
         payload: [String: String],
-        on db: any Database
+        req: Request
     ) async throws {
-        guard try await NotificationEventModel.query(on: db)
-            .filter(\.$userId == userId).filter(\.$deduplicationKey == deduplicationKey).first() == nil else { return }
-        try await NotificationEventModel(
-            userId: userId, kind: kind, deduplicationKey: deduplicationKey,
-            title: title, body: body, deepLink: deepLink, payload: payload
-        ).create(on: db)
+        _ = try await NotificationEventPublisher.publishAndPush(
+            userId: userId,
+            kind: kind,
+            deduplicationKey: deduplicationKey,
+            title: title,
+            body: body,
+            deepLink: deepLink,
+            payload: payload,
+            req: req
+        )
     }
 }
 

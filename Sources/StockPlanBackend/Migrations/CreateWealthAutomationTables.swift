@@ -66,11 +66,13 @@ struct CreateWealthAutomationTables: AsyncMigration {
             .id()
             .field("user_id", .uuid, .required, .references("users", "id", onDelete: .cascade))
             .field("portfolio_list_id", .uuid, .required, .references("portfolio_lists", "id", onDelete: .cascade))
+            .field("base_currency", .string, .required)
             .field("cadence", .string, .required)
             .field("drift_threshold", .double)
             .field("targets", .json, .required)
             .field("enabled", .bool, .required)
             .field("last_confirmed_at", .datetime)
+            .field("last_triggered_at", .datetime)
             .field("created_at", .datetime)
             .field("updated_at", .datetime)
             .unique(on: "user_id", "portfolio_list_id")
@@ -84,6 +86,7 @@ struct CreateWealthAutomationTables: AsyncMigration {
             .field("preview", .json, .required)
             .field("created_at", .datetime)
             .field("confirmed_at", .datetime)
+            .field("dismissed_at", .datetime)
             .create()
 
         try await database.schema(NotificationEventModel.schema)
@@ -125,6 +128,7 @@ struct CreateWealthAutomationTables: AsyncMigration {
         try await database.createIndex(on: WatchlistScreenEvaluationModel.schema, columns: ["screen_id", "evaluated_at"])
         try await database.createIndex(on: RebalanceEventModel.schema, columns: ["policy_id", "status"])
         try await database.createIndex(on: NotificationEventModel.schema, columns: ["user_id", "created_at"])
+        try await database.createIndex(on: NotificationEventModel.schema, columns: ["user_id", "read_at"])
     }
 
     func revert(on database: any Database) async throws {

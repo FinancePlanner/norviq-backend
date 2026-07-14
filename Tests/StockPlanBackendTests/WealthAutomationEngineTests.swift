@@ -79,6 +79,7 @@ struct WealthAutomationEngineTests {
         let policy = RebalancingPolicy(
             id: "policy",
             portfolioListId: "portfolio",
+            baseCurrency: "EUR",
             cadence: .disabled,
             driftThreshold: 0.05,
             targets: [
@@ -99,5 +100,51 @@ struct WealthAutomationEngineTests {
         #expect(preview.triggerReasons == [.drift])
         #expect(preview.trades.first?.action == .sell)
         #expect(preview.trades.first?.approximateShares == 20)
+    }
+
+    @Test
+    func `rebalance liquidates assets omitted from targets and remains value balanced`() throws {
+        let policy = RebalancingPolicy(
+            id: "policy",
+            portfolioListId: "portfolio",
+            baseCurrency: "EUR",
+            cadence: .disabled,
+            driftThreshold: 0.05,
+            targets: [.init(id: "target", kind: .symbol, symbol: "ACME", targetWeight: 1)]
+        )
+
+        let preview = try RebalancingEngine().preview(
+            policy: policy,
+            valuations: [
+                .init(kind: .symbol, symbol: "ACME", value: 6000, price: 100),
+                .init(kind: .symbol, symbol: "LEGACY", value: 4000, price: 50),
+            ],
+            currency: "EUR"
+        )
+
+        let buys = preview.trades.filter { $0.action == .buy }.reduce(0) { $0 + $1.amount }
+        let sells = preview.trades.filter { $0.action == .sell }.reduce(0) { $0 + $1.amount }
+        #expect(abs(buys - sells) < 0.01)
+        #expect(preview.trades.contains { $0.symbol == "LEGACY" && $0.targetWeight == 0 && $0.action == .sell })
+    }
+
+    @Test
+    func `cadence waits a full interval after policy creation`() throws {
+        let createdAt = "2026-07-01T00:00:00Z"
+        let policy = RebalancingPolicy(
+            id: "policy",
+            portfolioListId: "portfolio",
+            baseCurrency: "EUR",
+            cadence: .quarterly,
+            targets: [.init(id: "target", kind: .symbol, symbol: "ACME", targetWeight: 1)],
+            createdAt: createdAt
+        )
+        let formatter = ISO8601DateFormatter()
+        let beforeDue = try #require(formatter.date(from: "2026-09-30T23:59:59Z"))
+        let due = try #require(formatter.date(from: "2026-10-01T00:00:00Z"))
+        let valuations = [RebalanceValuation(kind: .symbol, symbol: "ACME", value: 10000, price: 100)]
+
+        #expect(try RebalancingEngine().preview(policy: policy, valuations: valuations, currency: "EUR", now: beforeDue).triggerReasons.isEmpty)
+        #expect(try RebalancingEngine().preview(policy: policy, valuations: valuations, currency: "EUR", now: due).triggerReasons == [.cadence])
     }
 }

@@ -6853,6 +6853,15 @@ paths:
         - { in: path, name: portfolioListId, required: true, schema: { type: string, format: uuid } }
         - { in: path, name: eventID, required: true, schema: { type: string, format: uuid } }
       responses: { '200': { description: Confirmed event, content: { application/json: { schema: { $ref: '#/components/schemas/RebalanceEvent' } } } } }
+  /v1/portfolio/lists/{portfolioListId}/rebalancing-policy/events/{eventID}/dismiss:
+    post:
+      operationId: dismissRebalanceEvent
+      tags: [Portfolio]
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { in: path, name: portfolioListId, required: true, schema: { type: string, format: uuid } }
+        - { in: path, name: eventID, required: true, schema: { type: string, format: uuid } }
+      responses: { '200': { description: Dismissed event, content: { application/json: { schema: { $ref: '#/components/schemas/RebalanceEvent' } } } } }
   /v1/notifications/inbox:
     get:
       operationId: getNotificationInbox
@@ -6862,6 +6871,7 @@ paths:
         - { in: query, name: unread, schema: { type: boolean } }
         - { in: query, name: kind, schema: { type: string } }
         - { in: query, name: limit, schema: { type: integer, minimum: 1, maximum: 100 } }
+        - { in: query, name: cursor, description: Opaque cursor returned by the previous page, schema: { type: string } }
       responses: { '200': { description: Notification inbox, content: { application/json: { schema: { $ref: '#/components/schemas/NotificationInboxPage' } } } } }
   /v1/notifications/inbox/read-all:
     post:
@@ -12273,8 +12283,9 @@ components:
         targetWeight: { type: number, format: double }
     RebalancingPolicyUpsertRequest:
       type: object
-      required: [cadence, targets, enabled]
+      required: [baseCurrency, cadence, targets, enabled]
       properties:
+        baseCurrency: { type: string, minLength: 3, maxLength: 3 }
         cadence: { type: string, enum: [disabled, monthly, quarterly, semiannual, annual] }
         driftThreshold: { type: number, format: double, nullable: true }
         targets: { type: array, items: { $ref: '#/components/schemas/RebalanceTarget' } }
@@ -12288,6 +12299,7 @@ components:
             id: { type: string }
             portfolioListId: { type: string }
             lastConfirmedAt: { type: string, nullable: true }
+            lastTriggeredAt: { type: string, nullable: true }
             createdAt: { type: string, nullable: true }
             updatedAt: { type: string, nullable: true }
     RebalanceTradeDraft:
@@ -12318,10 +12330,11 @@ components:
       properties:
         id: { type: string }
         policyId: { type: string }
-        status: { type: string, enum: [pending, confirmed] }
+        status: { type: string, enum: [pending, confirmed, dismissed] }
         preview: { $ref: '#/components/schemas/RebalancePreview' }
         createdAt: { type: string }
         confirmedAt: { type: string, nullable: true }
+        dismissedAt: { type: string, nullable: true }
     NotificationInboxItem:
       type: object
       required: [id, kind, title, body, payload, createdAt]

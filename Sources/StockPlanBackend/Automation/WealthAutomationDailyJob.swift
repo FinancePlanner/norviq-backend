@@ -7,10 +7,12 @@ import Vapor
 
 final class WealthAutomationDailyJob: LifecycleHandler, @unchecked Sendable {
     private let intervalSeconds: Int64
+    private let rebalanceCooldownSeconds: TimeInterval
     private let state = WealthAutomationDailyJobState()
 
-    init(intervalSeconds: Int64 = 86400) {
+    init(intervalSeconds: Int64 = 86400, rebalanceCooldownSeconds: Int64 = 604_800) {
         self.intervalSeconds = max(300, intervalSeconds)
+        self.rebalanceCooldownSeconds = TimeInterval(max(86400, rebalanceCooldownSeconds))
     }
 
     func didBoot(_ app: Application) throws {
@@ -86,27 +88,43 @@ final class WealthAutomationDailyJob: LifecycleHandler, @unchecked Sendable {
             }
             do {
                 try await req.usageCounterService.requirePremium(.rebalancingRules, userId: policy.userId, on: req.db)
+                let now = Date()
+                if let lastTriggeredAt = policy.lastTriggeredAt,
+                   now.timeIntervalSince(lastTriggeredAt) < rebalanceCooldownSeconds
+                {
+                    continue
+                }
                 guard try await RebalanceEventModel.query(on: req.db)
                     .filter(\.$policy.$id == policy.requireID())
                     .filter(\.$status == RebalanceEventStatus.pending.rawValue).first() == nil else { continue }
                 let preview = try await controller.makeRebalancePreview(model: policy, userId: policy.userId, req: req)
                 guard !preview.triggerReasons.isEmpty else { continue }
+                guard preview.warnings.isEmpty else {
+                    req.logger.warning(
+                        "rebalancing daily evaluation skipped stale valuation policy=\(policy.id?.uuidString ?? "unknown")"
+                    )
+                    continue
+                }
                 let event = RebalanceEventModel()
                 event.userId = policy.userId
                 event.$policy.id = try policy.requireID()
                 event.status = RebalanceEventStatus.pending.rawValue
                 event.preview = try WealthAutomationCoding.json(preview)
-                try await event.create(on: req.db)
+                try await req.db.transaction { db in
+                    try await event.create(on: db)
+                    policy.lastTriggeredAt = now
+                    try await policy.update(on: db)
+                }
                 let eventId = try event.requireID()
-                _ = try await NotificationEventPublisher.publish(
+                _ = try await NotificationEventPublisher.publishAndPush(
                     userId: policy.userId,
                     kind: .rebalancing,
                     deduplicationKey: "rebalance:\(eventId.uuidString)",
                     title: "Portfolio review needed",
                     body: "Your rebalancing rule was triggered. Review the draft before making trades.",
-                    deepLink: "norviq://portfolio/\(policy.portfolioListId.uuidString)/rebalancing",
+                    deepLink: "financeplan://automation/rebalancing/\(policy.portfolioListId.uuidString)",
                     payload: ["event_id": eventId.uuidString, "portfolio_list_id": policy.portfolioListId.uuidString],
-                    on: req.db
+                    req: req
                 )
             } catch {
                 req.logger.warning("rebalancing daily evaluation failed policy=\(policy.id?.uuidString ?? "unknown")")
@@ -120,6 +138,7 @@ private struct LeaseAcquisition: Decodable {
 }
 
 private final class WealthAutomationDailyJobState: @unchecked Sendable {
+    // Every mutable field is accessed only while holding this lock.
     private let lock = NSLock()
     private var running = false
     private var scheduled: RepeatedTask?
