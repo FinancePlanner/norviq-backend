@@ -72,10 +72,8 @@ struct AIAssistantTurnService {
         Use only supplied data. State when data is missing. Never invent transactions, holdings, or tax facts.
         Do not execute mutations yourself. For a requested expense or goal change, call exactly one provided function.
         The application will show the proposed action to the user and execute it only after explicit confirmation.
-
         FINANCIAL CONTEXT
         \(context)
-
         CONVERSATION
         \(history)
         user: \(userMessage)
