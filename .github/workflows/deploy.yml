@@ -197,7 +197,7 @@ jobs:
             # Bootstrap MCP once its shared introspection secret is provisioned.
             # Subsequent MCP releases deploy from the norviq-mcp workflow.
             if grep -Eq '^MCP_INTROSPECTION_SECRET=.+$' .env.production; then
-              MCP_IMAGE="$(grep '^MCP_IMAGE=' .env.production | tail -1 | cut -d= -f2-)"
+              MCP_IMAGE="$(sed -n 's/^MCP_IMAGE=//p' .env.production | tail -1)"
               MCP_IMAGE="${MCP_IMAGE:-ghcr.io/financeplanner/norviq-mcp:350d030459277a9dbd5a71549fe01aadc3feb684}"
               docker pull "${MCP_IMAGE}"
               MCP_IMAGE="${MCP_IMAGE}" docker compose -p prod \
@@ -237,7 +237,7 @@ jobs:
             fi
 
             if grep -Eq '^MCP_INTROSPECTION_SECRET=.+$' .env.production; then
-              MCP_DOMAIN="$(grep '^MCP_DOMAIN=' .env.production | tail -1 | cut -d= -f2-)"
+              MCP_DOMAIN="$(sed -n 's/^MCP_DOMAIN=//p' .env.production | tail -1)"
               MCP_DOMAIN="${MCP_DOMAIN:-mcp.norviq.org}"
               MCP_HEALTHY=0
               for ATTEMPT in $(seq 1 30); do
