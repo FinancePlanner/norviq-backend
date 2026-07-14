@@ -147,6 +147,20 @@ jobs:
               --env-file .env.production \
               up -d --no-deps app
 
+            # Bootstrap MCP once its shared introspection secret is provisioned.
+            # Subsequent MCP releases deploy from the norviq-mcp workflow.
+            if grep -Eq '^MCP_INTROSPECTION_SECRET=.+$' .env.production; then
+              MCP_IMAGE="$(grep '^MCP_IMAGE=' .env.production | tail -1 | cut -d= -f2-)"
+              MCP_IMAGE="${MCP_IMAGE:-ghcr.io/financeplanner/norviq-mcp:350d030459277a9dbd5a71549fe01aadc3feb684}"
+              docker pull "${MCP_IMAGE}"
+              MCP_IMAGE="${MCP_IMAGE}" docker compose -p prod \
+                -f docker-compose.production.yml \
+                --env-file .env.production \
+                up -d --no-deps mcp
+            else
+              echo "MCP rollout skipped: MCP_INTROSPECTION_SECRET is not provisioned"
+            fi
+
             # Ensure observability stack is running (idempotent)
             APP_PORT=8080 APP_IMAGE="${APP_IMAGE}" docker compose -p prod \
               -f docker-compose.production.yml \
@@ -173,6 +187,24 @@ jobs:
               APP_PORT=8080 APP_IMAGE="${APP_IMAGE}" docker compose -p prod \
                 -f docker-compose.production.yml logs --tail=120 app
               exit 1
+            fi
+
+            if grep -Eq '^MCP_INTROSPECTION_SECRET=.+$' .env.production; then
+              MCP_DOMAIN="$(grep '^MCP_DOMAIN=' .env.production | tail -1 | cut -d= -f2-)"
+              MCP_DOMAIN="${MCP_DOMAIN:-mcp.norviq.org}"
+              MCP_HEALTHY=0
+              for ATTEMPT in $(seq 1 30); do
+                if curl -fsS "https://${MCP_DOMAIN}/readyz" >/dev/null 2>&1; then
+                  MCP_HEALTHY=1
+                  break
+                fi
+                sleep 2
+              done
+              if [ "${MCP_HEALTHY}" -ne 1 ]; then
+                docker compose -p prod -f docker-compose.production.yml \
+                  --env-file .env.production logs --tail=120 mcp
+                exit 1
+              fi
             fi
 
             echo "Rollback command:"

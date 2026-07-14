@@ -68,6 +68,28 @@ services:
       - "traefik.http.services.app.loadbalancer.server.port=8080"
 
   # PostgreSQL database
+  mcp:
+    image: ${MCP_IMAGE:-ghcr.io/financeplanner/norviq-mcp:350d030459277a9dbd5a71549fe01aadc3feb684}
+    env_file:
+      - ${ENV_FILE:-.env.production}
+    environment:
+      BACKEND_BASE_URL: http://app:8080
+      MCP_PUBLIC_URL: https://${MCP_DOMAIN:-mcp.norviq.org}
+      LISTEN_ADDR: :8087
+    restart: unless-stopped
+    depends_on:
+      app:
+        condition: service_started
+    networks:
+      - internal
+      - external
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.norviq-mcp.rule=Host(`${MCP_DOMAIN:-mcp.norviq.org}`)
+      - traefik.http.routers.norviq-mcp.entrypoints=websecure
+      - traefik.http.routers.norviq-mcp.tls.certresolver=letsencrypt
+      - traefik.http.services.norviq-mcp.loadbalancer.server.port=8087
+
   db:
     image: postgres:18-alpine
     restart: unless-stopped
