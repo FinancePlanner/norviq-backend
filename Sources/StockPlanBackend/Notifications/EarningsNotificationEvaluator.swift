@@ -96,6 +96,26 @@ struct DefaultEarningsNotificationEvaluator: EarningsNotificationEvaluating {
             return
         }
 
+        do {
+            _ = try await NotificationEventPublisher.publish(
+                userId: userId,
+                kind: .earnings,
+                deduplicationKey: "earnings:\(symbol):\(earningsDate):\(leadDays)",
+                title: "Upcoming earnings",
+                body: "\(symbol) reports earnings in \(leadDays) day\(leadDays == 1 ? "" : "s").",
+                deepLink: "norviq://stocks/\(symbol)",
+                payload: ["symbol": symbol, "earnings_date": earningsDate, "lead_days": String(leadDays)],
+                on: req.db
+            )
+            try await recordDelivery(
+                userId: userId, symbol: symbol, earningsDate: earningsDate,
+                leadDays: leadDays, on: req.db
+            )
+        } catch {
+            req.logger.warning("earnings-reminder inbox persistence failed userId=\(userId.uuidString) symbol=\(symbol)")
+            return
+        }
+
         let devices: [PushDevice]
         do {
             devices = try await req.pushDeviceService.activeDevices(userId: userId, on: req.db)
@@ -106,9 +126,7 @@ struct DefaultEarningsNotificationEvaluator: EarningsNotificationEvaluating {
             return
         }
 
-        guard !devices.isEmpty else {
-            return
-        }
+        guard !devices.isEmpty else { return }
 
         let summary = await req.application.pushNotificationSender.sendEarningsReminder(
             symbol: symbol,
@@ -118,16 +136,8 @@ struct DefaultEarningsNotificationEvaluator: EarningsNotificationEvaluating {
             req: req
         )
 
-        guard summary.delivered > 0 else {
-            return
-        }
-
-        do {
-            try await recordDelivery(userId: userId, symbol: symbol, earningsDate: earningsDate, leadDays: leadDays, on: req.db)
-        } catch {
-            req.logger.warning(
-                "earnings-reminder delivery record failed userId=\(userId.uuidString) symbol=\(symbol) earningsDate=\(earningsDate) leadDays=\(leadDays) error_type=\(String(reflecting: type(of: error)))"
-            )
+        if summary.delivered == 0 {
+            req.logger.warning("earnings-reminder push was not delivered userId=\(userId.uuidString) symbol=\(symbol)")
         }
     }
 

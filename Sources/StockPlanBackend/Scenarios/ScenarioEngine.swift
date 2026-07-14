@@ -114,6 +114,21 @@ struct ScenarioSimulationOutput: Sendable, Equatable {
     let medianMaximumDrawdown: Double
 }
 
+struct NetFlowSimulationSpec: Sendable {
+    let initialValue: Double
+    let monthlyIncome: Double
+    let monthlySpending: Double
+    let annualIncomeGrowth: Double
+    let annualSpendingGrowth: Double
+    let annualReturn: Double
+    let annualVolatility: Double
+    let annualInflation: Double
+    let horizonMonths: Int
+    let pathCount: Int
+    let seed: UInt64
+    let targetAmount: Double?
+}
+
 struct CorrelatedScenarioSimulationSpec: Sendable {
     let initialValue: Double
     let weights: [Double]
@@ -130,6 +145,78 @@ struct CorrelatedScenarioSimulationSpec: Sendable {
 }
 
 extension ScenarioEngine {
+    func simulateNetFlow(_ spec: NetFlowSimulationSpec) -> ScenarioSimulationOutput {
+        let pathCount = max(1, min(spec.pathCount, 50000))
+        let months = max(1, min(spec.horizonMonths, 600))
+        let monthlyMean = spec.annualReturn / 12
+        let monthlyVolatility = spec.annualVolatility / sqrt(12)
+        var generator = SplitMix64(seed: spec.seed)
+        var columns = Array(repeating: [Double](), count: months + 1)
+        for index in columns.indices {
+            columns[index].reserveCapacity(pathCount)
+        }
+        var drawdowns: [Double] = []
+        var successes = 0
+        var shortfalls: [Double] = []
+        drawdowns.reserveCapacity(pathCount)
+        shortfalls.reserveCapacity(pathCount)
+
+        for _ in 0 ..< pathCount {
+            if Task.isCancelled {
+                break
+            }
+            var value = spec.initialValue
+            var peak = value
+            var maximumDrawdown = 0.0
+            columns[0].append(value)
+            for month in 1 ... months {
+                let elapsedYears = Double(month - 1) / 12
+                let income = spec.monthlyIncome * pow(1 + spec.annualIncomeGrowth, elapsedYears)
+                let spending = spec.monthlySpending * pow(1 + spec.annualSpendingGrowth, elapsedYears)
+                let monthlyNetFlow = income - spending
+                let monthlyReturn = monthlyMean + monthlyVolatility * generator.normal()
+                value = max(0, value * (1 + monthlyReturn) + monthlyNetFlow)
+                peak = max(peak, value)
+                if peak > 0 {
+                    maximumDrawdown = max(maximumDrawdown, (peak - value) / peak)
+                }
+                columns[month].append(value)
+            }
+            drawdowns.append(maximumDrawdown)
+            if let target = spec.targetAmount {
+                let inflatedTarget = target * pow(1 + spec.annualInflation, Double(months) / 12)
+                if value >= inflatedTarget {
+                    successes += 1
+                }
+                shortfalls.append(max(0, inflatedTarget - value))
+            }
+        }
+
+        let completedPaths = columns.first?.count ?? 0
+        guard completedPaths > 0 else {
+            return .init(bands: [], goalProbability: nil, expectedShortfall: nil, medianMaximumDrawdown: 0)
+        }
+        let bands = columns.enumerated().map { month, values in
+            let sorted = values.sorted()
+            return ScenarioSimulationBand(
+                month: month,
+                p10: percentile(sorted, 0.10),
+                p25: percentile(sorted, 0.25),
+                p50: percentile(sorted, 0.50),
+                p75: percentile(sorted, 0.75),
+                p90: percentile(sorted, 0.90)
+            )
+        }
+        let positiveShortfalls = shortfalls.filter { $0 > 0 }
+        return ScenarioSimulationOutput(
+            bands: bands,
+            goalProbability: spec.targetAmount == nil ? nil : Double(successes) / Double(completedPaths),
+            expectedShortfall: spec.targetAmount == nil ? nil :
+                (positiveShortfalls.isEmpty ? 0 : positiveShortfalls.reduce(0, +) / Double(positiveShortfalls.count)),
+            medianMaximumDrawdown: percentile(drawdowns.sorted(), 0.50)
+        )
+    }
+
     func simulateCorrelated(_ spec: CorrelatedScenarioSimulationSpec) -> ScenarioSimulationOutput {
         let count = spec.weights.count
         guard count > 0, spec.annualReturns.count == count,

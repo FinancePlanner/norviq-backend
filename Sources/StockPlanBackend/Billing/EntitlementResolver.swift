@@ -152,6 +152,12 @@ enum BillingFeature: String {
     case advancedReportSchedules = "advanced_report_schedules"
     /// On-demand advanced PDF/XLSX generation.
     case advancedReportRuns = "advanced_report_runs"
+    /// Portfolio cash-flow Monte Carlo forecasting — Pro/trial only.
+    case netWorthForecasting = "net_worth_forecasting"
+    /// User-defined watchlist fundamentals screens and entry alerts — Pro/trial only.
+    case smartScreening = "smart_screening"
+    /// Deterministic portfolio drift and cadence policies — Pro/trial only.
+    case rebalancingRules = "rebalancing_rules"
 }
 
 struct BillingPlanLimits {
@@ -206,7 +212,8 @@ struct BillingPlanLimits {
              .householdPartner, .recurringTemplates, .yearOverview, .smartSuggestions,
              .crypto, .aiInsights, .mcpAccess, .scenarioPlanning, .taxOptimization, .receiptScan, .bankSync,
              .advancedPortfolios, .jointPortfolios, .advancedReportTemplates,
-             .advancedReportSchedules, .advancedReportRuns:
+             .advancedReportSchedules, .advancedReportRuns,
+             .netWorthForecasting, .smartScreening, .rebalancingRules:
             nil
         }
     }
@@ -311,7 +318,8 @@ struct DefaultUsageCounterService: UsageCounterService {
              .householdPartner, .recurringTemplates, .yearOverview, .smartSuggestions,
              .crypto, .aiInsights, .mcpAccess, .scenarioPlanning, .taxOptimization, .receiptScan, .bankSync,
              .advancedPortfolios, .jointPortfolios, .advancedReportTemplates,
-             .advancedReportSchedules, .advancedReportRuns:
+             .advancedReportSchedules, .advancedReportRuns,
+             .netWorthForecasting, .smartScreening, .rebalancingRules:
             0
         }
     }
@@ -333,7 +341,8 @@ struct DefaultUsageCounterService: UsageCounterService {
              .householdPartner, .recurringTemplates, .yearOverview, .smartSuggestions,
              .crypto, .aiInsights, .mcpAccess, .scenarioPlanning, .taxOptimization, .receiptScan, .bankSync,
              .advancedPortfolios, .jointPortfolios, .advancedReportTemplates,
-             .advancedReportSchedules, .advancedReportRuns:
+             .advancedReportSchedules, .advancedReportRuns,
+             .netWorthForecasting, .smartScreening, .rebalancingRules:
             break
         }
     }

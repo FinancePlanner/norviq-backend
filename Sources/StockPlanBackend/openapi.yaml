@@ -6688,6 +6688,196 @@ paths:
       tags: [AdvancedReporting]
       security: [{ bearerAuth: [] }]
       responses: { '200': { description: Short-lived private download link, content: { application/json: { schema: { $ref: '#/components/schemas/ScenarioJSON' } } } } }
+  /v1/net-worth-forecasts:
+    get:
+      operationId: listNetWorthForecasts
+      tags: [Portfolio]
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200': { description: Forecast definitions, content: { application/json: { schema: { type: array, items: { $ref: '#/components/schemas/NetWorthForecastDefinition' } } } } }
+    post:
+      operationId: createNetWorthForecast
+      tags: [Portfolio]
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { in: query, name: portfolio_list_id, required: true, schema: { type: string, format: uuid } }
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/NetWorthForecastUpsertRequest' } } } }
+      responses:
+        '200': { description: Forecast definition, content: { application/json: { schema: { $ref: '#/components/schemas/NetWorthForecastDefinition' } } } }
+  /v1/net-worth-forecasts/defaults:
+    get:
+      operationId: getNetWorthForecastDefaults
+      tags: [Portfolio]
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { in: query, name: currency, schema: { type: string, default: EUR } }
+      responses:
+        '200': { description: Derived monthly cash flow, content: { application/json: { schema: { $ref: '#/components/schemas/NetWorthForecastDefaults' } } } }
+  /v1/net-worth-forecasts/{forecastID}:
+    parameters:
+      - { in: path, name: forecastID, required: true, schema: { type: string, format: uuid } }
+    get:
+      operationId: getNetWorthForecast
+      tags: [Portfolio]
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200': { description: Forecast definition, content: { application/json: { schema: { $ref: '#/components/schemas/NetWorthForecastDefinition' } } } }
+    put:
+      operationId: updateNetWorthForecast
+      tags: [Portfolio]
+      security: [{ bearerAuth: [] }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/NetWorthForecastUpsertRequest' } } } }
+      responses:
+        '200': { description: Forecast definition, content: { application/json: { schema: { $ref: '#/components/schemas/NetWorthForecastDefinition' } } } }
+    delete:
+      operationId: deleteNetWorthForecast
+      tags: [Portfolio]
+      security: [{ bearerAuth: [] }]
+      responses: { '204': { description: Deleted } }
+  /v1/net-worth-forecasts/{forecastID}/runs:
+    post:
+      operationId: runNetWorthForecast
+      tags: [Portfolio]
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { in: path, name: forecastID, required: true, schema: { type: string, format: uuid } }
+        - { in: query, name: seed, schema: { type: integer, format: int64, minimum: 0 } }
+      responses:
+        '200': { description: Completed on-demand forecast, content: { application/json: { schema: { $ref: '#/components/schemas/NetWorthForecastRun' } } } }
+  /v1/net-worth-forecasts/{forecastID}/runs/latest:
+    get:
+      operationId: getLatestNetWorthForecastRun
+      tags: [Portfolio]
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { in: path, name: forecastID, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200': { description: Latest forecast run, content: { application/json: { schema: { $ref: '#/components/schemas/NetWorthForecastRun' } } } }
+  /v1/watchlist/screens/catalog:
+    get:
+      operationId: getWatchlistScreenCatalog
+      tags: [Watchlist]
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200': { description: Screen metric catalog, content: { application/json: { schema: { type: array, items: { $ref: '#/components/schemas/ScreenMetricDescriptor' } } } } }
+  /v1/watchlist/screens:
+    get:
+      operationId: listWatchlistScreens
+      tags: [Watchlist]
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200': { description: Saved screens, content: { application/json: { schema: { type: array, items: { $ref: '#/components/schemas/WatchlistScreen' } } } } }
+    post:
+      operationId: createWatchlistScreen
+      tags: [Watchlist]
+      security: [{ bearerAuth: [] }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/WatchlistScreenUpsertRequest' } } } }
+      responses:
+        '200': { description: Saved screen, content: { application/json: { schema: { $ref: '#/components/schemas/WatchlistScreen' } } } }
+  /v1/watchlist/screens/{screenID}:
+    parameters:
+      - { in: path, name: screenID, required: true, schema: { type: string, format: uuid } }
+    get:
+      operationId: getWatchlistScreen
+      tags: [Watchlist]
+      security: [{ bearerAuth: [] }]
+      responses: { '200': { description: Saved screen, content: { application/json: { schema: { $ref: '#/components/schemas/WatchlistScreen' } } } } }
+    put:
+      operationId: updateWatchlistScreen
+      tags: [Watchlist]
+      security: [{ bearerAuth: [] }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/WatchlistScreenUpsertRequest' } } } }
+      responses: { '200': { description: Saved screen, content: { application/json: { schema: { $ref: '#/components/schemas/WatchlistScreen' } } } } }
+    delete:
+      operationId: deleteWatchlistScreen
+      tags: [Watchlist]
+      security: [{ bearerAuth: [] }]
+      responses: { '204': { description: Deleted } }
+  /v1/watchlist/screens/{screenID}/evaluate:
+    post:
+      operationId: evaluateWatchlistScreen
+      tags: [Watchlist]
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { in: path, name: screenID, required: true, schema: { type: string, format: uuid } }
+      responses: { '200': { description: Screen evaluation, content: { application/json: { schema: { $ref: '#/components/schemas/WatchlistScreenEvaluation' } } } } }
+  /v1/watchlist/screens/{screenID}/history:
+    get:
+      operationId: getWatchlistScreenHistory
+      tags: [Watchlist]
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { in: path, name: screenID, required: true, schema: { type: string, format: uuid } }
+      responses: { '200': { description: Recent evaluations, content: { application/json: { schema: { type: array, items: { $ref: '#/components/schemas/WatchlistScreenEvaluation' } } } } } }
+  /v1/portfolio/lists/{portfolioListId}/rebalancing-policy:
+    parameters:
+      - { in: path, name: portfolioListId, required: true, schema: { type: string, format: uuid } }
+    get:
+      operationId: getRebalancingPolicy
+      tags: [Portfolio]
+      security: [{ bearerAuth: [] }]
+      responses: { '200': { description: Rebalancing policy, content: { application/json: { schema: { $ref: '#/components/schemas/RebalancingPolicy' } } } } }
+    put:
+      operationId: upsertRebalancingPolicy
+      tags: [Portfolio]
+      security: [{ bearerAuth: [] }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/RebalancingPolicyUpsertRequest' } } } }
+      responses: { '200': { description: Rebalancing policy, content: { application/json: { schema: { $ref: '#/components/schemas/RebalancingPolicy' } } } } }
+    delete:
+      operationId: deleteRebalancingPolicy
+      tags: [Portfolio]
+      security: [{ bearerAuth: [] }]
+      responses: { '204': { description: Deleted } }
+  /v1/portfolio/lists/{portfolioListId}/rebalancing-policy/preview:
+    post:
+      operationId: previewRebalancingPolicy
+      tags: [Portfolio]
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { in: path, name: portfolioListId, required: true, schema: { type: string, format: uuid } }
+      responses: { '200': { description: Review-only trade draft, content: { application/json: { schema: { $ref: '#/components/schemas/RebalancePreview' } } } } }
+  /v1/portfolio/lists/{portfolioListId}/rebalancing-policy/events:
+    get:
+      operationId: listRebalanceEvents
+      tags: [Portfolio]
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { in: path, name: portfolioListId, required: true, schema: { type: string, format: uuid } }
+      responses: { '200': { description: Rebalance events, content: { application/json: { schema: { type: array, items: { $ref: '#/components/schemas/RebalanceEvent' } } } } } }
+  /v1/portfolio/lists/{portfolioListId}/rebalancing-policy/events/{eventID}/confirm:
+    post:
+      operationId: confirmRebalanceEvent
+      tags: [Portfolio]
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { in: path, name: portfolioListId, required: true, schema: { type: string, format: uuid } }
+        - { in: path, name: eventID, required: true, schema: { type: string, format: uuid } }
+      responses: { '200': { description: Confirmed event, content: { application/json: { schema: { $ref: '#/components/schemas/RebalanceEvent' } } } } }
+  /v1/notifications/inbox:
+    get:
+      operationId: getNotificationInbox
+      tags: [Notifications]
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { in: query, name: unread, schema: { type: boolean } }
+        - { in: query, name: kind, schema: { type: string } }
+        - { in: query, name: limit, schema: { type: integer, minimum: 1, maximum: 100 } }
+      responses: { '200': { description: Notification inbox, content: { application/json: { schema: { $ref: '#/components/schemas/NotificationInboxPage' } } } } }
+  /v1/notifications/inbox/read-all:
+    post:
+      operationId: markAllNotificationsRead
+      tags: [Notifications]
+      security: [{ bearerAuth: [] }]
+      responses: { '204': { description: Updated } }
+  /v1/notifications/inbox/{eventID}/read:
+    put:
+      operationId: updateNotificationReadState
+      tags: [Notifications]
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { in: path, name: eventID, required: true, schema: { type: string, format: uuid } }
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/NotificationReadRequest' } } } }
+      responses: { '200': { description: Updated notification, content: { application/json: { schema: { $ref: '#/components/schemas/NotificationInboxItem' } } } } }
 components:
   parameters:
     ScenarioResourceID:
@@ -11931,3 +12121,228 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/MacroSeriesPoint'
+    NetWorthForecastUpsertRequest:
+      type: object
+      required: [name, baseCurrency, horizonMonths, includeCash, includeCrypto, annualIncomeGrowth, annualSpendingGrowth, inflationAssumption, pathCount]
+      properties:
+        name: { type: string }
+        baseCurrency: { type: string, minLength: 3, maxLength: 3 }
+        horizonMonths: { type: integer, minimum: 1, maximum: 600 }
+        includeCash: { type: boolean }
+        includeCrypto: { type: boolean }
+        annualIncomeGrowth: { type: number, format: double }
+        annualSpendingGrowth: { type: number, format: double }
+        inflationAssumption: { type: number, format: double }
+        monthlyIncomeOverride: { type: number, format: double, nullable: true, minimum: 0 }
+        monthlySpendingOverride: { type: number, format: double, nullable: true, minimum: 0 }
+        targetAmount: { type: number, format: double, nullable: true }
+        pathCount: { type: integer, minimum: 100, maximum: 50000 }
+    NetWorthForecastDefinition:
+      allOf:
+        - $ref: '#/components/schemas/NetWorthForecastUpsertRequest'
+        - type: object
+          required: [id, portfolioListId]
+          properties:
+            id: { type: string }
+            portfolioListId: { type: string }
+            createdAt: { type: string, nullable: true }
+            updatedAt: { type: string, nullable: true }
+    NetWorthForecastDefaults:
+      type: object
+      required: [baseCurrency, monthlyIncome, monthlySpending, monthlyNetFlow, cashFlowSource, includedFinancing, warnings]
+      properties:
+        baseCurrency: { type: string }
+        monthlyIncome: { type: number, format: double }
+        monthlySpending: { type: number, format: double }
+        monthlyNetFlow: { type: number, format: double }
+        cashFlowSource: { type: string, enum: [planned_budget, trailing_actuals, manual] }
+        includedFinancing: { type: number, format: double }
+        warnings: { type: array, items: { type: string } }
+    ForecastProbabilityBand:
+      type: object
+      required: [percentile, value]
+      properties:
+        percentile: { type: integer }
+        value: { type: number, format: double }
+    NetWorthForecastPoint:
+      type: object
+      required: [id, month, date, monthlyIncome, monthlySpending, bands]
+      properties:
+        id: { type: string }
+        month: { type: integer }
+        date: { type: string }
+        monthlyIncome: { type: number, format: double }
+        monthlySpending: { type: number, format: double }
+        bands: { type: array, items: { $ref: '#/components/schemas/ForecastProbabilityBand' } }
+    NetWorthForecastRun:
+      type: object
+      required: [id, forecastId, status, startingValue, assumptions, timeline, createdAt]
+      properties:
+        id: { type: string }
+        forecastId: { type: string }
+        status: { type: string, enum: [queued, running, completed, failed] }
+        startingValue: { type: number, format: double }
+        assumptions: { $ref: '#/components/schemas/NetWorthForecastDefaults' }
+        timeline: { type: array, items: { $ref: '#/components/schemas/NetWorthForecastPoint' } }
+        targetProbability: { type: number, format: double, nullable: true }
+        seed: { type: integer, format: int64, nullable: true }
+        failureReason: { type: string, nullable: true }
+        createdAt: { type: string }
+        completedAt: { type: string, nullable: true }
+    ScreenMetricDescriptor:
+      type: object
+      required: [id, label, category, supportedPeriods, supportedComparisons, unit]
+      properties:
+        id: { type: string }
+        label: { type: string }
+        category: { type: string }
+        supportedPeriods: { type: array, items: { type: string, enum: [ttm, annual, quarterly] } }
+        supportedComparisons: { type: array, items: { type: string } }
+        unit: { type: string }
+        favorableDirection: { type: string, nullable: true }
+    WatchlistScreenCondition:
+      type: object
+      required: [id, metric, comparison, period]
+      properties:
+        id: { type: string }
+        metric: { type: string }
+        comparison: { type: string }
+        period: { type: string, enum: [ttm, annual, quarterly] }
+        value: { type: number, format: double, nullable: true }
+    WatchlistScreenGroup:
+      type: object
+      required: [id, logicalOperator, conditions]
+      properties:
+        id: { type: string }
+        logicalOperator: { type: string, enum: [all, any] }
+        conditions: { type: array, items: { $ref: '#/components/schemas/WatchlistScreenCondition' } }
+    WatchlistScreenUpsertRequest:
+      type: object
+      required: [name, watchlistListIds, logicalOperator, groups, alertsEnabled]
+      properties:
+        name: { type: string }
+        watchlistListIds: { type: array, items: { type: string } }
+        logicalOperator: { type: string, enum: [all, any] }
+        groups: { type: array, items: { $ref: '#/components/schemas/WatchlistScreenGroup' } }
+        alertsEnabled: { type: boolean }
+    WatchlistScreen:
+      allOf:
+        - $ref: '#/components/schemas/WatchlistScreenUpsertRequest'
+        - type: object
+          required: [id]
+          properties:
+            id: { type: string }
+            lastEvaluatedAt: { type: string, nullable: true }
+            createdAt: { type: string, nullable: true }
+            updatedAt: { type: string, nullable: true }
+    ScreenConditionResult:
+      type: object
+      required: [conditionId, matched, explanation]
+      properties:
+        conditionId: { type: string }
+        matched: { type: boolean }
+        value: { type: number, format: double, nullable: true }
+        previousValue: { type: number, format: double, nullable: true }
+        explanation: { type: string }
+    WatchlistScreenMatch:
+      type: object
+      required: [id, symbol, isNew, conditionResults]
+      properties:
+        id: { type: string }
+        symbol: { type: string }
+        name: { type: string, nullable: true }
+        isNew: { type: boolean }
+        conditionResults: { type: array, items: { $ref: '#/components/schemas/ScreenConditionResult' } }
+    WatchlistScreenEvaluation:
+      type: object
+      required: [id, screenId, evaluatedAt, symbolCount, matches, isAlertBaseline]
+      properties:
+        id: { type: string }
+        screenId: { type: string }
+        evaluatedAt: { type: string }
+        symbolCount: { type: integer }
+        matches: { type: array, items: { $ref: '#/components/schemas/WatchlistScreenMatch' } }
+        isAlertBaseline: { type: boolean }
+    RebalanceTarget:
+      type: object
+      required: [id, kind, targetWeight]
+      properties:
+        id: { type: string }
+        kind: { type: string, enum: [symbol, cash] }
+        symbol: { type: string, nullable: true }
+        targetWeight: { type: number, format: double }
+    RebalancingPolicyUpsertRequest:
+      type: object
+      required: [cadence, targets, enabled]
+      properties:
+        cadence: { type: string, enum: [disabled, monthly, quarterly, semiannual, annual] }
+        driftThreshold: { type: number, format: double, nullable: true }
+        targets: { type: array, items: { $ref: '#/components/schemas/RebalanceTarget' } }
+        enabled: { type: boolean }
+    RebalancingPolicy:
+      allOf:
+        - $ref: '#/components/schemas/RebalancingPolicyUpsertRequest'
+        - type: object
+          required: [id, portfolioListId]
+          properties:
+            id: { type: string }
+            portfolioListId: { type: string }
+            lastConfirmedAt: { type: string, nullable: true }
+            createdAt: { type: string, nullable: true }
+            updatedAt: { type: string, nullable: true }
+    RebalanceTradeDraft:
+      type: object
+      required: [id, kind, action, currentWeight, targetWeight, amount]
+      properties:
+        id: { type: string }
+        kind: { type: string, enum: [symbol, cash] }
+        symbol: { type: string, nullable: true }
+        action: { type: string, enum: [buy, sell, hold] }
+        currentWeight: { type: number, format: double }
+        targetWeight: { type: number, format: double }
+        amount: { type: number, format: double }
+        approximateShares: { type: number, format: double, nullable: true }
+    RebalancePreview:
+      type: object
+      required: [portfolioValue, currency, maximumDrift, triggerReasons, trades, warnings]
+      properties:
+        portfolioValue: { type: number, format: double }
+        currency: { type: string }
+        maximumDrift: { type: number, format: double }
+        triggerReasons: { type: array, items: { type: string, enum: [cadence, drift, manual] } }
+        trades: { type: array, items: { $ref: '#/components/schemas/RebalanceTradeDraft' } }
+        warnings: { type: array, items: { type: string } }
+    RebalanceEvent:
+      type: object
+      required: [id, policyId, status, preview, createdAt]
+      properties:
+        id: { type: string }
+        policyId: { type: string }
+        status: { type: string, enum: [pending, confirmed] }
+        preview: { $ref: '#/components/schemas/RebalancePreview' }
+        createdAt: { type: string }
+        confirmedAt: { type: string, nullable: true }
+    NotificationInboxItem:
+      type: object
+      required: [id, kind, title, body, payload, createdAt]
+      properties:
+        id: { type: string }
+        kind: { type: string, enum: [price_target, budget, earnings, tax, watchlist_screen, rebalancing] }
+        title: { type: string }
+        body: { type: string }
+        deepLink: { type: string, nullable: true }
+        payload: { type: object, additionalProperties: { type: string } }
+        createdAt: { type: string }
+        readAt: { type: string, nullable: true }
+    NotificationInboxPage:
+      type: object
+      required: [items, unreadCount]
+      properties:
+        items: { type: array, items: { $ref: '#/components/schemas/NotificationInboxItem' } }
+        unreadCount: { type: integer }
+        nextCursor: { type: string, nullable: true }
+    NotificationReadRequest:
+      type: object
+      required: [read]
+      properties:
+        read: { type: boolean }

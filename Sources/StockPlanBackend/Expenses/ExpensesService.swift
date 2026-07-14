@@ -1153,6 +1153,18 @@ extension DefaultExpensesService {
 
             let remainingAmount = snapshot.netSalary - totalExpenses
 
+            let snapshotId = try snapshot.requireID()
+            _ = try await NotificationEventPublisher.publish(
+                userId: userId,
+                kind: .budget,
+                deduplicationKey: "budget:\(snapshotId.uuidString):\(threshold)",
+                title: "Budget threshold reached",
+                body: "\(threshold)% of this month's budget remains.",
+                deepLink: "norviq://expenses",
+                payload: ["snapshot_id": snapshotId.uuidString, "threshold": String(threshold)],
+                on: db
+            )
+
             _ = await req.application.pushNotificationSender.sendBudgetAlert(
                 snapshot: snapshot,
                 threshold: threshold,

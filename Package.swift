@@ -1,5 +1,15 @@
 // swift-tools-version:6.0
+import Foundation
 import PackageDescription
+
+let sharedPackagePath = ProcessInfo.processInfo.environment["STOCKPLAN_SHARED_PATH"]
+let sharedPackage: Package.Dependency = if let sharedPackagePath {
+    .package(path: sharedPackagePath)
+} else {
+    .package(url: "https://github.com/FinancePlanner/norviq-shared.git", exact: "3.27.0")
+}
+
+let sharedPackageIdentity = sharedPackagePath.map { URL(fileURLWithPath: $0).lastPathComponent } ?? "norviq-shared"
 
 let package = Package(
     name: "StockPlanBackend",
@@ -29,7 +39,7 @@ let package = Package(
         // Prometheus metrics exporter for Swift Metrics
         .package(url: "https://github.com/vapor/redis.git", from: "4.8.0"),
         // Shared API contracts used by backend and iOS app.
-        .package(url: "https://github.com/FinancePlanner/norviq-shared.git", exact: "3.27.0"),
+        sharedPackage,
         // Container packaging without Dockerfile builds in CI.
         .package(url: "https://github.com/apple/swift-container-plugin.git", from: "1.3.0"),
         .package(url: "https://github.com/realm/SwiftLint.git", from: "0.50.3"),
@@ -55,7 +65,7 @@ let package = Package(
                 .product(name: "Atomics", package: "swift-atomics"),
                 // Optional Redis cache integration.
                 .product(name: "Redis", package: "redis"),
-                .product(name: "StockPlanShared", package: "norviq-shared"),
+                .product(name: "StockPlanShared", package: sharedPackageIdentity),
                 .product(name: "VaporAPNS", package: "apns"),
             ],
             resources: [
@@ -72,7 +82,7 @@ let package = Package(
             dependencies: [
                 .target(name: "StockPlanBackend"),
                 .product(name: "VaporTesting", package: "vapor"),
-                .product(name: "StockPlanShared", package: "norviq-shared"),
+                .product(name: "StockPlanShared", package: sharedPackageIdentity),
             ],
             swiftSettings: swiftSettings
         ),

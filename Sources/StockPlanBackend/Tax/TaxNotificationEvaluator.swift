@@ -47,7 +47,6 @@ struct TaxNotificationEvaluator: Sendable {
             configuredMinimum: configuredThreshold
         )
         let devices = try await req.pushDeviceService.activeDevices(userId: userId, on: req.db)
-        guard !devices.isEmpty else { return }
 
         for opportunity in dashboard.opportunities
             where opportunity.status == .actionable && opportunity.estimatedTaxBenefit.amount >= threshold
@@ -70,12 +69,16 @@ struct TaxNotificationEvaluator: Sendable {
                 threshold: threshold,
                 previousBenefit: previous.map { Decimal($0.estimatedBenefit) }
             ) else { continue }
-            let summary = await req.application.pushNotificationSender.sendTaxOpportunity(
-                opportunity: opportunity,
-                devices: devices,
-                req: req
+            _ = try await NotificationEventPublisher.publish(
+                userId: userId,
+                kind: .tax,
+                deduplicationKey: "tax:\(opportunity.id):\(Int(benefit * 100))",
+                title: "Tax opportunity",
+                body: "Estimated benefit: \(benefit) \(opportunity.estimatedTaxBenefit.currency).",
+                deepLink: "norviq://tax/opportunities/\(opportunity.id)",
+                payload: ["opportunity_id": opportunity.id, "instrument_id": instrumentID.uuidString],
+                on: req.db
             )
-            guard summary.delivered > 0 else { continue }
             let delivery = TaxNotificationDelivery()
             delivery.userId = userId
             delivery.opportunityId = opportunity.id
@@ -84,6 +87,13 @@ struct TaxNotificationEvaluator: Sendable {
             delivery.currency = opportunity.estimatedTaxBenefit.currency
             delivery.deliveredAt = Date()
             try await delivery.create(on: req.db)
+            if !devices.isEmpty {
+                _ = await req.application.pushNotificationSender.sendTaxOpportunity(
+                    opportunity: opportunity,
+                    devices: devices,
+                    req: req
+                )
+            }
         }
     }
 }
