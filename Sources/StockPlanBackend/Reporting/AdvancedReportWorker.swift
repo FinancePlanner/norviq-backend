@@ -81,7 +81,7 @@ final class AdvancedReportWorker: LifecycleHandler, @unchecked Sendable {
                     template: templateInput,
                     app: app
                 )
-            } catch where isRevokedReportAccess(error) {
+            } catch let error where isRevokedReportAccess(error) {
                 schedule.nextRunAt = nil
                 schedule.pausedReason = "access_revoked"
                 try await schedule.save(on: app.db)
@@ -198,7 +198,7 @@ final class AdvancedReportWorker: LifecycleHandler, @unchecked Sendable {
             let template = try decodeReportJSON(ReportTemplateInput.self, run.templateInputJSON)
             do {
                 try await ensureReportAccess(run: run, template: template, app: app)
-            } catch where isRevokedReportAccess(error) {
+            } catch let error where isRevokedReportAccess(error) {
                 await markAccessRevoked(run: run, app: app)
                 return
             }
@@ -248,7 +248,7 @@ final class AdvancedReportWorker: LifecycleHandler, @unchecked Sendable {
     ) async throws {
         do {
             try await ensureReportAccess(run: run, template: template, app: app)
-        } catch where isRevokedReportAccess(error) {
+        } catch let error where isRevokedReportAccess(error) {
             await markAccessRevoked(run: run, app: app)
             return
         }
@@ -285,7 +285,7 @@ final class AdvancedReportWorker: LifecycleHandler, @unchecked Sendable {
             let template = try decodeReportJSON(ReportTemplateInput.self, run.templateInputJSON)
             do {
                 try await ensureReportAccess(run: run, template: template, app: app)
-            } catch where isRevokedReportAccess(error) {
+            } catch let error where isRevokedReportAccess(error) {
                 await markAccessRevoked(run: run, app: app)
                 continue
             }
