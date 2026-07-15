@@ -73,6 +73,23 @@ final class AdvancedReportWorker: LifecycleHandler, @unchecked Sendable {
                 try await schedule.save(on: app.db)
                 continue
             }
+            let templateInput = try decodeReportJSON(ReportTemplateInput.self, template.inputJSON)
+            do {
+                try await ensureReportAccess(
+                    requestedByUserId: schedule.ownerUserId,
+                    recipientUserIdValues: input.recipientUserIds,
+                    template: templateInput,
+                    app: app
+                )
+            } catch where isRevokedReportAccess(error) {
+                schedule.nextRunAt = nil
+                schedule.pausedReason = "access_revoked"
+                try await schedule.save(on: app.db)
+                app.logger.warning(
+                    "advanced_report.schedule_paused reason=access_revoked schedule_id=\(schedule.id?.uuidString ?? "unknown")"
+                )
+                continue
+            }
             let scheduledFor = schedule.nextRunAt
             let generatedToday = try await requestedArtifactCountToday(
                 userId: schedule.ownerUserId,
@@ -179,6 +196,12 @@ final class AdvancedReportWorker: LifecycleHandler, @unchecked Sendable {
             try await run.save(on: app.db)
 
             let template = try decodeReportJSON(ReportTemplateInput.self, run.templateInputJSON)
+            do {
+                try await ensureReportAccess(run: run, template: template, app: app)
+            } catch where isRevokedReportAccess(error) {
+                await markAccessRevoked(run: run, app: app)
+                return
+            }
             let document = try await ReportDocumentCollector().collect(template: template, on: app.db)
             let formats = try decodeReportJSON([ReportOutputFormat].self, run.outputFormatsJSON)
             let existing = try await AdvancedReportArtifactRecord.query(on: app.db)
@@ -212,7 +235,7 @@ final class AdvancedReportWorker: LifecycleHandler, @unchecked Sendable {
             }
             run.status = ReportRunStatus.delivering.rawValue
             try await run.save(on: app.db)
-            try await createAndSendDeliveries(run: run, templateName: template.name, app: app)
+            try await createAndSendDeliveries(run: run, template: template, app: app)
         } catch {
             await failOrRetry(runId: runId, error: error, app: app)
         }
@@ -220,9 +243,15 @@ final class AdvancedReportWorker: LifecycleHandler, @unchecked Sendable {
 
     private func createAndSendDeliveries(
         run: AdvancedReportRunRecord,
-        templateName: String,
+        template: ReportTemplateInput,
         app: Application
     ) async throws {
+        do {
+            try await ensureReportAccess(run: run, template: template, app: app)
+        } catch where isRevokedReportAccess(error) {
+            await markAccessRevoked(run: run, app: app)
+            return
+        }
         let runId = try run.requireID()
         let recipientValues = try decodeReportJSON([String].self, run.recipientUserIdsJSON)
         let recipientIds = recipientValues.compactMap(UUID.init(uuidString:))
@@ -237,7 +266,7 @@ final class AdvancedReportWorker: LifecycleHandler, @unchecked Sendable {
             if delivery.id == nil {
                 try await delivery.save(on: app.db)
             }
-            await send(delivery: delivery, templateName: templateName, app: app)
+            await send(delivery: delivery, templateName: template.name, app: app)
         }
         try await updateRunDeliveryStatus(runId: runId, app: app)
     }
@@ -254,6 +283,12 @@ final class AdvancedReportWorker: LifecycleHandler, @unchecked Sendable {
         for delivery in deliveries {
             guard let run = try await AdvancedReportRunRecord.find(delivery.runId, on: app.db) else { continue }
             let template = try decodeReportJSON(ReportTemplateInput.self, run.templateInputJSON)
+            do {
+                try await ensureReportAccess(run: run, template: template, app: app)
+            } catch where isRevokedReportAccess(error) {
+                await markAccessRevoked(run: run, app: app)
+                continue
+            }
             await send(delivery: delivery, templateName: template.name, app: app)
             try await updateRunDeliveryStatus(runId: delivery.runId, app: app)
         }
@@ -342,6 +377,91 @@ final class AdvancedReportWorker: LifecycleHandler, @unchecked Sendable {
         }
         try? await run.save(on: app.db)
         app.logger.error("advanced_report.generation_failed id=\(runId) error=\(error)")
+    }
+
+    private func ensureReportAccess(
+        run: AdvancedReportRunRecord,
+        template: ReportTemplateInput,
+        app: Application
+    ) async throws {
+        let recipientValues = try decodeReportJSON([String].self, run.recipientUserIdsJSON)
+        try await ensureReportAccess(
+            requestedByUserId: run.requestedByUserId,
+            recipientUserIdValues: recipientValues,
+            template: template,
+            app: app
+        )
+    }
+
+    private func ensureReportAccess(
+        requestedByUserId: UUID,
+        recipientUserIdValues: [String],
+        template: ReportTemplateInput,
+        app: Application
+    ) async throws {
+        let recipients = recipientUserIdValues.isEmpty
+            ? [requestedByUserId]
+            : try recipientUserIdValues.map { try requireReportUUID($0, field: "recipientUserIds") }
+        let principals = Set(recipients + [requestedByUserId])
+
+        for portfolioId in try reportPortfolioIds(in: template) {
+            for userId in principals {
+                _ = try await app.portfolioAccessService.require(
+                    portfolioId: portfolioId,
+                    userId: userId,
+                    on: app.db
+                )
+            }
+        }
+    }
+
+    private func reportPortfolioIds(in template: ReportTemplateInput) throws -> [UUID] {
+        let values = template.blocks.flatMap { block in
+            block.portfolioIds + [block.settings.comparisonPortfolioId].compactMap(\.self)
+        }
+        return try Array(Set(values)).map { try requireReportUUID($0, field: "portfolioIds") }
+    }
+
+    private func requireReportUUID(_ value: String, field: String) throws -> UUID {
+        guard let id = UUID(uuidString: value) else {
+            throw Abort(.badRequest, reason: "Invalid \(field).")
+        }
+        return id
+    }
+
+    private func isRevokedReportAccess(_ error: any Error) -> Bool {
+        guard let abort = error as? any AbortError else { return false }
+        return abort.status == .notFound || abort.status == .forbidden
+    }
+
+    private func markAccessRevoked(run: AdvancedReportRunRecord, app: Application) async {
+        let runId = run.id
+        run.status = ReportRunStatus.failed.rawValue
+        run.failureReason = "Report generation stopped because portfolio access was revoked."
+        run.claimedAt = nil
+        run.retryAt = nil
+        run.completedAt = Date()
+        try? await run.save(on: app.db)
+
+        if let scheduleId = run.scheduleId,
+           let schedule = try? await AdvancedReportScheduleRecord.find(scheduleId, on: app.db)
+        {
+            schedule.nextRunAt = nil
+            schedule.pausedReason = "access_revoked"
+            try? await schedule.save(on: app.db)
+        }
+
+        if let runId {
+            let deliveries = (try? await AdvancedReportDeliveryRecord.query(on: app.db)
+                .filter(\.$runId == runId)
+                .all()) ?? []
+            for delivery in deliveries where delivery.status != ReportDeliveryStatus.delivered.rawValue {
+                delivery.status = ReportDeliveryStatus.failed.rawValue
+                delivery.failureReason = "Report delivery stopped because portfolio access was revoked."
+                try? await delivery.save(on: app.db)
+            }
+            app.logger.warning("advanced_report.access_revoked run_id=\(runId.uuidString)")
+        }
     }
 
     private func reportFilename(title: String, format: ReportOutputFormat) -> String {
