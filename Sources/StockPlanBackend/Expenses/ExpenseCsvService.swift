@@ -11,6 +11,12 @@ struct ExpenseCsvService {
     static let columns = ["title", "amount", "currency", "pillar", "category", "occurred_on", "external_id"]
 
     let expensesService: any ExpensesService
+    let request: Request?
+
+    init(expensesService: any ExpensesService, request: Request? = nil) {
+        self.expensesService = expensesService
+        self.request = request
+    }
 
     // MARK: - Import
 
@@ -103,6 +109,18 @@ struct ExpenseCsvService {
             } catch {
                 resultByLine[row.line] = RowResult(line: row.line, outcome: .error, message: friendly(error))
                 failed += 1
+            }
+        }
+
+        if let request {
+            for month in Set(toImport.compactMap { monthStart(for: $0.request.occurredOn) }) {
+                do {
+                    try await BudgetDriftEvaluator(req: request).evaluate(userId: userId, monthStart: month, notify: true)
+                } catch {
+                    request.logger.warning(
+                        "budget drift evaluation after CSV import failed userId=\(userId.uuidString) error=\(error.localizedDescription)"
+                    )
+                }
             }
         }
 

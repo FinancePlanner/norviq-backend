@@ -7,6 +7,11 @@ struct BudgetController: RouteCollection {
         let monthStart: String
         let netSalary: Double
         let targetShares: [String: Double]
+        let currencyCode: String?
+        let categoryDriftThreshold: Double?
+        let totalDriftThreshold: Double?
+        let alertsEnabled: Bool?
+        let alertOnUnbudgeted: Bool?
 
         private enum CodingKeys: String, CodingKey {
             case monthStartSnake = "month_start"
@@ -15,6 +20,16 @@ struct BudgetController: RouteCollection {
             case netSalaryCamel = "netSalary"
             case targetSharesSnake = "target_shares"
             case targetSharesCamel = "targetShares"
+            case currencyCodeSnake = "currency_code"
+            case currencyCodeCamel = "currencyCode"
+            case categoryDriftThresholdSnake = "category_drift_threshold"
+            case categoryDriftThresholdCamel = "categoryDriftThreshold"
+            case totalDriftThresholdSnake = "total_drift_threshold"
+            case totalDriftThresholdCamel = "totalDriftThreshold"
+            case alertsEnabledSnake = "alerts_enabled"
+            case alertsEnabledCamel = "alertsEnabled"
+            case alertOnUnbudgetedSnake = "alert_on_unbudgeted"
+            case alertOnUnbudgetedCamel = "alertOnUnbudgeted"
         }
 
         init(from decoder: any Decoder) throws {
@@ -29,13 +44,28 @@ struct BudgetController: RouteCollection {
                 try container.decodeIfPresent([String: Double].self, forKey: .targetSharesSnake)
                     ?? container.decodeIfPresent([String: Double].self, forKey: .targetSharesCamel)
                     ?? [:]
+            currencyCode = try container.decodeIfPresent(String.self, forKey: .currencyCodeSnake)
+                ?? container.decodeIfPresent(String.self, forKey: .currencyCodeCamel)
+            categoryDriftThreshold = try container.decodeIfPresent(Double.self, forKey: .categoryDriftThresholdSnake)
+                ?? container.decodeIfPresent(Double.self, forKey: .categoryDriftThresholdCamel)
+            totalDriftThreshold = try container.decodeIfPresent(Double.self, forKey: .totalDriftThresholdSnake)
+                ?? container.decodeIfPresent(Double.self, forKey: .totalDriftThresholdCamel)
+            alertsEnabled = try container.decodeIfPresent(Bool.self, forKey: .alertsEnabledSnake)
+                ?? container.decodeIfPresent(Bool.self, forKey: .alertsEnabledCamel)
+            alertOnUnbudgeted = try container.decodeIfPresent(Bool.self, forKey: .alertOnUnbudgetedSnake)
+                ?? container.decodeIfPresent(Bool.self, forKey: .alertOnUnbudgetedCamel)
         }
 
         func asRequest() -> BudgetSnapshotRequest {
             BudgetSnapshotRequest(
                 monthStart: monthStart,
                 netSalary: netSalary,
-                targetShares: targetShares
+                targetShares: targetShares,
+                currencyCode: currencyCode,
+                categoryDriftThreshold: categoryDriftThreshold,
+                totalDriftThreshold: totalDriftThreshold,
+                alertsEnabled: alertsEnabled,
+                alertOnUnbudgeted: alertOnUnbudgeted
             )
         }
     }
@@ -47,6 +77,14 @@ struct BudgetController: RouteCollection {
         let pillar: BudgetPillar
         let splitMode: ExpenseSplitMode?
         let userSharePercent: Double?
+        let categoryId: String?
+        let targetType: BudgetTargetType?
+        let incomePercentage: Double?
+        let thresholdOverride: Double?
+        let allocationKind: BudgetAllocationKind?
+        let reallocationEligible: Bool?
+        let destinationFinancialGoalId: String?
+        let destinationPortfolioListId: String?
 
         private enum CodingKeys: String, CodingKey {
             case snapshotIdSnake = "snapshot_id"
@@ -59,6 +97,22 @@ struct BudgetController: RouteCollection {
             case splitModeCamel = "splitMode"
             case userSharePercentSnake = "user_share_percent"
             case userSharePercentCamel = "userSharePercent"
+            case categoryIdSnake = "category_id"
+            case categoryIdCamel = "categoryId"
+            case targetTypeSnake = "target_type"
+            case targetTypeCamel = "targetType"
+            case incomePercentageSnake = "income_percentage"
+            case incomePercentageCamel = "incomePercentage"
+            case thresholdOverrideSnake = "threshold_override"
+            case thresholdOverrideCamel = "thresholdOverride"
+            case allocationKindSnake = "allocation_kind"
+            case allocationKindCamel = "allocationKind"
+            case reallocationEligibleSnake = "reallocation_eligible"
+            case reallocationEligibleCamel = "reallocationEligible"
+            case destinationFinancialGoalIdSnake = "destination_financial_goal_id"
+            case destinationFinancialGoalIdCamel = "destinationFinancialGoalId"
+            case destinationPortfolioListIdSnake = "destination_portfolio_list_id"
+            case destinationPortfolioListIdCamel = "destinationPortfolioListId"
         }
 
         init(from decoder: any Decoder) throws {
@@ -77,6 +131,22 @@ struct BudgetController: RouteCollection {
             userSharePercent =
                 try container.decodeIfPresent(Double.self, forKey: .userSharePercentSnake)
                     ?? container.decodeIfPresent(Double.self, forKey: .userSharePercentCamel)
+            categoryId = try container.decodeIfPresent(String.self, forKey: .categoryIdSnake)
+                ?? container.decodeIfPresent(String.self, forKey: .categoryIdCamel)
+            targetType = try container.decodeIfPresent(BudgetTargetType.self, forKey: .targetTypeSnake)
+                ?? container.decodeIfPresent(BudgetTargetType.self, forKey: .targetTypeCamel)
+            incomePercentage = try container.decodeIfPresent(Double.self, forKey: .incomePercentageSnake)
+                ?? container.decodeIfPresent(Double.self, forKey: .incomePercentageCamel)
+            thresholdOverride = try container.decodeIfPresent(Double.self, forKey: .thresholdOverrideSnake)
+                ?? container.decodeIfPresent(Double.self, forKey: .thresholdOverrideCamel)
+            allocationKind = try container.decodeIfPresent(BudgetAllocationKind.self, forKey: .allocationKindSnake)
+                ?? container.decodeIfPresent(BudgetAllocationKind.self, forKey: .allocationKindCamel)
+            reallocationEligible = try container.decodeIfPresent(Bool.self, forKey: .reallocationEligibleSnake)
+                ?? container.decodeIfPresent(Bool.self, forKey: .reallocationEligibleCamel)
+            destinationFinancialGoalId = try container.decodeIfPresent(String.self, forKey: .destinationFinancialGoalIdSnake)
+                ?? container.decodeIfPresent(String.self, forKey: .destinationFinancialGoalIdCamel)
+            destinationPortfolioListId = try container.decodeIfPresent(String.self, forKey: .destinationPortfolioListIdSnake)
+                ?? container.decodeIfPresent(String.self, forKey: .destinationPortfolioListIdCamel)
         }
 
         func asRequest() -> BudgetPlanItemRequest {
@@ -85,8 +155,16 @@ struct BudgetController: RouteCollection {
                 title: title,
                 plannedAmount: plannedAmount,
                 pillar: pillar,
+                categoryId: categoryId,
                 splitMode: splitMode ?? .personal,
-                userSharePercent: userSharePercent ?? 100
+                userSharePercent: userSharePercent ?? 100,
+                targetType: targetType ?? .fixed,
+                incomePercentage: incomePercentage,
+                thresholdOverride: thresholdOverride,
+                allocationKind: allocationKind ?? .expense,
+                reallocationEligible: reallocationEligible ?? false,
+                destinationFinancialGoalId: destinationFinancialGoalId,
+                destinationPortfolioListId: destinationPortfolioListId
             )
         }
     }

@@ -23,6 +23,24 @@ final class BudgetSnapshot: Model, @unchecked Sendable {
     @OptionalField(key: "last_budget_alert_threshold")
     var lastBudgetAlertThreshold: Int?
 
+    @Field(key: "currency_code")
+    var currencyCode: String
+
+    @Field(key: "category_drift_threshold")
+    var categoryDriftThreshold: Double
+
+    @Field(key: "total_drift_threshold")
+    var totalDriftThreshold: Double
+
+    @Field(key: "alerts_enabled")
+    var alertsEnabled: Bool
+
+    @Field(key: "alert_on_unbudgeted")
+    var alertOnUnbudgeted: Bool
+
+    @Field(key: "revision")
+    var revision: Int
+
     @Timestamp(key: "created_at", on: .create)
     var createdAt: Date?
 
@@ -36,12 +54,24 @@ final class BudgetSnapshot: Model, @unchecked Sendable {
         userID: UUID,
         monthStart: Date,
         netSalary: Double,
-        targetShares: [String: Double]
+        targetShares: [String: Double],
+        currencyCode: String = "USD",
+        categoryDriftThreshold: Double = 15,
+        totalDriftThreshold: Double = 10,
+        alertsEnabled: Bool = true,
+        alertOnUnbudgeted: Bool = true,
+        revision: Int = 0
     ) {
         self.id = id
         $user.id = userID
         self.monthStart = monthStart
         self.netSalary = netSalary
         self.targetShares = targetShares
+        self.currencyCode = currencyCode
+        self.categoryDriftThreshold = categoryDriftThreshold
+        self.totalDriftThreshold = totalDriftThreshold
+        self.alertsEnabled = alertsEnabled
+        self.alertOnUnbudgeted = alertOnUnbudgeted
+        self.revision = revision
     }
 }

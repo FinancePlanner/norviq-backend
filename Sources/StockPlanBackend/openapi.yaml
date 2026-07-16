@@ -1783,6 +1783,11 @@ paths:
           schema:
             type: string
             format: date
+        - { name: q, in: query, required: false, schema: { type: string, maxLength: 200 } }
+        - { name: category_id, in: query, required: false, schema: { type: string, format: uuid } }
+        - { name: pillar, in: query, required: false, schema: { type: string } }
+        - { name: cursor, in: query, required: false, schema: { type: string, format: date-time } }
+        - { name: limit, in: query, required: false, schema: { type: integer, minimum: 1, maximum: 200 } }
       responses:
         '200':
           description: OK
@@ -3820,6 +3825,199 @@ paths:
                   $ref: '#/components/schemas/BudgetPlanItemResponse'
         '401':
           description: Unauthorized
+    patch:
+      operationId: bulkUpdateBudgetItems
+      tags: [Expenses]
+      summary: Atomically update budget targets
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/BudgetBulkPlanItemUpdateRequest' }
+      responses:
+        '200':
+          description: Updated drift dashboard
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/BudgetDriftDashboard' }
+        '409': { description: Snapshot revision conflict }
+
+  /v1/budget/snapshots/{snapshotId}/drift:
+    parameters:
+      - { name: snapshotId, in: path, required: true, schema: { type: string, format: uuid } }
+    get:
+      operationId: getBudgetDrift
+      tags: [Expenses]
+      summary: Get deterministic target versus actual drift
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: Drift dashboard
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/BudgetDriftDashboard' }
+
+  /v1/budget/snapshots/{snapshotId}/alert-policy:
+    parameters:
+      - { name: snapshotId, in: path, required: true, schema: { type: string, format: uuid } }
+    put:
+      operationId: updateBudgetAlertPolicy
+      tags: [Expenses]
+      summary: Update drift alert policy
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/BudgetAlertPolicy' }
+      responses:
+        '200':
+          description: Updated snapshot
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/BudgetSnapshotResponse' }
+
+  /v1/budget/discipline:
+    get:
+      operationId: getBudgetDiscipline
+      tags: [Expenses]
+      summary: Get budget discipline score and completed-month streak
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: through, in: query, required: false, schema: { type: string, format: date } }
+        - { name: months, in: query, required: false, schema: { type: integer, minimum: 1, maximum: 24, default: 6 } }
+      responses:
+        '200':
+          description: Discipline summary
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/BudgetDisciplineSummary' }
+
+  /v1/budget/reallocations/preview:
+    post:
+      operationId: previewBudgetReallocation
+      tags: [Expenses]
+      summary: Preview a next-month target reallocation
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/BudgetReallocationPreviewRequest' }
+      responses:
+        '200':
+          description: Preview
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/BudgetReallocationPreviewResponse' }
+        '409': { description: Snapshot revision conflict }
+
+  /v1/budget/reallocations:
+    get:
+      operationId: listBudgetReallocations
+      tags: [Expenses]
+      summary: List reallocation audit history
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: Reallocation history
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/BudgetReallocationEventResponse' }
+    post:
+      operationId: commitBudgetReallocation
+      tags: [Expenses]
+      summary: Commit a next-month target reallocation
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/BudgetReallocationCommitRequest' }
+      responses:
+        '200':
+          description: Committed audit event
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/BudgetReallocationEventResponse' }
+        '409': { description: Snapshot revision conflict }
+
+  /v1/budget/templates:
+    get:
+      operationId: listBudgetTemplates
+      tags: [Expenses]
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: Templates
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/BudgetTemplateResponse' }
+    post:
+      operationId: createBudgetTemplate
+      tags: [Expenses]
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/BudgetTemplateRequest' }
+      responses:
+        '200':
+          description: Template
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/BudgetTemplateResponse' }
+
+  /v1/budget/templates/{templateId}:
+    parameters:
+      - { name: templateId, in: path, required: true, schema: { type: string, format: uuid } }
+    put:
+      operationId: updateBudgetTemplate
+      tags: [Expenses]
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/BudgetTemplateRequest' }
+      responses:
+        '200':
+          description: Template
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/BudgetTemplateResponse' }
+    delete:
+      operationId: deleteBudgetTemplate
+      tags: [Expenses]
+      security: [{ bearerAuth: [] }]
+      responses:
+        '204': { description: Deleted }
+
+  /v1/budget/templates/{templateId}/apply:
+    parameters:
+      - { name: templateId, in: path, required: true, schema: { type: string, format: uuid } }
+    post:
+      operationId: applyBudgetTemplate
+      tags: [Expenses]
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/BudgetTemplateApplyRequest' }
+      responses:
+        '200':
+          description: Updated drift dashboard
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/BudgetDriftDashboard' }
+        '409': { description: Existing targets or stale revision }
 
   /v1/budget/items:
     get:
@@ -8476,6 +8674,11 @@ components:
           additionalProperties:
             type: number
             format: double
+        currencyCode: { type: string, minLength: 3, maxLength: 3 }
+        categoryDriftThreshold: { type: number, format: double, minimum: 0 }
+        totalDriftThreshold: { type: number, format: double, minimum: 0 }
+        alertsEnabled: { type: boolean }
+        alertOnUnbudgeted: { type: boolean }
       required: [monthStart, netSalary, targetShares]
 
     BudgetSnapshotResponse:
@@ -8495,6 +8698,12 @@ components:
           additionalProperties:
             type: number
             format: double
+        currencyCode: { type: string }
+        categoryDriftThreshold: { type: number, format: double }
+        totalDriftThreshold: { type: number, format: double }
+        alertsEnabled: { type: boolean }
+        alertOnUnbudgeted: { type: boolean }
+        revision: { type: integer }
         createdAt:
           type: string
           format: date-time
@@ -8503,7 +8712,204 @@ components:
           type: string
           format: date-time
           nullable: true
-      required: [id, monthStart, netSalary, targetShares]
+      required: [id, monthStart, netSalary, targetShares, currencyCode, categoryDriftThreshold, totalDriftThreshold, alertsEnabled, alertOnUnbudgeted, revision]
+
+    BudgetTargetType:
+      type: string
+      enum: [fixed, percentageIncome]
+
+    BudgetAllocationKind:
+      type: string
+      enum: [expense, investmentContribution]
+
+    BudgetDriftLevel:
+      type: string
+      enum: [green, yellow, red]
+
+    BudgetAlertPolicy:
+      type: object
+      properties:
+        categoryThreshold: { type: number, format: double, minimum: 0 }
+        totalThreshold: { type: number, format: double, minimum: 0 }
+        alertsEnabled: { type: boolean }
+        alertOnUnbudgeted: { type: boolean }
+      required: [categoryThreshold, totalThreshold, alertsEnabled, alertOnUnbudgeted]
+
+    BudgetCategoryDrift:
+      type: object
+      properties:
+        id: { type: string }
+        title: { type: string }
+        categoryId: { type: string, format: uuid, nullable: true }
+        targetAmount: { type: number, format: double }
+        actualAmount: { type: number, format: double }
+        driftAmount: { type: number, format: double }
+        driftPercent: { type: number, format: double, nullable: true }
+        threshold: { type: number, format: double }
+        level: { $ref: '#/components/schemas/BudgetDriftLevel' }
+        allocationKind: { $ref: '#/components/schemas/BudgetAllocationKind' }
+        reallocationEligible: { type: boolean }
+      required: [id, title, targetAmount, actualAmount, driftAmount, threshold, level, allocationKind, reallocationEligible]
+
+    BudgetDriftDashboard:
+      type: object
+      properties:
+        snapshotId: { type: string, format: uuid }
+        monthStart: { type: string, format: date }
+        currencyCode: { type: string }
+        revision: { type: integer }
+        totalTarget: { type: number, format: double }
+        totalActual: { type: number, format: double }
+        totalDriftAmount: { type: number, format: double }
+        totalDriftPercent: { type: number, format: double, nullable: true }
+        totalLevel: { $ref: '#/components/schemas/BudgetDriftLevel' }
+        investmentContributionTarget: { type: number, format: double }
+        lostInvestmentCapital: { type: number, format: double }
+        categories:
+          type: array
+          items: { $ref: '#/components/schemas/BudgetCategoryDrift' }
+      required: [snapshotId, monthStart, currencyCode, revision, totalTarget, totalActual, totalDriftAmount, totalLevel, investmentContributionTarget, lostInvestmentCapital, categories]
+
+    BudgetDisciplineMonth:
+      type: object
+      properties:
+        monthStart: { type: string, format: date }
+        score: { type: number, format: double, nullable: true }
+        compliant: { type: boolean, nullable: true }
+      required: [monthStart]
+
+    BudgetDisciplineSummary:
+      type: object
+      properties:
+        currentScore: { type: number, format: double, nullable: true }
+        completedMonthStreak: { type: integer }
+        compliantMonths: { type: integer }
+        evaluatedMonths: { type: integer }
+        months:
+          type: array
+          items: { $ref: '#/components/schemas/BudgetDisciplineMonth' }
+      required: [completedMonthStreak, compliantMonths, evaluatedMonths, months]
+
+    BudgetReallocationAdjustment:
+      type: object
+      properties:
+        planItemId: { type: string, format: uuid }
+        amount: { type: number, format: double, minimum: 0, exclusiveMinimum: true }
+      required: [planItemId, amount]
+
+    BudgetReallocationPreviewRequest:
+      type: object
+      properties:
+        snapshotId: { type: string, format: uuid }
+        expectedRevision: { type: integer }
+        adjustments:
+          type: array
+          minItems: 1
+          items: { $ref: '#/components/schemas/BudgetReallocationAdjustment' }
+        financialGoalId: { type: string, format: uuid, nullable: true }
+        portfolioListId: { type: string, format: uuid, nullable: true }
+      required: [snapshotId, expectedRevision, adjustments]
+
+    BudgetReallocationPreviewResponse:
+      type: object
+      properties:
+        effectiveMonth: { type: string, format: date }
+        freedCapital: { type: number, format: double }
+        annualImpact: { type: number, format: double }
+        investmentTargetBefore: { type: number, format: double }
+        investmentTargetAfter: { type: number, format: double }
+        warnings:
+          type: array
+          items: { type: string }
+      required: [effectiveMonth, freedCapital, annualImpact, investmentTargetBefore, investmentTargetAfter, warnings]
+
+    BudgetReallocationCommitRequest:
+      type: object
+      properties:
+        requestId: { type: string, format: uuid }
+        preview: { $ref: '#/components/schemas/BudgetReallocationPreviewRequest' }
+      required: [requestId, preview]
+
+    BudgetReallocationEventResponse:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        requestId: { type: string, format: uuid }
+        sourceSnapshotId: { type: string, format: uuid }
+        targetSnapshotId: { type: string, format: uuid }
+        effectiveMonth: { type: string, format: date }
+        freedCapital: { type: number, format: double }
+        financialGoalId: { type: string, format: uuid, nullable: true }
+        portfolioListId: { type: string, format: uuid, nullable: true }
+        adjustments:
+          type: array
+          items: { $ref: '#/components/schemas/BudgetReallocationAdjustment' }
+        createdAt: { type: string, format: date-time, nullable: true }
+      required: [id, requestId, sourceSnapshotId, targetSnapshotId, effectiveMonth, freedCapital, adjustments]
+
+    BudgetBulkPlanItemUpdate:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        plannedAmount: { type: number, format: double, minimum: 0 }
+        targetType: { $ref: '#/components/schemas/BudgetTargetType' }
+        incomePercentage: { type: number, format: double, nullable: true }
+        thresholdOverride: { type: number, format: double, nullable: true }
+        reallocationEligible: { type: boolean }
+      required: [id, plannedAmount, targetType, reallocationEligible]
+
+    BudgetBulkPlanItemUpdateRequest:
+      type: object
+      properties:
+        expectedRevision: { type: integer }
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/BudgetBulkPlanItemUpdate' }
+      required: [expectedRevision, items]
+
+    BudgetTemplateItem:
+      type: object
+      properties:
+        title: { type: string }
+        plannedAmount: { type: number, format: double, minimum: 0 }
+        pillar: { type: string }
+        categoryId: { type: string, format: uuid, nullable: true }
+        targetType: { $ref: '#/components/schemas/BudgetTargetType' }
+        incomePercentage: { type: number, format: double, nullable: true }
+        thresholdOverride: { type: number, format: double, nullable: true }
+        allocationKind: { $ref: '#/components/schemas/BudgetAllocationKind' }
+        reallocationEligible: { type: boolean }
+      required: [title, plannedAmount, pillar, targetType, allocationKind, reallocationEligible]
+
+    BudgetTemplateRequest:
+      type: object
+      properties:
+        name: { type: string }
+        items:
+          type: array
+          minItems: 1
+          items: { $ref: '#/components/schemas/BudgetTemplateItem' }
+      required: [name, items]
+
+    BudgetTemplateResponse:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/BudgetTemplateItem' }
+        createdAt: { type: string, format: date-time, nullable: true }
+        updatedAt: { type: string, format: date-time, nullable: true }
+      required: [id, name, items]
+
+    BudgetTemplateApplyRequest:
+      type: object
+      properties:
+        snapshotId: { type: string, format: uuid }
+        expectedRevision: { type: integer }
+        replaceExisting: { type: boolean, default: false }
+      required: [snapshotId, expectedRevision, replaceExisting]
 
     ExpenseSplitMode:
       type: string
@@ -8545,6 +8951,14 @@ components:
           format: double
           minimum: 0
           maximum: 100
+        categoryId: { type: string, format: uuid, nullable: true }
+        targetType: { $ref: '#/components/schemas/BudgetTargetType' }
+        incomePercentage: { type: number, format: double, nullable: true }
+        thresholdOverride: { type: number, format: double, nullable: true }
+        allocationKind: { $ref: '#/components/schemas/BudgetAllocationKind' }
+        reallocationEligible: { type: boolean }
+        destinationFinancialGoalId: { type: string, format: uuid, nullable: true }
+        destinationPortfolioListId: { type: string, format: uuid, nullable: true }
       required: [snapshotId, title, plannedAmount, pillar, splitMode, userSharePercent]
 
     BudgetPlanItemResponse:
@@ -8572,6 +8986,14 @@ components:
           format: double
           minimum: 0
           maximum: 100
+        categoryId: { type: string, format: uuid, nullable: true }
+        targetType: { $ref: '#/components/schemas/BudgetTargetType' }
+        incomePercentage: { type: number, format: double, nullable: true }
+        thresholdOverride: { type: number, format: double, nullable: true }
+        allocationKind: { $ref: '#/components/schemas/BudgetAllocationKind' }
+        reallocationEligible: { type: boolean }
+        destinationFinancialGoalId: { type: string, format: uuid, nullable: true }
+        destinationPortfolioListId: { type: string, format: uuid, nullable: true }
         createdAt:
           type: string
           format: date-time
@@ -8580,7 +9002,7 @@ components:
           type: string
           format: date-time
           nullable: true
-      required: [id, snapshotId, title, plannedAmount, pillar, splitMode, userSharePercent]
+      required: [id, snapshotId, title, plannedAmount, pillar, splitMode, userSharePercent, targetType, allocationKind, reallocationEligible]
 
     ExpenseCategoryRequest:
       type: object
@@ -8703,6 +9125,12 @@ components:
           format: double
           minimum: 0
           maximum: 100
+        notes:
+          type: string
+          nullable: true
+          maxLength: 2000
+        receiptMetadata:
+          $ref: '#/components/schemas/ExpenseReceiptMetadata'
       required: [title, amount, pillar, occurredOn, splitMode, userSharePercent]
 
     ExpenseResponse:
@@ -8738,6 +9166,11 @@ components:
           format: double
           minimum: 0
           maximum: 100
+        notes:
+          type: string
+          nullable: true
+        receiptMetadata:
+          $ref: '#/components/schemas/ExpenseReceiptMetadata'
         createdAt:
           type: string
           format: date-time
@@ -8747,6 +9180,20 @@ components:
           format: date-time
           nullable: true
       required: [id, title, amount, pillar, occurredOn, splitMode, userSharePercent]
+
+    ExpenseReceiptMetadata:
+      type: object
+      nullable: true
+      properties:
+        source:
+          type: string
+          enum: [qr, ocr]
+        merchant: { type: string, nullable: true }
+        taxIdentifier: { type: string, nullable: true }
+        issuedOn: { type: string, format: date, nullable: true }
+        currency: { type: string, nullable: true }
+        total: { type: number, format: double, nullable: true }
+      required: [source]
 
     PillarPlanningSummaryResponse:
       type: object

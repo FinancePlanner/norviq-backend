@@ -17,4 +17,10 @@ extension Database {
         }
         try await builder.run()
     }
+
+    func deleteIndex(on schema: String, columns: [String], name: String? = nil) async throws {
+        guard let sql = self as? any SQLDatabase else { return }
+        let resolvedName = name ?? "idx_\(schema)_\(columns.joined(separator: "_"))"
+        try await sql.drop(index: resolvedName).run()
+    }
 }

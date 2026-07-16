@@ -45,6 +45,12 @@ final class Expense: Model, @unchecked Sendable {
     @OptionalField(key: "exchange_rate")
     var exchangeRate: Double?
 
+    @OptionalField(key: "notes")
+    var notes: String?
+
+    @OptionalField(key: "receipt_metadata")
+    var receiptMetadata: ExpenseReceiptMetadata?
+
     @Timestamp(key: "created_at", on: .create)
     var createdAt: Date?
 

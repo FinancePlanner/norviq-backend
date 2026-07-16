@@ -93,6 +93,7 @@ func routes(_ app: Application) throws {
     try api.grouped(aiRateLimit).register(collection: AIChatController())
     try api.grouped(aiRateLimit).register(collection: AIAssistantController())
     try api.register(collection: BudgetController())
+    try api.register(collection: BudgetingEngineController())
     try api.register(collection: ExpensesController())
     let financingRateLimit = RateLimitMiddleware(limit: 30, interval: 60, keyPrefix: "ratelimit:financing")
     try api.grouped(financingRateLimit).register(collection: FinancingController())

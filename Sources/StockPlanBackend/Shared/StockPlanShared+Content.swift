@@ -195,6 +195,17 @@ extension ReportSuggestionSeverity: @retroactive Content {}
 extension ReportSuggestionCategory: @retroactive Content {}
 extension ReportSuggestionResponse: @retroactive Content {}
 extension ReportSuggestionsResponse: @retroactive Content {}
+extension BudgetDriftDashboard: @retroactive Content {}
+extension BudgetDisciplineSummary: @retroactive Content {}
+extension BudgetAlertPolicy: @retroactive Content {}
+extension BudgetReallocationPreviewRequest: @retroactive Content {}
+extension BudgetReallocationPreviewResponse: @retroactive Content {}
+extension BudgetReallocationCommitRequest: @retroactive Content {}
+extension BudgetReallocationEventResponse: @retroactive Content {}
+extension BudgetBulkPlanItemUpdateRequest: @retroactive Content {}
+extension BudgetTemplateRequest: @retroactive Content {}
+extension BudgetTemplateResponse: @retroactive Content {}
+extension BudgetTemplateApplyRequest: @retroactive Content {}
 
 // MARK: - Goals & Dashboard Insights
 

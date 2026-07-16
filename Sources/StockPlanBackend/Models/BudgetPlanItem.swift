@@ -30,6 +30,27 @@ final class BudgetPlanItem: Model, @unchecked Sendable {
     @Field(key: "user_share_percent")
     var userSharePercent: Double
 
+    @Field(key: "target_type")
+    var targetType: BudgetTargetType
+
+    @OptionalField(key: "income_percentage")
+    var incomePercentage: Double?
+
+    @OptionalField(key: "threshold_override")
+    var thresholdOverride: Double?
+
+    @Field(key: "allocation_kind")
+    var allocationKind: BudgetAllocationKind
+
+    @Field(key: "reallocation_eligible")
+    var reallocationEligible: Bool
+
+    @OptionalField(key: "destination_financial_goal_id")
+    var destinationFinancialGoalId: UUID?
+
+    @OptionalField(key: "destination_portfolio_list_id")
+    var destinationPortfolioListId: UUID?
+
     @Timestamp(key: "created_at", on: .create)
     var createdAt: Date?
 
@@ -49,7 +70,14 @@ final class BudgetPlanItem: Model, @unchecked Sendable {
         plannedAmount: Double,
         pillar: BudgetPillar,
         splitMode: ExpenseSplitMode = .personal,
-        userSharePercent: Double = 100
+        userSharePercent: Double = 100,
+        targetType: BudgetTargetType = .fixed,
+        incomePercentage: Double? = nil,
+        thresholdOverride: Double? = nil,
+        allocationKind: BudgetAllocationKind = .expense,
+        reallocationEligible: Bool = false,
+        destinationFinancialGoalId: UUID? = nil,
+        destinationPortfolioListId: UUID? = nil
     ) {
         self.id = id
         $snapshot.id = snapshotID
@@ -59,5 +87,12 @@ final class BudgetPlanItem: Model, @unchecked Sendable {
         self.pillar = pillar
         self.splitMode = splitMode
         self.userSharePercent = userSharePercent
+        self.targetType = targetType
+        self.incomePercentage = incomePercentage
+        self.thresholdOverride = thresholdOverride
+        self.allocationKind = allocationKind
+        self.reallocationEligible = reallocationEligible
+        self.destinationFinancialGoalId = destinationFinancialGoalId
+        self.destinationPortfolioListId = destinationPortfolioListId
     }
 }
