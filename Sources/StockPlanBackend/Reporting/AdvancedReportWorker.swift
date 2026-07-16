@@ -452,7 +452,7 @@ final class AdvancedReportWorker: LifecycleHandler, @unchecked Sendable {
         }
 
         if let runId {
-            let deliveries = (try? await AdvancedReportDeliveryRecord.query(on: app.db)
+            let deliveries = await (try? AdvancedReportDeliveryRecord.query(on: app.db)
                 .filter(\.$runId == runId)
                 .all()) ?? []
             for delivery in deliveries where delivery.status != ReportDeliveryStatus.delivered.rawValue {
