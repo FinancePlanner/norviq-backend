@@ -295,5 +295,6 @@ private struct BillingFeatureDescriptor {
         .init(feature: .netWorthForecasting, title: "Net worth forecasting", proOnly: true),
         .init(feature: .smartScreening, title: "Smart watchlist screening", proOnly: true),
         .init(feature: .rebalancingRules, title: "Custom rebalancing rules", proOnly: true),
+        .init(feature: .goalPlanning, title: "Goal-based financial planning", proOnly: false),
     ]
 }

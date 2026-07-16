@@ -71,6 +71,101 @@ struct ScenarioEngineTests {
     }
 
     @Test
+    func `recovery months finds first recovery after shock`() {
+        #expect(ScenarioEngine().recoveryMonths(timelineValues: [100, 80, 90, 100, 110], initialValue: 100) == 3)
+        #expect(ScenarioEngine().recoveryMonths(timelineValues: [100, 80, 90], initialValue: 100) == nil)
+    }
+
+    @Test
+    func `months to goal is finite for funded path`() {
+        let months = ScenarioEngine().monthsToGoal(
+            initialValue: 100_000,
+            monthlyContribution: 500,
+            annualReturn: 0.07,
+            annualInflation: 0.02,
+            annualContributionGrowth: 0,
+            targetAmount: 120_000,
+            maxMonths: 600
+        )
+        #expect(months != nil)
+        #expect((months ?? 0) > 0)
+        #expect((months ?? 999) < 600)
+    }
+
+    @Test
+    func `required contribution rises after a portfolio shock`() {
+        let engine = ScenarioEngine()
+        let impact = engine.goalImpact(
+            ScenarioGoalImpactInput(
+                initialValue: 100_000,
+                stressedValue: 70000,
+                monthlyContribution: 500,
+                annualReturn: 0.07,
+                annualInflation: 0.02,
+                annualContributionGrowth: 0,
+                targetAmount: 500_000,
+                horizonMonths: 60,
+                recoveryMonths: 24,
+                monthlySpending: 3000
+            )
+        )
+        #expect(abs(impact.portfolioChangePercent - -0.3) < 0.000_001)
+        #expect(impact.endingValue == 70000)
+        #expect(impact.recoveryMonths == 24)
+        #expect((impact.requiredMonthlyContribution ?? 0) > 500)
+        #expect((impact.contributionDelta ?? 0) > 0)
+        #expect(impact.expenseImpactMonthly == impact.contributionDelta)
+        #expect((impact.goalDelayMonths ?? -1) >= 0)
+    }
+
+    @Test
+    func `budget expense total excludes investments and applies user share`() {
+        let total = ScenarioBudgetSpending.expenseTotal(items: [
+            (allocationKind: .expense, plannedAmount: 2000, userSharePercent: 100),
+            (allocationKind: .expense, plannedAmount: 1000, userSharePercent: 50),
+            (allocationKind: .investmentContribution, plannedAmount: 800, userSharePercent: 100),
+        ])
+        #expect(abs(total - 2500) < 0.000_001)
+        #expect(ScenarioBudgetSpending.expenseTotal(items: []) == 0)
+    }
+
+    @Test
+    func `custom processor emits impact fields with linked goal config`() {
+        let snapshot: [String: ScenarioJSONValue] = [
+            "total_value": .number(100_000),
+            "base_currency": .string("USD"),
+            "holdings": .array([
+                .object([
+                    "id": .string("h1"),
+                    "value_in_base_currency": .number(100_000),
+                    "asset_category": .string("stock"),
+                    "currency": .string("USD"),
+                ]),
+            ]),
+        ]
+        let configuration: [String: ScenarioJSONValue] = [
+            "asset_class_shocks": .array([
+                .object(["target": .string("stock"), "percentage": .number(-0.3)]),
+            ]),
+            "horizon_months": .number(12),
+            "recovery": .string("none"),
+            "target_amount": .number(500_000),
+            "monthly_contribution": .number(500),
+            "annual_return": .number(0.07),
+            "inflation": .number(0.02),
+            "goal_horizon_months": .number(60),
+            "monthly_spending": .number(2000),
+        ]
+        let result = ScenarioRunProcessor().custom(snapshot: snapshot, configuration: configuration).values
+        #expect(abs((result["ending_value"]?.number ?? 0) - 70000) < 0.001)
+        #expect(abs((result["portfolio_change_percent"]?.number ?? 0) - -0.3) < 0.000_001)
+        #expect(abs((result["maximum_drawdown"]?.number ?? 0) - 0.3) < 0.000_001)
+        #expect((result["required_monthly_contribution"]?.number ?? 0) > 500)
+        #expect((result["contribution_delta"]?.number ?? 0) > 0)
+        #expect(result["recovery_months"] == nil || result["recovery_months"] == .null)
+    }
+
+    @Test
     func `monthly simulation is seeded and includes goal analytics`() {
         let spec = ScenarioSimulationSpec(
             initialValue: 100_000, monthlyContribution: 500, annualContributionGrowth: 0.02,

@@ -1,6 +1,7 @@
 import Fluent
 import Foundation
 import NIOCore
+import StockPlanShared
 import Vapor
 
 final class MarketHistoryIngestionJob: LifecycleHandler, @unchecked Sendable {
@@ -30,7 +31,11 @@ final class MarketHistoryIngestionJob: LifecycleHandler, @unchecked Sendable {
             let holdingSymbols = try await Stock.query(on: app.db).all().map { $0.symbol.uppercased() }
             let proxies = try await HoldingRiskProfileModel.query(on: app.db).all().compactMap { $0.benchmarkProxy?.uppercased() }
             for symbol in Set(holdingSymbols + proxies).sorted() {
-                try await ingest(symbol: symbol, app: app)
+                do {
+                    try await ingest(symbol: symbol, app: app)
+                } catch {
+                    app.logger.warning("scenario_history_ingestion failed symbol=\(symbol) error=\(error)")
+                }
             }
         } catch { app.logger.warning("scenario_history_ingestion failed error=\(error)") }
     }
@@ -46,8 +51,21 @@ final class MarketHistoryIngestionJob: LifecycleHandler, @unchecked Sendable {
         let response = try await app.marketDataService.refreshHistory(
             symbol: symbol, from: Self.day(start), to: Self.day(today), on: request
         )
+        var bars = response.bars
+        var provider = "market"
+        if bars.isEmpty, let fmp = app.marketDataService.fmpProvider {
+            let points = try await fmp.stockHistoricalEOD(
+                symbol: symbol, from: Self.day(start), to: Self.day(today), on: request
+            )
+            bars = Self.priceBars(from: points)
+            provider = fmp.name
+        }
+        guard !bars.isEmpty else {
+            app.logger.warning("scenario_history_ingestion returned no bars symbol=\(symbol)")
+            return
+        }
         try await MarketPriceBarRepository().upsert(
-            instrumentKey: symbol, currency: response.currency, provider: "market", bars: response.bars, on: app.db
+            instrumentKey: symbol, currency: response.currency, provider: provider, bars: bars, on: app.db
         )
         let updatedCoverage = try await MarketPriceBarRepository().coverage(
             instrumentKey: symbol, from: fallbackStart, to: today, on: app.db
@@ -61,6 +79,19 @@ final class MarketHistoryIngestionJob: LifecycleHandler, @unchecked Sendable {
     private static func day(_ date: Date) -> String {
         let formatter = DateFormatter(); formatter.calendar = Calendar(identifier: .gregorian)
         formatter.locale = Locale(identifier: "en_US_POSIX"); formatter.dateFormat = "yyyy-MM-dd"; return formatter.string(from: date)
+    }
+
+    static func priceBars(from points: [CryptoHistoricalLightPoint]) -> [PriceBarResponse] {
+        points.map { point in
+            PriceBarResponse(
+                date: point.date,
+                open: point.price,
+                high: point.price,
+                low: point.price,
+                close: point.price,
+                volume: point.volume.map(Int.init)
+            )
+        }
     }
 
     private func begin() -> Bool {
