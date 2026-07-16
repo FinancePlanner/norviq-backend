@@ -305,15 +305,87 @@ struct PortfolioController: RouteCollection {
     @Sendable
     func pnl(req: Request) async throws -> PnlResponse {
         let session = try req.auth.require(SessionToken.self)
-        let stocks = try await Stock.query(on: req.db)
-            .filter(\.$userId == session.userId)
-            .all()
+        let query = try req.query.decode(PortfolioFilterQuery.self)
+        let filter = try await resolveFilter(query, userId: session.userId, req: req)
 
-        let items = stocks.map {
-            PnlBySymbol(symbol: $0.symbol, currency: "USD", realizedPnl: 0, unrealizedPnl: 0)
+        let stocksQuery = Stock.query(on: req.db)
+            .filter(\.$userId == filter.dataOwnerUserId)
+        stocksQuery.filter(\.$portfolioListId ~~ filter.portfolioIds)
+        let stocks = try await stocksQuery.all()
+
+        let cashBalance = try await totalCashBalance(
+            userId: filter.dataOwnerUserId,
+            portfolioId: filter.portfolioId,
+            on: req.db
+        )
+
+        struct SymbolPosition {
+            var shares: Double = 0
+            var costBasis: Double = 0
         }
 
-        return PnlResponse(baseCurrency: "USD", items: items)
+        var positions: [String: SymbolPosition] = [:]
+        var symbolOrder: [String] = []
+        for stock in stocks {
+            let symbol = normalizeSymbol(stock.symbol)
+            guard !symbol.isEmpty else { continue }
+            if positions[symbol] == nil {
+                symbolOrder.append(symbol)
+            }
+            var position = positions[symbol] ?? SymbolPosition()
+            position.shares += stock.shares
+            position.costBasis += stock.shares * stock.buyPrice
+            positions[symbol] = position
+        }
+
+        // Quotes are best-effort: a provider outage (or the disabled provider)
+        // must not break P&L — price-dependent fields degrade to nil instead.
+        var quotesBySymbol: [String: QuoteResponse] = [:]
+        let batchLimit = 100
+        for chunkStart in stride(from: 0, to: symbolOrder.count, by: batchLimit) {
+            let chunk = Array(symbolOrder[chunkStart ..< min(chunkStart + batchLimit, symbolOrder.count)])
+            do {
+                let batch = try await req.application.marketDataService.quoteBatch(symbols: chunk, on: req)
+                for quote in batch.quotes {
+                    quotesBySymbol[normalizeSymbol(quote.symbol)] = quote
+                }
+            } catch {
+                req.logger.warning("pnl: quote batch unavailable for \(chunk.count) symbols: \(String(reflecting: error))")
+            }
+        }
+
+        var marketValueBySymbol: [String: Double] = [:]
+        for symbol in symbolOrder {
+            guard let position = positions[symbol], position.shares > 0 else { continue }
+            let price = quotesBySymbol[symbol]?.currentPrice ?? (position.costBasis / position.shares)
+            marketValueBySymbol[symbol] = position.shares * price
+        }
+        let totalAccountValue = marketValueBySymbol.values.reduce(0, +) + max(0, cashBalance)
+
+        let items = symbolOrder.compactMap { symbol -> PnlBySymbol? in
+            guard let position = positions[symbol], position.shares > 0 else { return nil }
+            let quote = quotesBySymbol[symbol]
+            let marketValue = marketValueBySymbol[symbol] ?? 0
+            let unrealized = marketValue - position.costBasis
+            return PnlBySymbol(
+                symbol: symbol,
+                currency: filter.baseCurrency,
+                realizedPnl: 0,
+                unrealizedPnl: round2(unrealized),
+                shares: position.shares,
+                buyPrice: round2(position.costBasis / position.shares),
+                costBasis: round2(position.costBasis),
+                currentPrice: quote?.currentPrice,
+                marketValue: round2(marketValue),
+                unrealizedPnlPercent: position.costBasis > 0 ? round2((unrealized / position.costBasis) * 100) : nil,
+                dayChange: quote?.change.map { round2($0 * position.shares) },
+                dayChangePercent: quote?.percentChange,
+                weightPercent: totalAccountValue > 0 ? percentage(marketValue, of: totalAccountValue) : nil
+            )
+        }
+        .sorted { ($0.marketValue ?? 0) > ($1.marketValue ?? 0) }
+
+        return PnlResponse(baseCurrency: filter.baseCurrency, items: items)
     }
 
     @Sendable
