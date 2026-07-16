@@ -15,6 +15,8 @@ struct ExpensesController: RouteCollection {
         let foreignAmount: Double?
         let foreignCurrency: String?
         let exchangeRate: Double?
+        let notes: String?
+        let receiptMetadata: ExpenseReceiptMetadata?
 
         private enum CodingKeys: String, CodingKey {
             case title
@@ -36,6 +38,9 @@ struct ExpensesController: RouteCollection {
             case foreignCurrencyCamel = "foreignCurrency"
             case exchangeRateSnake = "exchange_rate"
             case exchangeRateCamel = "exchangeRate"
+            case notes
+            case receiptMetadataSnake = "receipt_metadata"
+            case receiptMetadataCamel = "receiptMetadata"
         }
 
         init(from decoder: any Decoder) throws {
@@ -67,6 +72,9 @@ struct ExpensesController: RouteCollection {
             exchangeRate =
                 try container.decodeIfPresent(Double.self, forKey: .exchangeRateSnake)
                     ?? container.decodeIfPresent(Double.self, forKey: .exchangeRateCamel)
+            notes = try container.decodeIfPresent(String.self, forKey: .notes)
+            receiptMetadata = try container.decodeIfPresent(ExpenseReceiptMetadata.self, forKey: .receiptMetadataSnake)
+                ?? container.decodeIfPresent(ExpenseReceiptMetadata.self, forKey: .receiptMetadataCamel)
         }
 
         func asRequest() -> ExpenseRequest {
@@ -81,7 +89,9 @@ struct ExpensesController: RouteCollection {
                 userSharePercent: userSharePercent ?? 100,
                 foreignAmount: foreignAmount,
                 foreignCurrency: foreignCurrency,
-                exchangeRate: exchangeRate
+                exchangeRate: exchangeRate,
+                notes: notes,
+                receiptMetadata: receiptMetadata
             )
         }
     }
@@ -173,12 +183,21 @@ struct ExpensesController: RouteCollection {
             return formatter.date(from: cursor)
         }()
 
-        let result = try await req.expensesService.getExpenses(
+        let categoryId = req.query[String.self, at: "category_id"].flatMap(UUID.init(uuidString:))
+            ?? req.query[String.self, at: "categoryId"].flatMap(UUID.init(uuidString:))
+        let pillar = req.query[String.self, at: "pillar"].flatMap(BudgetPillar.init(rawValue:))
+        let search = req.query[String.self, at: "q"]
+        let result = try await req.expensesService.searchExpenses(
             userId: session.userId,
-            from: fromDate,
-            to: toDate,
-            limit: limit,
-            cursor: cursorDate,
+            filters: ExpenseSearchFilters(
+                from: fromDate,
+                to: toDate,
+                query: search,
+                categoryId: categoryId,
+                pillar: pillar,
+                limit: limit,
+                cursor: cursorDate
+            ),
             on: req.db
         )
 
@@ -219,7 +238,7 @@ struct ExpensesController: RouteCollection {
         let categories = try await req.expensesService.getCategories(userId: session.userId, on: req.db)
         let byName = Dictionary(categories.map { ($0.name.lowercased(), $0.id) }, uniquingKeysWith: { first, _ in first })
 
-        let service = ExpenseCsvService(expensesService: req.expensesService)
+        let service = ExpenseCsvService(expensesService: req.expensesService, request: req)
         return try await service.importCSV(
             csv, userId: session.userId, dryRun: dryRun, categoriesByName: byName, on: req.db
         )

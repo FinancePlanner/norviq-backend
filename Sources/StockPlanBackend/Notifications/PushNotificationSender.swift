@@ -54,6 +54,13 @@ protocol PushNotificationSending: Sendable {
         devices: [PushDevice],
         req: Request
     ) async -> TargetPushSendSummary
+
+    func sendRebalancingDrift(
+        alert: RebalancingAlert,
+        portfolioName: String,
+        devices: [PushDevice],
+        req: Request
+    ) async -> TargetPushSendSummary
 }
 
 struct NoopPushNotificationSender: PushNotificationSending {
@@ -64,6 +71,18 @@ struct NoopPushNotificationSender: PushNotificationSending {
     ) async -> TargetPushSendSummary {
         req.logger.debug(
             "push.notifications disabled automation kind=\(message.kind.rawValue) devices=\(devices.count)"
+        )
+        return .init(delivered: 0, failed: devices.count)
+    }
+
+    func sendRebalancingDrift(
+        alert: RebalancingAlert,
+        portfolioName: String,
+        devices: [PushDevice],
+        req: Request
+    ) async -> TargetPushSendSummary {
+        req.logger.debug(
+            "push.notifications disabled rebalance_drift portfolio=\(portfolioName) scope=\(alert.scopeName) devices=\(devices.count)"
         )
         return .init(delivered: 0, failed: devices.count)
     }
@@ -160,6 +179,18 @@ struct APNSPushNotificationSender: PushNotificationSending {
         let deepLink: String
     }
 
+    struct RebalancingDriftPayload: Codable {
+        let schemaVersion: Int
+        let type: String
+        let alertId: String
+        let portfolioId: String
+        let modelId: String
+        let scopeName: String
+        let driftBasisPoints: Int
+        let thresholdBasisPoints: Int
+        let deepLink: String
+    }
+
     struct AutomationAlertPayload: Codable {
         let schemaVersion: Int
         let type: String
@@ -205,6 +236,59 @@ struct APNSPushNotificationSender: PushNotificationSending {
                 failed += 1
                 req.logger.warning(
                     "push.notifications send failed automation kind=\(message.kind.rawValue) error_type=\(String(reflecting: type(of: error)))"
+                )
+                if isInvalidTokenError(error) {
+                    try? await req.pushDeviceService.deactivate(deviceToken: device.deviceToken, on: req.db)
+                }
+            }
+        }
+        return .init(delivered: delivered, failed: failed)
+    }
+
+    func sendRebalancingDrift(
+        alert: RebalancingAlert,
+        portfolioName: String,
+        devices: [PushDevice],
+        req: Request
+    ) async -> TargetPushSendSummary {
+        guard !devices.isEmpty else { return .init(delivered: 0, failed: 0) }
+        let payload = RebalancingDriftPayload(
+            schemaVersion: 1,
+            type: "rebalance_drift",
+            alertId: alert.id,
+            portfolioId: alert.portfolioId,
+            modelId: alert.modelId,
+            scopeName: alert.scopeName,
+            driftBasisPoints: alert.driftBasisPoints,
+            thresholdBasisPoints: alert.thresholdBasisPoints,
+            deepLink: "financeplan://portfolios/\(alert.portfolioId)/rebalancing"
+        )
+        let drift = String(format: "%.2f%%", Double(abs(alert.driftBasisPoints)) / 100)
+        let notification = APNSAlertNotification(
+            alert: .init(
+                title: .raw("Portfolio drift: \(portfolioName)"),
+                body: .raw("\(alert.scopeName) drifted \(drift), above your threshold. Review the plan before acting.")
+            ),
+            expiration: .immediately,
+            priority: .immediately,
+            topic: topic,
+            payload: payload,
+            threadID: "rebalance-\(alert.portfolioId)-\(alert.scopeId)",
+            category: "REBALANCE_DRIFT"
+        )
+        var delivered = 0
+        var failed = 0
+        for device in devices {
+            do {
+                _ = try await client(for: device, req: req).sendAlertNotification(
+                    notification,
+                    deviceToken: device.deviceToken
+                )
+                delivered += 1
+            } catch {
+                failed += 1
+                req.logger.warning(
+                    "push.notifications send failed rebalance_drift portfolio=\(alert.portfolioId) error_type=\(String(reflecting: type(of: error)))"
                 )
                 if isInvalidTokenError(error) {
                     try? await req.pushDeviceService.deactivate(deviceToken: device.deviceToken, on: req.db)

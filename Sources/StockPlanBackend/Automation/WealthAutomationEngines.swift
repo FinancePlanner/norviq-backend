@@ -74,7 +74,7 @@ struct RebalanceValuation: Sendable, Equatable {
     let price: Double?
 }
 
-struct RebalancingEngine: Sendable {
+struct WealthRebalancingEngine: Sendable {
     func preview(
         policy: RebalancingPolicy,
         valuations: [RebalanceValuation],

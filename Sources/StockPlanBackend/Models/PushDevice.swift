@@ -29,6 +29,9 @@ final class PushDevice: Model, Content, @unchecked Sendable {
     @Field(key: "last_seen_at")
     var lastSeenAt: Date
 
+    @Field(key: "capabilities_json")
+    var capabilitiesJSON: String
+
     @Timestamp(key: "created_at", on: .create)
     var createdAt: Date?
 
@@ -45,7 +48,8 @@ final class PushDevice: Model, Content, @unchecked Sendable {
         apnsEnvironment: String,
         authorizationStatus: String,
         isActive: Bool = true,
-        lastSeenAt: Date = Date()
+        lastSeenAt: Date = Date(),
+        capabilitiesJSON: String = "[]"
     ) {
         self.id = id
         self.userId = userId
@@ -55,5 +59,6 @@ final class PushDevice: Model, Content, @unchecked Sendable {
         self.authorizationStatus = authorizationStatus
         self.isActive = isActive
         self.lastSeenAt = lastSeenAt
+        self.capabilitiesJSON = capabilitiesJSON
     }
 }

@@ -3,6 +3,16 @@ import Foundation
 import StockPlanShared
 import Vapor
 
+struct ExpenseSearchFilters: Sendable {
+    let from: Date?
+    let to: Date?
+    let query: String?
+    let categoryId: UUID?
+    let pillar: BudgetPillar?
+    let limit: Int
+    let cursor: Date?
+}
+
 protocol ExpensesService: Sendable {
     func getHouseholdPartner(userId: UUID, on db: any Database) async throws -> HouseholdPartnerProfileResponse
     func updateHouseholdPartner(userId: UUID, request: HouseholdPartnerProfileRequest, on db: any Database) async throws -> HouseholdPartnerProfileResponse
@@ -22,6 +32,7 @@ protocol ExpensesService: Sendable {
 
     // Expenses
     func getExpenses(userId: UUID, from: Date?, to: Date?, limit: Int, cursor: Date?, on db: any Database) async throws -> (items: [ExpenseResponse], nextCursor: String?)
+    func searchExpenses(userId: UUID, filters: ExpenseSearchFilters, on db: any Database) async throws -> (items: [ExpenseResponse], nextCursor: String?)
     func createExpense(userId: UUID, request: ExpenseRequest, on db: any Database) async throws -> ExpenseResponse
     /// Creates the month's budget snapshot only if none exists (non-destructive).
     /// Exposed so bulk importers can pre-create snapshots once per month.
@@ -97,6 +108,16 @@ final class DefaultExpensesService: ExpensesService {
         return formatter.string(from: date)
     }
 
+    private func evaluateDriftBestEffort(userId: UUID, monthStart: Date) async {
+        do {
+            try await BudgetDriftEvaluator(req: req).evaluate(userId: userId, monthStart: monthStart, notify: true)
+        } catch {
+            req.logger.warning(
+                "budget drift evaluation failed userId=\(userId.uuidString) month=\(formatDate(monthStart)) error=\(error.localizedDescription)"
+            )
+        }
+    }
+
     private func formatISODate(_ date: Date) -> String {
         let formatter = ISO8601DateFormatter()
         formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
@@ -126,6 +147,71 @@ final class DefaultExpensesService: ExpensesService {
             return (.personal, 100)
         case .shared:
             return (.shared, userSharePercent)
+        }
+    }
+
+    private func validateBudgetSettings(
+        currencyCode: String?,
+        categoryThreshold: Double?,
+        totalThreshold: Double?
+    ) throws {
+        if let currencyCode {
+            guard currencyCode.count == 3, currencyCode.allSatisfy(\.isLetter) else {
+                throw Abort(.badRequest, reason: "currencyCode must be a three-letter ISO 4217 code.")
+            }
+        }
+        for value in [categoryThreshold, totalThreshold].compactMap(\.self) {
+            guard value.isFinite, (0 ... 1000).contains(value) else {
+                throw Abort(.badRequest, reason: "Drift thresholds must be between 0 and 1000.")
+            }
+        }
+    }
+
+    private func validatePlanItemRequest(
+        _ request: BudgetPlanItemRequest,
+        userId: UUID,
+        on db: any Database
+    ) async throws {
+        guard request.plannedAmount.isFinite, request.plannedAmount >= 0 else {
+            throw Abort(.badRequest, reason: "plannedAmount must be finite and non-negative.")
+        }
+        if request.targetType == .percentageIncome {
+            guard let percentage = request.incomePercentage,
+                  percentage.isFinite,
+                  (0 ... 1000).contains(percentage)
+            else {
+                throw Abort(.badRequest, reason: "incomePercentage is required and must be between 0 and 1000.")
+            }
+        }
+        if let threshold = request.thresholdOverride,
+           !threshold.isFinite || !(0 ... 1000).contains(threshold)
+        {
+            throw Abort(.badRequest, reason: "thresholdOverride must be between 0 and 1000.")
+        }
+        if let rawCategory = request.categoryId {
+            guard let categoryId = UUID(uuidString: rawCategory),
+                  let category = try await ExpenseCategory.find(categoryId, on: db),
+                  category.$user.id == userId
+            else {
+                throw Abort(.badRequest, reason: "Invalid categoryId.")
+            }
+        }
+        if let rawGoal = request.destinationFinancialGoalId {
+            guard let goalId = UUID(uuidString: rawGoal),
+                  try await FinancialGoalModel.owned(by: userId, on: db).filter(\.$id == goalId).first() != nil
+            else {
+                throw Abort(.badRequest, reason: "Invalid destinationFinancialGoalId.")
+            }
+        }
+        if let rawPortfolio = request.destinationPortfolioListId {
+            guard let portfolioId = UUID(uuidString: rawPortfolio),
+                  try await PortfolioList.query(on: db)
+                  .filter(\.$id == portfolioId)
+                  .filter(\.$userId == userId)
+                  .first() != nil
+            else {
+                throw Abort(.badRequest, reason: "Invalid destinationPortfolioListId.")
+            }
         }
     }
 
@@ -189,6 +275,14 @@ final class DefaultExpensesService: ExpensesService {
     }
 
     func createBudgetSnapshot(userId: UUID, request: BudgetSnapshotRequest, on db: any Database) async throws -> BudgetSnapshotResponse {
+        try validateBudgetSettings(
+            currencyCode: request.currencyCode,
+            categoryThreshold: request.categoryDriftThreshold,
+            totalThreshold: request.totalDriftThreshold
+        )
+        guard request.netSalary.isFinite, request.netSalary >= 0 else {
+            throw Abort(.badRequest, reason: "netSalary must be finite and non-negative.")
+        }
         guard let rawDate = parseDate(request.monthStart) else {
             throw Abort(.badRequest, reason: "Invalid monthStart format. Expected YYYY-MM-DD.")
         }
@@ -213,6 +307,8 @@ final class DefaultExpensesService: ExpensesService {
             snapshot.monthStart = monthStart // Update to normalized date if it was different
             snapshot.netSalary = request.netSalary
             snapshot.targetShares = request.targetShares
+            applyBudgetSettings(request, to: snapshot)
+            snapshot.revision += 1
             try await snapshot.update(on: db)
             return mapSnapshot(snapshot)
         } else {
@@ -221,7 +317,12 @@ final class DefaultExpensesService: ExpensesService {
                 userID: userId,
                 monthStart: monthStart,
                 netSalary: request.netSalary,
-                targetShares: request.targetShares
+                targetShares: request.targetShares,
+                currencyCode: request.currencyCode?.uppercased() ?? "USD",
+                categoryDriftThreshold: request.categoryDriftThreshold ?? 15,
+                totalDriftThreshold: request.totalDriftThreshold ?? 10,
+                alertsEnabled: request.alertsEnabled ?? true,
+                alertOnUnbudgeted: request.alertOnUnbudgeted ?? true
             )
             do {
                 try await snapshot.create(on: db)
@@ -232,6 +333,8 @@ final class DefaultExpensesService: ExpensesService {
                 if let concurrent = try await findSnapshot(userId: userId, matchingMonth: monthStart, on: db) {
                     concurrent.netSalary = request.netSalary
                     concurrent.targetShares = request.targetShares
+                    applyBudgetSettings(request, to: concurrent)
+                    concurrent.revision += 1
                     try await concurrent.update(on: db)
                     return mapSnapshot(concurrent)
                 }
@@ -241,6 +344,11 @@ final class DefaultExpensesService: ExpensesService {
     }
 
     func updateSnapshot(userId: UUID, snapshotId: UUID, request: BudgetSnapshotRequest, on db: any Database) async throws -> BudgetSnapshotResponse {
+        try validateBudgetSettings(
+            currencyCode: request.currencyCode,
+            categoryThreshold: request.categoryDriftThreshold,
+            totalThreshold: request.totalDriftThreshold
+        )
         guard let snapshot = try await BudgetSnapshot.find(snapshotId, on: db) else {
             throw Abort(.notFound)
         }
@@ -267,6 +375,8 @@ final class DefaultExpensesService: ExpensesService {
         snapshot.monthStart = monthStart
         snapshot.netSalary = request.netSalary
         snapshot.targetShares = request.targetShares
+        applyBudgetSettings(request, to: snapshot)
+        snapshot.revision += 1
         try await snapshot.update(on: db)
         return mapSnapshot(snapshot)
     }
@@ -301,6 +411,7 @@ final class DefaultExpensesService: ExpensesService {
     }
 
     func createPlanItem(userId: UUID, request: BudgetPlanItemRequest, on db: any Database) async throws -> BudgetPlanItemResponse {
+        try await validatePlanItemRequest(request, userId: userId, on: db)
         guard let snapshotId = UUID(uuidString: request.snapshotId) else {
             throw Abort(.badRequest, reason: "Invalid snapshotId.")
         }
@@ -315,19 +426,31 @@ final class DefaultExpensesService: ExpensesService {
             snapshotID: snapshotId,
             userID: userId,
             title: request.title,
-            plannedAmount: request.plannedAmount,
+            plannedAmount: request.targetType == .percentageIncome
+                ? snapshot.netSalary * (request.incomePercentage ?? 0) / 100
+                : request.plannedAmount,
             pillar: request.pillar,
             splitMode: split.0,
-            userSharePercent: split.1
+            userSharePercent: split.1,
+            targetType: request.targetType,
+            incomePercentage: request.incomePercentage,
+            thresholdOverride: request.thresholdOverride,
+            allocationKind: request.allocationKind,
+            reallocationEligible: request.reallocationEligible,
+            destinationFinancialGoalId: request.destinationFinancialGoalId.flatMap(UUID.init(uuidString:)),
+            destinationPortfolioListId: request.destinationPortfolioListId.flatMap(UUID.init(uuidString:))
         )
         if let catIdStr = request.categoryId, let catId = UUID(uuidString: catIdStr) {
             item.$category.id = catId
         }
         try await item.create(on: db)
+        snapshot.revision += 1
+        try await snapshot.update(on: db)
         return mapPlanItem(item)
     }
 
     func updatePlanItem(userId: UUID, itemId: UUID, request: BudgetPlanItemRequest, on db: any Database) async throws -> BudgetPlanItemResponse {
+        try await validatePlanItemRequest(request, userId: userId, on: db)
         guard let item = try await BudgetPlanItem.find(itemId, on: db) else {
             throw Abort(.notFound)
         }
@@ -337,12 +460,26 @@ final class DefaultExpensesService: ExpensesService {
 
         let split = try normalizeSplit(splitMode: request.splitMode, userSharePercent: request.userSharePercent)
         item.title = request.title
-        item.plannedAmount = request.plannedAmount
+        guard let snapshot = try await BudgetSnapshot.find(item.$snapshot.id, on: db) else {
+            throw Abort(.notFound, reason: "Snapshot not found.")
+        }
+        item.plannedAmount = request.targetType == .percentageIncome
+            ? snapshot.netSalary * (request.incomePercentage ?? 0) / 100
+            : request.plannedAmount
         item.pillar = request.pillar
         item.splitMode = split.0
         item.userSharePercent = split.1
+        item.targetType = request.targetType
+        item.incomePercentage = request.incomePercentage
+        item.thresholdOverride = request.thresholdOverride
+        item.allocationKind = request.allocationKind
+        item.reallocationEligible = request.reallocationEligible
+        item.destinationFinancialGoalId = request.destinationFinancialGoalId.flatMap(UUID.init(uuidString:))
+        item.destinationPortfolioListId = request.destinationPortfolioListId.flatMap(UUID.init(uuidString:))
         item.$category.id = request.categoryId.flatMap { UUID(uuidString: $0) }
         try await item.update(on: db)
+        snapshot.revision += 1
+        try await snapshot.update(on: db)
         return mapPlanItem(item)
     }
 
@@ -353,7 +490,12 @@ final class DefaultExpensesService: ExpensesService {
         guard item.$user.id == userId else {
             throw Abort(.forbidden)
         }
+        let snapshotId = item.$snapshot.id
         try await item.delete(on: db)
+        if let snapshot = try await BudgetSnapshot.find(snapshotId, on: db) {
+            snapshot.revision += 1
+            try await snapshot.update(on: db)
+        }
     }
 
     // MARK: - Expenses
@@ -392,7 +534,42 @@ final class DefaultExpensesService: ExpensesService {
         }
     }
 
+    func searchExpenses(
+        userId: UUID,
+        filters: ExpenseSearchFilters,
+        on db: any Database
+    ) async throws -> (items: [ExpenseResponse], nextCursor: String?) {
+        var query = Expense.query(on: db).filter(\.$user.$id == userId)
+        if let from = filters.from {
+            query = query.filter(\.$occurredOn >= from)
+        }
+        if let to = filters.to {
+            query = query.filter(\.$occurredOn <= to)
+        }
+        if let categoryId = filters.categoryId {
+            query = query.filter(\.$category.$id == categoryId)
+        }
+        if let pillar = filters.pillar {
+            query = query.filter(\.$pillar == pillar)
+        }
+        if let cursor = filters.cursor {
+            query = query.filter(\.$occurredOn < cursor)
+        }
+        var expenses = try await query.sort(\.$occurredOn, .descending).limit(1000).all()
+        if let search = filters.query?.trimmingCharacters(in: .whitespacesAndNewlines), !search.isEmpty {
+            expenses = expenses.filter {
+                $0.title.localizedCaseInsensitiveContains(search) || ($0.notes?.localizedCaseInsensitiveContains(search) ?? false)
+            }
+        }
+        let page = Array(expenses.prefix(filters.limit + 1))
+        let visible = Array(page.prefix(filters.limit))
+        return (visible.map(mapExpense), page.count > filters.limit ? visible.last.map { formatISODate($0.occurredOn) } : nil)
+    }
+
     func createExpense(userId: UUID, request: ExpenseRequest, on db: any Database) async throws -> ExpenseResponse {
+        guard request.amount.isFinite, request.amount >= 0 else {
+            throw Abort(.badRequest, reason: "amount must be finite and non-negative.")
+        }
         guard let occurredOn = parseDate(request.occurredOn) else {
             throw Abort(.badRequest, reason: "Invalid occurredOn format. Expected YYYY-MM-DD.")
         }
@@ -427,7 +604,11 @@ final class DefaultExpensesService: ExpensesService {
             splitMode: split.0,
             userSharePercent: split.1
         )
-        if let catIdStr = request.categoryId, let catId = UUID(uuidString: catIdStr) {
+        if let catIdStr = request.categoryId {
+            guard let catId = UUID(uuidString: catIdStr),
+                  let category = try await ExpenseCategory.find(catId, on: db),
+                  category.$user.id == userId
+            else { throw Abort(.badRequest, reason: "Invalid categoryId.") }
             expense.$category.id = catId
         }
         if let foreignAmount = request.foreignAmount {
@@ -438,6 +619,8 @@ final class DefaultExpensesService: ExpensesService {
             expense.foreignCurrency = request.foreignCurrency
             expense.exchangeRate = rate
         }
+        expense.notes = request.notes?.trimmingCharacters(in: .whitespacesAndNewlines)
+        expense.receiptMetadata = request.receiptMetadata
         try await expense.create(on: db)
 
         // Record activity
@@ -452,13 +635,7 @@ final class DefaultExpensesService: ExpensesService {
             on: db
         )
 
-        Task {
-            do {
-                try await evaluateBudgetAlerts(userId: userId, monthStart: monthStart, db: db)
-            } catch {
-                req.logger.error("Failed to evaluate budget alerts: \(error)")
-            }
-        }
+        await evaluateDriftBestEffort(userId: userId, monthStart: monthStart)
 
         await req.reconcileBadges(userId: userId, on: db)
 
@@ -472,6 +649,7 @@ final class DefaultExpensesService: ExpensesService {
         guard expense.$user.id == userId else {
             throw Abort(.forbidden)
         }
+        let previousMonthStart = normalizedMonthStart(for: expense.occurredOn)
         guard let occurredOn = parseDate(request.occurredOn) else {
             throw Abort(.badRequest, reason: "Invalid occurredOn format. Expected YYYY-MM-DD.")
         }
@@ -496,7 +674,15 @@ final class DefaultExpensesService: ExpensesService {
         expense.splitMode = split.0
         expense.userSharePercent = split.1
         expense.$linkedPlanItem.id = linkedId
-        expense.$category.id = request.categoryId.flatMap { UUID(uuidString: $0) }
+        if let rawCategory = request.categoryId {
+            guard let categoryId = UUID(uuidString: rawCategory),
+                  let category = try await ExpenseCategory.find(categoryId, on: db),
+                  category.$user.id == userId
+            else { throw Abort(.badRequest, reason: "Invalid categoryId.") }
+            expense.$category.id = categoryId
+        } else {
+            expense.$category.id = nil
+        }
         if let foreignAmount = request.foreignAmount {
             guard let rate = request.exchangeRate, rate > 0 else {
                 throw Abort(.badRequest, reason: "exchangeRate must be > 0 when foreignAmount is provided.")
@@ -509,7 +695,14 @@ final class DefaultExpensesService: ExpensesService {
             expense.foreignCurrency = nil
             expense.exchangeRate = nil
         }
+        expense.notes = request.notes?.trimmingCharacters(in: .whitespacesAndNewlines)
+        expense.receiptMetadata = request.receiptMetadata
         try await expense.update(on: db)
+        let currentMonthStart = normalizedMonthStart(for: occurredOn)
+        await evaluateDriftBestEffort(userId: userId, monthStart: previousMonthStart)
+        if currentMonthStart != previousMonthStart {
+            await evaluateDriftBestEffort(userId: userId, monthStart: currentMonthStart)
+        }
 
         // Record activity
         try? await req.userActivityService.recordActivity(
@@ -535,7 +728,9 @@ final class DefaultExpensesService: ExpensesService {
         guard expense.$user.id == userId else {
             throw Abort(.forbidden)
         }
+        let monthStart = normalizedMonthStart(for: expense.occurredOn)
         try await expense.delete(on: db)
+        await evaluateDriftBestEffort(userId: userId, monthStart: monthStart)
         await req.reconcileBadges(userId: userId, on: db)
     }
 
@@ -933,6 +1128,12 @@ final class DefaultExpensesService: ExpensesService {
             monthStart: formatDate(model.monthStart),
             netSalary: model.netSalary,
             targetShares: model.targetShares,
+            currencyCode: model.currencyCode,
+            categoryDriftThreshold: model.categoryDriftThreshold,
+            totalDriftThreshold: model.totalDriftThreshold,
+            alertsEnabled: model.alertsEnabled,
+            alertOnUnbudgeted: model.alertOnUnbudgeted,
+            revision: model.revision,
             createdAt: model.createdAt.map { formatISODate($0) },
             updatedAt: model.updatedAt.map { formatISODate($0) }
         )
@@ -948,6 +1149,13 @@ final class DefaultExpensesService: ExpensesService {
             categoryId: model.$category.id?.uuidString,
             splitMode: model.splitMode,
             userSharePercent: model.userSharePercent,
+            targetType: model.targetType,
+            incomePercentage: model.incomePercentage,
+            thresholdOverride: model.thresholdOverride,
+            allocationKind: model.allocationKind,
+            reallocationEligible: model.reallocationEligible,
+            destinationFinancialGoalId: model.destinationFinancialGoalId?.uuidString,
+            destinationPortfolioListId: model.destinationPortfolioListId?.uuidString,
             createdAt: model.createdAt.map { formatISODate($0) },
             updatedAt: model.updatedAt.map { formatISODate($0) }
         )
@@ -967,9 +1175,31 @@ final class DefaultExpensesService: ExpensesService {
             foreignAmount: model.foreignAmount,
             foreignCurrency: model.foreignCurrency,
             exchangeRate: model.exchangeRate,
+            notes: model.notes,
+            receiptMetadata: model.receiptMetadata,
             createdAt: model.createdAt.map { formatISODate($0) },
             updatedAt: model.updatedAt.map { formatISODate($0) }
         )
+    }
+}
+
+private extension DefaultExpensesService {
+    func applyBudgetSettings(_ request: BudgetSnapshotRequest, to snapshot: BudgetSnapshot) {
+        if let currencyCode = request.currencyCode {
+            snapshot.currencyCode = currencyCode.uppercased()
+        }
+        if let value = request.categoryDriftThreshold {
+            snapshot.categoryDriftThreshold = value
+        }
+        if let value = request.totalDriftThreshold {
+            snapshot.totalDriftThreshold = value
+        }
+        if let value = request.alertsEnabled {
+            snapshot.alertsEnabled = value
+        }
+        if let value = request.alertOnUnbudgeted {
+            snapshot.alertOnUnbudgeted = value
+        }
     }
 }
 

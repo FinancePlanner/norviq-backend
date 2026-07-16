@@ -200,7 +200,7 @@ struct FinancingService: Sendable {
             let items = try await BudgetPlanItem.query(on: db).filter(\.$snapshot.$id == snapshotId).all()
             for item in items {
                 let userAmount = item.plannedAmount * item.userSharePercent / 100
-                if item.pillar == .futureYou {
+                if item.allocationKind == .investmentContribution {
                     plannedSavings += userAmount
                 } else {
                     baseline += userAmount

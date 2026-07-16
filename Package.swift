@@ -6,7 +6,7 @@ let sharedPackagePath = ProcessInfo.processInfo.environment["STOCKPLAN_SHARED_PA
 let sharedPackage: Package.Dependency = if let sharedPackagePath {
     .package(path: sharedPackagePath)
 } else {
-    .package(url: "https://github.com/FinancePlanner/norviq-shared.git", revision: "7fd2a37d9976345e3372dd861786a96cb8ace806")
+    .package(url: "https://github.com/FinancePlanner/norviq-shared.git", exact: "3.31.0")
 }
 
 let sharedPackageIdentity = sharedPackagePath.map { URL(fileURLWithPath: $0).lastPathComponent } ?? "norviq-shared"

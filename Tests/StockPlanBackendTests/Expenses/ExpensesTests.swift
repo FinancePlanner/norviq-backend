@@ -776,4 +776,89 @@ struct ExpensesTests {
             })
         }
     }
+
+    @Test("Budget drift calculates category breach and lost investment capital")
+    func budgetDriftCalculation() async throws {
+        try await withExpensesApp { app in
+            let token = try await registerTestUser(app: app)
+            var snapshotId = ""
+
+            try await app.testing().test(.POST, "v1/budget/snapshots", beforeRequest: { req in
+                req.headers.bearerAuthorization = .init(token: token)
+                try req.content.encode(
+                    BudgetSnapshotRequest(
+                        monthStart: "2026-07-01",
+                        netSalary: 4000,
+                        targetShares: [:],
+                        currencyCode: "EUR",
+                        categoryDriftThreshold: 15,
+                        totalDriftThreshold: 10
+                    )
+                )
+            }, afterResponse: { response async throws in
+                #expect(response.status == .created)
+                snapshotId = try response.content.decode(BudgetSnapshotResponse.self).id
+            })
+
+            try await app.testing().test(.POST, "v1/budget/items", beforeRequest: { req in
+                req.headers.bearerAuthorization = .init(token: token)
+                try req.content.encode(
+                    BudgetPlanItemRequest(
+                        snapshotId: snapshotId,
+                        title: "Dining Out",
+                        plannedAmount: 150,
+                        pillar: .fun,
+                        thresholdOverride: 15,
+                        reallocationEligible: true
+                    )
+                )
+            }, afterResponse: { response async throws in
+                #expect(response.status == .created)
+            })
+
+            try await app.testing().test(.POST, "v1/budget/items", beforeRequest: { req in
+                req.headers.bearerAuthorization = .init(token: token)
+                try req.content.encode(
+                    BudgetPlanItemRequest(
+                        snapshotId: snapshotId,
+                        title: "Monthly Investments",
+                        plannedAmount: 500,
+                        pillar: .futureYou,
+                        allocationKind: .investmentContribution
+                    )
+                )
+            }, afterResponse: { response async throws in
+                #expect(response.status == .created)
+            })
+
+            try await app.testing().test(.POST, "v1/expenses", beforeRequest: { req in
+                req.headers.bearerAuthorization = .init(token: token)
+                try req.content.encode(
+                    ExpenseRequest(
+                        title: "Dining Out",
+                        amount: 210,
+                        pillar: .fun,
+                        occurredOn: "2026-07-15"
+                    )
+                )
+            }, afterResponse: { response async throws in
+                #expect(response.status == .created)
+            })
+
+            try await app.testing().test(.GET, "v1/budget/snapshots/\(snapshotId)/drift", beforeRequest: { req in
+                req.headers.bearerAuthorization = .init(token: token)
+            }, afterResponse: { response async throws in
+                #expect(response.status == .ok)
+                let dashboard = try response.content.decode(BudgetDriftDashboard.self)
+                let dining = try #require(dashboard.categories.first { $0.title == "Dining Out" })
+                #expect(dining.actualAmount == 210)
+                #expect(dining.driftAmount == 60)
+                #expect(dining.driftPercent == 40)
+                #expect(dining.level == .red)
+                #expect(dashboard.investmentContributionTarget == 500)
+                #expect(dashboard.lostInvestmentCapital == 60)
+                #expect(dashboard.totalLevel == .red)
+            })
+        }
+    }
 }

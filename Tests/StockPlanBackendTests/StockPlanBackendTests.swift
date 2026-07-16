@@ -3608,6 +3608,15 @@ struct StockPlanBackendTests {
             .init(delivered: devices.count, failed: 0)
         }
 
+        func sendRebalancingDrift(
+            alert _: RebalancingAlert,
+            portfolioName _: String,
+            devices: [PushDevice],
+            req _: Request
+        ) async -> TargetPushSendSummary {
+            .init(delivered: devices.count, failed: 0)
+        }
+
         func sendTargetHit(
             target: Target,
             currentPrice _: Double,

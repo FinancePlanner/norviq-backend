@@ -87,7 +87,7 @@ struct WealthAutomationEngineTests {
                 .init(id: "cash", kind: .cash, targetWeight: 0.4),
             ]
         )
-        let preview = try RebalancingEngine().preview(
+        let preview = try WealthRebalancingEngine().preview(
             policy: policy,
             valuations: [
                 .init(kind: .symbol, symbol: "ACME", value: 8000, price: 100),
@@ -113,7 +113,7 @@ struct WealthAutomationEngineTests {
             targets: [.init(id: "target", kind: .symbol, symbol: "ACME", targetWeight: 1)]
         )
 
-        let preview = try RebalancingEngine().preview(
+        let preview = try WealthRebalancingEngine().preview(
             policy: policy,
             valuations: [
                 .init(kind: .symbol, symbol: "ACME", value: 6000, price: 100),
@@ -144,7 +144,7 @@ struct WealthAutomationEngineTests {
         let due = try #require(formatter.date(from: "2026-10-01T00:00:00Z"))
         let valuations = [RebalanceValuation(kind: .symbol, symbol: "ACME", value: 10000, price: 100)]
 
-        #expect(try RebalancingEngine().preview(policy: policy, valuations: valuations, currency: "EUR", now: beforeDue).triggerReasons.isEmpty)
-        #expect(try RebalancingEngine().preview(policy: policy, valuations: valuations, currency: "EUR", now: due).triggerReasons == [.cadence])
+        #expect(try WealthRebalancingEngine().preview(policy: policy, valuations: valuations, currency: "EUR", now: beforeDue).triggerReasons.isEmpty)
+        #expect(try WealthRebalancingEngine().preview(policy: policy, valuations: valuations, currency: "EUR", now: due).triggerReasons == [.cadence])
     }
 }

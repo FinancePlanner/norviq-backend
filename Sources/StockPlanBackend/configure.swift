@@ -189,6 +189,7 @@ public func configure(_ app: Application) async throws {
     app.entitlementResolver = DefaultEntitlementResolver(environment: app.environment, premiumEmails: premiumEmails)
     app.usageCounterService = DefaultUsageCounterService(entitlementResolver: app.entitlementResolver)
     app.portfolioAccessService = PortfolioAccessService(entitlementResolver: app.entitlementResolver)
+    app.rebalancingService = DefaultRebalancingService()
     let advancedReportStoragePath = Environment.get("ADVANCED_REPORT_STORAGE_PATH")
         ?? app.directory.workingDirectory + "storage/advanced-reports"
     app.advancedReportStorage = LocalAdvancedReportStorage(rootDirectory: advancedReportStoragePath)
@@ -270,6 +271,10 @@ public func configure(_ app: Application) async throws {
     app.lifecycle.use(BankSyncJob())
     let apnsAlertPollSeconds = Environment.get("APNS_ALERT_POLL_SECONDS").flatMap(Int64.init(_:)) ?? 300
     app.lifecycle.use(TargetAlertPoller(intervalSeconds: apnsAlertPollSeconds))
+    if envBool("REBALANCING_ALERTS_ENABLED", default: true) {
+        let interval = Environment.get("REBALANCING_ALERT_POLL_SECONDS").flatMap(Int64.init(_:)) ?? 300
+        app.lifecycle.use(RebalancingAlertPoller(intervalSeconds: interval))
+    }
     let earningsAlertPollSeconds = Environment.get("EARNINGS_ALERT_POLL_SECONDS").flatMap(Int64.init(_:)) ?? 86400
     app.lifecycle.use(EarningsNotificationPoller(intervalSeconds: earningsAlertPollSeconds))
     let taxProjectionPollSeconds = Int64(Environment.get("TAX_PROJECTION_POLL_SECONDS") ?? "86400") ?? 86400

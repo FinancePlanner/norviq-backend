@@ -12,6 +12,7 @@ protocol PushDeviceService: Sendable {
 struct DatabasePushDeviceService: PushDeviceService {
     func upsert(userId: UUID, payload: PushDeviceRegistrationRequest, on db: any Database) async throws -> PushDevice {
         let token = try normalizedDeviceToken(payload.deviceToken)
+        let capabilitiesJSON = try encodedCapabilities(payload.capabilities)
         let now = Date()
 
         if let existing = try await PushDevice.query(on: db)
@@ -22,6 +23,7 @@ struct DatabasePushDeviceService: PushDeviceService {
             existing.platform = payload.platform.rawValue
             existing.apnsEnvironment = payload.apnsEnvironment.rawValue
             existing.authorizationStatus = payload.authorizationStatus.rawValue
+            existing.capabilitiesJSON = capabilitiesJSON
             existing.isActive = true
             existing.lastSeenAt = now
             try await existing.save(on: db)
@@ -35,7 +37,8 @@ struct DatabasePushDeviceService: PushDeviceService {
             apnsEnvironment: payload.apnsEnvironment.rawValue,
             authorizationStatus: payload.authorizationStatus.rawValue,
             isActive: true,
-            lastSeenAt: now
+            lastSeenAt: now,
+            capabilitiesJSON: capabilitiesJSON
         )
         try await created.save(on: db)
         return created
@@ -83,6 +86,17 @@ struct DatabasePushDeviceService: PushDeviceService {
             throw Abort(.badRequest, reason: "deviceToken is required.")
         }
         return trimmed
+    }
+
+    private func encodedCapabilities(_ capabilities: [String]?) throws -> String {
+        let normalized = Array(Set((capabilities ?? []).map {
+            $0.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        }.filter { !$0.isEmpty })).sorted()
+        let data = try JSONEncoder().encode(normalized)
+        guard let value = String(data: data, encoding: .utf8) else {
+            throw Abort(.internalServerError, reason: "Could not encode device capabilities.")
+        }
+        return value
     }
 }
 

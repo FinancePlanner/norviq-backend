@@ -43,6 +43,7 @@ final class WealthAutomationDailyJob: LifecycleHandler, @unchecked Sendable {
             }
             try await evaluateScreens(request)
             try await evaluateRebalancing(request)
+            try await evaluateBudgets(request)
         } catch {
             app.logger.error("wealth-automation daily job failed error_type=\(String(reflecting: type(of: error)))")
         }
@@ -128,6 +129,33 @@ final class WealthAutomationDailyJob: LifecycleHandler, @unchecked Sendable {
                 )
             } catch {
                 req.logger.warning("rebalancing daily evaluation failed policy=\(policy.id?.uuidString ?? "unknown")")
+            }
+        }
+    }
+
+    private func evaluateBudgets(_ req: Request) async throws {
+        let calendar = Calendar(identifier: .gregorian)
+        let components = calendar.dateComponents([.year, .month], from: Date())
+        guard let monthStart = calendar.date(from: components),
+              let nextMonth = calendar.date(byAdding: .month, value: 1, to: monthStart)
+        else { return }
+        let snapshots = try await BudgetSnapshot.query(on: req.db)
+            .filter(\.$alertsEnabled == true)
+            .filter(\.$monthStart >= monthStart)
+            .filter(\.$monthStart < nextMonth)
+            .all()
+        for snapshot in snapshots {
+            if Task.isCancelled {
+                return
+            }
+            do {
+                try await BudgetDriftEvaluator(req: req).evaluate(
+                    userId: snapshot.$user.id,
+                    monthStart: snapshot.monthStart,
+                    notify: true
+                )
+            } catch {
+                req.logger.warning("budget drift daily evaluation failed snapshot=\(snapshot.id?.uuidString ?? "unknown")")
             }
         }
     }
