@@ -252,17 +252,19 @@ public func configure(_ app: Application) async throws {
         DisabledInsightsProvider()
     }
     app.insightsProvider = insightsProvider
-    let trackedTickers = (Environment.get("HERMES_TRACKED_TICKERS") ?? "")
+    // Scraped/pulled ticker set is derived at sync time from users' holdings +
+    // watchlist, capped at N. HERMES_TRACKED_TICKERS stays as an optional
+    // always-include pin list.
+    let tickerLimit = Environment.get("HERMES_TRACKED_TICKERS_LIMIT").flatMap(Int.init(_:)) ?? 25
+    let pinnedTickers = (Environment.get("HERMES_TRACKED_TICKERS") ?? "")
         .split(separator: ",")
         .map { $0.trimmingCharacters(in: .whitespaces).uppercased() }
         .filter { !$0.isEmpty }
-    if insightsProvider.isEnabled, trackedTickers.isEmpty {
-        app.logger.warning("HERMES_BASE_URL is set but HERMES_TRACKED_TICKERS is empty; ticker sentiment sync will fetch nothing.")
-    }
     app.insightsService = DefaultInsightsService(
         repo: app.insightsRepository,
         provider: insightsProvider,
-        trackedTickers: trackedTickers
+        tickerLimit: tickerLimit,
+        pinnedTickers: pinnedTickers
     )
 
     let cleanupIntervalMinutes = Environment.get("AUTH_TOKEN_CLEANUP_INTERVAL_MINUTES").flatMap(Int.init(_:)) ?? 60

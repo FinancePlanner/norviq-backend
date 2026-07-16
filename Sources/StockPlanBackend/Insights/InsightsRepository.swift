@@ -1,5 +1,6 @@
 import Fluent
 import Foundation
+import SQLKit
 
 protocol InsightsRepository: Sendable {
     func insertNewEvents(_ events: [InsightEvent], on db: any Database) async throws -> Int
@@ -11,6 +12,7 @@ protocol InsightsRepository: Sendable {
     func latestSentimentSnapshot(scope: String, scopeKey: String?, on db: any Database) async throws -> SentimentSnapshot?
     func netWorthSnapshots(limit: Int, on db: any Database) async throws -> [NetWorthSnapshot]
     func tickerPosts(symbol: String, since: Date, limit: Int, on db: any Database) async throws -> [TickerSentimentPost]
+    func allTrackedSymbols(limit: Int, on db: any Database) async throws -> [String]
 }
 
 struct DatabaseInsightsRepository: InsightsRepository {
@@ -124,5 +126,25 @@ struct DatabaseInsightsRepository: InsightsRepository {
             .sort(\.$postedAt, .descending)
             .limit(limit)
             .all()
+    }
+
+    func allTrackedSymbols(limit: Int, on db: any Database) async throws -> [String] {
+        guard let sql = db as? any SQLDatabase else { return [] }
+        let cappedLimit = max(1, min(limit, 200))
+        // Union of equity holdings and non-archived watchlist symbols, ranked by
+        // how many distinct users track each symbol. Symbols normalized upper/trim.
+        let rows = try await sql.raw("""
+            SELECT symbol, COUNT(DISTINCT user_id) AS holders
+            FROM (
+                SELECT UPPER(TRIM(symbol)) AS symbol, user_id FROM stocks WHERE category = 'stock'
+                UNION
+                SELECT UPPER(TRIM(symbol)) AS symbol, user_id FROM watchlist_items WHERE status <> 'archived'
+            ) AS tracked
+            WHERE symbol <> ''
+            GROUP BY symbol
+            ORDER BY holders DESC, symbol ASC
+            LIMIT \(bind: cappedLimit)
+        """).all()
+        return try rows.map { try $0.decode(column: "symbol", as: String.self) }
     }
 }
