@@ -112,25 +112,35 @@ final class FinancialGoalModel: Model, Content, @unchecked Sendable {
     @Field(key: "user_id") var userId: UUID
     @Field(key: "portfolio_list_id") var portfolioListId: UUID
     @Field(key: "name") var name: String
+    @Field(key: "goal_type") var goalType: String
     @Field(key: "target_amount") var targetAmount: Double
     @Field(key: "target_date") var targetDate: Date
     @Field(key: "base_currency") var baseCurrency: String
+    @Field(key: "starting_capital") var startingCapital: Double
     @Field(key: "monthly_contribution") var monthlyContribution: Double
     @Field(key: "annual_contribution_growth") var annualContributionGrowth: Double
     @Field(key: "inflation_assumption") var inflationAssumption: Double
+    @Field(key: "risk_profile") var riskProfile: String
+    @Field(key: "expected_annual_return") var expectedAnnualReturn: Double
+    @Field(key: "status") var status: String
     @Timestamp(key: "created_at", on: .create) var createdAt: Date?
     @Timestamp(key: "updated_at", on: .update) var updatedAt: Date?
 
     init() {}
     init(id: UUID? = nil, userId: UUID, portfolioListId: UUID, name: String,
-         targetAmount: Double, targetDate: Date, baseCurrency: String,
+         goalType: String = "custom", targetAmount: Double, targetDate: Date, baseCurrency: String,
+         startingCapital: Double = 0,
          monthlyContribution: Double, annualContributionGrowth: Double,
-         inflationAssumption: Double)
+         inflationAssumption: Double, riskProfile: String = "moderate",
+         expectedAnnualReturn: Double = 0.06, status: String = "active")
     {
         self.id = id; self.userId = userId; self.portfolioListId = portfolioListId; self.name = name
+        self.goalType = goalType
         self.targetAmount = targetAmount; self.targetDate = targetDate; self.baseCurrency = baseCurrency
+        self.startingCapital = startingCapital
         self.monthlyContribution = monthlyContribution; self.annualContributionGrowth = annualContributionGrowth
         self.inflationAssumption = inflationAssumption
+        self.riskProfile = riskProfile; self.expectedAnnualReturn = expectedAnnualReturn; self.status = status
     }
 }
 

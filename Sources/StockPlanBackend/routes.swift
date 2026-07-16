@@ -66,6 +66,9 @@ func routes(_ app: Application) throws {
     let marketRateLimit = RateLimitMiddleware(limit: 100, interval: 60, keyPrefix: "ratelimit:market")
     try api.grouped(marketRateLimit).register(collection: MarketDataController())
     try api.register(collection: ScenarioController())
+    if goalPlanningRoutesEnabled() {
+        try api.register(collection: GoalPlanningController())
+    }
     try api.register(collection: WealthAutomationController())
 
     // Macro / inflation endpoints (Nowflation parity). Rate limit similar to market data.
@@ -118,6 +121,11 @@ func routes(_ app: Application) throws {
     // Rate limit Hermes-backed insights (reads hit Postgres, but keep parity with market data).
     let insightsRateLimit = RateLimitMiddleware(limit: 60, interval: 60, keyPrefix: "ratelimit:insights")
     try api.grouped(insightsRateLimit).register(collection: InsightsController())
+}
+
+private func goalPlanningRoutesEnabled() -> Bool {
+    guard let value = Environment.get("GOAL_PLANNING_ENABLED")?.lowercased() else { return true }
+    return !["0", "false", "no", "off"].contains(value)
 }
 
 private func makeReadinessResponse(_ req: Request) async -> HealthCheckResponse {

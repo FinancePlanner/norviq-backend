@@ -274,6 +274,7 @@ func registerMigrations(_ app: Application) {
     app.migrations.add(CreateGermanyFundAdvanceAllocations())
     app.migrations.add(AddTaxReportRetryFields())
     app.migrations.add(CreateScenarioPlanningTables())
+    app.migrations.add(ExpandFinancialGoalPlanning())
     app.migrations.add(CreateHoldingRiskProfiles())
     app.migrations.add(CreateMarketPriceBars())
     app.migrations.add(EncryptBrokerConnectionTokens())

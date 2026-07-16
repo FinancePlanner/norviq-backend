@@ -6548,13 +6548,13 @@ paths:
   /v1/financial-goals:
     get:
       operationId: listFinancialGoals
-      tags: [Scenarios]
+      tags: [GoalPlanning]
       security: [{ bearerAuth: [] }]
       responses:
         '200': { description: Owned financial goals, content: { application/json: { schema: { type: array, items: { $ref: '#/components/schemas/FinancialGoal' } } } } }
     post:
       operationId: createFinancialGoal
-      tags: [Scenarios]
+      tags: [GoalPlanning]
       security: [{ bearerAuth: [] }]
       requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/FinancialGoalInput' } } } }
       responses:
@@ -6563,20 +6563,108 @@ paths:
     parameters: [{ $ref: '#/components/parameters/ScenarioResourceID' }]
     get:
       operationId: getFinancialGoal
-      tags: [Scenarios]
+      tags: [GoalPlanning]
       security: [{ bearerAuth: [] }]
       responses: { '200': { description: Financial goal, content: { application/json: { schema: { $ref: '#/components/schemas/FinancialGoal' } } } } }
     put:
       operationId: updateFinancialGoal
-      tags: [Scenarios]
+      tags: [GoalPlanning]
       security: [{ bearerAuth: [] }]
       requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/FinancialGoalInput' } } } }
       responses: { '200': { description: Updated goal, content: { application/json: { schema: { $ref: '#/components/schemas/FinancialGoal' } } } } }
     delete:
       operationId: deleteFinancialGoal
-      tags: [Scenarios]
+      tags: [GoalPlanning]
       security: [{ bearerAuth: [] }]
       responses: { '204': { description: Deleted } }
+  /v1/financial-goals/templates:
+    get:
+      operationId: listFinancialGoalTemplates
+      tags: [GoalPlanning]
+      security: [{ bearerAuth: [] }]
+      responses: { '200': { description: Goal templates, content: { application/json: { schema: { type: array, items: { $ref: '#/components/schemas/GoalTemplate' } } } } } }
+  /v1/financial-goals/overview:
+    get:
+      operationId: getFinancialGoalOverview
+      tags: [GoalPlanning]
+      security: [{ bearerAuth: [] }]
+      responses: { '200': { description: Multi-goal overview, content: { application/json: { schema: { $ref: '#/components/schemas/GoalOverview' } } } } }
+  /v1/financial-goals/bulk:
+    patch:
+      operationId: bulkUpdateFinancialGoals
+      tags: [GoalPlanning]
+      security: [{ bearerAuth: [] }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/FinancialGoalBulkUpdate' } } } }
+      responses: { '200': { description: Updated goals, content: { application/json: { schema: { type: array, items: { $ref: '#/components/schemas/FinancialGoal' } } } } } }
+  /v1/financial-goals/{id}/progress:
+    parameters: [{ $ref: '#/components/parameters/ScenarioResourceID' }]
+    get:
+      operationId: getFinancialGoalProgress
+      tags: [GoalPlanning]
+      security: [{ bearerAuth: [] }]
+      responses: { '200': { description: Deterministic goal progress, content: { application/json: { schema: { $ref: '#/components/schemas/GoalProgress' } } } } }
+  /v1/financial-goals/{id}/what-if:
+    parameters: [{ $ref: '#/components/parameters/ScenarioResourceID' }]
+    post:
+      operationId: simulateFinancialGoal
+      tags: [GoalPlanning]
+      security: [{ bearerAuth: [] }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/GoalWhatIfRequest' } } } }
+      responses: { '200': { description: Baseline and scenario projections, content: { application/json: { schema: { $ref: '#/components/schemas/GoalWhatIfResponse' } } } } }
+  /v1/financial-goals/{id}/contributions:
+    parameters: [{ $ref: '#/components/parameters/ScenarioResourceID' }]
+    get:
+      operationId: listFinancialGoalContributions
+      tags: [GoalPlanning]
+      security: [{ bearerAuth: [] }]
+      responses: { '200': { description: Manual contribution events, content: { application/json: { schema: { type: array, items: { $ref: '#/components/schemas/GoalContribution' } } } } } }
+    post:
+      operationId: createFinancialGoalContribution
+      tags: [GoalPlanning]
+      security: [{ bearerAuth: [] }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/GoalContributionInput' } } } }
+      responses: { '200': { description: Created contribution, content: { application/json: { schema: { $ref: '#/components/schemas/GoalContribution' } } } } }
+  /v1/financial-goals/{id}/contributions/{contributionId}:
+    parameters:
+      - { $ref: '#/components/parameters/ScenarioResourceID' }
+      - { name: contributionId, in: path, required: true, schema: { type: string, format: uuid } }
+    delete:
+      operationId: deleteFinancialGoalContribution
+      tags: [GoalPlanning]
+      security: [{ bearerAuth: [] }]
+      responses: { '204': { description: Deleted } }
+  /v1/financial-goals/{id}/suggestions:
+    parameters: [{ $ref: '#/components/parameters/ScenarioResourceID' }]
+    get:
+      operationId: listFinancialGoalSuggestions
+      tags: [GoalPlanning]
+      security: [{ bearerAuth: [] }]
+      responses: { '200': { description: Deterministic adjustment options, content: { application/json: { schema: { type: array, items: { $ref: '#/components/schemas/GoalSuggestion' } } } } } }
+  /v1/financial-goals/{id}/suggestions/{suggestionId}/accept:
+    parameters:
+      - { $ref: '#/components/parameters/ScenarioResourceID' }
+      - { name: suggestionId, in: path, required: true, schema: { type: string, format: uuid } }
+    post:
+      operationId: acceptFinancialGoalSuggestion
+      tags: [GoalPlanning]
+      security: [{ bearerAuth: [] }]
+      responses: { '200': { description: Staged adjustment draft, content: { application/json: { schema: { $ref: '#/components/schemas/GoalAdjustmentDraft' } } } } }
+  /v1/financial-goals/{id}/suggestions/{suggestionId}/dismiss:
+    parameters:
+      - { $ref: '#/components/parameters/ScenarioResourceID' }
+      - { name: suggestionId, in: path, required: true, schema: { type: string, format: uuid } }
+    post:
+      operationId: dismissFinancialGoalSuggestion
+      tags: [GoalPlanning]
+      security: [{ bearerAuth: [] }]
+      responses: { '204': { description: Dismissed } }
+  /v1/financial-goals/{id}/adjustment-drafts:
+    parameters: [{ $ref: '#/components/parameters/ScenarioResourceID' }]
+    get:
+      operationId: listFinancialGoalAdjustmentDrafts
+      tags: [GoalPlanning]
+      security: [{ bearerAuth: [] }]
+      responses: { '200': { description: Staged drafts awaiting confirmation, content: { application/json: { schema: { type: array, items: { $ref: '#/components/schemas/GoalAdjustmentDraft' } } } } } }
   /v1/scenarios/catalog:
     get:
       operationId: getScenarioCatalog
@@ -7316,26 +7404,158 @@ components:
       additionalProperties: true
     FinancialGoalInput:
       type: object
-      required: [portfolioListId, name, targetAmount, targetDate, baseCurrency]
+      required: [name, goalType, targetAmount, targetDate, baseCurrency, startingCapital, monthlyContribution, annualContributionGrowth, inflationAssumption, riskProfile, status, portfolioAllocations, expenseCategoryLinks]
       properties:
-        portfolioListId: { type: string, format: uuid }
         name: { type: string, minLength: 1 }
+        goalType: { type: string, enum: [retirement, home_purchase, financial_independence, education, emergency_fund, investment_target, custom] }
         targetAmount: { type: number, format: double, minimum: 0, exclusiveMinimum: true }
-        targetDate: { type: string, format: date-time }
+        targetDate: { type: string, format: date }
         baseCurrency: { type: string, minLength: 3, maxLength: 3 }
-        monthlyContribution: { type: number, format: double, minimum: 0, default: 0 }
-        annualContributionGrowth: { type: number, format: double, default: 0 }
-        inflationAssumption: { type: number, format: double, default: 0.02 }
+        startingCapital: { type: number, format: double, minimum: 0 }
+        monthlyContribution: { type: number, format: double, minimum: 0 }
+        annualContributionGrowth: { type: number, format: double }
+        inflationAssumption: { type: number, format: double }
+        riskProfile: { type: string, enum: [conservative, moderate, aggressive] }
+        expectedAnnualReturn: { type: number, format: double, nullable: true }
+        status: { type: string, enum: [active, paused, completed, archived] }
+        portfolioAllocations: { type: array, items: { $ref: '#/components/schemas/GoalPortfolioAllocation' } }
+        expenseCategoryLinks: { type: array, items: { $ref: '#/components/schemas/GoalExpenseCategoryLink' } }
     FinancialGoal:
       allOf:
         - $ref: '#/components/schemas/FinancialGoalInput'
         - type: object
-          required: [id, userId]
+          required: [id, portfolioListId, expectedAnnualReturn]
           properties:
             id: { type: string, format: uuid }
-            userId: { type: string, format: uuid }
-            createdAt: { type: string, format: date-time, nullable: true }
-            updatedAt: { type: string, format: date-time, nullable: true }
+            portfolioListId: { type: string, format: uuid, description: Legacy primary portfolio retained for scenario compatibility. }
+            expectedAnnualReturn: { type: number, format: double }
+            createdAt: { type: string, nullable: true }
+            updatedAt: { type: string, nullable: true }
+    GoalPortfolioAllocation:
+      type: object
+      required: [id, portfolioListId, allocationPercentage]
+      properties:
+        id: { type: string, format: uuid }
+        portfolioListId: { type: string, format: uuid }
+        allocationPercentage: { type: number, format: double, minimum: 0, maximum: 100 }
+    GoalExpenseCategoryLink:
+      type: object
+      required: [id, categoryId, role]
+      properties:
+        id: { type: string, format: uuid }
+        categoryId: { type: string, format: uuid }
+        role: { type: string, enum: [observed_contribution, reduction_candidate] }
+    GoalTrajectoryPoint:
+      type: object
+      required: [date, plannedValue, projectedValue]
+      properties:
+        date: { type: string, format: date }
+        plannedValue: { type: number, format: double }
+        actualValue: { type: number, format: double, nullable: true }
+        projectedValue: { type: number, format: double }
+    GoalProgress:
+      type: object
+      required: [goalId, currency, currentValue, targetAmount, percentComplete, plannedValueToday, projectedValueAtTarget, driftAmount, driftState, plannedMonthlyContribution, observedMonthlyContribution, trajectory, warnings, calculatedAt]
+      properties:
+        goalId: { type: string, format: uuid }
+        currency: { type: string }
+        currentValue: { type: number, format: double }
+        targetAmount: { type: number, format: double }
+        percentComplete: { type: number, format: double }
+        plannedValueToday: { type: number, format: double }
+        projectedValueAtTarget: { type: number, format: double }
+        projectedCompletionDate: { type: string, format: date, nullable: true }
+        driftAmount: { type: number, format: double }
+        driftMonths: { type: integer, nullable: true }
+        driftState: { type: string, enum: [ahead, on_track, behind, complete, insufficient_data] }
+        plannedMonthlyContribution: { type: number, format: double }
+        observedMonthlyContribution: { type: number, format: double }
+        trajectory: { type: array, items: { $ref: '#/components/schemas/GoalTrajectoryPoint' } }
+        warnings: { type: array, items: { type: string } }
+        calculatedAt: { type: string, format: date-time }
+    GoalOverviewItem:
+      type: object
+      required: [id, goal, progress]
+      properties:
+        id: { type: string, format: uuid }
+        goal: { $ref: '#/components/schemas/FinancialGoal' }
+        progress: { $ref: '#/components/schemas/GoalProgress' }
+    GoalOverview:
+      type: object
+      required: [items, totalCurrentValue, totalTargetAmount, activeGoalCount, isPro]
+      properties:
+        items: { type: array, items: { $ref: '#/components/schemas/GoalOverviewItem' } }
+        totalCurrentValue: { type: number, format: double }
+        totalTargetAmount: { type: number, format: double }
+        activeGoalCount: { type: integer }
+        activeGoalLimit: { type: integer, nullable: true }
+        isPro: { type: boolean }
+    GoalTemplate:
+      type: object
+      required: [id, name, goalType, suggestedYears, riskProfile]
+      properties:
+        id: { type: string }
+        name: { type: string }
+        goalType: { type: string }
+        suggestedYears: { type: integer }
+        riskProfile: { type: string }
+    GoalWhatIfRequest:
+      type: object
+      properties:
+        monthlyContribution: { type: number, format: double, minimum: 0, nullable: true }
+        expectedAnnualReturn: { type: number, format: double, nullable: true }
+        targetDate: { type: string, format: date, nullable: true }
+    GoalWhatIfResponse:
+      type: object
+      required: [baseline, scenario]
+      properties:
+        baseline: { $ref: '#/components/schemas/GoalProgress' }
+        scenario: { $ref: '#/components/schemas/GoalProgress' }
+    GoalContributionInput:
+      type: object
+      required: [amount, occurredAt]
+      properties:
+        amount: { type: number, format: double, minimum: 0, exclusiveMinimum: true }
+        occurredAt: { type: string, format: date }
+        note: { type: string, nullable: true }
+    GoalContribution:
+      allOf:
+        - $ref: '#/components/schemas/GoalContributionInput'
+        - type: object
+          required: [id, goalId, createdAt]
+          properties:
+            id: { type: string, format: uuid }
+            goalId: { type: string, format: uuid }
+            createdAt: { type: string, format: date-time }
+    GoalSuggestion:
+      type: object
+      required: [id, goalId, kind, title, explanation, status, createdAt]
+      properties:
+        id: { type: string, format: uuid }
+        goalId: { type: string, format: uuid }
+        kind: { type: string, enum: [increase_contribution, reduce_contribution, reduce_spending, extend_target_date, rebalance_allocation] }
+        title: { type: string }
+        explanation: { type: string }
+        monthlyAmount: { type: number, format: double, nullable: true }
+        allocationPercentage: { type: number, format: double, nullable: true }
+        estimatedMonthsChanged: { type: integer, nullable: true }
+        status: { type: string, enum: [proposed, accepted, dismissed] }
+        createdAt: { type: string, format: date-time }
+    GoalAdjustmentDraft:
+      type: object
+      required: [id, suggestionId, destination, payload, createdAt]
+      properties:
+        id: { type: string, format: uuid }
+        suggestionId: { type: string, format: uuid }
+        destination: { type: string, enum: [budget, rebalancing, goal] }
+        payload: { type: object, additionalProperties: { type: string } }
+        createdAt: { type: string, format: date-time }
+    FinancialGoalBulkUpdate:
+      type: object
+      required: [goalIds, status]
+      properties:
+        goalIds: { type: array, minItems: 1, items: { type: string, format: uuid } }
+        status: { type: string, enum: [active, paused, completed, archived] }
     ScenarioInput:
       type: object
       required: [portfolioListId, name, kind, configuration]

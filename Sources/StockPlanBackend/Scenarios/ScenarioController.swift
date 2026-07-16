@@ -70,10 +70,6 @@ private struct RiskProfileInput: Content {
 struct ScenarioController: RouteCollection {
     func boot(routes: any RoutesBuilder) throws {
         let protected = routes.grouped(SessionToken.authenticator(), SessionToken.guardMiddleware())
-        protected.group("financial-goals") { goals in
-            goals.get(use: listGoals); goals.post(use: createGoal)
-            goals.group(":id") { goal in goal.get(use: getGoal); goal.put(use: updateGoal); goal.delete(use: deleteGoal) }
-        }
         protected.group("scenarios") { scenarios in
             scenarios.get("catalog", use: catalog)
             scenarios.get(use: listScenarios); scenarios.post(use: createScenario)
