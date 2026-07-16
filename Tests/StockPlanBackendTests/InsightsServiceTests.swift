@@ -98,11 +98,12 @@ struct InsightsServiceTests {
         }
     }
 
-    private func makeService(trackedTickers: [String] = ["AMD"]) -> DefaultInsightsService {
+    private func makeService(pinnedTickers: [String] = ["AMD"]) -> DefaultInsightsService {
         DefaultInsightsService(
             repo: DatabaseInsightsRepository(),
             provider: StubInsightsProvider(),
-            trackedTickers: trackedTickers
+            tickerLimit: 25,
+            pinnedTickers: pinnedTickers
         )
     }
 
@@ -184,7 +185,8 @@ struct InsightsServiceTests {
             let service = DefaultInsightsService(
                 repo: DatabaseInsightsRepository(),
                 provider: DisabledInsightsProvider(),
-                trackedTickers: []
+                tickerLimit: 25,
+                pinnedTickers: []
             )
             #expect(service.isEnabled == false)
 
@@ -333,6 +335,24 @@ struct InsightsServiceTests {
 
             let topOne = try await repo.allTrackedSymbols(limit: 1, on: app.db)
             #expect(topOne == ["AMD"])
+        }
+    }
+
+    @Test("syncTickerPosts pulls symbols from holdings, not a static list")
+    func syncUsesHoldings() async throws {
+        try await withApp { app in
+            let (_, userId) = try await registerTestUser(app: app)
+            try await createHolding(symbol: "AMD", userId: userId, on: app.db)
+            let service = DefaultInsightsService(
+                repo: DatabaseInsightsRepository(),
+                provider: StubInsightsProvider(),
+                tickerLimit: 25,
+                pinnedTickers: [] // no pins — AMD must come from holdings
+            )
+            let req = Request(application: app, on: app.eventLoopGroup.next())
+            _ = try await service.syncFromHermes(on: req)
+            let posts = try await TickerSentimentPost.query(on: app.db).filter(\.$symbol == "AMD").count()
+            #expect(posts >= 1)
         }
     }
 

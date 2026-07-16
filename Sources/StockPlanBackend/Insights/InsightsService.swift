@@ -15,16 +15,19 @@ protocol InsightsService: Sendable {
 struct DefaultInsightsService: InsightsService {
     let repo: any InsightsRepository
     let provider: any InsightsProvider
-    let trackedTickers: [String]
+    let tickerLimit: Int
+    let pinnedTickers: [String]
 
     init(
         repo: any InsightsRepository = DatabaseInsightsRepository(),
         provider: any InsightsProvider = DisabledInsightsProvider(),
-        trackedTickers: [String] = []
+        tickerLimit: Int = 25,
+        pinnedTickers: [String] = []
     ) {
         self.repo = repo
         self.provider = provider
-        self.trackedTickers = trackedTickers
+        self.tickerLimit = max(1, tickerLimit)
+        self.pinnedTickers = pinnedTickers.map { $0.uppercased() }
     }
 
     var isEnabled: Bool {
@@ -201,8 +204,23 @@ private extension DefaultInsightsService {
     }
 
     func syncTickerPosts(on req: Request) async -> Int {
+        // Resolve the scrape/pull set at sync time: pinned symbols plus the
+        // top-N most-popular equities across all users' holdings + watchlist.
+        var symbols: [String] = []
+        do {
+            let dynamic = try await repo.allTrackedSymbols(limit: tickerLimit, on: req.db)
+            var seen = Set<String>()
+            for s in pinnedTickers + dynamic where seen.insert(s).inserted {
+                symbols.append(s)
+            }
+            symbols = Array(symbols.prefix(tickerLimit))
+        } catch {
+            req.logger.warning("insights.sync tracked symbols failed error=\(String(describing: error)); using pinned only")
+            symbols = pinnedTickers
+        }
+
         var inserted = 0
-        for symbol in trackedTickers {
+        for symbol in symbols {
             do {
                 let response = try await provider.fetchTickerPosts(symbol: symbol, days: 30, limit: 100, on: req)
                 let models = response.posts.compactMap { post -> TickerSentimentPost? in
