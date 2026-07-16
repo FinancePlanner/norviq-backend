@@ -1,6 +1,7 @@
 import Fluent
 import Foundation
 @testable import StockPlanBackend
+import StockPlanShared
 import Testing
 import Vapor
 
@@ -221,6 +222,117 @@ struct InsightsServiceTests {
             }, afterResponse: { res async throws in
                 #expect(res.status == .forbidden)
             })
+        }
+    }
+
+    private func registerTestUser(app: Application) async throws -> (token: String, userId: UUID) {
+        let suffix = UUID().uuidString.replacingOccurrences(of: "-", with: "").lowercased().prefix(12)
+        let request = StockPlanBackend.AuthRegisterRequest(
+            username: "insights_\(suffix)",
+            password: "Password123!",
+            confirmPassword: "Password123!",
+            email: "insights+\(suffix)@example.com",
+            dateOfBirth: Date(timeIntervalSince1970: 946_684_800)
+        )
+
+        var response: AuthResponse?
+        try await app.testing().test(.POST, "v1/auth/register", beforeRequest: { req in
+            try req.content.encode(request)
+        }, afterResponse: { res async throws in
+            #expect(res.status == .ok)
+            response = try res.content.decode(AuthResponse.self)
+        })
+
+        guard let response else {
+            throw Abort(.internalServerError, reason: "Auth register did not return a response")
+        }
+        return (response.token, response.userId)
+    }
+
+    private func ensureDefaultPortfolioListId(userId: UUID, on db: any Database) async throws -> UUID {
+        if let existing = try await PortfolioList.query(on: db).filter(\.$userId == userId).first() {
+            return try existing.requireID()
+        }
+        let list = PortfolioList(userId: userId, name: "Default", isDefault: true)
+        try await list.save(on: db)
+        return try list.requireID()
+    }
+
+    private func ensureDefaultWatchlistListId(userId: UUID, on db: any Database) async throws -> UUID {
+        if let existing = try await WatchlistList.query(on: db).filter(\.$userId == userId).first() {
+            return try existing.requireID()
+        }
+        let list = WatchlistList(userId: userId, name: "Default", isDefault: true)
+        try await list.save(on: db)
+        return try list.requireID()
+    }
+
+    private func createHolding(
+        symbol: String,
+        userId: UUID,
+        on db: any Database,
+        category: AssetCategory = .stock
+    ) async throws {
+        let portfolioListId = try await ensureDefaultPortfolioListId(userId: userId, on: db)
+        let stock = Stock(
+            userId: userId,
+            portfolioListId: portfolioListId,
+            symbol: symbol,
+            shares: 1,
+            buyPrice: 100,
+            buyDate: Date(timeIntervalSince1970: 1_704_067_200),
+            category: category
+        )
+        try await stock.save(on: db)
+    }
+
+    private func createWatchlistItem(
+        symbol: String,
+        userId: UUID,
+        on db: any Database,
+        status: WatchlistStatus = .active
+    ) async throws {
+        let watchlistListId = try await ensureDefaultWatchlistListId(userId: userId, on: db)
+        let item = WatchlistItem(
+            userId: userId,
+            watchlistListId: watchlistListId,
+            symbol: symbol,
+            status: status
+        )
+        try await item.save(on: db)
+    }
+
+    @Test("allTrackedSymbols ranks union of holdings and active watchlist items by distinct holder count")
+    func allTrackedSymbolsRanksByPopularity() async throws {
+        try await withApp { app in
+            let repo = DatabaseInsightsRepository()
+
+            let (_, userA) = try await registerTestUser(app: app)
+            let (_, userB) = try await registerTestUser(app: app)
+
+            // AMD held by both users (case-insensitivity: one saved lowercase).
+            try await createHolding(symbol: "amd", userId: userA, on: app.db)
+            try await createHolding(symbol: "AMD", userId: userB, on: app.db)
+            // NVDA held by one user.
+            try await createHolding(symbol: "NVDA", userId: userA, on: app.db)
+            // BTC is a crypto holding and must be excluded.
+            try await createHolding(symbol: "BTC", userId: userA, on: app.db, category: .crypto)
+
+            // TSLA is an active watchlist item and must be included.
+            try await createWatchlistItem(symbol: "TSLA", userId: userB, on: app.db, status: .active)
+            // AAPL is archived and must be excluded.
+            try await createWatchlistItem(symbol: "AAPL", userId: userA, on: app.db, status: .archived)
+
+            let symbols = try await repo.allTrackedSymbols(limit: 10, on: app.db)
+
+            #expect(symbols.first == "AMD")
+            #expect(symbols.contains("NVDA"))
+            #expect(symbols.contains("TSLA"))
+            #expect(!symbols.contains("BTC"))
+            #expect(!symbols.contains("AAPL"))
+
+            let topOne = try await repo.allTrackedSymbols(limit: 1, on: app.db)
+            #expect(topOne == ["AMD"])
         }
     }
 
