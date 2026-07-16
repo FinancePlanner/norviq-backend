@@ -5549,6 +5549,17 @@ paths:
       operationId: getPnl
       tags: [Portfolio]
       summary: Profit and loss by symbol
+      description: Per-symbol P&L computed server-side from holdings joined with cached live quotes. Price-dependent fields are omitted when no quote is available.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: portfolioListId
+          in: query
+          required: false
+          description: Optional portfolio list identifier. If omitted, aggregates across all actual portfolio lists.
+          schema:
+            type: string
+            format: uuid
       responses:
         '200':
           description: OK
@@ -5556,6 +5567,8 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/PnlResponse'
+        '401':
+          description: Unauthorized
 
   /v1/brokers:
     get:
@@ -11667,6 +11680,38 @@ components:
         unrealizedPnl:
           type: number
           format: double
+        shares:
+          type: number
+          format: double
+        buyPrice:
+          type: number
+          format: double
+          description: Average buy price across all lots of the symbol.
+        costBasis:
+          type: number
+          format: double
+        currentPrice:
+          type: number
+          format: double
+          description: Last quote price. Omitted when no quote is available.
+        marketValue:
+          type: number
+          format: double
+          description: shares x currentPrice; falls back to cost basis when no quote is available.
+        unrealizedPnlPercent:
+          type: number
+          format: double
+        dayChange:
+          type: number
+          format: double
+          description: Position day change (quote day change x shares). Omitted when no quote is available.
+        dayChangePercent:
+          type: number
+          format: double
+        weightPercent:
+          type: number
+          format: double
+          description: Percent of total account value (holdings market value plus cash).
       required: [symbol, currency, realizedPnl, unrealizedPnl]
     PnlResponse:
       type: object
