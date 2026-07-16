@@ -3,6 +3,10 @@ import Vapor
 
 struct InsightsController: RouteCollection {
     func boot(routes: any RoutesBuilder) throws {
+        // Machine endpoint: the Hermes VPS fetches the scrape list over the
+        // tailnet. Gated by INSIGHTS_SYMBOLS_TOKEN, NOT session/scoped auth.
+        routes.grouped("insights").get("tracked-symbols", use: trackedSymbols)
+
         // Scoped auth: first-party JWTs pass through untouched; MCP tokens need insights:read.
         let protected = routes.grouped(ScopedBearerAuthenticator(), SessionToken.guardMiddleware())
 
@@ -21,6 +25,23 @@ struct InsightsController: RouteCollection {
     func syncNow(req: Request) async throws -> InsightsSyncSummary {
         try await requireInsightsAdmin(req)
         return try await req.application.insightsService.syncFromHermes(on: req)
+    }
+
+    /// Machine-only: returns the top-N equities users hold/watch, for the Hermes
+    /// scraper to target. Fail-closed when INSIGHTS_SYMBOLS_TOKEN is unset.
+    @Sendable
+    func trackedSymbols(req: Request) async throws -> TrackedSymbolsResponse {
+        let expected = (Environment.get("INSIGHTS_SYMBOLS_TOKEN") ?? "").trimmingCharacters(in: .whitespaces)
+        guard !expected.isEmpty else {
+            throw Abort(.forbidden, reason: "tracked-symbols is disabled (INSIGHTS_SYMBOLS_TOKEN unset).")
+        }
+        let presented = req.headers.bearerAuthorization?.token ?? ""
+        guard presented == expected else {
+            throw Abort(.forbidden, reason: "Invalid machine token.")
+        }
+        let limit = Environment.get("HERMES_TRACKED_TICKERS_LIMIT").flatMap(Int.init(_:)) ?? 25
+        let symbols = try await req.application.insightsRepository.allTrackedSymbols(limit: limit, on: req.db)
+        return TrackedSymbolsResponse(symbols: symbols, limit: limit)
     }
 
     @Sendable

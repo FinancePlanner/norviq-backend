@@ -188,3 +188,8 @@ struct InsightsSyncSummary: Content {
     let tickerPostsInserted: Int
     let netWorthInserted: Int
 }
+
+struct TrackedSymbolsResponse: Content {
+    let symbols: [String]
+    let limit: Int
+}

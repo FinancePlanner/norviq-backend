@@ -338,6 +338,16 @@ struct InsightsServiceTests {
         }
     }
 
+    @Test("tracked-symbols is fail-closed when INSIGHTS_SYMBOLS_TOKEN is unset")
+    func trackedSymbolsAuth() async throws {
+        try await withApp { app in
+            // Env unset in tests -> fail-closed (403), not 404.
+            try await app.testing().test(.GET, "v1/insights/tracked-symbols", afterResponse: { res async throws in
+                #expect(res.status == .forbidden)
+            })
+        }
+    }
+
     @Test("syncTickerPosts pulls symbols from holdings, not a static list")
     func syncUsesHoldings() async throws {
         try await withApp { app in
