@@ -3617,7 +3617,6 @@ struct StockPlanBackendTests {
             .init(delivered: devices.count, failed: 0)
         }
 
-
         func sendTargetHit(
             target: Target,
             currentPrice _: Double,
