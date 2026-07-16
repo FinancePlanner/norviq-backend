@@ -52,18 +52,40 @@ struct TaxController: RouteCollection {
         let query = try req.query.decode(TaxQuery.self)
         let jurisdiction = query.jurisdiction ?? .unitedStates
         let taxYear = query.taxYear ?? Calendar.current.component(.year, from: Date())
-        if jurisdiction == .germany {
+        switch jurisdiction {
+        case .germany:
             return try await GermanyStockLossLedger().response(
                 userId: session.userId,
                 asOfTaxYear: taxYear,
                 on: req.db
             )
+        case .portugal, .spain, .unitedStates:
+            // Shared carryforward table is used for PT Category G, ES estimates, and US
+            // short/long carryovers when populated by the rule engines.
+            return try await PortugalLossCarryforwardLedger().response(
+                userId: session.userId,
+                jurisdiction: jurisdiction,
+                asOfTaxYear: taxYear,
+                on: req.db
+            )
+        case .france, .italy:
+            // FR/IT capital-gains rule packs are not production-ready; never return a
+            // Portugal-shaped ledger that could be misread as filing-ready carryovers.
+            return emptyLossCarryforwardLedger(jurisdiction: jurisdiction, asOfTaxYear: taxYear)
         }
-        return try await PortugalLossCarryforwardLedger().response(
-            userId: session.userId,
+    }
+
+    private func emptyLossCarryforwardLedger(
+        jurisdiction: TaxJurisdiction,
+        asOfTaxYear: Int
+    ) -> TaxLossCarryforwardLedgerResponse {
+        let currency = jurisdiction == .unitedStates ? "USD" : "EUR"
+        return TaxLossCarryforwardLedgerResponse(
+            generatedAt: ISO8601DateFormatter().string(from: Date()),
             jurisdiction: jurisdiction,
-            asOfTaxYear: taxYear,
-            on: req.db
+            asOfTaxYear: asOfTaxYear,
+            totalAvailable: TaxMoney(amount: 0, currency: currency),
+            balances: []
         )
     }
 

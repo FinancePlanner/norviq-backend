@@ -75,6 +75,18 @@ struct NoopPushNotificationSender: PushNotificationSending {
         return .init(delivered: 0, failed: devices.count)
     }
 
+    func sendRebalancingDrift(
+        alert: RebalancingAlert,
+        portfolioName: String,
+        devices: [PushDevice],
+        req: Request
+    ) async -> TargetPushSendSummary {
+        req.logger.debug(
+            "push.notifications disabled rebalance_drift portfolio=\(portfolioName) scope=\(alert.scopeName) devices=\(devices.count)"
+        )
+        return .init(delivered: 0, failed: devices.count)
+    }
+
     func sendTaxOpportunity(
         opportunity: TaxOpportunityResponse,
         devices: [PushDevice],

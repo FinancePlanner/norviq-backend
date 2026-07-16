@@ -812,7 +812,7 @@ struct WealthAutomationController: RouteCollection {
             return .init(kind: .symbol, symbol: symbol, value: amount, price: price.map { $0 * fxRate })
         }
         let warningMessages = (snapshot.warnings.values["items"]?.array ?? []).compactMap { $0.object?["message"]?.string }
-        let preview = try RebalancingEngine().preview(
+        let preview = try WealthRebalancingEngine().preview(
             policy: policy,
             valuations: valuations,
             currency: policy.baseCurrency

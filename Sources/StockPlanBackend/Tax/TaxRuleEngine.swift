@@ -27,6 +27,10 @@ struct ConfiguredTaxRulePack: TaxRulePack {
         guard ["stock", "equity", "etf"].contains(normalized) else {
             return .professionalReview
         }
+        // FR and IT remain professional-review until evidence-backed rule packs ship.
+        if jurisdiction == .france || jurisdiction == .italy {
+            return .professionalReview
+        }
         if jurisdiction == .germany {
             // Fund support is decided per instrument from its persisted InvStG
             // classification; the static capability matrix cannot prove that metadata.
@@ -69,6 +73,11 @@ struct ConfiguredTaxRulePack: TaxRulePack {
             guard churchRate > 0 else { return 0.26375 }
             return (1 + churchRate + GermanyCapitalGainsCalculator.solidaritySurchargeRate) / (4 + churchRate)
         }
+        // FR/IT: do not invent a marginal-rate capital-gains estimate as if it were a
+        // complete local rule pack. Callers treat nil as professional-review only.
+        if jurisdiction == .france || jurisdiction == .italy {
+            return nil
+        }
         return profile.marginalIncomeTaxRate
     }
 
@@ -84,6 +93,14 @@ struct ConfiguredTaxRulePack: TaxRulePack {
             values.append("The estimate applies 25% investment-income tax plus the 5.5% solidarity surcharge on that tax, for a combined 26.375% rate.")
             values.append("Stock-disposal losses are isolated from other capital income and carried forward separately under EStG Article 20(6).")
             values.append("Any entered remaining saver allowance is deducted after stock-loss offsets; leave it empty when capital income across institutions is incomplete.")
+        }
+        if jurisdiction == .spain {
+            values.append("Spanish homogeneous-security loss deferral uses the two-month window only when regulated-market admission is user-verified; unlisted securities use the one-year window after attestation.")
+            values.append("Automatic ISIN market-admission data is not available; user-attested evidence is the supported path.")
+        }
+        if jurisdiction == .france || jurisdiction == .italy {
+            values.append("\(jurisdiction.rawValue) capital-gains optimization is not enabled: a complete evidence-backed rule pack is still required before estimates or actionable opportunities are shown.")
+            values.append("Use a qualified tax professional for French or Italian capital-gains reporting; Norviq only tracks imported lots for those jurisdictions.")
         }
         if !isValidated {
             values.append("This rule pack has not been enabled for actionable recommendations; results are estimates for review.")
@@ -101,7 +118,10 @@ struct TaxRuleRegistry: Sendable {
             let version = switch jurisdiction {
             case .portugal: "PT-2026.2"
             case .germany: "DE-2026.1"
-            default: "\(jurisdiction.rawValue)-2026.1"
+            case .spain: "ES-2026.1"
+            case .unitedStates: "US-2026.1"
+            case .france: "FR-2026.0-unvalidated"
+            case .italy: "IT-2026.0-unvalidated"
             }
             return (jurisdiction, ConfiguredTaxRulePack(
                 jurisdiction: jurisdiction,
@@ -153,6 +173,10 @@ struct TaxRuleRegistry: Sendable {
         if pack.jurisdiction == .spain {
             values.append("Homogeneous securities are matched FIFO across owned accounts using the two-month window only when official-market admission is verified.")
             values.append("Non-admitted securities use the one-year window only after the user verifies the status against documentary evidence.")
+            values.append("Market admission is user-attested only until a regulated-market ISIN dataset is integrated.")
+        }
+        if pack.jurisdiction == .france || pack.jurisdiction == .italy {
+            values.append("No production capital-gains rule pack is available for this jurisdiction yet.")
         }
         if !pack.isValidated {
             values.append("Professional validation required before actionable recommendations are enabled.")
