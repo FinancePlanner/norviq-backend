@@ -151,18 +151,28 @@ struct ScenarioRunProcessor {
         let initialValue = snapshot["total_value"]?.number ?? 0
         guard initialValue > 0 else { throw Abort(.unprocessableEntity, reason: "Snapshot total_value must be positive") }
 
-        if run.scenario.kind == "monte_carlo", let goalID = run.scenario.financialGoalId,
+        // Inject linked goal for every scenario kind so historical/custom runs get impact metrics.
+        if let goalID = run.scenario.financialGoalId,
            let goal = try await FinancialGoalModel.owned(by: run.userId, on: database).filter(\.$id == goalID).first()
         {
             configuration["target_amount"] = .number(goal.targetAmount)
-            configuration["monthly_contribution"] = .number(goal.monthlyContribution)
-            configuration["annual_contribution_growth"] = .number(goal.annualContributionGrowth)
-            configuration["inflation"] = .number(goal.inflationAssumption)
+            if configuration["monthly_contribution"] == nil {
+                configuration["monthly_contribution"] = .number(goal.monthlyContribution)
+            }
+            if configuration["annual_contribution_growth"] == nil {
+                configuration["annual_contribution_growth"] = .number(goal.annualContributionGrowth)
+            }
+            if configuration["inflation"] == nil {
+                configuration["inflation"] = .number(goal.inflationAssumption)
+            }
             let calendar = Calendar(identifier: .gregorian)
             let targetMonths = calendar.dateComponents(
                 [.month], from: run.snapshot.valuationTimestamp, to: goal.targetDate
             ).month ?? 1
-            configuration["horizon_months"] = .number(Double(max(1, min(targetMonths, 600))))
+            if configuration["horizon_months"] == nil {
+                configuration["horizon_months"] = .number(Double(max(1, min(targetMonths, 600))))
+            }
+            configuration["goal_horizon_months"] = .number(Double(max(1, min(targetMonths, 600))))
             configuration["financial_goal_id"] = .string(goalID.uuidString)
         }
 
@@ -185,6 +195,7 @@ struct ScenarioRunProcessor {
         case "dot_com_decline": ("2000-03-24", "2002-10-09")
         case "global_financial_crisis": ("2007-10-09", "2009-03-09")
         case "2022_rate_shock": ("2022-01-03", "2022-10-12")
+        case "tech_2022": ("2022-01-03", "2022-10-14")
         default: ("2020-02-19", "2020-03-23")
         }
         let formatter = DateFormatter(); formatter.locale = Locale(identifier: "en_US_POSIX"); formatter.dateFormat = "yyyy-MM-dd"
@@ -235,12 +246,29 @@ struct ScenarioRunProcessor {
         if timeline.isEmpty {
             timeline = [.object(["elapsed_days": .number(0), "date": .string(dates.0), "value": .number(initial), "percentage_change": .number(0)])]
         }
-        return ScenarioJSON([
+        let values = timeline.compactMap { $0.object?["value"]?.number }
+        let recoveryDays = recoveryElapsed(
+            timeline: timeline, initialValue: initial, elapsedKey: "elapsed_days"
+        )
+        let recoveryMonths = recoveryDays.map { $0 / 30.4375 }
+        var result: [String: ScenarioJSONValue] = [
             "timeline": .array(timeline), "maximum_drawdown": .number(maximumDrawdown), "ending_value": .number(ending),
             "holding_contributions": .array(contributions), "warnings": .array(warnings),
             "catalog_id": .string(preset), "catalog_version": .string(ScenarioCatalog.version),
-            "assumptions": .object(["valuation_currency": snapshot["base_currency"] ?? .null]),
-        ])
+            "assumptions": .object([
+                "valuation_currency": snapshot["base_currency"] ?? .null,
+                "financial_goal_id": configuration["financial_goal_id"] ?? .null,
+            ]),
+        ]
+        mergeImpact(
+            into: &result,
+            initialValue: initial,
+            stressedValue: ending,
+            configuration: configuration,
+            recoveryMonths: recoveryMonths,
+            timelineValues: values
+        )
+        return ScenarioJSON(result)
     }
 
     private func deterministic(initialValue: Double, change: Double) -> ScenarioJSON {
@@ -312,7 +340,9 @@ struct ScenarioRunProcessor {
             let fraction = recoveryFraction(model: recovery, month: month, horizon: months)
             return .object(["elapsed_months": .number(Double(month)), "value": .number(stressed + (initial - stressed) * fraction)])
         }
-        return ScenarioJSON([
+        let timelineValues = timeline.compactMap { $0.object?["value"]?.number }
+        let recoveryMonths = ScenarioEngine().recoveryMonths(timelineValues: timelineValues, initialValue: initial)
+        var result: [String: ScenarioJSONValue] = [
             "timeline": .array(timeline), "maximum_drawdown": .number(initial > 0 ? max(0, (initial - stressed) / initial) : 0),
             "ending_value": .number((timeline.last?.object?["value"]?.number) ?? stressed),
             "holding_contributions": .array(holdingContributions),
@@ -324,8 +354,71 @@ struct ScenarioRunProcessor {
                 "volatility_multiplier": .number(volatilityMultiplier),
                 "rate_sensitivity_defaults_version": .string(ScenarioEngine.version),
                 "recovery": .string(recovery),
+                "financial_goal_id": configuration["financial_goal_id"] ?? .null,
             ]),
-        ])
+        ]
+        mergeImpact(
+            into: &result,
+            initialValue: initial,
+            stressedValue: stressed,
+            configuration: configuration,
+            recoveryMonths: recoveryMonths,
+            timelineValues: timelineValues
+        )
+        return ScenarioJSON(result)
+    }
+
+    private func recoveryElapsed(
+        timeline: [ScenarioJSONValue], initialValue: Double, elapsedKey: String
+    ) -> Double? {
+        guard initialValue > 0 else { return nil }
+        for (index, point) in timeline.enumerated() where index > 0 {
+            guard let object = point.object, let value = object["value"]?.number, value >= initialValue else { continue }
+            return object[elapsedKey]?.number ?? Double(index)
+        }
+        return nil
+    }
+
+    private func mergeImpact(
+        into result: inout [String: ScenarioJSONValue],
+        initialValue: Double,
+        stressedValue: Double,
+        configuration: [String: ScenarioJSONValue],
+        recoveryMonths: Double?,
+        timelineValues: [Double]
+    ) {
+        let engine = ScenarioEngine()
+        let recovery = recoveryMonths ?? engine.recoveryMonths(timelineValues: timelineValues, initialValue: initialValue)
+        let rawHorizon = Int(
+            configuration["goal_horizon_months"]?.number
+                ?? configuration["horizon_months"]?.number
+                ?? 0
+        )
+        let impact = engine.goalImpact(
+            ScenarioGoalImpactInput(
+                initialValue: initialValue,
+                stressedValue: stressedValue,
+                monthlyContribution: configuration["monthly_contribution"]?.number ?? 0,
+                annualReturn: configuration["annual_return"]?.number ?? 0.07,
+                annualInflation: configuration["inflation"]?.number ?? 0.02,
+                annualContributionGrowth: configuration["annual_contribution_growth"]?.number ?? 0,
+                targetAmount: configuration["target_amount"]?.number,
+                horizonMonths: rawHorizon > 0 ? rawHorizon : nil,
+                recoveryMonths: recovery,
+                monthlySpending: configuration["monthly_spending"]?.number
+            )
+        )
+        // Do not overwrite ending_value — custom recovery timelines keep the path end;
+        // portfolio_change_percent reflects the immediate stressed trough.
+        if result["ending_value"] == nil {
+            result["ending_value"] = .number(impact.endingValue)
+        }
+        result["portfolio_change_percent"] = .number(impact.portfolioChangePercent)
+        result["goal_delay_months"] = impact.goalDelayMonths.map(ScenarioJSONValue.number) ?? .null
+        result["required_monthly_contribution"] = impact.requiredMonthlyContribution.map(ScenarioJSONValue.number) ?? .null
+        result["contribution_delta"] = impact.contributionDelta.map(ScenarioJSONValue.number) ?? .null
+        result["recovery_months"] = impact.recoveryMonths.map(ScenarioJSONValue.number) ?? .null
+        result["expense_impact_monthly"] = impact.expenseImpactMonthly.map(ScenarioJSONValue.number) ?? .null
     }
 
     private static let defaultRateSensitivity = [
@@ -410,7 +503,9 @@ struct ScenarioRunProcessor {
         _ output: ScenarioSimulationOutput, pathCount: Int, months: Int,
         configuration: [String: ScenarioJSONValue], warnings: [ScenarioJSONValue]
     ) -> ScenarioJSON {
-        ScenarioJSON([
+        let medianEnding = output.bands.last?.p50
+        let initialFromBands = output.bands.first?.p50
+        var payload: [String: ScenarioJSONValue] = [
             "path_count": .number(Double(pathCount)), "horizon_months": .number(Double(months)),
             "percentile_bands": .array(output.bands.map { .object([
                 "elapsed_months": .number(Double($0.month)), "p10": .number($0.p10), "p25": .number($0.p25),
@@ -429,7 +524,12 @@ struct ScenarioRunProcessor {
                 "annual_contribution_growth": configuration["annual_contribution_growth"] ?? .number(0),
                 "financial_goal_id": configuration["financial_goal_id"] ?? .null,
             ]),
-        ])
+        ]
+        if let medianEnding, let initialFromBands, initialFromBands > 0 {
+            payload["ending_value"] = .number(medianEnding)
+            payload["portfolio_change_percent"] = .number(medianEnding / initialFromBands - 1)
+        }
+        return ScenarioJSON(payload)
     }
 
     private func historicalPortfolioMonthlyReturns(

@@ -76,6 +76,179 @@ struct ScenarioEngine {
         }
         return maximum
     }
+
+    /// Months until portfolio value recovers `initialValue` (first crossing). Returns nil if never.
+    func recoveryMonths(timelineValues: [Double], initialValue: Double) -> Double? {
+        guard initialValue > 0, timelineValues.count > 1 else { return nil }
+        for (index, value) in timelineValues.enumerated() where index > 0 {
+            if value >= initialValue {
+                return Double(index)
+            }
+        }
+        return nil
+    }
+
+    /// Deterministic months to reach an inflation-adjusted target with monthly contributions.
+    /// Returns nil when unreachable within `maxMonths`.
+    func monthsToGoal(
+        initialValue: Double,
+        monthlyContribution: Double,
+        annualReturn: Double,
+        annualInflation: Double,
+        annualContributionGrowth: Double,
+        targetAmount: Double,
+        maxMonths: Int = 600
+    ) -> Int? {
+        guard targetAmount > 0, initialValue >= 0, monthlyContribution.isFinite else { return nil }
+        let months = max(1, min(maxMonths, 600))
+        let monthlyReturn = annualReturn / 12
+        var value = initialValue
+        for month in 1 ... months {
+            let elapsedYears = Double(month - 1) / 12
+            let contribution = monthlyContribution * pow(1 + annualContributionGrowth, elapsedYears)
+            value = max(0, value * (1 + monthlyReturn) + contribution)
+            let inflatedTarget = targetAmount * pow(1 + annualInflation, Double(month) / 12)
+            if value >= inflatedTarget {
+                return month
+            }
+        }
+        return nil
+    }
+
+    /// Monthly contribution required to hit `targetAmount` (inflation-adjusted) by `horizonMonths`.
+    /// Uses a binary search; returns nil when even a large contribution cannot reach the target.
+    func requiredMonthlyContribution(
+        initialValue: Double,
+        horizonMonths: Int,
+        annualReturn: Double,
+        annualInflation: Double,
+        annualContributionGrowth: Double,
+        targetAmount: Double,
+        upperBound: Double = 10_000_000
+    ) -> Double? {
+        guard targetAmount > 0, horizonMonths > 0, initialValue >= 0 else { return nil }
+        let months = max(1, min(horizonMonths, 600))
+        let inflatedTarget = targetAmount * pow(1 + annualInflation, Double(months) / 12)
+
+        func terminal(contribution: Double) -> Double {
+            let monthlyReturn = annualReturn / 12
+            var value = initialValue
+            for month in 1 ... months {
+                let elapsedYears = Double(month - 1) / 12
+                let payment = contribution * pow(1 + annualContributionGrowth, elapsedYears)
+                value = max(0, value * (1 + monthlyReturn) + payment)
+            }
+            return value
+        }
+
+        if terminal(contribution: 0) >= inflatedTarget {
+            return 0
+        }
+        if terminal(contribution: upperBound) < inflatedTarget {
+            return nil
+        }
+
+        var low = 0.0
+        var high = upperBound
+        for _ in 0 ..< 48 {
+            let mid = (low + high) / 2
+            if terminal(contribution: mid) >= inflatedTarget {
+                high = mid
+            } else {
+                low = mid
+            }
+        }
+        return high
+    }
+
+    /// Packages goal/recovery impact fields for a stressed portfolio value.
+    func goalImpact(_ input: ScenarioGoalImpactInput) -> ScenarioGoalImpact {
+        let change = input.initialValue > 0 ? input.stressedValue / input.initialValue - 1 : 0
+        guard let targetAmount = input.targetAmount, targetAmount > 0 else {
+            return ScenarioGoalImpact(
+                endingValue: input.stressedValue,
+                portfolioChangePercent: change,
+                goalDelayMonths: nil,
+                requiredMonthlyContribution: nil,
+                contributionDelta: nil,
+                recoveryMonths: input.recoveryMonths,
+                expenseImpactMonthly: nil
+            )
+        }
+
+        let baselineMonths = monthsToGoal(
+            initialValue: input.initialValue,
+            monthlyContribution: input.monthlyContribution,
+            annualReturn: input.annualReturn,
+            annualInflation: input.annualInflation,
+            annualContributionGrowth: input.annualContributionGrowth,
+            targetAmount: targetAmount
+        )
+        let stressedMonths = monthsToGoal(
+            initialValue: input.stressedValue,
+            monthlyContribution: input.monthlyContribution,
+            annualReturn: input.annualReturn,
+            annualInflation: input.annualInflation,
+            annualContributionGrowth: input.annualContributionGrowth,
+            targetAmount: targetAmount
+        )
+        let delay: Double? = switch (baselineMonths, stressedMonths) {
+        case let (base?, stress?): Double(stress - base)
+        case (nil, .some): nil
+        case (.some, nil): nil
+        case (nil, nil): nil
+        }
+
+        let horizon = input.horizonMonths ?? baselineMonths ?? 120
+        let required = requiredMonthlyContribution(
+            initialValue: input.stressedValue,
+            horizonMonths: max(1, horizon),
+            annualReturn: input.annualReturn,
+            annualInflation: input.annualInflation,
+            annualContributionGrowth: input.annualContributionGrowth,
+            targetAmount: targetAmount
+        )
+        let delta = required.map { $0 - input.monthlyContribution }
+        // When budget spending is known and contribution must rise, surface the same
+        // amount as a spending cut needed to free cash for the higher contribution.
+        let expenseImpact: Double? = {
+            guard let delta, delta > 0, input.monthlySpending != nil else { return nil }
+            return delta
+        }()
+
+        return ScenarioGoalImpact(
+            endingValue: input.stressedValue,
+            portfolioChangePercent: change,
+            goalDelayMonths: delay,
+            requiredMonthlyContribution: required,
+            contributionDelta: delta,
+            recoveryMonths: input.recoveryMonths,
+            expenseImpactMonthly: expenseImpact
+        )
+    }
+}
+
+struct ScenarioGoalImpactInput: Sendable, Equatable {
+    let initialValue: Double
+    let stressedValue: Double
+    let monthlyContribution: Double
+    let annualReturn: Double
+    let annualInflation: Double
+    let annualContributionGrowth: Double
+    let targetAmount: Double?
+    let horizonMonths: Int?
+    let recoveryMonths: Double?
+    let monthlySpending: Double?
+}
+
+struct ScenarioGoalImpact: Sendable, Equatable {
+    let endingValue: Double
+    let portfolioChangePercent: Double
+    let goalDelayMonths: Double?
+    let requiredMonthlyContribution: Double?
+    let contributionDelta: Double?
+    let recoveryMonths: Double?
+    let expenseImpactMonthly: Double?
 }
 
 enum ScenarioSimulationDistribution: Sendable {
