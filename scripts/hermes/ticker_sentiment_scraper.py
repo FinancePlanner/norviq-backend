@@ -531,6 +531,27 @@ def purge_source(db_path: str, source: str, confirmed: bool) -> None:
     LOG.info("deleted %d fin_event rows with source=%s", count, source)
 
 
+def refresh_symbols(config_path: str, url: str, token: str, timeout: int = 30) -> None:
+    """Overwrite scraper_config.json 'tickers' from the backend tracked-symbols
+    endpoint. Fail-safe: on any error, log a warning and leave the file untouched."""
+    import urllib.request
+
+    try:
+        req = urllib.request.Request(url, headers={"Authorization": f"Bearer {token}"})
+        data = json.loads(urllib.request.urlopen(req, timeout=timeout).read().decode("utf-8"))
+        syms = [str(s).strip().upper() for s in (data.get("symbols") or []) if str(s).strip()][:50]
+        if not syms:
+            LOG.warning("refresh_symbols: empty list, keeping existing config")
+            return
+        cfg = json.loads(open(config_path).read())
+        cfg["tickers"] = syms
+        with open(config_path, "w") as fh:
+            fh.write(json.dumps(cfg, indent=2))
+        LOG.info("refresh_symbols: wrote %d symbols to %s", len(syms), config_path)
+    except Exception as e:  # noqa: BLE001 — never let a refresh failure abort the scrape
+        LOG.warning("refresh_symbols failed (%s); keeping existing config", e)
+
+
 def main() -> None:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s", stream=sys.stdout)
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -542,7 +563,18 @@ def main() -> None:
     parser.add_argument("--dry-run", action="store_true", help="fetch + parse but do not write")
     parser.add_argument("--purge-source", metavar="SOURCE", help="delete fin_event rows with this source, then exit")
     parser.add_argument("--yes", action="store_true", help="confirm --purge-source deletion")
+    parser.add_argument("--refresh-symbols", metavar="URL",
+                        help="fetch top-N tickers from the backend tracked-symbols endpoint into scraper_config.json, then exit")
     args = parser.parse_args()
+
+    if args.refresh_symbols:
+        load_env_files()
+        token = os.environ.get("INSIGHTS_SYMBOLS_TOKEN", "").strip()
+        if not token:
+            LOG.warning("refresh_symbols: INSIGHTS_SYMBOLS_TOKEN not set; keeping existing config")
+            return
+        refresh_symbols(args.config, args.refresh_symbols, token)
+        return
 
     if args.purge_source:
         purge_source(args.db, args.purge_source, args.yes)
