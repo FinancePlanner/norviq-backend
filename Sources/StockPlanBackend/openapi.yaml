@@ -7402,6 +7402,11 @@ components:
     ScenarioJSON:
       type: object
       additionalProperties: true
+      description: >
+        Opaque scenario payload. Completed run results may include timeline, maximum_drawdown,
+        ending_value, portfolio_change_percent, goal_delay_months, required_monthly_contribution,
+        contribution_delta, recovery_months, expense_impact_monthly, goal_probability,
+        expected_shortfall, holding_contributions, class_contributions, assumptions, and warnings.
     FinancialGoalInput:
       type: object
       required: [name, goalType, targetAmount, targetDate, baseCurrency, startingCapital, monthlyContribution, annualContributionGrowth, inflationAssumption, riskProfile, status, portfolioAllocations, expenseCategoryLinks]
