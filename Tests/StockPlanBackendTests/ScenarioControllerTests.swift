@@ -1,23 +1,13 @@
 import Fluent
 import Foundation
 @testable import StockPlanBackend
+import StockPlanShared
 import Testing
 import Vapor
 import VaporTesting
 
 @Suite("Scenario controller", .serialized)
 struct ScenarioControllerTests {
-    private struct GoalRequest: Content {
-        let portfolioListId: UUID
-        let name: String
-        let targetAmount: Double
-        let targetDate: Date
-        let baseCurrency: String
-        let monthlyContribution: Double
-        let annualContributionGrowth: Double
-        let inflationAssumption: Double
-    }
-
     private struct SnapshotRequest: Content {
         let portfolioListId: UUID
         let baseCurrency: String
@@ -134,8 +124,12 @@ struct ScenarioControllerTests {
     func proGate() async throws {
         try await withApp { app in
             let auth = try await registerUser("free", on: app)
+            try await app.testing().test(.GET, "v1/financial-goals", beforeRequest: { req in
+                req.headers.bearerAuthorization = .init(token: auth.token)
+            }, afterResponse: { response async in
+                #expect(response.status == .ok)
+            })
             for path in [
-                "v1/financial-goals",
                 "v1/scenarios/catalog",
                 "v1/portfolio/scenario-snapshots",
                 "v1/scenario-runs",
@@ -160,21 +154,25 @@ struct ScenarioControllerTests {
             try await grantPro(other.userId, on: app)
             let portfolioId = try await makePortfolio(for: owner.userId, suffix: "Owner", on: app)
 
-            let goal: FinancialGoalModel = try await request(
+            let goal: FinancialGoal = try await request(
                 .POST,
                 "v1/financial-goals",
                 token: owner.token,
-                body: GoalRequest(
-                    portfolioListId: portfolioId,
+                body: FinancialGoalInput(
                     name: "Retirement corpus",
                     targetAmount: 1_000_000,
-                    targetDate: Date().addingTimeInterval(20 * 365 * 86400),
+                    targetDate: GoalPlanningService.dateString(Date().addingTimeInterval(20 * 365 * 86400)),
                     baseCurrency: "eur",
                     monthlyContribution: 1500,
                     annualContributionGrowth: 0.03,
-                    inflationAssumption: 0.02
+                    inflationAssumption: 0.02,
+                    portfolioAllocations: [.init(
+                        id: UUID().uuidString,
+                        portfolioListId: portfolioId.uuidString,
+                        allocationPercentage: 100
+                    )]
                 ),
-                as: FinancialGoalModel.self,
+                as: FinancialGoal.self,
                 on: app
             )
             #expect(goal.baseCurrency == "EUR")
@@ -199,7 +197,7 @@ struct ScenarioControllerTests {
             )
             let snapshotId = try #require(snapshot.id)
 
-            for path in try ["v1/financial-goals/\(#require(goal.id))", "v1/portfolio/scenario-snapshots/\(snapshotId)"] {
+            for path in ["v1/financial-goals/\(goal.id)", "v1/portfolio/scenario-snapshots/\(snapshotId)"] {
                 try await app.testing().test(.GET, path, beforeRequest: { req in
                     req.headers.bearerAuthorization = .init(token: other.token)
                 }, afterResponse: { response async in
@@ -334,19 +332,25 @@ struct ScenarioControllerTests {
             let portfolioId = try await makePortfolio(for: auth.userId, suffix: "Goal", on: app)
             let otherPortfolioId = try await makePortfolio(for: auth.userId, suffix: "Other Goal", on: app)
             let targetDate = Calendar(identifier: .gregorian).date(byAdding: .month, value: 18, to: Date())!
-            let goal: FinancialGoalModel = try await request(
+            let goal: FinancialGoal = try await request(
                 .POST,
                 "v1/financial-goals",
                 token: auth.token,
-                body: GoalRequest(
-                    portfolioListId: portfolioId, name: "Linked goal", targetAmount: 125_000,
-                    targetDate: targetDate, baseCurrency: "USD", monthlyContribution: 750,
-                    annualContributionGrowth: 0.04, inflationAssumption: 0.025
+                body: FinancialGoalInput(
+                    name: "Linked goal", targetAmount: 125_000,
+                    targetDate: GoalPlanningService.dateString(targetDate), baseCurrency: "USD",
+                    monthlyContribution: 750, annualContributionGrowth: 0.04,
+                    inflationAssumption: 0.025,
+                    portfolioAllocations: [.init(
+                        id: UUID().uuidString,
+                        portfolioListId: portfolioId.uuidString,
+                        allocationPercentage: 100
+                    )]
                 ),
-                as: FinancialGoalModel.self,
+                as: FinancialGoal.self,
                 on: app
             )
-            let goalId = try #require(goal.id)
+            let goalId = try #require(UUID(uuidString: goal.id))
             try await app.testing().test(.POST, "v1/scenarios", beforeRequest: { req in
                 req.headers.bearerAuthorization = .init(token: auth.token)
                 try req.content.encode(ScenarioRequest(

@@ -313,6 +313,7 @@ public func configure(_ app: Application) async throws {
         rebalanceCooldownSeconds: Environment.get("WEALTH_AUTOMATION_REBALANCE_COOLDOWN_SECONDS")
             .flatMap(Int64.init) ?? 604_800
     ))
+    configureGoalPlanningJob(app)
 
     // Macro / inflation (Nowflation parity). FRED is the keystone provider:
     // without FRED_API_KEY the US (and intl fallback) stay disabled while
@@ -361,6 +362,14 @@ public func configure(_ app: Application) async throws {
 
     // register routes
     try routes(app)
+}
+
+private func configureGoalPlanningJob(_ app: Application) {
+    guard envBool("GOAL_PLANNING_ENABLED", default: true),
+          envBool("GOAL_EVALUATOR_ENABLED", default: true)
+    else { return }
+    let interval = Environment.get("GOAL_EVALUATOR_INTERVAL_SECONDS").flatMap(Int64.init) ?? 86400
+    app.lifecycle.use(GoalPlanningDailyJob(intervalSeconds: interval))
 }
 
 /// Fail-fast validation of billing secrets at boot.
