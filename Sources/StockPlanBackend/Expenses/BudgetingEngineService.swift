@@ -57,7 +57,7 @@ struct BudgetingEngineService {
         return BudgetDisciplineSummary(
             currentScore: results.last?.score,
             completedMonthStreak: streak,
-            compliantMonths: completed.filter { $0.compliant == true }.count,
+            compliantMonths: completed.count { $0.compliant == true },
             evaluatedMonths: completed.count,
             months: results
         )
