@@ -74,7 +74,12 @@ struct BudgetingEngineService {
             throw Abort(.conflict, reason: "Budget changed. Refresh before reallocating.")
         }
         let validated = try await validateAdjustments(request.adjustments, snapshotId: snapshotId, userId: userId, on: db)
-        try await validateDestination(userId: userId, goal: request.financialGoalId, portfolio: request.portfolioListId, on: db)
+        _ = try await validatedDestination(
+            userId: userId,
+            goal: request.financialGoalId,
+            portfolio: request.portfolioListId,
+            on: db
+        )
         let freed = rounded(validated.reduce(0) { $0 + $1.amount }, currencyCode: snapshot.currencyCode)
         let nextMonth = Calendar.utcGregorian.date(byAdding: .month, value: 1, to: snapshot.monthStart)!
         let existing = try await self.snapshot(userId: userId, monthStart: nextMonth, on: db)
@@ -116,7 +121,12 @@ struct BudgetingEngineService {
                 throw Abort(.conflict, reason: "Budget changed. Refresh before reallocating.")
             }
             let validated = try await validateAdjustments(request.preview.adjustments, snapshotId: sourceId, userId: userId, on: db)
-            try await validateDestination(userId: userId, goal: request.preview.financialGoalId, portfolio: request.preview.portfolioListId, on: db)
+            let destination = try await validatedDestination(
+                userId: userId,
+                goal: request.preview.financialGoalId,
+                portfolio: request.preview.portfolioListId,
+                on: db
+            )
             let effectiveMonth = Calendar.utcGregorian.date(byAdding: .month, value: 1, to: source.monthStart)!
             let target = try await cloneSnapshotIfNeeded(source: source, effectiveMonth: effectiveMonth, userId: userId, on: db)
             let targetId = try target.requireID()
@@ -137,10 +147,12 @@ struct BudgetingEngineService {
                 try await targetItem.update(on: db)
                 total += adjustment.amount
             }
-            let goalId = request.preview.financialGoalId.flatMap(UUID.init(uuidString:))
-            let portfolioId = request.preview.portfolioListId.flatMap(UUID.init(uuidString:))
+            let goalId = destination.goalId
+            let portfolioId = destination.portfolioId
             let investment = targetItems.first(where: {
-                $0.allocationKind == .investmentContribution && $0.destinationFinancialGoalId == goalId
+                $0.allocationKind == .investmentContribution
+                    && $0.destinationFinancialGoalId == goalId
+                    && $0.destinationPortfolioListId == portfolioId
             }) ?? BudgetPlanItem(
                 snapshotID: targetId, userID: userId, title: "Investments", plannedAmount: 0,
                 pillar: .futureYou, allocationKind: .investmentContribution,
@@ -366,15 +378,48 @@ struct BudgetingEngineService {
         return result
     }
 
-    private func validateDestination(userId: UUID, goal: String?, portfolio: String?, on db: any Database) async throws {
-        if let goal {
-            guard let id = UUID(uuidString: goal), try await FinancialGoalModel.owned(by: userId, on: db).filter(\.$id == id).first() != nil
-            else { throw Abort(.badRequest, reason: "Invalid financial goal.") }
-        }
+    private func validatedDestination(
+        userId: UUID,
+        goal: String?,
+        portfolio: String?,
+        on db: any Database
+    ) async throws -> (goalId: UUID?, portfolioId: UUID?) {
+        let requestedPortfolioId: UUID?
         if let portfolio {
-            guard let id = UUID(uuidString: portfolio), try await PortfolioList.query(on: db).filter(\.$id == id).filter(\.$userId == userId).first() != nil
+            guard let id = UUID(uuidString: portfolio) else {
+                throw Abort(.badRequest, reason: "Invalid portfolio.")
+            }
+            requestedPortfolioId = id
+        } else {
+            requestedPortfolioId = nil
+        }
+
+        let goalModel: FinancialGoalModel?
+        if let goal {
+            guard let id = UUID(uuidString: goal),
+                  let model = try await FinancialGoalModel.owned(by: userId, on: db)
+                  .filter(\.$id == id)
+                  .first()
+            else { throw Abort(.badRequest, reason: "Invalid financial goal.") }
+            goalModel = model
+        } else {
+            goalModel = nil
+        }
+
+        if let goalModel, let requestedPortfolioId, goalModel.portfolioListId != requestedPortfolioId {
+            throw Abort(.badRequest, reason: "The financial goal does not belong to the selected portfolio.")
+        }
+
+        let resolvedPortfolioId = requestedPortfolioId ?? goalModel?.portfolioListId
+        if let resolvedPortfolioId {
+            guard try await PortfolioList.query(on: db)
+                .filter(\.$id == resolvedPortfolioId)
+                .filter(\.$userId == userId)
+                .first() != nil
             else { throw Abort(.badRequest, reason: "Invalid portfolio.") }
         }
+
+        return (goalModel?.id, resolvedPortfolioId)
     }
 
     private func cloneSnapshotIfNeeded(source: BudgetSnapshot, effectiveMonth: Date, userId: UUID, on db: any Database) async throws -> BudgetSnapshot {
@@ -402,8 +447,13 @@ struct BudgetingEngineService {
 
     private func snapshot(userId: UUID, monthStart: Date, on db: any Database) async throws -> BudgetSnapshot? {
         let range = monthRange(containing: monthStart)
-        return try await BudgetSnapshot.query(on: db).filter(\.$user.$id == userId)
-            .filter(\.$monthStart >= range.start).filter(\.$monthStart < range.end).first()
+        let widenedStart = Calendar.utcGregorian.date(byAdding: .day, value: -1, to: range.start)!
+        let widenedEnd = Calendar.utcGregorian.date(byAdding: .day, value: 1, to: range.start)!
+        let candidates = try await BudgetSnapshot.query(on: db).filter(\.$user.$id == userId)
+            .filter(\.$monthStart >= widenedStart).filter(\.$monthStart < widenedEnd).all()
+        return candidates.min {
+            abs($0.monthStart.timeIntervalSince(range.start)) < abs($1.monthStart.timeIntervalSince(range.start))
+        }
     }
 
     private func requiredSnapshot(userId: UUID, id: UUID) async throws -> BudgetSnapshot {
@@ -471,8 +521,13 @@ struct BudgetDriftEvaluator {
     func evaluate(userId: UUID, monthStart: Date, notify: Bool) async throws {
         let range = Calendar.utcGregorian.dateComponents([.year, .month], from: monthStart)
         let start = Calendar.utcGregorian.date(from: range)!
-        guard let snapshot = try await BudgetSnapshot.query(on: req.db).filter(\.$user.$id == userId)
-            .filter(\.$monthStart >= start).filter(\.$monthStart < Calendar.utcGregorian.date(byAdding: .month, value: 1, to: start)!).first(),
+        let widenedStart = Calendar.utcGregorian.date(byAdding: .day, value: -1, to: start)!
+        let widenedEnd = Calendar.utcGregorian.date(byAdding: .day, value: 1, to: start)!
+        let snapshots = try await BudgetSnapshot.query(on: req.db).filter(\.$user.$id == userId)
+            .filter(\.$monthStart >= widenedStart).filter(\.$monthStart < widenedEnd).all()
+        guard let snapshot = snapshots.min(by: {
+            abs($0.monthStart.timeIntervalSince(start)) < abs($1.monthStart.timeIntervalSince(start))
+        }),
             let snapshotId = snapshot.id
         else { return }
         let dashboard = try await BudgetingEngineService(req: req).dashboard(userId: userId, snapshotId: snapshotId)

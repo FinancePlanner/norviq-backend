@@ -861,4 +861,197 @@ struct ExpensesTests {
             })
         }
     }
+
+    @Test("Budget alert policy updates thresholds and alert switches")
+    func budgetAlertPolicyUpdate() async throws {
+        try await withExpensesApp { app in
+            let token = try await registerTestUser(app: app)
+            var snapshotId = ""
+
+            try await app.testing().test(.POST, "v1/budget/snapshots", beforeRequest: { req in
+                req.headers.bearerAuthorization = .init(token: token)
+                try req.content.encode(
+                    BudgetSnapshotRequest(
+                        monthStart: "2026-07-01",
+                        netSalary: 4000,
+                        targetShares: [:]
+                    )
+                )
+            }, afterResponse: { response async throws in
+                #expect(response.status == .created)
+                snapshotId = try response.content.decode(BudgetSnapshotResponse.self).id
+            })
+
+            try await app.testing().test(.PUT, "v1/budget/snapshots/\(snapshotId)/alert-policy", beforeRequest: { req in
+                req.headers.bearerAuthorization = .init(token: token)
+                try req.content.encode(
+                    BudgetAlertPolicy(
+                        categoryThreshold: 22,
+                        totalThreshold: 8,
+                        alertsEnabled: false,
+                        alertOnUnbudgeted: false
+                    )
+                )
+            }, afterResponse: { response async throws in
+                #expect(response.status == .ok)
+                let snapshot = try response.content.decode(BudgetSnapshotResponse.self)
+                #expect(snapshot.categoryDriftThreshold == 22)
+                #expect(snapshot.totalDriftThreshold == 8)
+                #expect(snapshot.alertsEnabled == false)
+                #expect(snapshot.alertOnUnbudgeted == false)
+                #expect(snapshot.revision == 1)
+            })
+        }
+    }
+
+    @Test("Reallocation updates the investment target for the selected portfolio only")
+    func reallocationRoutesByPortfolio() async throws {
+        try await withExpensesApp { app in
+            _ = try await registerTestUser(app: app)
+            let user = try #require(try await User.query(on: app.db).first())
+            let userId = try user.requireID()
+            let sourceId = UUID()
+            let targetId = UUID()
+            let expenseItemId = UUID()
+            let firstPortfolioId = UUID()
+            let selectedPortfolioId = UUID()
+            var calendar = Calendar(identifier: .gregorian)
+            calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+            let sourceMonth = try #require(calendar.date(from: DateComponents(year: 2026, month: 7, day: 1)))
+            let targetMonth = try #require(calendar.date(from: DateComponents(year: 2026, month: 8, day: 1)))
+
+            let firstPortfolio = PortfolioList(
+                id: firstPortfolioId,
+                userId: userId,
+                name: "Long term"
+            )
+            let selectedPortfolio = PortfolioList(
+                id: selectedPortfolioId,
+                userId: userId,
+                name: "Retirement"
+            )
+            try await firstPortfolio.create(on: app.db)
+            try await selectedPortfolio.create(on: app.db)
+
+            let source = BudgetSnapshot(
+                id: sourceId,
+                userID: userId,
+                monthStart: sourceMonth,
+                netSalary: 4000,
+                targetShares: [:],
+                currencyCode: "EUR"
+            )
+            let target = BudgetSnapshot(
+                id: targetId,
+                userID: userId,
+                monthStart: targetMonth,
+                netSalary: 4000,
+                targetShares: [:],
+                currencyCode: "EUR"
+            )
+            try await source.create(on: app.db)
+            try await target.create(on: app.db)
+
+            let sourceExpense = BudgetPlanItem(
+                id: expenseItemId,
+                snapshotID: sourceId,
+                userID: userId,
+                title: "Dining Out",
+                plannedAmount: 150,
+                pillar: .fun,
+                reallocationEligible: true
+            )
+            let targetExpense = BudgetPlanItem(
+                snapshotID: targetId,
+                userID: userId,
+                title: "Dining Out",
+                plannedAmount: 150,
+                pillar: .fun,
+                reallocationEligible: true
+            )
+            let firstInvestment = BudgetPlanItem(
+                snapshotID: targetId,
+                userID: userId,
+                title: "Long-term investments",
+                plannedAmount: 300,
+                pillar: .futureYou,
+                allocationKind: .investmentContribution,
+                destinationPortfolioListId: firstPortfolioId
+            )
+            let selectedInvestment = BudgetPlanItem(
+                snapshotID: targetId,
+                userID: userId,
+                title: "Retirement investments",
+                plannedAmount: 500,
+                pillar: .futureYou,
+                allocationKind: .investmentContribution,
+                destinationPortfolioListId: selectedPortfolioId
+            )
+            try await sourceExpense.create(on: app.db)
+            try await targetExpense.create(on: app.db)
+            try await firstInvestment.create(on: app.db)
+            try await selectedInvestment.create(on: app.db)
+
+            let preview = BudgetReallocationPreviewRequest(
+                snapshotId: sourceId.uuidString,
+                expectedRevision: 0,
+                adjustments: [
+                    BudgetReallocationAdjustment(planItemId: expenseItemId.uuidString, amount: 60),
+                ],
+                portfolioListId: selectedPortfolioId.uuidString
+            )
+            let request = Request(application: app, on: app.eventLoopGroup.next())
+            let event = try await BudgetingEngineService(req: request).commit(
+                userId: userId,
+                request: BudgetReallocationCommitRequest(
+                    requestId: UUID().uuidString,
+                    preview: preview
+                )
+            )
+            #expect(event.portfolioListId == selectedPortfolioId.uuidString)
+            #expect(event.freedCapital == 60)
+
+            let refreshedFirst = try #require(try await BudgetPlanItem.find(firstInvestment.requireID(), on: app.db))
+            let refreshedSelected = try #require(try await BudgetPlanItem.find(selectedInvestment.requireID(), on: app.db))
+            #expect(refreshedFirst.plannedAmount == 300)
+            #expect(refreshedSelected.plannedAmount == 560)
+        }
+    }
+
+    @Test("Budget templates persist their item collection as JSON")
+    func budgetTemplatePersistence() async throws {
+        try await withExpensesApp { app in
+            let token = try await registerTestUser(app: app)
+            let template = BudgetTemplateRequest(
+                name: "Balanced month",
+                items: [
+                    BudgetTemplateItem(
+                        title: "Groceries",
+                        plannedAmount: 400,
+                        pillar: .fundamentals,
+                        reallocationEligible: true
+                    ),
+                ]
+            )
+
+            try await app.testing().test(.POST, "v1/budget/templates", beforeRequest: { req in
+                req.headers.bearerAuthorization = .init(token: token)
+                try req.content.encode(template)
+            }, afterResponse: { response async throws in
+                #expect(response.status == .ok)
+                let saved = try response.content.decode(BudgetTemplateResponse.self)
+                #expect(saved.name == template.name)
+                #expect(saved.items == template.items)
+            })
+
+            try await app.testing().test(.GET, "v1/budget/templates", beforeRequest: { req in
+                req.headers.bearerAuthorization = .init(token: token)
+            }, afterResponse: { response async throws in
+                #expect(response.status == .ok)
+                let saved = try response.content.decode([BudgetTemplateResponse].self)
+                #expect(saved.count == 1)
+                #expect(saved.first?.items == template.items)
+            })
+        }
+    }
 }
