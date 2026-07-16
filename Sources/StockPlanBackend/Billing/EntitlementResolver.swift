@@ -158,6 +158,8 @@ enum BillingFeature: String {
     case smartScreening = "smart_screening"
     /// Deterministic portfolio drift and cadence policies — Pro/trial only.
     case rebalancingRules = "rebalancing_rules"
+    /// Deterministic planning is free for one active goal; cross-feature optimization is Pro.
+    case goalPlanning = "goal_planning"
 }
 
 struct BillingPlanLimits {
@@ -213,7 +215,7 @@ struct BillingPlanLimits {
              .crypto, .aiInsights, .mcpAccess, .scenarioPlanning, .taxOptimization, .receiptScan, .bankSync,
              .advancedPortfolios, .jointPortfolios, .advancedReportTemplates,
              .advancedReportSchedules, .advancedReportRuns,
-             .netWorthForecasting, .smartScreening, .rebalancingRules:
+             .netWorthForecasting, .smartScreening, .rebalancingRules, .goalPlanning:
             nil
         }
     }
@@ -319,7 +321,7 @@ struct DefaultUsageCounterService: UsageCounterService {
              .crypto, .aiInsights, .mcpAccess, .scenarioPlanning, .taxOptimization, .receiptScan, .bankSync,
              .advancedPortfolios, .jointPortfolios, .advancedReportTemplates,
              .advancedReportSchedules, .advancedReportRuns,
-             .netWorthForecasting, .smartScreening, .rebalancingRules:
+             .netWorthForecasting, .smartScreening, .rebalancingRules, .goalPlanning:
             0
         }
     }
@@ -342,7 +344,7 @@ struct DefaultUsageCounterService: UsageCounterService {
              .crypto, .aiInsights, .mcpAccess, .scenarioPlanning, .taxOptimization, .receiptScan, .bankSync,
              .advancedPortfolios, .jointPortfolios, .advancedReportTemplates,
              .advancedReportSchedules, .advancedReportRuns,
-             .netWorthForecasting, .smartScreening, .rebalancingRules:
+             .netWorthForecasting, .smartScreening, .rebalancingRules, .goalPlanning:
             break
         }
     }
