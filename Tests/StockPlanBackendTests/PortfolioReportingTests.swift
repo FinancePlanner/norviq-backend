@@ -87,6 +87,76 @@ struct PortfolioReportingTests {
         ) == false)
     }
 
+    @Test("Advanced report worker stops runs after portfolio access is revoked")
+    func workerStopsRunsAfterPortfolioAccessRevoked() async throws {
+        try await DatabaseTestLock.withLock {
+            let app = try await Application.make(.testing)
+            do {
+                try await configure(app)
+                try await app.autoMigrate()
+
+                let owner = User(email: "report-owner@example.com", passwordHash: "test-hash", isVerified: true)
+                let member = User(email: "report-member@example.com", passwordHash: "test-hash", isVerified: true)
+                try await owner.save(on: app.db)
+                try await member.save(on: app.db)
+                let ownerId = try owner.requireID()
+                let memberId = try member.requireID()
+
+                let portfolio = PortfolioList(
+                    userId: ownerId,
+                    name: "Joint household",
+                    purpose: PortfolioPurpose.personal.rawValue,
+                    ownership: PortfolioOwnership.joint.rawValue
+                )
+                try await portfolio.save(on: app.db)
+                let portfolioId = try portfolio.requireID()
+                try await PortfolioMembershipRecord(
+                    portfolioId: portfolioId,
+                    userId: memberId,
+                    role: PortfolioRole.editor.rawValue,
+                    status: "revoked",
+                    joinedAt: Date()
+                ).save(on: app.db)
+
+                let templateInput = ReportTemplateInput(
+                    name: "Household review",
+                    description: "Includes shared holdings",
+                    blocks: [
+                        .init(id: "holdings", kind: .holdings, title: "Holdings", portfolioIds: [portfolioId.uuidString]),
+                    ]
+                )
+                let template = try AdvancedReportTemplateRecord(
+                    ownerUserId: memberId,
+                    inputJSON: encodeReportJSON(templateInput)
+                )
+                try await template.save(on: app.db)
+                let run = try AdvancedReportRunRecord(
+                    templateId: template.requireID(),
+                    requestedByUserId: memberId,
+                    templateRevision: 1,
+                    templateInputJSON: template.inputJSON,
+                    outputFormatsJSON: encodeReportJSON([ReportOutputFormat.pdf]),
+                    recipientUserIdsJSON: encodeReportJSON([memberId.uuidString])
+                )
+                try await run.save(on: app.db)
+                let runId = try run.requireID()
+
+                await AdvancedReportWorker(gotenbergBaseURL: "http://127.0.0.1:1").runOnce(app)
+
+                let updated = try #require(await AdvancedReportRunRecord.find(runId, on: app.db))
+                #expect(updated.status == ReportRunStatus.failed.rawValue)
+                #expect(updated.failureReason == "Report generation stopped because portfolio access was revoked.")
+                #expect(try await AdvancedReportArtifactRecord.query(on: app.db).count() == 0)
+                try await app.autoRevert()
+            } catch {
+                try? await app.autoRevert()
+                try await app.asyncShutdown()
+                throw error
+            }
+            try await app.asyncShutdown()
+        }
+    }
+
     @Test("Workbook contains the expected sheets, formulas, and escaped values")
     func workbookStructure() {
         let document = reportDocument(title: "Family & Retirement <2026>")

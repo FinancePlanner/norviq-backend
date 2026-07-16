@@ -481,7 +481,7 @@ struct DefaultRebalancingService: RebalancingServicing {
             .count()
         return .init(
             openAlertCount: count,
-            breachedPortfolioCount: overviews.filter { $0.severity == .breached }.count,
+            breachedPortfolioCount: overviews.count { $0.severity == .breached },
             portfolios: overviews
         )
     }
