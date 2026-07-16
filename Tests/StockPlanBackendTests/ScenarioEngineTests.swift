@@ -119,6 +119,17 @@ struct ScenarioEngineTests {
     }
 
     @Test
+    func `budget expense total excludes investments and applies user share`() {
+        let total = ScenarioBudgetSpending.expenseTotal(items: [
+            (allocationKind: .expense, plannedAmount: 2000, userSharePercent: 100),
+            (allocationKind: .expense, plannedAmount: 1000, userSharePercent: 50),
+            (allocationKind: .investmentContribution, plannedAmount: 800, userSharePercent: 100),
+        ])
+        #expect(abs(total - 2500) < 0.000_001)
+        #expect(ScenarioBudgetSpending.expenseTotal(items: []) == 0)
+    }
+
+    @Test
     func `custom processor emits impact fields with linked goal config`() {
         let snapshot: [String: ScenarioJSONValue] = [
             "total_value": .number(100_000),

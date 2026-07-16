@@ -176,6 +176,13 @@ struct ScenarioRunProcessor {
             configuration["financial_goal_id"] = .string(goalID.uuidString)
         }
 
+        // Prefer explicit config override; otherwise load latest budget plan expense total.
+        if configuration["monthly_spending"] == nil,
+           let spending = try await ScenarioBudgetSpending.monthlyExpenseSpending(userId: run.userId, on: database)
+        {
+            configuration["monthly_spending"] = .number(spending)
+        }
+
         switch run.scenario.kind {
         case "monte_carlo": return try await monteCarlo(
                 initialValue: initialValue, snapshot: snapshot, configuration: configuration,
@@ -258,6 +265,7 @@ struct ScenarioRunProcessor {
             "assumptions": .object([
                 "valuation_currency": snapshot["base_currency"] ?? .null,
                 "financial_goal_id": configuration["financial_goal_id"] ?? .null,
+                "monthly_spending": configuration["monthly_spending"] ?? .null,
             ]),
         ]
         mergeImpact(
@@ -355,6 +363,7 @@ struct ScenarioRunProcessor {
                 "rate_sensitivity_defaults_version": .string(ScenarioEngine.version),
                 "recovery": .string(recovery),
                 "financial_goal_id": configuration["financial_goal_id"] ?? .null,
+                "monthly_spending": configuration["monthly_spending"] ?? .null,
             ]),
         ]
         mergeImpact(
@@ -523,6 +532,7 @@ struct ScenarioRunProcessor {
                 "monthly_contribution": configuration["monthly_contribution"] ?? .number(0),
                 "annual_contribution_growth": configuration["annual_contribution_growth"] ?? .number(0),
                 "financial_goal_id": configuration["financial_goal_id"] ?? .null,
+                "monthly_spending": configuration["monthly_spending"] ?? .null,
             ]),
         ]
         if let medianEnding, let initialFromBands, initialFromBands > 0 {
