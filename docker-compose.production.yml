@@ -50,6 +50,8 @@ services:
     env_file: ${ENV_FILE:-.env.production}
     environment:
       DATABASE_HOST: db
+      SCENARIO_PLANNING_ENABLED: "true"
+      SCENARIO_HISTORY_REFRESH_SECONDS: "86400"
     restart: unless-stopped
     ports:
       - "127.0.0.1:${APP_PORT:-8080}:8080"
