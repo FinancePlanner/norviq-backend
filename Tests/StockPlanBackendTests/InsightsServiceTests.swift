@@ -227,6 +227,40 @@ struct InsightsServiceTests {
         }
     }
 
+    @Test("GET /v1/insights/tickers/:symbol/sentiment requires Pro")
+    func tickerSentimentRequiresPro() async throws {
+        try await withApp { app in
+            let (token, userId) = try await registerTestUser(app: app)
+            try await clearTrial(userId: userId, on: app.db)
+
+            try await app.testing().test(.GET, "v1/insights/tickers/AMD/sentiment", beforeRequest: { req in
+                req.headers.bearerAuthorization = .init(token: token)
+            }, afterResponse: { res async throws in
+                #expect(res.status == .forbidden)
+                let body = try res.content.decode(BillingUpgradeRequiredResponse.self)
+                #expect(body.code == "upgrade_required")
+                #expect(body.feature == "ai_insights")
+                #expect(body.requiredPlan == "pro")
+            })
+        }
+    }
+
+    @Test("GET /v1/insights/tickers/:symbol/sentiment allows Pro users")
+    func tickerSentimentAllowsPro() async throws {
+        try await withApp { app in
+            let (token, userId) = try await registerTestUser(app: app)
+            try await Entitlement(userId: userId, level: "pro").save(on: app.db)
+
+            try await app.testing().test(.GET, "v1/insights/tickers/AMD/sentiment", beforeRequest: { req in
+                req.headers.bearerAuthorization = .init(token: token)
+            }, afterResponse: { res async throws in
+                #expect(res.status == .ok)
+                let body = try res.content.decode(TickerSentimentResponse.self)
+                #expect(body.symbol == "AMD")
+            })
+        }
+    }
+
     private func registerTestUser(app: Application) async throws -> (token: String, userId: UUID) {
         let suffix = UUID().uuidString.replacingOccurrences(of: "-", with: "").lowercased().prefix(12)
         let request = StockPlanBackend.AuthRegisterRequest(
@@ -249,6 +283,14 @@ struct InsightsServiceTests {
             throw Abort(.internalServerError, reason: "Auth register did not return a response")
         }
         return (response.token, response.userId)
+    }
+
+    private func clearTrial(userId: UUID, on db: any Database) async throws {
+        let user = try #require(try await User.find(userId, on: db))
+        user.trialStartedAt = nil
+        user.trialDays = nil
+        user.trialTier = nil
+        try await user.save(on: db)
     }
 
     private func ensureDefaultPortfolioListId(userId: UUID, on db: any Database) async throws -> UUID {

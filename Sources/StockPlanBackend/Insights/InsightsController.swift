@@ -82,7 +82,12 @@ struct InsightsController: RouteCollection {
 
     @Sendable
     func tickerSentiment(req: Request) async throws -> TickerSentimentResponse {
-        _ = try req.auth.require(SessionToken.self)
+        let session = try req.auth.require(SessionToken.self)
+        try await req.usageCounterService.requirePremium(
+            .aiInsights,
+            userId: session.userId,
+            on: req.db
+        )
         let symbol = try validatedSymbol(req.parameters.get("symbol"))
         let days = clampedDays(req.query[Int.self, at: "days"], default: 14)
         let limit = clampedLimit(req.query[Int.self, at: "limit"], default: 20, max: 100)
