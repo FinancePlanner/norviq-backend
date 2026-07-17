@@ -319,68 +319,28 @@ struct PortfolioController: RouteCollection {
             on: req.db
         )
 
-        struct SymbolPosition {
-            var shares: Double = 0
-            var costBasis: Double = 0
-        }
+        let valuation = try await req.application.portfolioValuationService.value(
+            stocks: stocks,
+            cashBalance: cashBalance,
+            asOf: Date(),
+            on: req
+        )
 
-        var positions: [String: SymbolPosition] = [:]
-        var symbolOrder: [String] = []
-        for stock in stocks {
-            let symbol = normalizeSymbol(stock.symbol)
-            guard !symbol.isEmpty else { continue }
-            if positions[symbol] == nil {
-                symbolOrder.append(symbol)
-            }
-            var position = positions[symbol] ?? SymbolPosition()
-            position.shares += stock.shares
-            position.costBasis += stock.shares * stock.buyPrice
-            positions[symbol] = position
-        }
-
-        // Quotes are best-effort: a provider outage (or the disabled provider)
-        // must not break P&L — price-dependent fields degrade to nil instead.
-        var quotesBySymbol: [String: QuoteResponse] = [:]
-        let batchLimit = 100
-        for chunkStart in stride(from: 0, to: symbolOrder.count, by: batchLimit) {
-            let chunk = Array(symbolOrder[chunkStart ..< min(chunkStart + batchLimit, symbolOrder.count)])
-            do {
-                let batch = try await req.application.marketDataService.quoteBatch(symbols: chunk, on: req)
-                for quote in batch.quotes {
-                    quotesBySymbol[normalizeSymbol(quote.symbol)] = quote
-                }
-            } catch {
-                req.logger.warning("pnl: quote batch unavailable for \(chunk.count) symbols: \(String(reflecting: error))")
-            }
-        }
-
-        var marketValueBySymbol: [String: Double] = [:]
-        for symbol in symbolOrder {
-            guard let position = positions[symbol], position.shares > 0 else { continue }
-            let price = quotesBySymbol[symbol]?.currentPrice ?? (position.costBasis / position.shares)
-            marketValueBySymbol[symbol] = position.shares * price
-        }
-        let totalAccountValue = marketValueBySymbol.values.reduce(0, +) + max(0, cashBalance)
-
-        let items = symbolOrder.compactMap { symbol -> PnlBySymbol? in
-            guard let position = positions[symbol], position.shares > 0 else { return nil }
-            let quote = quotesBySymbol[symbol]
-            let marketValue = marketValueBySymbol[symbol] ?? 0
-            let unrealized = marketValue - position.costBasis
-            return PnlBySymbol(
-                symbol: symbol,
+        let items = valuation.holdings.map { holding in
+            PnlBySymbol(
+                symbol: holding.symbol,
                 currency: filter.baseCurrency,
                 realizedPnl: 0,
-                unrealizedPnl: round2(unrealized),
-                shares: position.shares,
-                buyPrice: round2(position.costBasis / position.shares),
-                costBasis: round2(position.costBasis),
-                currentPrice: quote?.currentPrice,
-                marketValue: round2(marketValue),
-                unrealizedPnlPercent: position.costBasis > 0 ? round2((unrealized / position.costBasis) * 100) : nil,
-                dayChange: quote?.change.map { round2($0 * position.shares) },
-                dayChangePercent: quote?.percentChange,
-                weightPercent: totalAccountValue > 0 ? percentage(marketValue, of: totalAccountValue) : nil
+                unrealizedPnl: round2(holding.unrealizedPnl),
+                shares: holding.shares,
+                buyPrice: round2(holding.averageBuyPrice),
+                costBasis: round2(holding.costBasis),
+                currentPrice: holding.currentPrice,
+                marketValue: round2(holding.marketValue),
+                unrealizedPnlPercent: holding.unrealizedPnlPercent.map(round2),
+                dayChange: holding.dayChange.map(round2),
+                dayChangePercent: holding.dayChangePercent,
+                weightPercent: valuation.totalValue > 0 ? percentage(holding.marketValue, of: valuation.totalValue) : nil
             )
         }
         .sorted { ($0.marketValue ?? 0) > ($1.marketValue ?? 0) }
@@ -642,7 +602,7 @@ struct PortfolioController: RouteCollection {
     }
 
     private func normalizeSymbol(_ raw: String) -> String {
-        raw.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
+        normalizePortfolioSymbol(raw)
     }
 
     private func inferSector(for symbol: String, notes: [ResearchNote]) -> String {
