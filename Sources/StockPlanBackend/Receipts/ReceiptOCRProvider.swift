@@ -28,9 +28,12 @@ struct DisabledReceiptOCRProvider: ReceiptOCRProvider {
 
 enum ReceiptOCRProviderKind: String {
     case disabled
+    case openAIVision
 
     static func select(configured: String?) -> ReceiptOCRProviderKind {
         switch configured?.lowercased() {
+        case "openai", "openai-vision", "vision":
+            .openAIVision
         case "disabled", "", nil:
             .disabled
         default:
@@ -40,12 +43,29 @@ enum ReceiptOCRProviderKind: String {
 }
 
 enum ReceiptOCRProviderBootstrap {
-    /// Selects the OCR provider from `RECEIPT_OCR_PROVIDER`. Defaults to disabled;
-    /// a live vision/OCR driver plugs in here.
+    /// Selects the OCR provider from `RECEIPT_OCR_PROVIDER`. Defaults to disabled.
+    /// `openai` wires the vision provider, reusing the assistant's AI credentials
+    /// (`AIProviderConfiguration`) with a model overridable via `RECEIPT_OCR_MODEL`.
     static func fromEnvironment(app: Application) -> any ReceiptOCRProvider {
         let configured = Environment.get("RECEIPT_OCR_PROVIDER")?
             .trimmingCharacters(in: .whitespacesAndNewlines)
         switch ReceiptOCRProviderKind.select(configured: configured) {
+        case .openAIVision:
+            let config = AIProviderConfiguration.load()
+            let rawModel = Environment.get("RECEIPT_OCR_MODEL")?
+                .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            let model = rawModel.isEmpty ? config.chatModel : rawModel
+            let provider = OpenAIVisionReceiptOCRProvider(
+                apiKey: config.apiKey,
+                baseURL: config.baseURL,
+                model: model
+            )
+            guard provider.isEnabled else {
+                app.logger.warning("RECEIPT_OCR_PROVIDER=\(configured ?? "") set but AI credentials/model are missing; receipt OCR disabled.")
+                return DisabledReceiptOCRProvider()
+            }
+            app.logger.notice("receipt_ocr configured provider=openai-vision model=\(model)")
+            return provider
         case .disabled:
             if let configured, !configured.isEmpty, configured.lowercased() != "disabled" {
                 app.logger.warning("RECEIPT_OCR_PROVIDER=\(configured) is not recognized; receipt OCR disabled.")
