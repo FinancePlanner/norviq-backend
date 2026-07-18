@@ -32,6 +32,20 @@ struct PlaidConfiguration: Sendable {
 
 // MARK: - Wire models
 
+/// JWK returned by /webhook_verification_key/get (EC P-256 public key).
+struct PlaidJWK: Content {
+    let alg: String
+    let kty: String
+    let crv: String
+    let kid: String
+    let x: String
+    let y: String
+}
+
+struct PlaidWebhookKeyResponse: Content {
+    let key: PlaidJWK
+}
+
 struct PlaidLinkTokenResponse: Content {
     let linkToken: String
     let expiration: String?
@@ -162,6 +176,11 @@ struct PlaidClient: Sendable {
     }
 
     // MARK: - Transport
+
+    func getWebhookVerificationKey(keyId: String, on req: Request) async throws -> PlaidJWK {
+        let response: PlaidWebhookKeyResponse = try await post("/webhook_verification_key/get", body: ["key_id": keyId], on: req)
+        return response.key
+    }
 
     private struct PlaidEmptyResponse: Content {}
 
