@@ -173,12 +173,7 @@ public func configure(_ app: Application) async throws {
     app.dataExportRepository = DatabaseDataExportRepository()
     app.exportService = ExportService(repository: app.dataExportRepository, application: app)
     app.dataExportService = DefaultDataExportService(repository: app.dataExportRepository, exporter: app.exportService)
-    let validatedTaxJurisdictions = Set(
-        (Environment.get("TAX_VALIDATED_JURISDICTIONS") ?? "")
-            .split(separator: ",")
-            .compactMap { TaxJurisdiction(rawValue: $0.trimmingCharacters(in: .whitespaces).uppercased()) }
-    )
-    app.taxService = DefaultTaxService(rules: TaxRuleRegistry(validatedJurisdictions: validatedTaxJurisdictions))
+    try configureTaxOptimization(app)
     app.taxReportGenerator = TaxReportGenerator()
     let premiumEmails = Set(
         (Environment.get("BILLING_PREMIUM_EMAILS") ?? "")
@@ -364,6 +359,19 @@ public func configure(_ app: Application) async throws {
 
     // register routes
     try routes(app)
+}
+
+private func configureTaxOptimization(_ app: Application) throws {
+    let validatedJurisdictions = Set(
+        (Environment.get("TAX_VALIDATED_JURISDICTIONS") ?? "")
+            .split(separator: ",")
+            .compactMap { TaxJurisdiction(rawValue: $0.trimmingCharacters(in: .whitespaces).uppercased()) }
+    )
+    app.taxService = try DefaultTaxService(
+        rules: TaxRuleRegistry(validatedJurisdictions: validatedJurisdictions),
+        catalog: TaxOptimizationCatalog.bundled(),
+        isV2Enabled: envBool("TAX_OPTIMIZATION_V2", default: true)
+    )
 }
 
 private func configureGoalPlanningJob(_ app: Application) {

@@ -6540,7 +6540,32 @@ paths:
       responses:
         '200': { description: Saved scenario, content: { application/json: { schema: { $ref: '#/components/schemas/TaxScenarioResponse' } } } }
         '404': { description: Scenario not found }
+  /v1/tax/opportunities/{opportunityId}/dismiss:
+    parameters:
+      - { name: opportunityId, in: path, required: true, schema: { type: string } }
+      - { name: jurisdiction, in: query, schema: { $ref: '#/components/schemas/TaxJurisdiction' } }
+      - { name: taxYear, in: query, required: true, schema: { type: integer } }
+    post:
+      operationId: dismissTaxOpportunity
+      tags: [Tax]
+      security: [{ bearerAuth: [] }]
+      responses:
+        '204': { description: Opportunity dismissed until its estimated benefit materially increases }
+        '404': { description: Opportunity not found }
+    delete:
+      operationId: restoreTaxOpportunity
+      tags: [Tax]
+      security: [{ bearerAuth: [] }]
+      responses:
+        '204': { description: Opportunity restored }
+        '409': { description: Opportunity decision is not dismissed }
   /v1/tax/action-plans:
+    get:
+      operationId: listTaxActionPlans
+      tags: [Tax]
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200': { description: Tax action plans, content: { application/json: { schema: { type: array, items: { $ref: '#/components/schemas/TaxActionPlanResponse' } } } } }
     post:
       operationId: createTaxActionPlan
       tags: [Tax]
@@ -6548,6 +6573,41 @@ paths:
       requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/TaxActionPlanRequest' } } } }
       responses:
         '200': { description: Non-custodial action plan, content: { application/json: { schema: { $ref: '#/components/schemas/TaxActionPlanResponse' } } } }
+  /v1/tax/action-plans/{actionPlanId}:
+    parameters:
+      - { name: actionPlanId, in: path, required: true, schema: { type: string, format: uuid } }
+    get:
+      operationId: getTaxActionPlan
+      tags: [Tax]
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200': { description: Tax action plan, content: { application/json: { schema: { $ref: '#/components/schemas/TaxActionPlanResponse' } } } }
+        '404': { description: Action plan not found }
+    patch:
+      operationId: transitionTaxActionPlan
+      tags: [Tax]
+      security: [{ bearerAuth: [] }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/TaxActionPlanTransitionRequest' } } } }
+      responses:
+        '200': { description: Updated tax action plan, content: { application/json: { schema: { $ref: '#/components/schemas/TaxActionPlanResponse' } } } }
+  /v1/tax/location-scenarios:
+    post:
+      operationId: createTaxLocationScenario
+      tags: [Tax]
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: jurisdiction, in: query, required: true, schema: { $ref: '#/components/schemas/TaxJurisdiction' } }
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/TaxLocationScenarioRequest' } } } }
+      responses:
+        '200': { description: Asset-location scenario, content: { application/json: { schema: { $ref: '#/components/schemas/TaxLocationScenarioResponse' } } } }
+  /v1/tax/placement-plans:
+    post:
+      operationId: createTaxPlacementPlan
+      tags: [Tax]
+      security: [{ bearerAuth: [] }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/TaxPlacementPlanRequest' } } } }
+      responses:
+        '200': { description: Asset-location placement plan, content: { application/json: { schema: { $ref: '#/components/schemas/TaxActionPlanResponse' } } } }
   /v1/tax/notifications:
     get:
       operationId: getTaxNotificationPreferences
@@ -7955,6 +8015,15 @@ components:
         washSaleWindowEndsAt: { type: string, format: date-time, nullable: true }
         warnings: { type: array, items: { type: string } }
         confidence: { type: number }
+        portfolioId: { type: string, format: uuid, nullable: true }
+        priceQuality: { allOf: [{ $ref: '#/components/schemas/TaxPriceQuality' }], nullable: true }
+        pricedAt: { type: string, format: date-time, nullable: true }
+        lots: { type: array, nullable: true, items: { $ref: '#/components/schemas/TaxLotDetail' } }
+        replacementCandidates: { type: array, nullable: true, items: { $ref: '#/components/schemas/TaxReplacementCandidate' } }
+        currentYearTaxReduction: { allOf: [{ $ref: '#/components/schemas/TaxMoney' }], nullable: true }
+        deferredTaxLiability: { allOf: [{ $ref: '#/components/schemas/TaxMoney' }], nullable: true }
+        estimatedTransactionCosts: { allOf: [{ $ref: '#/components/schemas/TaxMoney' }], nullable: true }
+        estimatedAfterCostBenefit: { allOf: [{ $ref: '#/components/schemas/TaxMoney' }], nullable: true }
     TaxDashboardResponse:
       type: object
       required: [generatedAt, taxYear, jurisdiction, ruleVersion, isStale, profileComplete, summary, opportunities, unsupportedValue, assumptions, disclaimer]
@@ -7970,6 +8039,9 @@ components:
         unsupportedValue: { $ref: '#/components/schemas/TaxMoney' }
         assumptions: { type: array, items: { type: string } }
         disclaimer: { type: string }
+        catalogVersion: { type: string, nullable: true }
+        taxDrag: { allOf: [{ $ref: '#/components/schemas/TaxDragProjection' }], nullable: true }
+        locationOpportunities: { type: array, nullable: true, items: { $ref: '#/components/schemas/TaxLocationOpportunity' } }
     TaxScenarioRequest:
       type: object
       required: [taxYear, opportunityIds, plannedReplacementInstrumentIds]
@@ -7997,6 +8069,18 @@ components:
         estimatedNetBenefit: { $ref: '#/components/schemas/TaxMoney' }
         warnings: { type: array, items: { type: string } }
         assumptions: { type: array, items: { type: string } }
+        currentYearTaxReduction: { allOf: [{ $ref: '#/components/schemas/TaxMoney' }], nullable: true }
+        deferredTaxLiability: { allOf: [{ $ref: '#/components/schemas/TaxMoney' }], nullable: true }
+        estimatedTransactionCosts: { allOf: [{ $ref: '#/components/schemas/TaxMoney' }], nullable: true }
+        goalImpacts: { type: array, nullable: true, items: { $ref: '#/components/schemas/TaxGoalImpact' } }
+        selectedReplacements:
+          type: object
+          nullable: true
+          additionalProperties: { $ref: '#/components/schemas/TaxReplacementCandidate' }
+        allocationImpacts:
+          type: array
+          nullable: true
+          items: { $ref: '#/components/schemas/TaxAllocationImpact' }
     TaxActionPlanRequest:
       type: object
       required: [scenarioId, idempotencyKey]
@@ -8013,6 +8097,174 @@ components:
         createdAt: { type: string, format: date-time }
         steps: { type: array, items: { $ref: '#/components/schemas/TaxActionStep' } }
         disclaimer: { type: string }
+        kind: { allOf: [{ $ref: '#/components/schemas/TaxActionPlanKind' }], nullable: true }
+        executionStatus: { allOf: [{ $ref: '#/components/schemas/TaxActionPlanStatus' }], nullable: true }
+        legs: { type: array, nullable: true, items: { $ref: '#/components/schemas/TaxActionLeg' } }
+        rebalancingPlanIds: { type: array, nullable: true, items: { type: string, format: uuid } }
+    TaxPriceQuality:
+      type: string
+      enum: [fresh, stale, missing]
+    TaxDataQuality:
+      type: string
+      enum: [verified, estimated, incomplete]
+    TaxLotDetail:
+      type: object
+      required: [id, openedAt, eligibleQuantity, unitBasis, adjustedBasis, marketValue, unrealizedGainLoss, holdingPeriod, dataQuality]
+      properties:
+        id: { type: string, format: uuid }
+        openedAt: { type: string, format: date-time }
+        eligibleQuantity: { type: number }
+        unitBasis: { $ref: '#/components/schemas/TaxMoney' }
+        adjustedBasis: { $ref: '#/components/schemas/TaxMoney' }
+        marketValue: { $ref: '#/components/schemas/TaxMoney' }
+        unrealizedGainLoss: { $ref: '#/components/schemas/TaxMoney' }
+        holdingPeriod: { type: string }
+        dataQuality: { $ref: '#/components/schemas/TaxDataQuality' }
+    TaxReplacementCandidate:
+      type: object
+      required: [instrumentId, symbol, score, confidence, catalogVersion, reviewedAt, reviewReference, warnings]
+      properties:
+        instrumentId: { type: string, format: uuid }
+        symbol: { type: string }
+        name: { type: string, nullable: true }
+        score: { type: number }
+        correlationScore: { type: number, nullable: true }
+        volatilityScore: { type: number, nullable: true }
+        allocationFitScore: { type: number, nullable: true }
+        expenseEfficiencyScore: { type: number, nullable: true }
+        expenseRatio: { type: number, nullable: true }
+        confidence: { type: number }
+        catalogVersion: { type: string }
+        reviewedAt: { type: string }
+        reviewReference: { type: string }
+        warnings: { type: array, items: { type: string } }
+    TaxDragComponent:
+      type: object
+      required: [id, label, yearToDate, projectedYearEnd, dataQuality]
+      properties:
+        id: { type: string }
+        label: { type: string }
+        yearToDate: { $ref: '#/components/schemas/TaxMoney' }
+        projectedYearEnd: { $ref: '#/components/schemas/TaxMoney' }
+        dataQuality: { $ref: '#/components/schemas/TaxDataQuality' }
+    TaxDragProjection:
+      type: object
+      required: [yearToDateTax, projectedYearEndTax, annualTaxDrag, components]
+      properties:
+        yearToDateTax: { $ref: '#/components/schemas/TaxMoney' }
+        projectedYearEndTax: { $ref: '#/components/schemas/TaxMoney' }
+        annualTaxDrag: { $ref: '#/components/schemas/TaxMoney' }
+        taxCostRatio: { type: number, nullable: true }
+        components: { type: array, items: { $ref: '#/components/schemas/TaxDragComponent' } }
+    TaxGoalImpact:
+      type: object
+      required: [goalId, goalName, currency, benefitApplied, assumption]
+      properties:
+        goalId: { type: string, format: uuid }
+        goalName: { type: string }
+        currency: { type: string }
+        benefitApplied: { type: number }
+        baselineCompletionDate: { type: string, format: date, nullable: true }
+        projectedCompletionDate: { type: string, format: date, nullable: true }
+        monthsSooner: { type: integer, nullable: true }
+        assumption: { type: string }
+    TaxAllocationChange:
+      type: object
+      required: [instrumentId, symbol, beforeWeight, afterWeight]
+      properties:
+        instrumentId: { type: string, format: uuid }
+        symbol: { type: string }
+        beforeWeight: { type: number }
+        afterWeight: { type: number }
+    TaxAllocationImpact:
+      type: object
+      required: [portfolioId, portfolioValue, maximumWeightChange, changes]
+      properties:
+        portfolioId: { type: string, format: uuid }
+        portfolioValue: { $ref: '#/components/schemas/TaxMoney' }
+        maximumWeightChange: { type: number }
+        changes: { type: array, items: { $ref: '#/components/schemas/TaxAllocationChange' } }
+    TaxLocationLegSide:
+      type: string
+      enum: [sell, buy, future_contribution]
+    TaxLocationLeg:
+      type: object
+      required: [id, accountId, instrumentId, symbol, side, notional]
+      properties:
+        id: { type: string, format: uuid }
+        accountId: { type: string, format: uuid }
+        instrumentId: { type: string, format: uuid }
+        symbol: { type: string }
+        side: { $ref: '#/components/schemas/TaxLocationLegSide' }
+        notional: { $ref: '#/components/schemas/TaxMoney' }
+    TaxLocationOpportunity:
+      type: object
+      required: [id, supportLevel, title, annualSavings, immediateTaxCost, confidence, legs, warnings]
+      properties:
+        id: { type: string }
+        supportLevel: { type: string, enum: [supported, estimate_only, professional_review, unsupported] }
+        title: { type: string }
+        annualSavings: { $ref: '#/components/schemas/TaxMoney' }
+        immediateTaxCost: { $ref: '#/components/schemas/TaxMoney' }
+        breakEvenMonths: { type: integer, nullable: true }
+        confidence: { type: number }
+        legs: { type: array, items: { $ref: '#/components/schemas/TaxLocationLeg' } }
+        warnings: { type: array, items: { type: string } }
+    TaxActionPlanKind:
+      type: string
+      enum: [harvest, asset_location]
+    TaxActionPlanStatus:
+      type: string
+      enum: [accepted, partially_matched, requires_review, completed, cancelled]
+    TaxActionLegStatus:
+      type: string
+      enum: [planned, matched, completed, cancelled]
+    TaxActionLeg:
+      type: object
+      required: [id, accountId, instrumentId, symbol, side, notional, lotIds, status]
+      properties:
+        id: { type: string, format: uuid }
+        accountId: { type: string, format: uuid }
+        portfolioId: { type: string, format: uuid, nullable: true }
+        instrumentId: { type: string, format: uuid }
+        symbol: { type: string }
+        side: { $ref: '#/components/schemas/TaxLocationLegSide' }
+        quantity: { type: number, nullable: true }
+        notional: { $ref: '#/components/schemas/TaxMoney' }
+        lotIds: { type: array, items: { type: string, format: uuid } }
+        status: { $ref: '#/components/schemas/TaxActionLegStatus' }
+        matchedTransactionId: { type: string, format: uuid, nullable: true }
+    TaxActionPlanTransitionRequest:
+      type: object
+      required: [status]
+      properties:
+        status: { $ref: '#/components/schemas/TaxActionPlanStatus' }
+        executedAt: { type: string, format: date-time, nullable: true }
+        confirmationNote: { type: string, nullable: true }
+    TaxLocationScenarioRequest:
+      type: object
+      required: [taxYear, opportunityIds]
+      properties:
+        taxYear: { type: integer }
+        opportunityIds: { type: array, items: { type: string } }
+    TaxLocationScenarioResponse:
+      type: object
+      required: [id, createdAt, opportunities, annualSavings, immediateTaxCost, goalImpacts, warnings, assumptions]
+      properties:
+        id: { type: string, format: uuid }
+        createdAt: { type: string, format: date-time }
+        opportunities: { type: array, items: { $ref: '#/components/schemas/TaxLocationOpportunity' } }
+        annualSavings: { $ref: '#/components/schemas/TaxMoney' }
+        immediateTaxCost: { $ref: '#/components/schemas/TaxMoney' }
+        goalImpacts: { type: array, items: { $ref: '#/components/schemas/TaxGoalImpact' } }
+        warnings: { type: array, items: { type: string } }
+        assumptions: { type: array, items: { type: string } }
+    TaxPlacementPlanRequest:
+      type: object
+      required: [scenarioId, idempotencyKey]
+      properties:
+        scenarioId: { type: string, format: uuid }
+        idempotencyKey: { type: string }
     TaxActionStep:
       type: object
       required: [id, order, title, detail, completed]
