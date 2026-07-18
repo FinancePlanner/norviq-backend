@@ -48,10 +48,12 @@ struct TaxReportGenerator: Sendable {
             let basisDisclosure = inferredBasisCount > 0
                 ? "Warning: \(inferredBasisCount) opening lot(s) use position-snapshot average cost because broker acquisition history was unavailable. Verify dates and basis before filing."
                 : nil
+            let actionPlans = try await application.taxService.actionPlans(userId: report.userId, on: application.db)
             let format = TaxReportFormat(rawValue: report.format) ?? .pdf
+            let kind = TaxReportKind(rawValue: report.kind) ?? .transactionWorkpaper
             let data = format == .csv
-                ? csvData(dashboard, carryforwardLedger: carryforwardLedger, basisDisclosure: basisDisclosure)
-                : simplePDFData(dashboard, carryforwardLedger: carryforwardLedger, basisDisclosure: basisDisclosure)
+                ? csvData(dashboard, kind: kind, actionPlans: actionPlans, carryforwardLedger: carryforwardLedger, basisDisclosure: basisDisclosure)
+                : simplePDFData(dashboard, kind: kind, actionPlans: actionPlans, carryforwardLedger: carryforwardLedger, basisDisclosure: basisDisclosure)
             let path = try application.taxReportStorage.store(
                 data: data,
                 userID: report.userId,
@@ -75,25 +77,46 @@ struct TaxReportGenerator: Sendable {
 
     private func csvData(
         _ dashboard: TaxDashboardResponse,
+        kind: TaxReportKind,
+        actionPlans: [TaxActionPlanResponse],
         carryforwardLedger: TaxLossCarryforwardLedgerResponse?,
         basisDisclosure: String?
     ) -> Data {
         var rows = [
-            "symbol,instrumentType,accountId,quantity,marketValue,unrealizedLoss,estimatedTaxBenefit,holdingPeriod,status,supportLevel,warnings",
+            "reportKind,symbol,instrumentType,accountId,portfolioId,lotIds,quantity,marketValue,unrealizedLoss,currentYearTaxReduction,deferredTaxLiability,transactionCosts,afterCostBenefit,holdingPeriod,status,supportLevel,priceQuality,replacementCandidates,warnings",
         ]
         rows += dashboard.opportunities.map { opportunity in
             [
+                kind.rawValue,
                 opportunity.symbol,
                 opportunity.instrumentType,
                 opportunity.accountId,
+                opportunity.portfolioId ?? "",
+                (opportunity.lots ?? []).map(\.id).joined(separator: ";"),
                 NSDecimalNumber(decimal: opportunity.eligibleQuantity).stringValue,
                 NSDecimalNumber(decimal: opportunity.marketValue.amount).stringValue,
                 NSDecimalNumber(decimal: opportunity.unrealizedLoss.amount).stringValue,
-                NSDecimalNumber(decimal: opportunity.estimatedTaxBenefit.amount).stringValue,
+                money(opportunity.currentYearTaxReduction?.amount ?? opportunity.estimatedTaxBenefit.amount),
+                money(opportunity.deferredTaxLiability?.amount ?? 0),
+                money(opportunity.estimatedTransactionCosts?.amount ?? 0),
+                money(opportunity.estimatedAfterCostBenefit?.amount ?? opportunity.estimatedTaxBenefit.amount),
                 opportunity.holdingPeriod,
                 opportunity.status.rawValue,
                 opportunity.supportLevel.rawValue,
+                opportunity.priceQuality?.rawValue ?? "",
+                (opportunity.replacementCandidates ?? []).map(\.symbol).joined(separator: ";"),
                 opportunity.warnings.joined(separator: "; "),
+            ].map(csvEscape).joined(separator: ",")
+        }
+        rows.append("")
+        rows.append("actionPlanId,strategy,status,rebalancingPlanIds,legCount")
+        rows += actionPlans.map { plan in
+            [
+                plan.id,
+                plan.kind?.rawValue ?? TaxActionPlanKind.harvest.rawValue,
+                plan.status,
+                (plan.rebalancingPlanIds ?? []).joined(separator: ";"),
+                String(plan.legs?.count ?? 0),
             ].map(csvEscape).joined(separator: ",")
         }
         rows.append("")
@@ -128,12 +151,14 @@ struct TaxReportGenerator: Sendable {
 
     private func simplePDFData(
         _ dashboard: TaxDashboardResponse,
+        kind: TaxReportKind,
+        actionPlans: [TaxActionPlanResponse],
         carryforwardLedger: TaxLossCarryforwardLedgerResponse?,
         basisDisclosure: String?
     ) -> Data {
         let currency = dashboard.summary.estimatedNetBenefit.currency
         var lines = [
-            "Norviq Tax Optimization Workpaper",
+            "Norviq Tax Report: " + kind.rawValue.replacingOccurrences(of: "_", with: " ").capitalized,
             "Jurisdiction: \(dashboard.jurisdiction.rawValue)   Tax year: \(dashboard.taxYear)",
             "Rule version: \(dashboard.ruleVersion)",
             "Estimated realized liability: \(money(dashboard.summary.realizedEstimatedLiability.amount)) \(currency)",
@@ -141,7 +166,29 @@ struct TaxReportGenerator: Sendable {
             "Harvestable losses: \(money(dashboard.summary.harvestableLosses.amount)) \(currency)",
             "Estimated net benefit: \(money(dashboard.summary.estimatedNetBenefit.amount)) \(currency)",
             "Opportunities: \(dashboard.opportunities.count)",
+            "Accepted and reconciled plans: \(actionPlans.count)",
         ]
+        if let drag = dashboard.taxDrag {
+            lines.append(
+                "Projected year-end tax drag: "
+                    + money(drag.projectedYearEndTax.amount)
+                    + " "
+                    + drag.projectedYearEndTax.currency
+            )
+            lines.append("Tax cost ratio: " + (drag.taxCostRatio.map { money($0 * 100) + "%" } ?? "unavailable"))
+        }
+        for opportunity in dashboard.opportunities.prefix(12) {
+            let lots = (opportunity.lots ?? []).map(\.id).joined(separator: ", ")
+            lines.append(
+                opportunity.symbol
+                    + ": loss "
+                    + money(opportunity.unrealizedLoss.amount)
+                    + "; after-cost benefit "
+                    + money(opportunity.estimatedAfterCostBenefit?.amount ?? opportunity.estimatedTaxBenefit.amount)
+                    + "; lots "
+                    + lots
+            )
+        }
         if let carryforwardLedger {
             lines += [
                 "",

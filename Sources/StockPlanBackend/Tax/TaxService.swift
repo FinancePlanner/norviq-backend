@@ -15,6 +15,13 @@ protocol TaxService: Sendable {
     func createScenario(userId: UUID, request: TaxScenarioRequest, jurisdiction: TaxJurisdiction, on db: any Database) async throws -> TaxScenarioResponse
     func scenario(userId: UUID, id: UUID, on db: any Database) async throws -> TaxScenarioResponse?
     func createActionPlan(userId: UUID, request: TaxActionPlanRequest, on db: any Database) async throws -> TaxActionPlanResponse
+    func actionPlans(userId: UUID, on db: any Database) async throws -> [TaxActionPlanResponse]
+    func actionPlan(userId: UUID, id: UUID, on db: any Database) async throws -> TaxActionPlanResponse?
+    func transitionActionPlan(userId: UUID, id: UUID, request: TaxActionPlanTransitionRequest, on db: any Database) async throws -> TaxActionPlanResponse
+    func createLocationScenario(userId: UUID, request: TaxLocationScenarioRequest, jurisdiction: TaxJurisdiction, on db: any Database) async throws -> TaxLocationScenarioResponse
+    func createPlacementPlan(userId: UUID, request: TaxPlacementPlanRequest, on db: any Database) async throws -> TaxActionPlanResponse
+    func dismissOpportunity(userId: UUID, opportunityId: String, jurisdiction: TaxJurisdiction, taxYear: Int, on db: any Database) async throws
+    func restoreOpportunity(userId: UUID, opportunityId: String, taxYear: Int, on db: any Database) async throws
     func notificationPreferences(userId: UUID, on db: any Database) async throws -> TaxNotificationPreferences
     func saveNotificationPreferences(userId: UUID, request: TaxNotificationPreferences, on db: any Database) async throws -> TaxNotificationPreferences
     func saveMarketAdmission(userId: UUID, instrumentId: UUID, status: TaxMarketAdmissionStatus, on db: any Database) async throws -> TaxInstrumentMarketOption
@@ -23,6 +30,8 @@ protocol TaxService: Sendable {
 
 struct DefaultTaxService: TaxService {
     let rules: TaxRuleRegistry
+    let catalog: TaxOptimizationCatalog
+    let isV2Enabled: Bool
 
     func capabilities(taxYear: Int) -> TaxCapabilitiesResponse {
         TaxCapabilitiesResponse(generatedAt: isoDate(Date()), capabilities: rules.capabilities(taxYear: taxYear))
@@ -247,6 +256,17 @@ struct DefaultTaxService: TaxService {
             .filter(\.$accountId ~~ accountIDs)
             .filter(\.$status == "open")
             .all()
+        let lotIDs = lots.compactMap(\.id)
+        let adjustments = lotIDs.isEmpty ? [] : try await LotAdjustment.query(on: db)
+            .filter(\.$lotId ~~ lotIDs)
+            .all()
+        let adjustmentByLot = Dictionary(grouping: adjustments, by: \.lotId)
+            .mapValues { values in values.reduce(0) { $0 + $1.amount } }
+        let decisions = try await TaxOpportunityDecision.query(on: db)
+            .filter(\.$userId == userId)
+            .filter(\.$taxYear == taxYear)
+            .all()
+        let decisionByOpportunity = Dictionary(uniqueKeysWithValues: decisions.map { ($0.opportunityId, $0) })
         let positions = accountIDs.isEmpty ? [] : try await Position.query(on: db)
             .filter(\.$accountId ~~ accountIDs)
             .all()
@@ -279,9 +299,10 @@ struct DefaultTaxService: TaxService {
             let instrumentType = instrument.instrumentType ?? "stock"
             var support = pack.supportLevel(instrumentType: instrumentType, wrapper: wrapper)
             let position = positionsByKey[positionKey(account: lot.accountId, instrument: lot.instrumentId)]
+            let priceQuality = taxPriceQuality(position: position, now: now)
             let price = position?.lastPrice ?? position.map(\.averageCost) ?? lot.openPrice
             let marketValue = Decimal(price * lot.remainingQuantity)
-            let basis = Decimal(lot.openPrice * lot.remainingQuantity)
+            let basis = Decimal(lot.openPrice * lot.remainingQuantity + (lot.id.flatMap { adjustmentByLot[$0] } ?? 0))
             let gain = marketValue - basis
             var taxableGain = gain
             let normalizedType = instrumentType.lowercased()
@@ -321,10 +342,33 @@ struct DefaultTaxService: TaxService {
                 userId: userId,
                 instrument: instrument,
                 since: Calendar.current.date(byAdding: .day, value: -30, to: now)!,
+                excludingTransactionId: lot.openTransactionId,
                 on: db
             )
-            let actionable = support == .supported && !recentReplacement && profileModel.isComplete
-            let status: TaxOpportunityStatus = actionable ? .actionable : (recentReplacement ? .blocked : .watch)
+            let actionable = support == .supported
+                && !recentReplacement
+                && profileModel.isComplete
+                && priceQuality == .fresh
+            let transactionCosts = marketValue * Decimal(string: "0.001")!
+            let afterCostBenefit = max(0, benefit - transactionCosts)
+            let opportunityID = lot.id!.uuidString
+            let decision = decisionByOpportunity[opportunityID]
+            let materiallyImproved = decision.map {
+                afterCostBenefit >= Decimal($0.estimatedBenefit) * Decimal(string: "1.25")!
+            } ?? false
+            let status: TaxOpportunityStatus = if decision?.status == TaxOpportunityStatus.dismissed.rawValue,
+                                                  !materiallyImproved
+            {
+                .dismissed
+            } else if decision?.status == TaxOpportunityStatus.accepted.rawValue {
+                .accepted
+            } else if actionable {
+                .actionable
+            } else if recentReplacement {
+                .blocked
+            } else {
+                .watch
+            }
             var warnings = [String]()
             if recentReplacement {
                 warnings.append("A substantially identical acquisition was detected in the prior 30 days. Review wash-sale treatment.")
@@ -335,13 +379,36 @@ struct DefaultTaxService: TaxService {
             if isGermanFund {
                 warnings.append("The estimate applies the configured German fund partial exemption to both gains and losses.")
             }
+            if priceQuality != .fresh {
+                warnings.append("A fresh market price is required before this opportunity can become actionable.")
+            }
+            let replacements = isV2Enabled
+                ? try await TaxReplacementService(catalog: catalog).candidates(for: instrument, jurisdiction: jurisdiction, on: db)
+                : []
+            let effectiveStatus: TaxOpportunityStatus = status == .actionable && isV2Enabled && replacements.isEmpty
+                ? .watch
+                : status
+            if isV2Enabled, replacements.isEmpty {
+                warnings.append("No advisor-reviewed replacement is available in catalog \(catalog.replacements.version).")
+            }
+            let lotDetail = TaxLotDetail(
+                id: opportunityID,
+                openedAt: isoDate(lot.openDate),
+                eligibleQuantity: Decimal(lot.remainingQuantity),
+                unitBasis: TaxMoney(amount: Decimal(lot.openPrice), currency: lot.currency),
+                adjustedBasis: TaxMoney(amount: basis, currency: lot.currency),
+                marketValue: TaxMoney(amount: marketValue, currency: profile.reportingCurrency),
+                unrealizedGainLoss: TaxMoney(amount: gain, currency: profile.reportingCurrency),
+                holdingPeriod: isLongTerm ? "long_term" : "short_term",
+                dataQuality: priceQuality == .fresh ? .verified : .estimated
+            )
             opportunities.append(TaxOpportunityResponse(
-                id: lot.id!.uuidString,
+                id: opportunityID,
                 accountId: lot.accountId.uuidString,
                 instrumentId: lot.instrumentId.uuidString,
                 symbol: instrument.symbol,
                 instrumentType: instrumentType,
-                status: status,
+                status: effectiveStatus,
                 supportLevel: support,
                 marketValue: TaxMoney(amount: marketValue, currency: profile.reportingCurrency),
                 unrealizedLoss: TaxMoney(amount: loss, currency: profile.reportingCurrency),
@@ -350,11 +417,22 @@ struct DefaultTaxService: TaxService {
                 holdingPeriod: isLongTerm ? "long_term" : "short_term",
                 washSaleWindowEndsAt: recentReplacement ? isoDate(Calendar.current.date(byAdding: .day, value: 31, to: now)!) : nil,
                 warnings: warnings,
-                confidence: support == .supported ? Decimal(string: "0.95")! : Decimal(string: "0.50")!
+                confidence: support == .supported && priceQuality == .fresh
+                    ? Decimal(string: "0.95")!
+                    : Decimal(string: "0.50")!,
+                portfolioId: account.portfolioId?.uuidString,
+                priceQuality: priceQuality,
+                pricedAt: position?.lastPriceDate.map(isoDate),
+                lots: [lotDetail],
+                replacementCandidates: replacements,
+                currentYearTaxReduction: TaxMoney(amount: benefit, currency: profile.reportingCurrency),
+                deferredTaxLiability: TaxMoney(amount: benefit, currency: profile.reportingCurrency),
+                estimatedTransactionCosts: TaxMoney(amount: transactionCosts, currency: profile.reportingCurrency),
+                estimatedAfterCostBenefit: TaxMoney(amount: afterCostBenefit, currency: profile.reportingCurrency)
             ))
             harvestableLosses += loss
-            if actionable {
-                estimatedBenefit += benefit
+            if effectiveStatus == .actionable {
+                estimatedBenefit += afterCostBenefit
             }
         }
 
@@ -365,6 +443,27 @@ struct DefaultTaxService: TaxService {
             pack: pack,
             on: db
         )
+        let taxDrag = isV2Enabled ? try await TaxDragAnalytics().projection(
+            input: .init(
+                accountIDs: accountIDs,
+                taxYear: taxYear,
+                profile: profile,
+                pack: pack,
+                realizedTax: realized,
+                embeddedLiability: embeddedLiability,
+                positions: positions
+            ),
+            on: db
+        ) : nil
+        let locationOpportunities = isV2Enabled ? TaxAssetLocationEngine().opportunities(
+            accounts: accounts,
+            positions: positions,
+            instrumentsByID: instrumentsByID,
+            openLots: lots,
+            profile: profile,
+            pack: pack,
+            catalog: catalog
+        ) : []
         opportunities.sort { $0.estimatedTaxBenefit.amount > $1.estimatedTaxBenefit.amount }
         let currency = profile.reportingCurrency
         let summary = TaxProjectionSummary(
@@ -374,7 +473,7 @@ struct DefaultTaxService: TaxService {
             estimatedNetBenefit: TaxMoney(amount: estimatedBenefit, currency: currency),
             shortTermCarryover: TaxMoney(amount: profile.priorShortTermLossCarryover, currency: currency),
             longTermCarryover: TaxMoney(amount: profile.priorLongTermLossCarryover, currency: currency),
-            taxCostRatio: nil
+            taxCostRatio: taxDrag?.taxCostRatio
         )
         let response = TaxDashboardResponse(
             generatedAt: isoDate(now),
@@ -387,7 +486,10 @@ struct DefaultTaxService: TaxService {
             opportunities: opportunities,
             unsupportedValue: TaxMoney(amount: unsupportedValue, currency: currency),
             assumptions: pack.assumptions(taxYear: taxYear),
-            disclaimer: taxDisclaimer
+            disclaimer: taxDisclaimer,
+            catalogVersion: isV2Enabled ? catalog.replacements.version : nil,
+            taxDrag: taxDrag,
+            locationOpportunities: isV2Enabled ? locationOpportunities : nil
         )
         try await storeSnapshot(response, userId: userId, profileId: profileModel.id!, on: db)
         return response
@@ -403,14 +505,50 @@ struct DefaultTaxService: TaxService {
         let requested = Set(request.opportunityIds)
         let selected = dashboard.opportunities.filter { requested.contains($0.id) }
         guard !selected.isEmpty else { throw Abort(.unprocessableEntity, reason: "Select at least one available tax opportunity.") }
-        let benefit = selected.reduce(Decimal.zero) { $0 + $1.estimatedTaxBenefit.amount }
+        var selectedReplacements = [String: TaxReplacementCandidate]()
+        for opportunity in selected {
+            let available = opportunity.replacementCandidates ?? []
+            guard !available.isEmpty else { continue }
+            guard let requestedReplacementID = request.plannedReplacementInstrumentIds[opportunity.id],
+                  let replacement = available.first(where: { $0.instrumentId == requestedReplacementID })
+            else {
+                throw Abort(
+                    .unprocessableEntity,
+                    reason: "Choose an advisor-reviewed replacement for \(opportunity.symbol)."
+                )
+            }
+            selectedReplacements[opportunity.id] = replacement
+        }
+        let benefit = selected.reduce(Decimal.zero) {
+            $0 + ($1.currentYearTaxReduction?.amount ?? $1.estimatedTaxBenefit.amount)
+        }
         let losses = selected.reduce(Decimal.zero) { $0 + $1.unrealizedLoss.amount }
         let currency = dashboard.summary.estimatedNetBenefit.currency
         let baselineTax = dashboard.summary.realizedEstimatedLiability.amount
             + dashboard.summary.embeddedUnrealizedLiability.amount
         let fees = selected.reduce(Decimal.zero) { partial, item in
-            partial + item.marketValue.amount * Decimal(string: "0.001")!
+            partial + (item.estimatedTransactionCosts?.amount
+                ?? item.marketValue.amount * Decimal(string: "0.001")!)
         }
+        let deferredLiability = selected.reduce(Decimal.zero) {
+            $0 + ($1.deferredTaxLiability?.amount ?? 0)
+        }
+        let affectedPortfolioIDs = Set(selected.compactMap { item in
+            item.portfolioId.flatMap(UUID.init(uuidString:))
+        })
+        let goalImpacts = try await TaxGoalImpactCalculator().impacts(
+            userId: userId,
+            affectedPortfolioIDs: affectedPortfolioIDs,
+            benefit: max(0, benefit - fees),
+            currency: currency,
+            on: db
+        )
+        let allocationImpacts = try await TaxAllocationImpactCalculator().impacts(
+            userId: userId,
+            opportunities: selected,
+            replacements: selectedReplacements,
+            on: db
+        )
         let responseID = UUID()
         let response = TaxScenarioResponse(
             id: responseID.uuidString,
@@ -431,7 +569,15 @@ struct DefaultTaxService: TaxService {
             ),
             estimatedNetBenefit: TaxMoney(amount: max(0, benefit - fees), currency: currency),
             warnings: selected.flatMap(\.warnings),
-            assumptions: dashboard.assumptions
+            assumptions: dashboard.assumptions + [
+                "Allocation impacts use current same-currency position values and assume replacement purchases equal each proposed sale notional.",
+            ],
+            currentYearTaxReduction: TaxMoney(amount: benefit, currency: currency),
+            deferredTaxLiability: TaxMoney(amount: deferredLiability, currency: currency),
+            estimatedTransactionCosts: TaxMoney(amount: fees, currency: currency),
+            goalImpacts: goalImpacts,
+            selectedReplacements: selectedReplacements,
+            allocationImpacts: allocationImpacts
         )
         guard let profile = try await TaxProfile.query(on: db)
             .filter(\.$userId == userId)
@@ -443,6 +589,7 @@ struct DefaultTaxService: TaxService {
         model.id = responseID
         model.userId = userId
         model.profileId = profile.id!
+        model.kind = TaxActionPlanKind.harvest.rawValue
         model.requestJSON = try encode(request)
         model.responseJSON = try encode(response)
         try await model.create(on: db)
@@ -457,6 +604,53 @@ struct DefaultTaxService: TaxService {
         else { return nil }
         return try decode(TaxScenarioResponse.self, from: model.responseJSON)
     }
+}
+
+extension DefaultTaxService {
+    func dismissOpportunity(
+        userId: UUID,
+        opportunityId: String,
+        jurisdiction: TaxJurisdiction,
+        taxYear: Int,
+        on db: any Database
+    ) async throws {
+        let current = try await dashboard(
+            userId: userId,
+            jurisdiction: jurisdiction,
+            taxYear: taxYear,
+            on: db
+        )
+        guard let opportunity = current.opportunities.first(where: { $0.id == opportunityId }) else {
+            throw Abort(.notFound, reason: "Tax opportunity not found.")
+        }
+        try await saveOpportunityDecision(
+            userId: userId,
+            taxYear: taxYear,
+            opportunityID: opportunityId,
+            benefit: opportunity.estimatedAfterCostBenefit?.amount ?? opportunity.estimatedTaxBenefit.amount,
+            currency: opportunity.estimatedTaxBenefit.currency,
+            status: .dismissed,
+            on: db
+        )
+    }
+
+    func restoreOpportunity(
+        userId: UUID,
+        opportunityId: String,
+        taxYear: Int,
+        on db: any Database
+    ) async throws {
+        guard let decision = try await TaxOpportunityDecision.query(on: db)
+            .filter(\.$userId == userId)
+            .filter(\.$taxYear == taxYear)
+            .filter(\.$opportunityId == opportunityId)
+            .first()
+        else { return }
+        guard decision.status == TaxOpportunityStatus.dismissed.rawValue else {
+            throw Abort(.conflict, reason: "Only a dismissed opportunity can be restored.")
+        }
+        try await decision.delete(on: db)
+    }
 
     func createActionPlan(userId: UUID, request: TaxActionPlanRequest, on db: any Database) async throws -> TaxActionPlanResponse {
         if let existing = try await TaxActionPlan.query(on: db)
@@ -464,7 +658,7 @@ struct DefaultTaxService: TaxService {
             .filter(\.$idempotencyKey == request.idempotencyKey)
             .first()
         {
-            return try decode(TaxActionPlanResponse.self, from: existing.responseJSON)
+            return try await actionPlanResponse(existing, on: db)
         }
         guard let scenarioID = UUID(uuidString: request.scenarioId),
               let scenario = try await TaxScenario.query(on: db)
@@ -472,8 +666,116 @@ struct DefaultTaxService: TaxService {
               .filter(\.$userId == userId)
               .first()
         else { throw Abort(.notFound, reason: "Tax scenario not found.") }
+        guard scenario.kind == TaxActionPlanKind.harvest.rawValue else {
+            throw Abort(.unprocessableEntity, reason: "Use the placement-plan endpoint for an asset-location scenario.")
+        }
         let scenarioRequest = try decode(TaxScenarioRequest.self, from: scenario.requestJSON)
+        let scenarioResponse = try decode(TaxScenarioResponse.self, from: scenario.responseJSON)
+        guard let profile = try await TaxProfile.find(scenario.profileId, on: db),
+              let jurisdiction = TaxJurisdiction(rawValue: profile.jurisdiction)
+        else { throw Abort(.unprocessableEntity, reason: "The tax profile for this scenario is no longer available.") }
+        let currentDashboard = try await dashboard(
+            userId: userId,
+            jurisdiction: jurisdiction,
+            taxYear: scenarioRequest.taxYear,
+            on: db
+        )
+        let selectedOpportunityIDs = Set(scenarioRequest.opportunityIds)
+        let currentOpportunities = currentDashboard.opportunities.filter {
+            selectedOpportunityIDs.contains($0.id)
+        }
+        guard currentOpportunities.count == selectedOpportunityIDs.count,
+              currentOpportunities.allSatisfy({
+                  $0.status == .actionable && $0.supportLevel == .supported
+              })
+        else {
+            throw Abort(
+                .unprocessableEntity,
+                reason: "One or more harvesting opportunities are no longer actionable. Run the simulator again with current prices and tax rules."
+            )
+        }
+        let benefitByOpportunityID = Dictionary(uniqueKeysWithValues: currentOpportunities.map {
+            ($0.id, $0.estimatedAfterCostBenefit?.amount ?? $0.estimatedTaxBenefit.amount)
+        })
+        let lotIDs = scenarioRequest.opportunityIds.compactMap(UUID.init(uuidString:))
+        let lots = lotIDs.isEmpty ? [] : try await Lot.query(on: db)
+            .filter(\.$id ~~ lotIDs)
+            .all()
+        let lotByID = Dictionary(uniqueKeysWithValues: lots.compactMap { lot in
+            lot.id.map { ($0, lot) }
+        })
+        let accountIDs = Array(Set(lots.map(\.accountId)))
+        let accounts = accountIDs.isEmpty ? [] : try await Account.query(on: db)
+            .filter(\.$id ~~ accountIDs)
+            .filter(\.$userId == userId)
+            .all()
+        let accountByID = Dictionary(uniqueKeysWithValues: accounts.compactMap { account in
+            account.id.map { ($0, account) }
+        })
+        guard accounts.count == accountIDs.count else {
+            throw Abort(.forbidden, reason: "A selected tax lot is no longer available to this user.")
+        }
+        let replacementIDs = Set((scenarioResponse.selectedReplacements ?? [:]).values.compactMap {
+            UUID(uuidString: $0.instrumentId)
+        })
+        let instrumentIDs = Array(Set(lots.map(\.instrumentId)).union(replacementIDs))
+        let instruments = instrumentIDs.isEmpty ? [] : try await Instrument.query(on: db)
+            .filter(\.$id ~~ instrumentIDs)
+            .all()
+        let instrumentByID = Dictionary(uniqueKeysWithValues: instruments.compactMap { instrument in
+            instrument.id.map { ($0, instrument) }
+        })
+        let positions = accountIDs.isEmpty ? [] : try await Position.query(on: db)
+            .filter(\.$accountId ~~ accountIDs)
+            .all()
+        let positionByKey = Dictionary(uniqueKeysWithValues: positions.map {
+            (positionKey(account: $0.accountId, instrument: $0.instrumentId), $0)
+        })
         let planID = UUID()
+        var legs = [TaxActionLeg]()
+        for opportunityID in scenarioRequest.opportunityIds {
+            guard let lotID = UUID(uuidString: opportunityID),
+                  let lot = lotByID[lotID],
+                  let account = accountByID[lot.accountId],
+                  let instrument = instrumentByID[lot.instrumentId]
+            else {
+                throw Abort(.unprocessableEntity, reason: "A selected tax lot is no longer open or cannot be valued.")
+            }
+            let position = positionByKey[positionKey(account: lot.accountId, instrument: lot.instrumentId)]
+            let unitPrice = Decimal(position?.lastPrice ?? lot.openPrice)
+            let notional = max(0, Decimal(lot.remainingQuantity) * unitPrice)
+            legs.append(TaxActionLeg(
+                id: UUID().uuidString,
+                accountId: lot.accountId.uuidString,
+                portfolioId: account.portfolioId?.uuidString,
+                instrumentId: lot.instrumentId.uuidString,
+                symbol: instrument.symbol,
+                side: .sell,
+                quantity: Decimal(lot.remainingQuantity),
+                notional: TaxMoney(amount: notional, currency: lot.currency),
+                lotIds: [opportunityID]
+            ))
+            if let candidate = scenarioResponse.selectedReplacements?[opportunityID],
+               let replacementID = UUID(uuidString: candidate.instrumentId),
+               let replacement = instrumentByID[replacementID]
+            {
+                let replacementPosition = positionByKey[positionKey(account: lot.accountId, instrument: replacementID)]
+                let replacementPrice = replacementPosition?.lastPrice.flatMap { $0 > 0 ? Decimal($0) : nil }
+                legs.append(TaxActionLeg(
+                    id: UUID().uuidString,
+                    accountId: lot.accountId.uuidString,
+                    portfolioId: account.portfolioId?.uuidString,
+                    instrumentId: replacementID.uuidString,
+                    symbol: replacement.symbol,
+                    side: .buy,
+                    quantity: replacementPrice.map { notional / $0 },
+                    notional: TaxMoney(amount: notional, currency: lot.currency)
+                ))
+            }
+        }
+        guard !legs.isEmpty else {
+            throw Abort(.unprocessableEntity, reason: "No open lots remain for this scenario.")
+        }
         let steps = scenarioRequest.opportunityIds.enumerated().map { index, opportunityID in
             TaxActionStep(
                 id: UUID().uuidString,
@@ -489,23 +791,460 @@ struct DefaultTaxService: TaxService {
             detail: "Avoid substantially identical acquisitions across household accounts during the applicable window unless your adviser confirms treatment.",
             completed: false
         )]
-        let response = TaxActionPlanResponse(
+        let initialResponse = TaxActionPlanResponse(
             id: planID.uuidString,
             scenarioId: request.scenarioId,
             status: "accepted",
             createdAt: isoDate(Date()),
             steps: steps,
-            disclaimer: taxDisclaimer
+            disclaimer: taxDisclaimer,
+            kind: .harvest,
+            executionStatus: .accepted,
+            legs: legs,
+            rebalancingPlanIds: []
         )
         let model = TaxActionPlan()
         model.id = planID
         model.userId = userId
         model.scenarioId = scenarioID
+        model.kind = TaxActionPlanKind.harvest.rawValue
         model.idempotencyKey = request.idempotencyKey
-        model.status = "accepted"
+        model.status = TaxActionPlanStatus.accepted.rawValue
+        model.responseJSON = try encode(initialResponse)
+        try await model.create(on: db)
+        try await persistActionLegs(legs, actionPlanID: planID, on: db)
+        let rebalancingPlanIDs = try await TaxRebalancingDraftBridge().createDrafts(
+            userId: userId,
+            actionPlanID: planID,
+            kind: .harvest,
+            legs: legs,
+            on: db
+        )
+        for opportunityID in scenarioRequest.opportunityIds {
+            let benefit = benefitByOpportunityID[opportunityID] ?? 0
+            try await saveOpportunityDecision(
+                userId: userId,
+                taxYear: scenarioRequest.taxYear,
+                opportunityID: opportunityID,
+                benefit: benefit,
+                currency: scenarioResponse.estimatedNetBenefit.currency,
+                status: .accepted,
+                on: db
+            )
+        }
+        let response = TaxActionPlanResponse(
+            id: initialResponse.id,
+            scenarioId: initialResponse.scenarioId,
+            status: initialResponse.status,
+            createdAt: initialResponse.createdAt,
+            steps: initialResponse.steps,
+            disclaimer: initialResponse.disclaimer,
+            kind: .harvest,
+            executionStatus: .accepted,
+            legs: legs,
+            rebalancingPlanIds: rebalancingPlanIDs.map(\.uuidString)
+        )
+        model.responseJSON = try encode(response)
+        try await model.save(on: db)
+        return response
+    }
+
+    func actionPlans(userId: UUID, on db: any Database) async throws -> [TaxActionPlanResponse] {
+        let models = try await TaxActionPlan.query(on: db)
+            .filter(\.$userId == userId)
+            .sort(\.$createdAt, .descending)
+            .all()
+        var responses = [TaxActionPlanResponse]()
+        for model in models {
+            try await responses.append(actionPlanResponse(model, on: db))
+        }
+        return responses
+    }
+
+    func actionPlan(userId: UUID, id: UUID, on db: any Database) async throws -> TaxActionPlanResponse? {
+        guard let model = try await TaxActionPlan.query(on: db)
+            .filter(\.$id == id)
+            .filter(\.$userId == userId)
+            .first()
+        else { return nil }
+        return try await actionPlanResponse(model, on: db)
+    }
+
+    func transitionActionPlan(
+        userId: UUID,
+        id: UUID,
+        request: TaxActionPlanTransitionRequest,
+        on db: any Database
+    ) async throws -> TaxActionPlanResponse {
+        guard let model = try await TaxActionPlan.query(on: db)
+            .filter(\.$id == id)
+            .filter(\.$userId == userId)
+            .first()
+        else { throw Abort(.notFound, reason: "Tax action plan not found.") }
+        guard [TaxActionPlanStatus.completed, .cancelled].contains(request.status) else {
+            throw Abort(.unprocessableEntity, reason: "An action plan can only be manually completed or cancelled.")
+        }
+        guard ![TaxActionPlanStatus.completed.rawValue, TaxActionPlanStatus.cancelled.rawValue].contains(model.status) else {
+            if model.status == request.status.rawValue {
+                return try await actionPlanResponse(model, on: db)
+            }
+            throw Abort(.conflict, reason: "A terminal action plan cannot change status.")
+        }
+        let executedAt = request.executedAt.flatMap(parseTaxDate) ?? Date()
+        model.status = request.status.rawValue
+        model.executedAt = request.status == .completed ? executedAt : nil
+        model.confirmationNote = request.confirmationNote
+        try await model.save(on: db)
+        let legs = try await TaxActionLegRecord.query(on: db)
+            .filter(\.$actionPlanId == id)
+            .all()
+        for leg in legs {
+            leg.status = request.status == .completed
+                ? TaxActionLegStatus.completed.rawValue
+                : TaxActionLegStatus.cancelled.rawValue
+            try await leg.save(on: db)
+            if request.status == .completed, leg.side == TaxLocationLegSide.sell.rawValue {
+                try await createRestrictionWindow(userId: userId, leg: leg, executedAt: executedAt, on: db)
+            }
+        }
+        return try await actionPlanResponse(model, on: db)
+    }
+
+    func createLocationScenario(
+        userId: UUID,
+        request: TaxLocationScenarioRequest,
+        jurisdiction: TaxJurisdiction,
+        on db: any Database
+    ) async throws -> TaxLocationScenarioResponse {
+        let dashboard = try await dashboard(
+            userId: userId,
+            jurisdiction: jurisdiction,
+            taxYear: request.taxYear,
+            on: db
+        )
+        let requested = Set(request.opportunityIds)
+        let selected = (dashboard.locationOpportunities ?? []).filter { requested.contains($0.id) }
+        guard !selected.isEmpty else {
+            throw Abort(.unprocessableEntity, reason: "Select at least one available asset-location opportunity.")
+        }
+        guard let profile = try await TaxProfile.query(on: db)
+            .filter(\.$userId == userId)
+            .filter(\.$jurisdiction == jurisdiction.rawValue)
+            .filter(\.$taxYear == request.taxYear)
+            .first()
+        else { throw Abort(.unprocessableEntity, reason: "Complete a tax profile first.") }
+        let currency = selected.first!.annualSavings.currency
+        let annualSavings = selected.reduce(Decimal.zero) { $0 + $1.annualSavings.amount }
+        let immediateCost = selected.reduce(Decimal.zero) { $0 + $1.immediateTaxCost.amount }
+        let accountIDs = Set(selected.flatMap(\.legs).compactMap { UUID(uuidString: $0.accountId) })
+        let accounts = accountIDs.isEmpty ? [] : try await Account.query(on: db)
+            .filter(\.$id ~~ Array(accountIDs))
+            .filter(\.$userId == userId)
+            .all()
+        let portfolioIDs = Set(accounts.compactMap(\.portfolioId))
+        let impacts = try await TaxGoalImpactCalculator().impacts(
+            userId: userId,
+            affectedPortfolioIDs: portfolioIDs,
+            benefit: max(0, annualSavings - immediateCost),
+            currency: currency,
+            on: db
+        )
+        let id = UUID()
+        let response = TaxLocationScenarioResponse(
+            id: id.uuidString,
+            createdAt: isoDate(Date()),
+            opportunities: selected,
+            annualSavings: TaxMoney(amount: annualSavings, currency: currency),
+            immediateTaxCost: TaxMoney(amount: immediateCost, currency: currency),
+            goalImpacts: impacts,
+            warnings: selected.flatMap(\.warnings),
+            assumptions: dashboard.assumptions + ["Annual savings are reinvested immediately when estimating goal impact."]
+        )
+        let model = TaxScenario()
+        model.id = id
+        model.userId = userId
+        model.profileId = profile.id!
+        model.kind = TaxActionPlanKind.assetLocation.rawValue
+        model.requestJSON = try encode(request)
         model.responseJSON = try encode(response)
         try await model.create(on: db)
         return response
+    }
+
+    func createPlacementPlan(
+        userId: UUID,
+        request: TaxPlacementPlanRequest,
+        on db: any Database
+    ) async throws -> TaxActionPlanResponse {
+        if let existing = try await TaxActionPlan.query(on: db)
+            .filter(\.$userId == userId)
+            .filter(\.$idempotencyKey == request.idempotencyKey)
+            .first()
+        {
+            return try await actionPlanResponse(existing, on: db)
+        }
+        guard let scenarioID = UUID(uuidString: request.scenarioId),
+              let scenario = try await TaxScenario.query(on: db)
+              .filter(\.$id == scenarioID)
+              .filter(\.$userId == userId)
+              .filter(\.$kind == TaxActionPlanKind.assetLocation.rawValue)
+              .first()
+        else { throw Abort(.notFound, reason: "Asset-location scenario not found.") }
+        let scenarioResponse = try decode(TaxLocationScenarioResponse.self, from: scenario.responseJSON)
+        guard !scenarioResponse.opportunities.isEmpty,
+              scenarioResponse.opportunities.allSatisfy({ $0.supportLevel == .supported })
+        else {
+            throw Abort(
+                .unprocessableEntity,
+                reason: "Asset-location trade plans are only available for fully supported jurisdictions. The estimate remains available for review."
+            )
+        }
+        let accounts = try await Account.query(on: db).filter(\.$userId == userId).all()
+        let accountByID = Dictionary(uniqueKeysWithValues: accounts.compactMap { account in
+            account.id.map { ($0, account) }
+        })
+        let legs = try scenarioResponse.opportunities.flatMap(\.legs).map { leg -> TaxActionLeg in
+            guard let accountID = UUID(uuidString: leg.accountId),
+                  let account = accountByID[accountID]
+            else { throw Abort(.forbidden, reason: "An asset-location account is no longer available.") }
+            return TaxActionLeg(
+                id: UUID().uuidString,
+                accountId: leg.accountId,
+                portfolioId: account.portfolioId?.uuidString,
+                instrumentId: leg.instrumentId,
+                symbol: leg.symbol,
+                side: leg.side,
+                notional: leg.notional
+            )
+        }
+        let planID = UUID()
+        let steps = legs.enumerated().map { index, leg in
+            TaxActionStep(
+                id: UUID().uuidString,
+                order: index + 1,
+                title: "Review "
+                    + leg.side.rawValue.replacingOccurrences(of: "_", with: " ")
+                    + " for "
+                    + leg.symbol,
+                detail: "Confirm account, notional, allocation impact, tax cost, and current quote before trading.",
+                completed: false
+            )
+        }
+        let initial = TaxActionPlanResponse(
+            id: planID.uuidString,
+            scenarioId: request.scenarioId,
+            status: TaxActionPlanStatus.accepted.rawValue,
+            createdAt: isoDate(Date()),
+            steps: steps,
+            disclaimer: taxDisclaimer,
+            kind: .assetLocation,
+            executionStatus: .accepted,
+            legs: legs,
+            rebalancingPlanIds: []
+        )
+        let model = TaxActionPlan()
+        model.id = planID
+        model.userId = userId
+        model.scenarioId = scenarioID
+        model.kind = TaxActionPlanKind.assetLocation.rawValue
+        model.idempotencyKey = request.idempotencyKey
+        model.status = TaxActionPlanStatus.accepted.rawValue
+        model.responseJSON = try encode(initial)
+        try await model.create(on: db)
+        try await persistActionLegs(legs, actionPlanID: planID, on: db)
+        let linkedIDs = try await TaxRebalancingDraftBridge().createDrafts(
+            userId: userId,
+            actionPlanID: planID,
+            kind: .assetLocation,
+            legs: legs,
+            on: db
+        )
+        let response = TaxActionPlanResponse(
+            id: initial.id,
+            scenarioId: initial.scenarioId,
+            status: initial.status,
+            createdAt: initial.createdAt,
+            steps: initial.steps,
+            disclaimer: initial.disclaimer,
+            kind: .assetLocation,
+            executionStatus: .accepted,
+            legs: legs,
+            rebalancingPlanIds: linkedIDs.map(\.uuidString)
+        )
+        model.responseJSON = try encode(response)
+        try await model.save(on: db)
+        return response
+    }
+
+    private func persistActionLegs(
+        _ legs: [TaxActionLeg],
+        actionPlanID: UUID,
+        on db: any Database
+    ) async throws {
+        for leg in legs {
+            guard let id = UUID(uuidString: leg.id),
+                  let accountID = UUID(uuidString: leg.accountId),
+                  let instrumentID = UUID(uuidString: leg.instrumentId)
+            else { throw Abort(.unprocessableEntity, reason: "A tax action leg contains an invalid identifier.") }
+            let record = TaxActionLegRecord()
+            record.id = id
+            record.actionPlanId = actionPlanID
+            record.accountId = accountID
+            record.portfolioId = leg.portfolioId.flatMap(UUID.init(uuidString:))
+            record.instrumentId = instrumentID
+            record.symbol = leg.symbol
+            record.side = leg.side.rawValue
+            record.quantity = leg.quantity.map(decimalDouble)
+            record.notional = decimalDouble(leg.notional.amount)
+            record.currency = leg.notional.currency
+            record.lotIDsJSON = try encode(leg.lotIds)
+            record.status = leg.status.rawValue
+            record.matchedTransactionId = leg.matchedTransactionId.flatMap(UUID.init(uuidString:))
+            try await record.create(on: db)
+        }
+    }
+
+    private func actionPlanResponse(
+        _ model: TaxActionPlan,
+        on db: any Database
+    ) async throws -> TaxActionPlanResponse {
+        let stored = try decode(TaxActionPlanResponse.self, from: model.responseJSON)
+        let legRecords = try await TaxActionLegRecord.query(on: db)
+            .filter(\.$actionPlanId == model.id!)
+            .sort(\.$createdAt, .ascending)
+            .all()
+        var legs = [TaxActionLeg]()
+        for record in legRecords {
+            let lotIDs = try decode([String].self, from: record.lotIDsJSON)
+            legs.append(TaxActionLeg(
+                id: record.id!.uuidString,
+                accountId: record.accountId.uuidString,
+                portfolioId: record.portfolioId?.uuidString,
+                instrumentId: record.instrumentId.uuidString,
+                symbol: record.symbol,
+                side: TaxLocationLegSide(rawValue: record.side) ?? .buy,
+                quantity: record.quantity.map { Decimal($0) },
+                notional: TaxMoney(amount: Decimal(record.notional), currency: record.currency),
+                lotIds: lotIDs,
+                status: TaxActionLegStatus(rawValue: record.status) ?? .planned,
+                matchedTransactionId: record.matchedTransactionId?.uuidString
+            ))
+        }
+        let links = try await TaxActionRebalancingPlanLink.query(on: db)
+            .filter(\.$actionPlanId == model.id!)
+            .sort(\.$createdAt, .ascending)
+            .all()
+        let executionStatus = TaxActionPlanStatus(rawValue: model.status) ?? .requiresReview
+        let terminal = executionStatus == .completed || executionStatus == .cancelled
+        let steps = stored.steps.map { step in
+            TaxActionStep(
+                id: step.id,
+                order: step.order,
+                title: step.title,
+                detail: step.detail,
+                earliestDate: step.earliestDate,
+                completed: terminal
+            )
+        }
+        return TaxActionPlanResponse(
+            id: stored.id,
+            scenarioId: stored.scenarioId,
+            status: model.status,
+            createdAt: stored.createdAt,
+            steps: steps,
+            disclaimer: stored.disclaimer,
+            kind: TaxActionPlanKind(rawValue: model.kind),
+            executionStatus: executionStatus,
+            legs: legs,
+            rebalancingPlanIds: links.map(\.rebalancingPlanId.uuidString)
+        )
+    }
+
+    private func saveOpportunityDecision(
+        userId: UUID,
+        taxYear: Int,
+        opportunityID: String,
+        benefit: Decimal,
+        currency: String,
+        status: TaxOpportunityStatus,
+        on db: any Database
+    ) async throws {
+        let record = try await TaxOpportunityDecision.query(on: db)
+            .filter(\.$userId == userId)
+            .filter(\.$taxYear == taxYear)
+            .filter(\.$opportunityId == opportunityID)
+            .first() ?? TaxOpportunityDecision()
+        record.userId = userId
+        record.taxYear = taxYear
+        record.opportunityId = opportunityID
+        record.status = status.rawValue
+        record.estimatedBenefit = decimalDouble(benefit)
+        record.currency = currency
+        try await record.save(on: db)
+    }
+
+    private func createRestrictionWindow(
+        userId: UUID,
+        leg: TaxActionLegRecord,
+        executedAt: Date,
+        on db: any Database
+    ) async throws {
+        guard try await TaxRestrictionWindow.query(on: db)
+            .filter(\.$actionLegId == leg.id!)
+            .first() == nil,
+            let account = try await Account.query(on: db)
+            .filter(\.$id == leg.accountId)
+            .filter(\.$userId == userId)
+            .first(),
+            let jurisdiction = account.taxJurisdiction.flatMap(TaxJurisdiction.init(rawValue:)),
+            jurisdiction == .unitedStates,
+            let instrument = try await Instrument.find(leg.instrumentId, on: db)
+        else { return }
+        let identityKey = instrument.taxIdentityGroup
+            ?? instrument.cusip
+            ?? instrument.isin
+            ?? instrument.symbol.uppercased()
+        let calendar = Calendar(identifier: .gregorian)
+        let window = TaxRestrictionWindow()
+        window.userId = userId
+        window.actionLegId = leg.id!
+        window.jurisdiction = jurisdiction.rawValue
+        window.taxIdentityKey = identityKey
+        window.startsAt = calendar.date(byAdding: .day, value: -30, to: executedAt)!
+        window.endsAt = calendar.date(byAdding: .day, value: 30, to: executedAt)!
+        window.status = "active"
+        try await window.create(on: db)
+        let accountIDs = try await Account.query(on: db)
+            .filter(\.$userId == userId)
+            .all()
+            .compactMap(\.id)
+        guard !accountIDs.isEmpty else { return }
+        let purchases = try await Transaction.query(on: db)
+            .filter(\.$accountId ~~ accountIDs)
+            .filter(\.$type == "BUY")
+            .filter(\.$tradeDate >= window.startsAt)
+            .filter(\.$tradeDate <= window.endsAt)
+            .all()
+        let instrumentIDs = Array(Set(purchases.map(\.instrumentId)))
+        let instruments = instrumentIDs.isEmpty ? [] : try await Instrument.query(on: db)
+            .filter(\.$id ~~ instrumentIDs)
+            .all()
+        let matchingIDs = Set(instruments.compactMap { candidate in
+            let candidateKey = candidate.taxIdentityGroup
+                ?? candidate.cusip
+                ?? candidate.isin
+                ?? candidate.symbol.uppercased()
+            return candidateKey == identityKey ? candidate.id : nil
+        })
+        guard let violation = purchases
+            .filter({ matchingIDs.contains($0.instrumentId) })
+            .sorted(by: { $0.tradeDate < $1.tradeDate })
+            .first,
+            let transactionID = violation.id
+        else { return }
+        window.status = "violated"
+        window.violatingTransactionId = transactionID
+        try await window.save(on: db)
     }
 
     func notificationPreferences(userId: UUID, on db: any Database) async throws -> TaxNotificationPreferences {
@@ -716,6 +1455,7 @@ struct DefaultTaxService: TaxService {
         userId: UUID,
         instrument: Instrument,
         since: Date,
+        excludingTransactionId: UUID?,
         on db: any Database
     ) async throws -> Bool {
         let accounts = try await Account.query(on: db).filter(\.$userId == userId).all()
@@ -728,12 +1468,15 @@ struct DefaultTaxService: TaxService {
                 .all()
                 .compactMap(\.id)
         }
-        return try await Transaction.query(on: db)
+        let transactions = try await Transaction.query(on: db)
             .filter(\.$accountId ~~ accountIDs)
             .filter(\.$instrumentId ~~ matchingIDs)
             .filter(\.$tradeDate >= since)
             .filter(\.$type ~~ ["BUY", "BOT", "buy"])
-            .count() > 0
+            .all()
+        return transactions.contains { transaction in
+            transaction.id != excludingTransactionId && abs(transaction.quantity ?? 0) > 0.000_000_1
+        }
     }
 
     private func storeSnapshot(
@@ -846,6 +1589,11 @@ private func positionKey(account: UUID, instrument: UUID) -> String {
     "\(account.uuidString):\(instrument.uuidString)"
 }
 
+private func taxPriceQuality(position: Position?, now: Date) -> TaxPriceQuality {
+    guard position?.lastPrice != nil, let pricedAt = position?.lastPriceDate else { return .missing }
+    return now.timeIntervalSince(pricedAt) <= 86400 ? .fresh : .stale
+}
+
 private func decimalDouble(_ value: Decimal) -> Double {
     NSDecimalNumber(decimal: value).doubleValue
 }
@@ -858,6 +1606,12 @@ private func encode(_ value: some Encodable) throws -> String {
 
 private func decode<T: Decodable>(_ type: T.Type, from value: String) throws -> T {
     try JSONDecoder().decode(type, from: Data(value.utf8))
+}
+
+private func parseTaxDate(_ value: String) -> Date? {
+    let formatter = ISO8601DateFormatter()
+    formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+    return formatter.date(from: value) ?? ISO8601DateFormatter().date(from: value)
 }
 
 func isoDate(_ date: Date) -> String {

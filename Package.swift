@@ -6,7 +6,7 @@ let sharedPackagePath = ProcessInfo.processInfo.environment["STOCKPLAN_SHARED_PA
 let sharedPackage: Package.Dependency = if let sharedPackagePath {
     .package(path: sharedPackagePath)
 } else {
-    .package(url: "https://github.com/FinancePlanner/norviq-shared.git", exact: "3.38.0")
+    .package(url: "https://github.com/FinancePlanner/norviq-shared.git", exact: "3.39.0")
 }
 
 let sharedPackageIdentity = sharedPackagePath.map { URL(fileURLWithPath: $0).lastPathComponent } ?? "norviq-shared"
@@ -70,6 +70,7 @@ let package = Package(
             ],
             resources: [
                 .copy("openapi.yaml"),
+                .copy("Tax/Resources"),
             ],
             swiftSettings: swiftSettings,
             plugins: [

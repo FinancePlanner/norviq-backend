@@ -14,6 +14,10 @@ extension TaxScenarioRequest: @retroactive Content {}
 extension TaxScenarioResponse: @retroactive Content {}
 extension TaxActionPlanRequest: @retroactive Content {}
 extension TaxActionPlanResponse: @retroactive Content {}
+extension TaxActionPlanTransitionRequest: @retroactive Content {}
+extension TaxLocationScenarioRequest: @retroactive Content {}
+extension TaxLocationScenarioResponse: @retroactive Content {}
+extension TaxPlacementPlanRequest: @retroactive Content {}
 extension TaxReportRequest: @retroactive Content {}
 extension TaxReportResponse: @retroactive Content {}
 extension TaxLossCarryforwardApplicationResponse: @retroactive Content {}

@@ -439,8 +439,20 @@ struct IBKRBrokerSyncService {
         }
 
         let accounting = TaxLotAccountingService()
+        let taxPlanReconciler = TaxPlanReconciler()
         for transaction in canonicalTransactions where transaction.type == "BUY" {
             _ = try await accounting.recordAcquisition(transaction: transaction, on: req.db)
+            let match = try await taxPlanReconciler.match(
+                transaction: transaction,
+                userId: userId,
+                on: req.db
+            )
+            try await taxPlanReconciler.complete(
+                match,
+                transaction: transaction,
+                userId: userId,
+                on: req.db
+            )
         }
         try await reconcileOpeningLots(
             positions: positions,
@@ -483,9 +495,15 @@ struct IBKRBrokerSyncService {
 
         for transaction in canonicalTransactions where transaction.type == "SELL" {
             do {
+                let match = try await taxPlanReconciler.match(
+                    transaction: transaction,
+                    userId: userId,
+                    on: req.db
+                )
                 let disposals = try await accounting.recordDisposal(
                     transaction: transaction,
-                    method: disposalMethod,
+                    method: match?.lotIDs.isEmpty == false ? .specificID : disposalMethod,
+                    specificLotIDs: match?.lotIDs ?? [],
                     on: req.db
                 )
                 if hasCompletedUSProfile {
@@ -505,6 +523,12 @@ struct IBKRBrokerSyncService {
                         on: req.db
                     )
                 }
+                try await taxPlanReconciler.complete(
+                    match,
+                    transaction: transaction,
+                    userId: userId,
+                    on: req.db
+                )
             } catch let TaxLotAccountingError.insufficientQuantity(available, requested) {
                 req.logger.warning("broker.ibkr disposal_unmatched", metadata: [
                     "external_id": .string(transaction.externalId ?? "unknown"),

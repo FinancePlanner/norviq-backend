@@ -39,6 +39,13 @@ struct TaxController: RouteCollection {
         firstParty.post("scenarios", use: createScenario)
         firstParty.get("scenarios", ":scenarioId", use: getScenario)
         firstParty.post("action-plans", use: createActionPlan)
+        firstParty.get("action-plans", use: listActionPlans)
+        firstParty.get("action-plans", ":actionPlanId", use: getActionPlan)
+        firstParty.patch("action-plans", ":actionPlanId", use: transitionActionPlan)
+        firstParty.post("location-scenarios", use: createLocationScenario)
+        firstParty.post("placement-plans", use: createPlacementPlan)
+        firstParty.post("opportunities", ":opportunityId", "dismiss", use: dismissOpportunity)
+        firstParty.delete("opportunities", ":opportunityId", "dismiss", use: restoreOpportunity)
         firstParty.get("notifications", use: getNotificationPreferences)
         firstParty.put("notifications", use: saveNotificationPreferences)
         firstParty.post("reports", use: createReport)
@@ -222,7 +229,10 @@ struct TaxController: RouteCollection {
             opportunities: [],
             unsupportedValue: response.unsupportedValue,
             assumptions: response.assumptions + ["Upgrade to Pro to review individual opportunities and run scenarios."],
-            disclaimer: response.disclaimer
+            disclaimer: response.disclaimer,
+            catalogVersion: response.catalogVersion,
+            taxDrag: response.taxDrag,
+            locationOpportunities: []
         )
     }
 
@@ -257,6 +267,105 @@ struct TaxController: RouteCollection {
         try await requireTaxPro(req, userId: session.userId)
         let payload = try req.content.decode(TaxActionPlanRequest.self)
         return try await req.application.taxService.createActionPlan(userId: session.userId, request: payload, on: req.db)
+    }
+
+    @Sendable
+    private func listActionPlans(req: Request) async throws -> [TaxActionPlanResponse] {
+        let session = try req.auth.require(SessionToken.self)
+        try await requireTaxPro(req, userId: session.userId)
+        return try await req.application.taxService.actionPlans(userId: session.userId, on: req.db)
+    }
+
+    @Sendable
+    private func getActionPlan(req: Request) async throws -> TaxActionPlanResponse {
+        let session = try req.auth.require(SessionToken.self)
+        try await requireTaxPro(req, userId: session.userId)
+        guard let rawID = req.parameters.get("actionPlanId"),
+              let id = UUID(uuidString: rawID),
+              let response = try await req.application.taxService.actionPlan(
+                  userId: session.userId,
+                  id: id,
+                  on: req.db
+              )
+        else { throw Abort(.notFound, reason: "Tax action plan not found.") }
+        return response
+    }
+
+    @Sendable
+    private func transitionActionPlan(req: Request) async throws -> TaxActionPlanResponse {
+        let session = try req.auth.require(SessionToken.self)
+        try await requireTaxPro(req, userId: session.userId)
+        guard let rawID = req.parameters.get("actionPlanId"),
+              let id = UUID(uuidString: rawID)
+        else { throw Abort(.badRequest, reason: "Invalid tax action plan id.") }
+        let payload = try req.content.decode(TaxActionPlanTransitionRequest.self)
+        return try await req.application.taxService.transitionActionPlan(
+            userId: session.userId,
+            id: id,
+            request: payload,
+            on: req.db
+        )
+    }
+
+    @Sendable
+    private func createLocationScenario(req: Request) async throws -> TaxLocationScenarioResponse {
+        let session = try req.auth.require(SessionToken.self)
+        try await requireTaxPro(req, userId: session.userId)
+        let query = try req.query.decode(TaxQuery.self)
+        let payload = try req.content.decode(TaxLocationScenarioRequest.self)
+        return try await req.application.taxService.createLocationScenario(
+            userId: session.userId,
+            request: payload,
+            jurisdiction: query.jurisdiction ?? .unitedStates,
+            on: req.db
+        )
+    }
+
+    @Sendable
+    private func createPlacementPlan(req: Request) async throws -> TaxActionPlanResponse {
+        let session = try req.auth.require(SessionToken.self)
+        try await requireTaxPro(req, userId: session.userId)
+        let payload = try req.content.decode(TaxPlacementPlanRequest.self)
+        return try await req.application.taxService.createPlacementPlan(
+            userId: session.userId,
+            request: payload,
+            on: req.db
+        )
+    }
+
+    @Sendable
+    private func dismissOpportunity(req: Request) async throws -> HTTPStatus {
+        let session = try req.auth.require(SessionToken.self)
+        try await requireTaxPro(req, userId: session.userId)
+        guard let opportunityID = req.parameters.get("opportunityId"), !opportunityID.isEmpty else {
+            throw Abort(.badRequest, reason: "Invalid tax opportunity id.")
+        }
+        let query = try req.query.decode(TaxQuery.self)
+        try await req.application.taxService.dismissOpportunity(
+            userId: session.userId,
+            opportunityId: opportunityID,
+            jurisdiction: query.jurisdiction ?? .unitedStates,
+            taxYear: query.taxYear ?? currentTaxYear(),
+            on: req.db
+        )
+        return .noContent
+    }
+
+    @Sendable
+    private func restoreOpportunity(req: Request) async throws -> HTTPStatus {
+        let session = try req.auth.require(SessionToken.self)
+        try await requireTaxPro(req, userId: session.userId)
+        guard let opportunityID = req.parameters.get("opportunityId"), !opportunityID.isEmpty else {
+            throw Abort(.badRequest, reason: "Invalid tax opportunity id.")
+        }
+        let query = try req.query.decode(TaxQuery.self)
+        try await req.application.taxService.restoreOpportunity(
+            userId: session.userId,
+            opportunityId: opportunityID,
+            taxYear: query.taxYear ?? currentTaxYear(),
+            on: req.db
+        )
+        return .noContent
     }
 
     @Sendable
