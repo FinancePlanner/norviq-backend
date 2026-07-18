@@ -360,6 +360,7 @@ private func configureBankProviders(_ app: Application) {
     var bankProviders: [any BankProvider] = []
     if let plaidConfig = PlaidConfiguration.fromEnvironment() {
         bankProviders.append(PlaidProvider(client: PlaidClient(config: plaidConfig)))
+        app.plaidConfiguration = plaidConfig
     } else {
         app.logger.warning("Plaid is disabled. Configure PLAID_CLIENT_ID and PLAID_SECRET to enable US bank sync.")
     }

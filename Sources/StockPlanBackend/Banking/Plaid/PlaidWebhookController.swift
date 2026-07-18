@@ -3,16 +3,17 @@ import Foundation
 import StockPlanShared
 import Vapor
 
-/// Receives Plaid item/transaction webhooks. Verified with a shared secret
-/// header (constant-time), mirroring the Finnhub webhook. A full Plaid JWT/JWK
-/// verification is a follow-up; the shared secret keeps the endpoint closed
-/// until then.
+/// Receives Plaid item/transaction webhooks. Verified with Plaid's JWT scheme:
+/// the `Plaid-Verification` header is an ES256 JWS whose key is fetched by `kid`
+/// and cached, and whose `request_body_sha256` claim must match the raw body.
 struct PlaidWebhookController: RouteCollection {
+    private let verifier = PlaidWebhookVerifier()
+
     func boot(routes: any RoutesBuilder) throws {
         routes.grouped("webhooks", "plaid").post(use: receive)
     }
 
-    private struct PlaidWebhookPayload: Content {
+    private struct PlaidWebhookPayload: Codable {
         let webhookType: String
         let webhookCode: String
         let itemId: String
@@ -26,8 +27,12 @@ struct PlaidWebhookController: RouteCollection {
 
     @Sendable
     func receive(req: Request) async throws -> HTTPStatus {
-        try verifySecret(req)
-        let payload = try req.content.decode(PlaidWebhookPayload.self)
+        let rawBody = try await Self.collectRawBody(req)
+        try await verify(req, rawBody: rawBody)
+
+        guard let payload = try? JSONDecoder().decode(PlaidWebhookPayload.self, from: rawBody) else {
+            throw Abort(.badRequest, reason: "Malformed Plaid webhook payload.")
+        }
 
         guard let connection = try await BankConnection.query(on: req.db)
             .filter(\.$provider == BankProviderKind.plaid.rawValue)
@@ -53,19 +58,30 @@ struct PlaidWebhookController: RouteCollection {
         return .ok
     }
 
-    private func verifySecret(_ req: Request) throws {
-        let configured = Environment.get("PLAID_WEBHOOK_SECRET")?
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        guard let configured, !configured.isEmpty else {
-            throw Abort(.serviceUnavailable, reason: "PLAID_WEBHOOK_SECRET is not configured.")
+    private func verify(_ req: Request, rawBody: Data) async throws {
+        guard let config = req.application.plaidConfiguration else {
+            throw PlaidWebhookVerificationError.notConfigured
         }
-        let provided = req.headers.first(name: "X-Plaid-Webhook-Secret")?
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        guard let provided, !provided.isEmpty else {
-            throw Abort(.unauthorized, reason: "Missing Plaid webhook secret.")
+        guard let token = req.headers.first(name: "Plaid-Verification")?
+            .trimmingCharacters(in: .whitespacesAndNewlines), !token.isEmpty
+        else {
+            throw PlaidWebhookVerificationError.missingHeader
         }
-        guard ConstantTime.equals(provided, configured) else {
-            throw Abort(.unauthorized, reason: "Invalid Plaid webhook secret.")
+        try await verifier.verify(
+            header: token,
+            rawBody: rawBody,
+            client: PlaidClient(config: config),
+            cache: req.application.plaidWebhookKeyCache,
+            on: req
+        )
+    }
+
+    private static func collectRawBody(_ req: Request) async throws -> Data {
+        if let buffer = req.body.data {
+            return Data(buffer: buffer)
         }
+        let collected = try await req.body.collect(max: 1_000_000).get()
+        guard let buffer = collected else { return Data() }
+        return Data(buffer: buffer)
     }
 }
