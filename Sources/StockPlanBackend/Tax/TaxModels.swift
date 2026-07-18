@@ -105,6 +105,7 @@ final class TaxScenario: Model, @unchecked Sendable {
     @ID(key: .id) var id: UUID?
     @Field(key: "user_id") var userId: UUID
     @Field(key: "profile_id") var profileId: UUID
+    @Field(key: "kind") var kind: String
     @Field(key: "request_json") var requestJSON: String
     @Field(key: "response_json") var responseJSON: String
     @Timestamp(key: "created_at", on: .create) var createdAt: Date?
@@ -118,9 +119,79 @@ final class TaxActionPlan: Model, @unchecked Sendable {
     @ID(key: .id) var id: UUID?
     @Field(key: "user_id") var userId: UUID
     @Field(key: "scenario_id") var scenarioId: UUID
+    @Field(key: "kind") var kind: String
     @Field(key: "idempotency_key") var idempotencyKey: String
     @Field(key: "status") var status: String
     @Field(key: "response_json") var responseJSON: String
+    @OptionalField(key: "executed_at") var executedAt: Date?
+    @OptionalField(key: "confirmation_note") var confirmationNote: String?
+    @Timestamp(key: "created_at", on: .create) var createdAt: Date?
+    @Timestamp(key: "updated_at", on: .update) var updatedAt: Date?
+
+    init() {}
+}
+
+final class TaxActionLegRecord: Model, @unchecked Sendable {
+    static let schema = "tax_action_legs"
+
+    @ID(key: .id) var id: UUID?
+    @Field(key: "action_plan_id") var actionPlanId: UUID
+    @Field(key: "account_id") var accountId: UUID
+    @OptionalField(key: "portfolio_id") var portfolioId: UUID?
+    @Field(key: "instrument_id") var instrumentId: UUID
+    @Field(key: "symbol") var symbol: String
+    @Field(key: "side") var side: String
+    @OptionalField(key: "quantity") var quantity: Double?
+    @Field(key: "notional") var notional: Double
+    @Field(key: "currency") var currency: String
+    @Field(key: "lot_ids_json") var lotIDsJSON: String
+    @Field(key: "status") var status: String
+    @OptionalField(key: "matched_transaction_id") var matchedTransactionId: UUID?
+    @Timestamp(key: "created_at", on: .create) var createdAt: Date?
+    @Timestamp(key: "updated_at", on: .update) var updatedAt: Date?
+
+    init() {}
+}
+
+final class TaxActionRebalancingPlanLink: Model, @unchecked Sendable {
+    static let schema = "tax_action_rebalancing_plans"
+
+    @ID(key: .id) var id: UUID?
+    @Field(key: "action_plan_id") var actionPlanId: UUID
+    @Field(key: "rebalancing_plan_id") var rebalancingPlanId: UUID
+    @Timestamp(key: "created_at", on: .create) var createdAt: Date?
+
+    init() {}
+}
+
+final class TaxOpportunityDecision: Model, @unchecked Sendable {
+    static let schema = "tax_opportunity_decisions"
+
+    @ID(key: .id) var id: UUID?
+    @Field(key: "user_id") var userId: UUID
+    @Field(key: "tax_year") var taxYear: Int
+    @Field(key: "opportunity_id") var opportunityId: String
+    @Field(key: "status") var status: String
+    @Field(key: "estimated_benefit") var estimatedBenefit: Double
+    @Field(key: "currency") var currency: String
+    @Timestamp(key: "created_at", on: .create) var createdAt: Date?
+    @Timestamp(key: "updated_at", on: .update) var updatedAt: Date?
+
+    init() {}
+}
+
+final class TaxRestrictionWindow: Model, @unchecked Sendable {
+    static let schema = "tax_restriction_windows"
+
+    @ID(key: .id) var id: UUID?
+    @Field(key: "user_id") var userId: UUID
+    @Field(key: "action_leg_id") var actionLegId: UUID
+    @Field(key: "jurisdiction") var jurisdiction: String
+    @Field(key: "tax_identity_key") var taxIdentityKey: String
+    @Field(key: "starts_at") var startsAt: Date
+    @Field(key: "ends_at") var endsAt: Date
+    @Field(key: "status") var status: String
+    @OptionalField(key: "violating_transaction_id") var violatingTransactionId: UUID?
     @Timestamp(key: "created_at", on: .create) var createdAt: Date?
     @Timestamp(key: "updated_at", on: .update) var updatedAt: Date?
 

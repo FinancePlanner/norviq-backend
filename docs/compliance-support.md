@@ -58,6 +58,20 @@ The terms must state:
 - Users are responsible for investment decisions.
 - Broker imports and CSV parsing can contain user or provider errors.
 
+## Tax Replacement Suggestions
+
+Replacement suggestions are explicitly advisory. Different documented benchmarks support candidate selection, but they do not determine tax treatment. The product must retain professional-review warnings because IRS wash-sale guidance centers on whether securities are "substantially identical" and applies a 30-day window before and after the sale.
+
+Primary references used by the current US replacement catalog:
+
+- [IRS Publication 550](https://www.irs.gov/publications/p550)
+- [Vanguard S&P 500 ETF (VOO)](https://investor.vanguard.com/investment-products/etfs/profile/voo)
+- [Vanguard Total Stock Market ETF (VTI)](https://investor.vanguard.com/investment-products/etfs/profile/vti)
+- [Schwab U.S. Large-Cap Growth ETF (SCHG)](https://www.schwabassetmanagement.com/products/schg)
+- [iShares Core Total USD Bond Market ETF (IUSB)](https://www.ishares.com/us/products/264615/ishares-core-total-usd-bond-market-etf)
+
+These references support the transparent rule-based catalog only. They are not a legal conclusion that any proposed replacement avoids wash-sale treatment. Users remain responsible for confirming treatment with a qualified tax professional before trading or filing.
+
 ## Refund And Billing Support
 
 - App Store subscription refunds should be handled through Apple's refund flow.

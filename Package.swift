@@ -70,6 +70,7 @@ let package = Package(
             ],
             resources: [
                 .copy("openapi.yaml"),
+                .copy("Tax/Resources"),
             ],
             swiftSettings: swiftSettings,
             plugins: [

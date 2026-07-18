@@ -273,6 +273,8 @@ func registerMigrations(_ app: Application) {
     app.migrations.add(CreateGermanyFundAnnualHoldings())
     app.migrations.add(CreateGermanyFundAdvanceAllocations())
     app.migrations.add(AddTaxReportRetryFields())
+    app.migrations.add(ExpandTaxOptimizationV2())
+    app.migrations.add(SeedTaxReplacementCatalogInstruments())
     app.migrations.add(CreateScenarioPlanningTables())
     app.migrations.add(ExpandFinancialGoalPlanning())
     app.migrations.add(CreateHoldingRiskProfiles())
