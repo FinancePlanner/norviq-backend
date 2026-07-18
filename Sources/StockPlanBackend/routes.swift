@@ -51,6 +51,7 @@ func routes(_ app: Application) throws {
     try registerOpenAPIDocsRoutes(app)
     try app.register(collection: FinnhubWebhookController())
     try app.register(collection: PlaidWebhookController())
+    try app.register(collection: BankCallbackController())
     try app.register(collection: RevenueCatWebhookController())
     try app.register(collection: SharingController())
     // RFC 8414 authorization-server metadata lives at the root well-known path.

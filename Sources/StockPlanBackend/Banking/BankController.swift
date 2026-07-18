@@ -13,6 +13,7 @@ struct BankController: RouteCollection {
         let banks = routes.grouped("banks")
         let protected = banks.grouped(SessionToken.authenticator(), SessionToken.guardMiddleware())
 
+        protected.get("institutions", use: listInstitutions)
         protected.post("link-session", use: createLinkSession)
         protected.post("connections", use: exchange)
         protected.get("connections", use: listConnections)
@@ -26,10 +27,30 @@ struct BankController: RouteCollection {
     // MARK: - Connections
 
     @Sendable
+    func listInstitutions(req: Request) async throws -> [BankInstitutionResponse] {
+        _ = try req.auth.require(SessionToken.self)
+        let country = req.query[String.self, at: "country"] ?? "GB"
+        let provider = try req.bankProviderRegistry.provider(for: providerKind(req))
+        return try await provider.listInstitutions(country: country, on: req)
+    }
+
+    @Sendable
     func createLinkSession(req: Request) async throws -> BankLinkSessionResponse {
         let session = try req.auth.require(SessionToken.self)
         try await req.usageCounterService.requirePremium(.bankSync, userId: session.userId, on: req.db)
-        let provider = try req.bankProviderRegistry.provider(for: providerKind(req))
+        let kind = try providerKind(req)
+        let provider = try req.bankProviderRegistry.provider(for: kind)
+
+        // GoCardless needs an institution + redirect for its hosted flow; Plaid
+        // returns a link token with no prior selection.
+        if let hosted = try? req.content.decode(BankHostedLinkRequest.self), !hosted.institutionId.isEmpty {
+            return try await provider.createHostedLink(
+                userId: session.userId,
+                institutionId: hosted.institutionId,
+                redirectURI: hosted.redirectURI,
+                on: req
+            )
+        }
         return try await provider.createLinkSession(userId: session.userId, on: req)
     }
 

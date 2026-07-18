@@ -322,3 +322,5 @@ extension BankLinkSessionResponse: @retroactive Content {}
 extension BankExchangeRequest: @retroactive Content {}
 extension BankTransactionImportRequest: @retroactive Content {}
 extension BankSyncResponse: @retroactive Content {}
+extension BankInstitutionResponse: @retroactive Content {}
+extension BankHostedLinkRequest: @retroactive Content {}

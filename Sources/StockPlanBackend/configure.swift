@@ -97,14 +97,7 @@ public func configure(_ app: Application) async throws {
     )
     app.receiptOCRProvider = ReceiptOCRProviderBootstrap.fromEnvironment(app: app)
 
-    // Bank aggregators (read-only). Plaid (US) now; GoCardless (EU) in Phase 4.
-    var bankProviders: [any BankProvider] = []
-    if let plaidConfig = PlaidConfiguration.fromEnvironment() {
-        bankProviders.append(PlaidProvider(client: PlaidClient(config: plaidConfig)))
-    } else {
-        app.logger.warning("Plaid is disabled. Configure PLAID_CLIENT_ID and PLAID_SECRET to enable US bank sync.")
-    }
-    app.bankProviderRegistry = BankProviderRegistry(providers: bankProviders)
+    configureBankProviders(app)
     app.marketDataRepository = DatabaseMarketDataRepository()
     let configuredMarketProvider = Environment.get("MARKET_PROVIDER")?
         .trimmingCharacters(in: .whitespacesAndNewlines)
@@ -364,6 +357,23 @@ public func configure(_ app: Application) async throws {
 
     // register routes
     try routes(app)
+}
+
+/// Registers the read-only bank aggregators. Plaid (US) and GoCardless (EU)
+/// each enable only when their credentials are configured.
+private func configureBankProviders(_ app: Application) {
+    var bankProviders: [any BankProvider] = []
+    if let plaidConfig = PlaidConfiguration.fromEnvironment() {
+        bankProviders.append(PlaidProvider(client: PlaidClient(config: plaidConfig)))
+    } else {
+        app.logger.warning("Plaid is disabled. Configure PLAID_CLIENT_ID and PLAID_SECRET to enable US bank sync.")
+    }
+    if let gcConfig = GoCardlessConfiguration.fromEnvironment() {
+        bankProviders.append(GoCardlessProvider(client: GoCardlessClient(config: gcConfig)))
+    } else {
+        app.logger.warning("GoCardless is disabled. Configure GOCARDLESS_SECRET_ID and GOCARDLESS_SECRET_KEY to enable EU bank sync.")
+    }
+    app.bankProviderRegistry = BankProviderRegistry(providers: bankProviders)
 }
 
 private func configureGoalPlanningJob(_ app: Application) {
