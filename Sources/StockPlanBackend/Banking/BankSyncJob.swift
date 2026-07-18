@@ -43,6 +43,17 @@ struct BankSyncJob: LifecycleHandler {
 
             for connection in connections {
                 guard let kind = BankProviderKind(rawValue: connection.provider) else { continue }
+
+                // GoCardless consent lasts 90 days; flag connections within a week
+                // of expiry so clients can prompt a re-link before sync breaks.
+                if let expiry = connection.consentExpiresAt, expiry <= Date().addingTimeInterval(7 * 86400) {
+                    connection.status = BankConnectionStatus.reauthRequired.rawValue
+                    connection.lastSyncStatus = "consent_expiring"
+                    connection.updatedAt = Date()
+                    try? await connection.save(on: app.db)
+                    continue
+                }
+
                 do {
                     let provider = try app.bankProviderRegistry.provider(for: kind)
                     let req = Request(application: app, on: app.eventLoopGroup.any())

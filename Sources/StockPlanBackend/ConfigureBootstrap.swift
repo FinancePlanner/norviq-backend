@@ -287,6 +287,7 @@ func registerMigrations(_ app: Application) {
     app.migrations.add(CreateWealthAutomationTables())
     app.migrations.add(CreateBudgetingEngineTables())
     app.migrations.add(CreateRebalancingTables())
+    app.migrations.add(CreateBankLinkFlow())
 }
 
 func envBool(_ key: String, default defaultValue: Bool) -> Bool {

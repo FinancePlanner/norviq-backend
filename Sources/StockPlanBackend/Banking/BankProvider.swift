@@ -44,6 +44,36 @@ protocol BankProvider: Sendable {
 
     /// Revoke access at the provider (best-effort).
     func disconnect(connection: BankConnection, on req: Request) async throws
+
+    // MARK: - Hosted-link flow (GoCardless / EU)
+
+    // Providers that pick an institution before a hosted redirect implement
+    // these; SDK-based providers (Plaid) inherit the default throwing versions.
+
+    /// Banks selectable for a country (GoCardless). Plaid selects in-SDK.
+    func listInstitutions(country: String, on req: Request) async throws -> [BankInstitutionResponse]
+
+    /// Begin a hosted requisition for a chosen institution, returning the URL
+    /// the client redirects the user to.
+    func createHostedLink(userId: UUID, institutionId: String, redirectURI: String, on req: Request) async throws -> BankLinkSessionResponse
+
+    /// Complete a hosted link identified by its callback reference, persisting an
+    /// encrypted connection and its accounts.
+    func completeHostedLink(reference: String, on req: Request) async throws -> BankConnection
+}
+
+extension BankProvider {
+    func listInstitutions(country _: String, on _: Request) async throws -> [BankInstitutionResponse] {
+        throw BankProviderError.unsupportedOperation
+    }
+
+    func createHostedLink(userId _: UUID, institutionId _: String, redirectURI _: String, on _: Request) async throws -> BankLinkSessionResponse {
+        throw BankProviderError.unsupportedOperation
+    }
+
+    func completeHostedLink(reference _: String, on _: Request) async throws -> BankConnection {
+        throw BankProviderError.unsupportedOperation
+    }
 }
 
 /// Selects a provider by kind. GoCardless registers here in Phase 4.
