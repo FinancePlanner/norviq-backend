@@ -70,11 +70,14 @@ struct GoCardlessProvider: BankProvider {
         guard let flow = try await BankLinkFlow.query(on: req.db)
             .filter(\.$reference == reference)
             .filter(\.$provider == kind.rawValue)
-            .filter(\.$usedAt == nil)
             .first(),
             flow.expiresAt > now
         else {
             throw Abort(.badRequest, reason: "Bank link is invalid or expired.")
+        }
+
+        if let existing = try await existingConnection(for: flow, on: req.db), flow.usedAt != nil {
+            return existing
         }
 
         let token = try await client.newAccessToken(on: req)
@@ -82,6 +85,17 @@ struct GoCardlessProvider: BankProvider {
         let accountIds = requisition.accounts ?? []
         guard !accountIds.isEmpty else {
             throw Abort(.badRequest, reason: "No accounts were shared for this bank.")
+        }
+
+        if let existing = try await existingConnection(for: flow, on: req.db) {
+            try await ensureAccounts(accountIds, connection: existing, accessToken: token, on: req)
+            try await markUsed(flow, at: now, on: req.db)
+            _ = try? await sync(connection: existing, on: req)
+            return existing
+        }
+
+        guard flow.usedAt == nil else {
+            throw Abort(.badRequest, reason: "Bank link is invalid or expired.")
         }
 
         let connection = BankConnection(
@@ -99,19 +113,9 @@ struct GoCardlessProvider: BankProvider {
             throw Abort(.internalServerError, reason: "Bank connection id missing.")
         }
 
-        for accountId in accountIds {
-            let name = await (try? client.accountDetails(accountId: accountId, accessToken: token, on: req))?.account
-            let account = BankAccount(
-                connectionId: connectionId,
-                providerAccountId: accountId,
-                name: name?.name ?? name?.ownerName ?? "Account",
-                currency: name?.currency
-            )
-            try await account.save(on: req.db)
-        }
+        try await ensureAccounts(accountIds, connectionId: connectionId, accessToken: token, on: req)
 
-        flow.usedAt = now
-        try await flow.save(on: req.db)
+        try await markUsed(flow, at: now, on: req.db)
 
         _ = try? await sync(connection: connection, on: req)
         return connection
@@ -184,7 +188,7 @@ struct GoCardlessProvider: BankProvider {
         return count <= dailyAccountCallBudget
     }
 
-    private func upsert(_ tx: GCTransaction, pending: Bool, account: BankAccount, userId: UUID, on db: any Database) async throws -> Bool {
+    func upsert(_ tx: GCTransaction, pending: Bool, account: BankAccount, userId: UUID, on db: any Database) async throws -> Bool {
         guard let accountId = account.id else { return false }
         let amount = Double(tx.transactionAmount.amount) ?? 0
         let dateString = tx.bookingDate ?? tx.valueDate ?? ""
@@ -201,14 +205,39 @@ struct GoCardlessProvider: BankProvider {
             .first()
         {
             if existing.status == BankTransactionStatus.suggested.rawValue {
-                existing.amount = amount
-                existing.currency = tx.transactionAmount.currency
-                existing.occurredOn = occurredOn
-                existing.merchant = merchant
-                existing.descriptionText = tx.remittanceInformationUnstructured
-                existing.pending = pending
-                existing.dedupeHash = dedupeHash
-                try await existing.save(on: db)
+                try await updateSuggested(
+                    existing,
+                    providerTxId: providerTxId,
+                    dedupeHash: dedupeHash,
+                    tx: tx,
+                    amount: amount,
+                    occurredOn: occurredOn,
+                    merchant: merchant,
+                    pending: pending,
+                    on: db
+                )
+            }
+            return false
+        }
+
+        if let existingPending = try await BankTransaction.query(on: db)
+            .filter(\.$accountId == accountId)
+            .filter(\.$dedupeHash == dedupeHash)
+            .filter(\.$pending == true)
+            .first()
+        {
+            if existingPending.status == BankTransactionStatus.suggested.rawValue {
+                try await updateSuggested(
+                    existingPending,
+                    providerTxId: providerTxId,
+                    dedupeHash: dedupeHash,
+                    tx: tx,
+                    amount: amount,
+                    occurredOn: occurredOn,
+                    merchant: merchant,
+                    pending: pending,
+                    on: db
+                )
             }
             return false
         }
@@ -228,6 +257,66 @@ struct GoCardlessProvider: BankProvider {
         )
         try await row.save(on: db)
         return true
+    }
+
+    private func existingConnection(for flow: BankLinkFlow, on db: any Database) async throws -> BankConnection? {
+        try await BankConnection.query(on: db)
+            .filter(\.$provider == kind.rawValue)
+            .filter(\.$providerItemId == flow.requisitionId)
+            .first()
+    }
+
+    private func ensureAccounts(_ accountIds: [String], connection: BankConnection, accessToken: String, on req: Request) async throws {
+        guard let connectionId = connection.id else {
+            throw Abort(.internalServerError, reason: "Bank connection id missing.")
+        }
+        try await ensureAccounts(accountIds, connectionId: connectionId, accessToken: accessToken, on: req)
+    }
+
+    private func ensureAccounts(_ accountIds: [String], connectionId: UUID, accessToken: String, on req: Request) async throws {
+        let existing = try await BankAccount.query(on: req.db)
+            .filter(\.$connectionId == connectionId)
+            .all()
+        let existingIds = Set(existing.map(\.providerAccountId))
+
+        for accountId in accountIds where !existingIds.contains(accountId) {
+            let name = await (try? client.accountDetails(accountId: accountId, accessToken: accessToken, on: req))?.account
+            let account = BankAccount(
+                connectionId: connectionId,
+                providerAccountId: accountId,
+                name: name?.name ?? name?.ownerName ?? "Account",
+                currency: name?.currency
+            )
+            try await account.save(on: req.db)
+        }
+    }
+
+    private func markUsed(_ flow: BankLinkFlow, at date: Date, on db: any Database) async throws {
+        guard flow.usedAt == nil else { return }
+        flow.usedAt = date
+        try await flow.save(on: db)
+    }
+
+    private func updateSuggested(
+        _ existing: BankTransaction,
+        providerTxId: String,
+        dedupeHash: String,
+        tx: GCTransaction,
+        amount: Double,
+        occurredOn: Date,
+        merchant: String?,
+        pending: Bool,
+        on db: any Database
+    ) async throws {
+        existing.providerTxId = providerTxId
+        existing.amount = amount
+        existing.currency = tx.transactionAmount.currency
+        existing.occurredOn = occurredOn
+        existing.merchant = merchant
+        existing.descriptionText = tx.remittanceInformationUnstructured
+        existing.pending = pending
+        existing.dedupeHash = dedupeHash
+        try await existing.save(on: db)
     }
 
     private static let dateFormatter: DateFormatter = {
