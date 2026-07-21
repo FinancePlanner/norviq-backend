@@ -139,6 +139,7 @@ public func configure(_ app: Application) async throws {
         cacheConfig: MarketDataCacheConfig.fromEnvironment(),
         fmpAccessTier: FMPAccessTier.fromEnvironment()
     )
+    app.portfolioValuationService = DefaultPortfolioValuationService()
     app.statisticsRepository = DatabaseStatisticsRepository()
     app.statisticsService = DefaultStatisticsService(repo: app.statisticsRepository)
     app.newsRepository = DatabaseNewsRepository()
