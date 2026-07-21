@@ -7,3 +7,4 @@ typealias BrokerSyncResponse = StockPlanShared.BrokerSyncResponse
 typealias BrokerSyncStatusResponse = StockPlanShared.BrokerSyncStatusResponse
 typealias BrokerConnectStartRequest = StockPlanShared.BrokerConnectStartRequest
 typealias BrokerConnectStartResponse = StockPlanShared.BrokerConnectStartResponse
+typealias BrokerConnectCredentialsRequest = StockPlanShared.BrokerConnectCredentialsRequest

@@ -32,9 +32,21 @@ protocol BrokersService: Sendable {
     func get(provider: String, userId: UUID, on db: any Database) async throws -> BrokerConnectionResponse
     func recordCsvImport(provider: String, userId: UUID, on db: any Database) async throws -> BrokerConnectionResponse
     func startIBKRConnect(redirectURI: String, portfolioListId: String?, userId: UUID, on req: Request) async throws -> BrokerConnectStartResponse
+    func connectIBKRCredentials(
+        token: String,
+        queryId: String,
+        portfolioListId: String?,
+        userId: UUID,
+        on req: Request
+    ) async throws -> BrokerConnectionResponse
     func handleIBKRCallback(flowId: UUID?, code: String?, error: String?, state: String, on req: Request) async throws -> Response
     func syncIBKR(userId: UUID, on req: Request) async throws -> BrokerSyncResponse
     func disconnectIBKR(userId: UUID, on db: any Database) async throws -> BrokerConnectionResponse
+}
+
+enum IBKRConnectMarkers {
+    /// `BrokerConnection.externalId` value for Norviq Web Service (SOD) credentials.
+    static let sodWebService = "sod-web-service"
 }
 
 struct DefaultBrokersService: BrokersService {
@@ -134,6 +146,52 @@ struct DefaultBrokersService: BrokersService {
         )
     }
 
+    func connectIBKRCredentials(
+        token: String,
+        queryId: String,
+        portfolioListId: String?,
+        userId: UUID,
+        on req: Request
+    ) async throws -> BrokerConnectionResponse {
+        let trimmedToken = token.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedQueryId = queryId.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedToken.isEmpty else {
+            throw Abort(.badRequest, reason: "IBKR Web Service token is required.")
+        }
+        guard !trimmedQueryId.isEmpty else {
+            throw Abort(.badRequest, reason: "IBKR Web Service query ID is required.")
+        }
+
+        let resolvedPortfolioListId = try await resolvePortfolioListId(
+            requestedId: portfolioListId,
+            userId: userId,
+            on: req.db,
+            defaultWhenMissing: true
+        )
+        let now = Date()
+        let connection = try await upsertBrokerConnection(
+            provider: "ibkr",
+            userId: userId,
+            externalId: IBKRConnectMarkers.sodWebService,
+            displayName: "IBKR Web Service",
+            status: "connected",
+            statusDetail: "Credentials saved. Statement sync runs after IBKR publishes the daily SOD files.",
+            connectedAt: now,
+            lastSyncedAt: nil,
+            portfolioListId: resolvedPortfolioListId,
+            accessToken: trimmedToken,
+            refreshToken: trimmedQueryId,
+            expiresAt: nil,
+            on: req.db
+        )
+        // Force SOD marker even when upsert would keep a prior externalId via ?? —
+        // upsertBrokerConnection uses `externalId ?? connection.externalId`.
+        connection.externalId = IBKRConnectMarkers.sodWebService
+        connection.expiresAt = nil
+        try await connection.save(on: req.db)
+        return try BrokerConnectionResponse(from: connection)
+    }
+
     func handleIBKRCallback(flowId: UUID?, code: String?, error: String?, state: String, on req: Request) async throws -> Response {
         let now = Date()
         let normalizedState = state.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -220,6 +278,23 @@ struct DefaultBrokersService: BrokersService {
     func syncIBKR(userId: UUID, on req: Request) async throws -> BrokerSyncResponse {
         guard let connection = try await repo.find(provider: "ibkr", userId: userId, on: req.db) else {
             throw BrokersServiceError.notFound
+        }
+
+        if connection.externalId == IBKRConnectMarkers.sodWebService {
+            do {
+                return try await IBKRSODSyncService(tokenVault: tokenVault)
+                    .sync(connection: connection, userId: userId, on: req)
+            } catch {
+                // IBKRSODSyncService already stamps statusDetail on IBKRSODError;
+                // still stamp unknown failures here.
+                if connection.statusDetail == nil || !(error is IBKRSODError) {
+                    connection.status = "error"
+                    connection.statusDetail = brokerErrorMessage(error)
+                    connection.updatedAt = Date()
+                    try? await connection.save(on: req.db)
+                }
+                throw error
+            }
         }
 
         do {
@@ -381,6 +456,13 @@ private extension DefaultBrokersService {
     }
 
     func syncDataClient(connection: BrokerConnection, on req: Request) async throws -> IBKRBrokerGatewayClient {
+        if connection.externalId == IBKRConnectMarkers.sodWebService {
+            throw Abort(
+                .serviceUnavailable,
+                reason: "IBKR statement sync is not available yet. Your Web Service token and query ID are saved."
+            )
+        }
+
         guard let storedAccessToken = connection.accessToken?.trimmingCharacters(in: .whitespacesAndNewlines),
               !storedAccessToken.isEmpty,
               let ibkrOAuthClient
