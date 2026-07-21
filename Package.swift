@@ -42,7 +42,6 @@ let package = Package(
         sharedPackage,
         // Container packaging without Dockerfile builds in CI.
         .package(url: "https://github.com/apple/swift-container-plugin.git", from: "1.3.0"),
-        .package(url: "https://github.com/realm/SwiftLint.git", from: "0.50.3"),
         .package(url: "https://github.com/vapor/apns.git", from: "4.0.0"),
     ],
     targets: [
@@ -75,7 +74,6 @@ let package = Package(
             swiftSettings: swiftSettings,
             plugins: [
                 .plugin(name: "OpenAPIGenerator", package: "swift-openapi-generator"),
-                .plugin(name: "SwiftLintBuildToolPlugin", package: "SwiftLint"),
             ]
         ),
         .testTarget(
