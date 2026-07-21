@@ -142,7 +142,9 @@ struct AIAssistantController: RouteCollection {
             .filter(\.$monthStart == start).first()?.requestCount ?? 0
         let billing = try await req.application.billingContextService.context(userId: userId, on: req.db)
         return try json(AIAssistantUsageResponse(month: monthString(start), used: used,
-                                                 limit: billing.isPro ? nil : 5, remaining: billing.isPro ? nil : max(0, 5 - used), isPro: billing.isPro))
+                                                 limit: billing.isPro ? nil : AICostControls.freeMonthlyLimit,
+                                                 remaining: billing.isPro ? nil : max(0, AICostControls.freeMonthlyLimit - used),
+                                                 isPro: billing.isPro))
     }
 
     @Sendable private func listPendingActions(req: Request) async throws -> Response {
