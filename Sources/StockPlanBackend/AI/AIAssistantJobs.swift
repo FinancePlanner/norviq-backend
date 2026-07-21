@@ -96,6 +96,10 @@ final class AIDailyTipJob: LifecycleHandler, @unchecked Sendable {
     }
 
     func runOnce(_ app: Application) async {
+        guard AICostControls.proactiveTipsEnabled else {
+            app.logger.info("ai_assistant.daily_tips_skipped reason=disabled")
+            return
+        }
         do {
             let preferences = try await AIAssistantPreference.query(on: app.db)
                 .filter(\.$proactiveTipsEnabled == true)

@@ -254,14 +254,19 @@ extension AIAssistantController {
     }
 
     private func consumeAssistantTurn(userId: UUID, req: Request) async throws {
+        try AICostControls.requireEnabled(reason: "The assistant is temporarily unavailable.")
         let billing = try await req.application.billingContextService.context(userId: userId, on: req.db)
         let calendar = Calendar(identifier: .gregorian)
         let month = calendar.date(from: calendar.dateComponents([.year, .month], from: Date()))!
+        let freeLimit = AICostControls.freeMonthlyLimit
         try await req.db.transaction { database in
             let usage = try await AIAssistantUsage.query(on: database).filter(\.$userId == userId)
                 .filter(\.$monthStart == month).first() ?? AIAssistantUsage(userId: userId, monthStart: month)
-            guard billing.isPro || usage.requestCount < 5 else {
-                throw Abort(.paymentRequired, reason: "The free AI preview includes 5 requests per month.")
+            guard billing.isPro || usage.requestCount < freeLimit else {
+                throw Abort(
+                    .paymentRequired,
+                    reason: "The free AI preview includes \(freeLimit) requests per month."
+                )
             }
             usage.requestCount += 1; try await usage.save(on: database)
         }

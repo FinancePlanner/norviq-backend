@@ -1,6 +1,5 @@
 import Foundation
 import NIOCore
-import Redis
 import Vapor
 
 /// The in-app assistant chat endpoint. First-party sessions only (MCP tokens are
@@ -19,8 +18,14 @@ struct AIChatController: RouteCollection {
             throw Abort(.forbidden, reason: "The assistant is only available in the Norviq app.")
         }
         let session = try req.auth.require(SessionToken.self)
+        try AICostControls.requireEnabled(reason: "The assistant is temporarily unavailable.")
         try await req.usageCounterService.requirePremium(.aiInsights, userId: session.userId, on: req.db)
-        try await enforceDailyCap(req, userId: session.userId)
+        try await AIDailyCap.enforce(
+            req,
+            userId: session.userId,
+            unavailableReason: "The assistant is temporarily unavailable.",
+            limitReachedReason: "Daily assistant limit reached. Try again tomorrow."
+        )
 
         let payload = try req.content.decode(AIChatRequest.self)
         let history = payload.messages.prefix(30).map { OpenAIMessage(role: $0.sanitizedRole, content: $0.content) }
@@ -82,42 +87,6 @@ struct AIChatController: RouteCollection {
         var buffer = ByteBufferAllocator().buffer(capacity: event.utf8.count + encodedData.utf8.count + 16)
         buffer.writeString("event: \(event)\ndata: \(encodedData)\n\n")
         try await writer.writeBuffer(buffer)
-    }
-
-    // MARK: - Daily cap (mirrors AIInsightsController)
-
-    private func enforceDailyCap(_ req: Request, userId: UUID) async throws {
-        let limit = Environment.get("AI_DAILY_LIMIT").flatMap(Int.init) ?? 50
-        guard req.application.redis.configuration != nil else {
-            if req.application.environment == .production {
-                throw Abort(.serviceUnavailable, reason: "The assistant is temporarily unavailable.")
-            }
-            return
-        }
-        let day = Self.dayBucket(Date())
-        let key = RedisKey("ai_daily:\(userId.uuidString):\(day)")
-        let count: Int
-        do {
-            count = try await req.redis.increment(key).get()
-            if count == 1 {
-                _ = try await req.redis.expire(key, after: .seconds(86400)).get()
-            }
-        } catch {
-            if req.application.environment == .production {
-                throw Abort(.serviceUnavailable, reason: "The assistant is temporarily unavailable.")
-            }
-            return
-        }
-        guard count <= limit else {
-            throw Abort(.tooManyRequests, reason: "Daily assistant limit reached. Try again tomorrow.")
-        }
-    }
-
-    private static func dayBucket(_ date: Date) -> String {
-        var calendar = Calendar(identifier: .gregorian)
-        calendar.timeZone = TimeZone(secondsFromGMT: 0) ?? .gmt
-        let c = calendar.dateComponents([.year, .month, .day], from: date)
-        return "\(c.year ?? 0)-\(c.month ?? 0)-\(c.day ?? 0)"
     }
 }
 
