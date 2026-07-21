@@ -772,7 +772,7 @@ private extension LiveFMPMarketDataProvider {
             }
 
         case .notFound:
-            throw Abort(.notFound, reason: "FMP resource not found for \(path).")
+            throw Abort(.notFound, reason: "No market data found for this symbol.")
 
         case .unauthorized, .forbidden:
             let body = extractResponseBody(response)
@@ -783,23 +783,27 @@ private extension LiveFMPMarketDataProvider {
             req.logger.error(
                 "FMP rejected the request. status=\(response.status.code) url=\(uri) apiKeyLength=\(apiKey.count) maskedKey=\(maskedApiKey) response=\(body)"
             )
-            throw Abort(.badGateway, reason: "FMP rejected the request. Check FMP_API_KEY.")
+            throw Abort(.badGateway, reason: "Market data isn’t available right now. Please try again later.")
 
         case .paymentRequired:
             let body = extractResponseBody(response)
-            let reason =
-                body.isEmpty
-                    ? "This market data endpoint is not available for the requested symbol on the current market data coverage."
-                    : "This market data endpoint is not available for the requested symbol on the current market data coverage. Upstream response: \(body)"
-            throw Abort(.paymentRequired, reason: reason)
+            req.logger.warning(
+                "FMP coverage/subscription limit for \(path). status=\(response.status.code) response=\(body)"
+            )
+            throw Abort(
+                .paymentRequired,
+                reason: "Chart data isn’t available for this symbol right now. Try another symbol or check back later."
+            )
 
         default:
             let body = extractResponseBody(response)
-            let reason =
-                body.isEmpty
-                    ? "FMP request failed for \(path) with status \(response.status.code)."
-                    : "FMP request failed for \(path) with status \(response.status.code): \(body)"
-            throw Abort(.badGateway, reason: reason)
+            req.logger.error(
+                "FMP request failed for \(path). status=\(response.status.code) response=\(body)"
+            )
+            throw Abort(
+                .badGateway,
+                reason: "Market data isn’t available for this symbol right now. Please try again later."
+            )
         }
     }
 

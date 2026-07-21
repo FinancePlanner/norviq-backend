@@ -13,6 +13,7 @@ struct BrokerController: RouteCollection {
         protected.post("import", "csv", use: importCsvPreview)
         protected.post("import", "csv", "commit", use: importCsvCommit)
         protected.post("ibkr", "connect", "start", use: startIBKRConnect)
+        protected.post("ibkr", "connect", "credentials", use: connectIBKRCredentials)
         protected.post("ibkr", "sync", use: syncIbkr)
         protected.get("ibkr", "sync", "status", use: getIbkrSyncStatus)
         protected.delete("ibkr", "connection", use: disconnectIbkr)
@@ -88,6 +89,19 @@ struct BrokerController: RouteCollection {
         let payload = try req.content.decode(BrokerConnectStartRequest.self)
         return try await req.application.brokersService.startIBKRConnect(
             redirectURI: payload.redirectURI,
+            portfolioListId: payload.portfolioListId,
+            userId: session.userId,
+            on: req
+        )
+    }
+
+    @Sendable
+    func connectIBKRCredentials(req: Request) async throws -> BrokerConnectionResponse {
+        let session = try req.auth.require(SessionToken.self)
+        let payload = try req.content.decode(BrokerConnectCredentialsRequest.self)
+        return try await req.application.brokersService.connectIBKRCredentials(
+            token: payload.token,
+            queryId: payload.queryId,
             portfolioListId: payload.portfolioListId,
             userId: session.userId,
             on: req
