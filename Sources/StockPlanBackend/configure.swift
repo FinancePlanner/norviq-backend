@@ -197,6 +197,7 @@ public func configure(_ app: Application) async throws {
         usageCounterService: app.usageCounterService,
         trialService: app.trialService
     )
+    app.thesisWatchService = DefaultThesisWatchService(billingContextService: app.billingContextService)
     app.billingService = DefaultBillingService()
     try validateBillingSecrets(app)
     app.targetAlertEvaluator = DefaultTargetAlertEvaluator()
@@ -281,6 +282,13 @@ public func configure(_ app: Application) async throws {
     app.lifecycle.use(DataExportCleanupJob(repository: app.dataExportRepository, interval: 86400))
     let hermesSyncSeconds = Environment.get("HERMES_SYNC_INTERVAL_SECONDS").flatMap(Int64.init(_:)) ?? 900
     app.lifecycle.use(HermesSyncJob(intervalSeconds: hermesSyncSeconds))
+    let thesisWatchSyncSeconds = Int64(Environment.get("THESIS_WATCH_SYNC_SECONDS").flatMap(Int.init(_:)) ?? 900)
+    let thesisWatchSymbolsPerSync = Environment.get("THESIS_WATCH_SYMBOLS_PER_SYNC").flatMap(Int.init(_:)) ?? 30
+    app.lifecycle.use(ThesisWatchIngestionJob(
+        intervalSeconds: thesisWatchSyncSeconds,
+        maxSymbolsPerRun: thesisWatchSymbolsPerSync
+    ))
+    app.lifecycle.use(ThesisWatchNotificationPoller(intervalSeconds: thesisWatchSyncSeconds))
     app.lifecycle.use(ScenarioRunWorker(
         intervalSeconds: Environment.get("SCENARIO_WORKER_INTERVAL_SECONDS").flatMap(Int64.init) ?? 2,
         maxConcurrent: Environment.get("SCENARIO_WORKER_MAX_CONCURRENT").flatMap(Int.init) ?? 2

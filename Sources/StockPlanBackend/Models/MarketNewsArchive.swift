@@ -35,6 +35,9 @@ final class MarketNewsArchive: Model, Content, @unchecked Sendable {
     @Field(key: "fetched_at")
     var fetchedAt: Date
 
+    @OptionalField(key: "story_id")
+    var storyId: UUID?
+
     @Timestamp(key: "created_at", on: .create)
     var createdAt: Date?
 
@@ -53,7 +56,8 @@ final class MarketNewsArchive: Model, Content, @unchecked Sendable {
         summary: String?,
         imageURL: String?,
         publishedAt: Date,
-        fetchedAt: Date
+        fetchedAt: Date,
+        storyId: UUID? = nil
     ) {
         self.id = id
         self.provider = provider
@@ -65,5 +69,6 @@ final class MarketNewsArchive: Model, Content, @unchecked Sendable {
         self.imageURL = imageURL
         self.publishedAt = publishedAt
         self.fetchedAt = fetchedAt
+        self.storyId = storyId
     }
 }

@@ -324,3 +324,11 @@ extension BankTransactionImportRequest: @retroactive Content {}
 extension BankSyncResponse: @retroactive Content {}
 extension BankInstitutionResponse: @retroactive Content {}
 extension BankHostedLinkRequest: @retroactive Content {}
+
+// MARK: - Thesis Watch
+
+extension ThesisWatchFeedResponse: @retroactive Content {}
+extension ThesisWatchStory: @retroactive Content {}
+extension ThesisWatchFeedbackRequest: @retroactive Content {}
+extension ThesisWatchNotificationPreferences: @retroactive Content {}
+extension UpdateThesisWatchNotificationPreferences: @retroactive Content {}

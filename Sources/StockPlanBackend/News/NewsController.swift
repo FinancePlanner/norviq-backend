@@ -11,11 +11,82 @@ struct NewsController: RouteCollection {
         news.post(use: createNews)
         news.post("sync", use: syncNews)
         news.post("view", use: recordNewsView)
+        news.get("thesis-watch", use: thesisWatchFeed)
+        news.get("thesis-watch", "notifications", use: thesisWatchNotificationPreferences)
+        news.put("thesis-watch", "notifications", use: updateThesisWatchNotificationPreferences)
+        news.group("thesis-watch", ":storyId") { story in
+            story.get(use: thesisWatchStory)
+            story.post("feedback", use: thesisWatchFeedback)
+            story.post("view", use: markThesisWatchStoryRead)
+        }
         news.group(":newsId") { item in
             item.get(use: getNews)
             item.put(use: updateNews)
             item.delete(use: deleteNews)
         }
+    }
+
+    @Sendable
+    func thesisWatchFeed(req: Request) async throws -> ThesisWatchFeedResponse {
+        let session = try req.auth.require(SessionToken.self)
+        let rawScope = req.query[String.self, at: "scope"] ?? ThesisWatchScope.forYou.rawValue
+        guard let scope = ThesisWatchScope(rawValue: rawScope) else {
+            throw Abort(.badRequest, reason: "Invalid Thesis Watch scope.")
+        }
+        return try await req.thesisWatchService.feed(
+            userId: session.userId,
+            scope: scope,
+            sector: req.query[String.self, at: "sector"],
+            limit: clampedLimit(req.query[Int.self, at: "limit"], default: 20, max: 50),
+            cursor: req.query[String.self, at: "cursor"],
+            on: req.db
+        )
+    }
+
+    @Sendable
+    func thesisWatchStory(req: Request) async throws -> ThesisWatchStory {
+        let session = try req.auth.require(SessionToken.self)
+        let storyId = try requireUUIDParameter(req, name: "storyId", reason: "Invalid story ID")
+        return try await req.thesisWatchService.story(id: storyId, userId: session.userId, on: req.db)
+    }
+
+    @Sendable
+    func thesisWatchFeedback(req: Request) async throws -> HTTPStatus {
+        let session = try req.auth.require(SessionToken.self)
+        let storyId = try requireUUIDParameter(req, name: "storyId", reason: "Invalid story ID")
+        let payload = try req.content.decode(ThesisWatchFeedbackRequest.self)
+        try await req.thesisWatchService.feedback(
+            id: storyId,
+            userId: session.userId,
+            signal: payload.signal,
+            on: req.db
+        )
+        return .noContent
+    }
+
+    @Sendable
+    func markThesisWatchStoryRead(req: Request) async throws -> HTTPStatus {
+        let session = try req.auth.require(SessionToken.self)
+        let storyId = try requireUUIDParameter(req, name: "storyId", reason: "Invalid story ID")
+        try await req.thesisWatchService.markRead(id: storyId, userId: session.userId, on: req.db)
+        return .noContent
+    }
+
+    @Sendable
+    func thesisWatchNotificationPreferences(req: Request) async throws -> ThesisWatchNotificationPreferences {
+        let session = try req.auth.require(SessionToken.self)
+        return try await req.thesisWatchService.notificationPreferences(userId: session.userId, on: req.db)
+    }
+
+    @Sendable
+    func updateThesisWatchNotificationPreferences(req: Request) async throws -> ThesisWatchNotificationPreferences {
+        let session = try req.auth.require(SessionToken.self)
+        let payload = try req.content.decode(UpdateThesisWatchNotificationPreferences.self)
+        return try await req.thesisWatchService.updateNotificationPreferences(
+            userId: session.userId,
+            payload: payload,
+            on: req.db
+        )
     }
 
     @Sendable

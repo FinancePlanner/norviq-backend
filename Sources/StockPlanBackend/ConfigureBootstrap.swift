@@ -219,6 +219,7 @@ func registerMigrations(_ app: Application) {
     app.migrations.add(AddBrokerOAuthFlowAndConnectionMetadata())
     app.migrations.add(CreateMarketNewsArchive())
     app.migrations.add(AddImageURLToMarketNewsArchive())
+    app.migrations.add(CreateThesisWatchTables())
     app.migrations.add(AddUserScopedQueryIndexes())
     app.migrations.add(AddQuoteCacheLookupIndex())
     app.migrations.add(CreateStockValuation())

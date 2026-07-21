@@ -8,6 +8,15 @@ protocol MarketNewsArchiveService: Sendable {
     func generalNews(limit: Int?, on req: Request) async throws -> [StockNews]
     func archivedNews(symbol: String, limit: Int?, on db: any Database) async throws -> [StockNews]
     func refreshNews(symbol: String, limit: Int?, on req: Request) async throws -> [StockNews]
+    func refreshTrackedNews(symbols: [String], on req: Request) async throws
+}
+
+extension MarketNewsArchiveService {
+    func refreshTrackedNews(symbols: [String], on req: Request) async throws {
+        for symbol in symbols {
+            _ = try await refreshNews(symbol: symbol, limit: nil, on: req)
+        }
+    }
 }
 
 struct MarketNewsArchiveConfig {
@@ -149,6 +158,23 @@ struct DefaultMarketNewsArchiveService: MarketNewsArchiveService {
 
         let archived = try await archivedRows(symbol: symbol, limit: limit, on: req.db)
         return archived.compactMap(makeStockNews)
+    }
+
+    func refreshTrackedNews(symbols rawSymbols: [String], on req: Request) async throws {
+        guard let provider else { return }
+        let symbols = try Array(Set(rawSymbols.map(normalizeSymbol))).sorted()
+        guard !symbols.isEmpty else { return }
+
+        let fetchedAt = Date()
+        let articles = try await provider.fetch(symbols: symbols, on: req)
+        let tracked = Set(symbols)
+        for article in articles {
+            let symbol = article.symbol.uppercased()
+            guard tracked.contains(symbol),
+                  let normalized = try normalize(article, expectedSymbol: symbol, provider: provider.name)
+            else { continue }
+            try await upsert(normalized, fetchedAt: fetchedAt, on: req.db)
+        }
     }
 }
 
