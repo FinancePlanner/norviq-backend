@@ -1573,6 +1573,146 @@ paths:
                   $ref: '#/components/schemas/NewsItemResponse'
         '401':
           description: Unauthorized
+  /v1/news/thesis-watch:
+    get:
+      operationId: getThesisWatchFeed
+      tags: [News]
+      summary: List clustered financial news ranked for the authenticated investor
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: scope
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [for_you, holdings, watchlist, sectors, market]
+            default: for_you
+        - name: sector
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: cursor
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            format: int32
+            default: 20
+            maximum: 50
+      responses:
+        '200':
+          description: Free headlines or Pro personalized analysis, depending on entitlement
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ThesisWatchFeedResponse'
+        '401':
+          description: Unauthorized
+  /v1/news/thesis-watch/notifications:
+    get:
+      operationId: getThesisWatchNotificationPreferences
+      tags: [News]
+      summary: Get Thesis Watch push preferences
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ThesisWatchNotificationPreferences'
+    put:
+      operationId: updateThesisWatchNotificationPreferences
+      tags: [News]
+      summary: Update Thesis Watch push preferences
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateThesisWatchNotificationPreferences'
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ThesisWatchNotificationPreferences'
+        '402':
+          description: Pro subscription required when enabling alerts
+  /v1/news/thesis-watch/{storyId}:
+    parameters:
+      - name: storyId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    get:
+      operationId: getThesisWatchStory
+      tags: [News]
+      summary: Get one personalized Thesis Watch story
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ThesisWatchStory'
+        '404':
+          description: Not Found
+  /v1/news/thesis-watch/{storyId}/feedback:
+    parameters:
+      - name: storyId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    post:
+      operationId: sendThesisWatchFeedback
+      tags: [News]
+      summary: Record relevance or thesis-impact feedback
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ThesisWatchFeedbackRequest'
+      responses:
+        '204':
+          description: No Content
+  /v1/news/thesis-watch/{storyId}/view:
+    parameters:
+      - name: storyId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    post:
+      operationId: markThesisWatchStoryRead
+      tags: [News]
+      summary: Mark a Thesis Watch story as read
+      security:
+        - bearerAuth: []
+      responses:
+        '204':
+          description: No Content
   /v1/news/view:
     post:
       operationId: recordNewsView
@@ -10582,6 +10722,94 @@ components:
           format: int32
           description: Number of provider items skipped because they were invalid, untracked, or duplicates.
       required: [provider, symbolsCount, fetchedCount, insertedCount, updatedCount, skippedCount]
+    ThesisWatchExposure:
+      type: object
+      properties:
+        currency: { type: string }
+        value: { type: number, format: double }
+        weightPercent: { type: number, format: double }
+      required: [currency, value, weightPercent]
+    ThesisWatchCapabilities:
+      type: object
+      properties:
+        isPro: { type: boolean }
+        personalizedRanking: { type: boolean }
+        thesisAnalysis: { type: boolean }
+        pushAlerts: { type: boolean }
+        maxItems: { type: integer, format: int32 }
+      required: [isPro, personalizedRanking, thesisAnalysis, pushAlerts, maxItems]
+    ThesisWatchStory:
+      type: object
+      properties:
+        id: { type: string }
+        headline: { type: string }
+        source: { type: string }
+        url: { type: string, format: uri }
+        imageUrl: { type: string, format: uri }
+        publishedAt: { type: string }
+        providerSummary: { type: string }
+        summary: { type: string }
+        whyItMatters: { type: string }
+        symbols:
+          type: array
+          items: { type: string }
+        sectors:
+          type: array
+          items: { type: string }
+        relationship:
+          type: string
+          enum: [holding, watchlist, market]
+        eventType:
+          type: string
+          enum: [earnings, guidance, regulation, merger_acquisition, management, product, capital_return, analyst_action, macro, legal, other]
+        severity:
+          type: string
+          enum: [low, medium, high]
+        exposure:
+          $ref: '#/components/schemas/ThesisWatchExposure'
+        thesisImpact:
+          type: string
+          enum: [supports, challenges, neutral, insufficient_evidence, not_assessed]
+        confidence: { type: number, format: double }
+        feedback:
+          type: string
+          enum: [relevant, not_relevant, supports, challenges, neutral, clear]
+        isRead: { type: boolean }
+        isDismissed: { type: boolean }
+      required: [id, headline, url, publishedAt, symbols, sectors, relationship, eventType, severity, thesisImpact, isRead, isDismissed]
+    ThesisWatchFeedResponse:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/ThesisWatchStory'
+        nextCursor: { type: string }
+        generatedAt: { type: string }
+        capabilities:
+          $ref: '#/components/schemas/ThesisWatchCapabilities'
+      required: [items, generatedAt, capabilities]
+    ThesisWatchFeedbackRequest:
+      type: object
+      properties:
+        signal:
+          type: string
+          enum: [relevant, not_relevant, supports, challenges, neutral, clear]
+      required: [signal]
+    ThesisWatchNotificationPreferences:
+      type: object
+      properties:
+        enabled: { type: boolean }
+        timezone: { type: string }
+        policy: { type: string }
+        dailyCap: { type: integer, format: int32 }
+      required: [enabled, timezone, policy, dailyCap]
+    UpdateThesisWatchNotificationPreferences:
+      type: object
+      properties:
+        enabled: { type: boolean }
+        timezone: { type: string }
+      required: [enabled, timezone]
     FinnhubNewsWebhookRequest:
       type: object
       properties:
