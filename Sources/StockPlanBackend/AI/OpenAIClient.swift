@@ -9,25 +9,77 @@ struct OpenAIMessage: Content {
     var toolCalls: [OpenAIToolCall]?
     var toolCallId: String?
     var name: String?
+    /// OpenRouter returns these opaque blocks for reasoning models. They must be
+    /// sent back unchanged on the next tool round so the provider can continue
+    /// the same chain of reasoning.
+    var reasoningDetails: [OpenAIJSONValue]?
+    var reasoning: String?
 
     init(
         role: String,
         content: String? = nil,
         toolCalls: [OpenAIToolCall]? = nil,
         toolCallId: String? = nil,
-        name: String? = nil
+        name: String? = nil,
+        reasoningDetails: [OpenAIJSONValue]? = nil,
+        reasoning: String? = nil
     ) {
         self.role = role
         self.content = content
         self.toolCalls = toolCalls
         self.toolCallId = toolCallId
         self.name = name
+        self.reasoningDetails = reasoningDetails
+        self.reasoning = reasoning
     }
 
     enum CodingKeys: String, CodingKey {
-        case role, content, name
+        case role, content, name, reasoning
         case toolCalls = "tool_calls"
         case toolCallId = "tool_call_id"
+        case reasoningDetails = "reasoning_details"
+    }
+}
+
+/// Recursive JSON value used to round-trip provider-owned metadata without
+/// interpreting or accidentally dropping fields added by OpenRouter.
+enum OpenAIJSONValue: Codable, Sendable, Equatable {
+    case object([String: OpenAIJSONValue])
+    case array([OpenAIJSONValue])
+    case string(String)
+    case number(Double)
+    case bool(Bool)
+    case null
+
+    init(from decoder: any Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        if container.decodeNil() {
+            self = .null
+        } else if let value = try? container.decode(Bool.self) {
+            self = .bool(value)
+        } else if let value = try? container.decode(Double.self) {
+            self = .number(value)
+        } else if let value = try? container.decode(String.self) {
+            self = .string(value)
+        } else if let value = try? container.decode([String: OpenAIJSONValue].self) {
+            self = .object(value)
+        } else if let value = try? container.decode([OpenAIJSONValue].self) {
+            self = .array(value)
+        } else {
+            throw DecodingError.dataCorruptedError(in: container, debugDescription: "Unsupported JSON value")
+        }
+    }
+
+    func encode(to encoder: any Encoder) throws {
+        var container = encoder.singleValueContainer()
+        switch self {
+        case let .object(value): try container.encode(value)
+        case let .array(value): try container.encode(value)
+        case let .string(value): try container.encode(value)
+        case let .number(value): try container.encode(value)
+        case let .bool(value): try container.encode(value)
+        case .null: try container.encodeNil()
+        }
     }
 }
 
@@ -110,6 +162,31 @@ private struct OpenAIChatRequestBody: Content {
 
 private struct OpenAIChatResponseBody: Content {
     var choices: [OpenAIChoice]
+    var model: String?
+    var provider: String?
+    var usage: OpenAIUsage?
+}
+
+private struct OpenAIUsage: Content {
+    struct CompletionDetails: Content {
+        var reasoningTokens: Int?
+
+        enum CodingKeys: String, CodingKey {
+            case reasoningTokens = "reasoning_tokens"
+        }
+    }
+
+    var promptTokens: Int?
+    var completionTokens: Int?
+    var totalTokens: Int?
+    var completionTokensDetails: CompletionDetails?
+
+    enum CodingKeys: String, CodingKey {
+        case promptTokens = "prompt_tokens"
+        case completionTokens = "completion_tokens"
+        case totalTokens = "total_tokens"
+        case completionTokensDetails = "completion_tokens_details"
+    }
 }
 
 private struct OpenAIChoice: Content {
@@ -171,10 +248,39 @@ struct DefaultOpenAIChatClient: OpenAIChatClient {
         }
 
         let decoded = try response.content.decode(OpenAIChatResponseBody.self)
-        guard let message = decoded.choices.first?.message else {
+        guard let choice = decoded.choices.first else {
+            req.logger.warning("ai_completion_empty_choices provider=\(decoded.provider ?? "unknown") model=\(decoded.model ?? model)")
             throw Abort(.badGateway, reason: "AI service returned no result.")
         }
-        return message
+        let usage = decoded.usage
+        let providerName = decoded.provider ?? "unknown"
+        let responseModel = decoded.model ?? model
+        let finishReason = choice.finishReason ?? "unknown"
+        let promptTokens = usage?.promptTokens ?? -1
+        let completionTokens = usage?.completionTokens ?? -1
+        let totalTokens = usage?.totalTokens ?? -1
+        let reasoningTokens = usage?.completionTokensDetails?.reasoningTokens ?? -1
+        let contentCharacters = choice.message.content?.count ?? 0
+        let toolCallCount = choice.message.toolCalls?.count ?? 0
+        req.logger.info("ai_completion", metadata: [
+            "provider": "\(providerName)",
+            "model": "\(responseModel)",
+            "finish_reason": "\(finishReason)",
+            "prompt_tokens": "\(promptTokens)",
+            "completion_tokens": "\(completionTokens)",
+            "total_tokens": "\(totalTokens)",
+            "reasoning_tokens": "\(reasoningTokens)",
+            "content_chars": "\(contentCharacters)",
+            "tool_calls": "\(toolCallCount)",
+        ])
+        if choice.message.content?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty != false,
+           choice.message.toolCalls?.isEmpty != false
+        {
+            req.logger.warning(
+                "ai_completion_empty finish_reason=\(finishReason) model=\(responseModel)"
+            )
+        }
+        return choice.message
     }
 }
 

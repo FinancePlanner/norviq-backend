@@ -3,19 +3,13 @@ import StockPlanShared
 import Vapor
 
 /// Tools the in-app assistant may call. Mirrors the norviq-mcp tool surface
-/// (same names/semantics) but executes services in-process. As with
-/// `AIToolRegistry`, the userId is bound server-side and is never a model-visible
+/// (same names/semantics) but executes services in-process. The userId is bound
+/// server-side and is never a model-visible
 /// parameter, so cross-user access is not expressible. Write tools require an
 /// explicit confirm step for destructive actions.
 enum AIChatToolRegistry {
     static func toolDefinitions() -> [OpenAITool] {
-        [
-            tool("get_financial_overview", "The user's portfolio overview: total value, P&L, allocation, cash, savings rate."),
-            tool("list_expenses", "List the user's recent expenses.", [
-                "month": OpenAIParameter(type: "integer", description: "1-12, optional"),
-                "year": OpenAIParameter(type: "integer", description: "e.g. 2026, optional"),
-                "limit": OpenAIParameter(type: "integer", description: "max rows, optional"),
-            ]),
+        AIReadToolRegistry.toolDefinitions() + [
             tool("add_expense", "Add a new expense.", [
                 "title": OpenAIParameter(type: "string"),
                 "amount": OpenAIParameter(type: "number"),
@@ -33,32 +27,18 @@ enum AIChatToolRegistry {
                 "id": OpenAIParameter(type: "string"),
                 "confirm": OpenAIParameter(type: "boolean", description: "must be true to actually delete"),
             ], required: ["id"]),
-            tool("get_spending_report", "The user's monthly spending report.", [
-                "months": OpenAIParameter(type: "integer", description: "how many recent months, optional"),
-            ]),
-            tool("get_quote", "Latest market quote for a symbol.", [
-                "symbol": OpenAIParameter(type: "string", description: "ticker, e.g. AAPL"),
-            ], required: ["symbol"]),
-            tool("search_symbols", "Search stocks/ETFs by name or ticker.", [
-                "query": OpenAIParameter(type: "string"),
-            ], required: ["query"]),
-            tool("get_insights", "Latest market sentiment insights summary."),
         ]
     }
 
     /// Executes a tool, returning a JSON string result for the model.
     static func execute(name: String, arguments: String, context: AIToolContext, on req: Request) async throws -> String {
+        if AIReadToolRegistry.contains(name) {
+            return try await AIReadToolRegistry.execute(
+                name: name, arguments: arguments, context: context, on: req
+            )
+        }
         let args = parseArgs(arguments)
         switch name {
-        case "get_financial_overview":
-            return try await encode(req.application.dashboardService.dashboard(userId: context.userId, req: req, on: req.db))
-
-        case "list_expenses":
-            let result = try await req.expensesService.getExpenses(
-                userId: context.userId, from: nil, to: nil, limit: intArg(args, "limit") ?? 50, cursor: nil, on: req.db
-            )
-            return try encode(result.items)
-
         case "add_expense":
             guard let title = stringArg(args, "title"), let amount = doubleArg(args, "amount"),
                   let pillarRaw = stringArg(args, "pillar"), let occurredOn = stringArg(args, "occurred_on")
@@ -107,26 +87,6 @@ enum AIChatToolRegistry {
             }
             try await req.expensesService.deleteExpense(userId: context.userId, expenseId: id, on: req.db)
             return #"{"status":"deleted"}"#
-
-        case "get_spending_report":
-            let reports = try await req.expensesService.getMonthlyReports(
-                userId: context.userId, from: nil, to: nil, on: req.db
-            )
-            return try encode(reports)
-
-        case "get_quote":
-            guard let symbol = stringArg(args, "symbol") else { return #"{"error":"missing symbol"}"# }
-            return try await encode(req.application.marketDataService.quote(symbol: symbol, on: req))
-
-        case "search_symbols":
-            guard let query = stringArg(args, "query") else { return #"{"error":"missing query"}"# }
-            return try await encode(req.application.marketDataService.search(query: query, on: req))
-
-        case "get_insights":
-            // Third-party social text — wrap as untrusted so the model treats
-            // any embedded instructions as data.
-            let summary = try await req.application.insightsService.summary(days: 7, on: req.db)
-            return try "{\"untrusted_data\":" + encode(summary) + "}"
 
         default:
             return #"{"error":"unknown tool"}"#

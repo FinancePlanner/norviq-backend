@@ -1,6 +1,15 @@
 import Vapor
 
 extension Application {
+    struct OpenAIChatClientKey: StorageKey {
+        typealias Value = any OpenAIChatClient
+    }
+
+    var openAIChatClient: any OpenAIChatClient {
+        get { storage[OpenAIChatClientKey.self]! }
+        set { storage[OpenAIChatClientKey.self] = newValue }
+    }
+
     struct AIInsightsServiceKey: StorageKey {
         typealias Value = any AIInsightsService
     }

@@ -221,10 +221,12 @@ public func configure(_ app: Application) async throws {
 
     // AI insights (educational, Pro-gated). Backend proxy to OpenAI; key never
     // leaves the server. Boots disabled when no key is configured.
-    app.aiInsightsService = DefaultAIInsightsService(client: makeOpenAIChatClient(app))
+    let openAIChatClient = makeOpenAIChatClient(app)
+    app.openAIChatClient = openAIChatClient
+    app.aiInsightsService = DefaultAIInsightsService(client: openAIChatClient)
     // In-app conversational assistant (Pro-gated, first-party only). Shares the
     // OpenAI client; tools execute in-process against the user's own data.
-    app.aiChatService = DefaultAIChatService(client: makeOpenAIChatClient(app))
+    app.aiChatService = DefaultAIChatService(client: openAIChatClient)
 
     // Hermes insights (topic/ticker sentiment scraped by the self-hosted Hermes
     // agent). Reached only over the private Tailscale network; boots disabled
