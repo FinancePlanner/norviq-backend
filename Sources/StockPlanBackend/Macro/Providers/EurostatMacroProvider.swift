@@ -109,6 +109,10 @@ struct EurostatMacroProvider: MacroProvider {
         let foodValues = seriesValues(coicop: foodCode)
         appendPoints(foodValues, key: MacroSeriesKey.foodCPI.rawValue)
 
+        // Housing rent proxy (CP04) for lite housing hub.
+        let housingValues = seriesValues(coicop: "CP04")
+        appendPoints(housingValues, key: MacroSeriesKey.rentYoY.rawValue)
+
         for item in MacroItemsCatalog.items(for: country) {
             guard case let .eurostatCoicop(code) = item.sourceRef else { continue }
             appendPoints(seriesValues(coicop: code), key: MacroSeriesKey.itemKey(item.id), unit: item.unit)

@@ -55,6 +55,19 @@ enum MacroSeriesKey: String, CaseIterable {
     case treasury10Y = "dgs10"
     case real10Y = "dfii10"
     case breakeven10Y = "t10yie"
+    // Housing (lite)
+    case hpiYoY = "hpi_yoy"
+    case mortgageRate = "mortgage_rate"
+    case rentYoY = "rent_yoy"
+    case housingStarts = "housing_starts"
+    case monthsSupply = "months_supply"
+    // Economy / labor (lite)
+    case unemployment
+    case gdpGrowth = "gdp_growth"
+    case payrolls
+    case initialClaims = "initial_claims"
+    case policyRate = "policy_rate"
+    case nberRecession = "nber_recession"
 
     static func itemKey(_ itemID: String) -> String {
         "item.\(itemID)"

@@ -29,9 +29,9 @@ Every Nowflation-inspired surface must work from a global contract instead of ha
 | Personal inflation / cart calculator | User basket from expense categories, country, region, household type, currency, and merchant/category mix | **Phase 3** |
 | Grocery/item pages | Global item trackers for food, fuel, utilities, rent, mortgage, vehicles, transit, and staples; show price when available, index otherwise | **Partial live** — US BLS APU prices; BR/PT/EA index YoY |
 | Geography pages | Country pages first, then regions/states/metros where official data exists | **Partial live** — country dimension exists; subnational geographies pending |
-| Housing and affordability | Rent, home price, mortgage rate, payment burden, rent-vs-buy, and affordability by country/region | **Gap** |
-| Rates, central-bank, and policy watch | Fed/ECB/BoE/BoC/Bacen/Banxico/etc. policy context, yield curves, real rates, breakevens where available | **Partial live** — US Fed Watch only |
-| Macro dashboards | Jobs, GDP, expectations, activity, labor, conditions, income, trade, surveys, money, fiscal, stress, liquidity, FX, credit, growth, real wages, recession | **Gap** outside US rate series; should be a new macro-provider family |
+| Housing and affordability | Rent, home price, mortgage rate, payment burden, rent-vs-buy, and affordability by country/region | **Partial live (lite)** — US HPI/mortgage/starts/supply + rent; EA HPI/mortgage/rent; BR rent (+ Selic via BCB); see `/v1/macro/housing` |
+| Rates, central-bank, and policy watch | Fed/ECB/BoE/BoC/Bacen/Banxico/etc. policy context, yield curves, real rates, breakevens where available | **Partial live** — `/v1/macro/policy-watch` US/BR/EA; Fed Watch US alias remains |
+| Macro dashboards | Jobs, GDP, expectations, activity, labor, conditions, income, trade, surveys, money, fiscal, stress, liquidity, FX, credit, growth, real wages, recession | **Partial live (lite)** — `/v1/macro/economy` unemployment, GDP, Sahm, policy rate; US adds payrolls/claims/NBER |
 | Commodities and energy | Global fuel, electricity, utility gas, food commodities, and FX-adjusted import pressure | **Partial live** — US energy/fuel CPI and item prices |
 | Compare/matrix pages | Country-vs-country, region-vs-region, and measure-vs-measure comparisons using normalized units and caveat labels | **Gap** |
 | Embeds, data, status, methodology | Public-ish API/embeds, source status, coverage badges, changelog, methodology, and data-quality labels | **Partial live** — source/asOf in responses; needs public docs/status surfaces |
@@ -82,8 +82,11 @@ All under `/v1/macro`, SessionToken auth + rate limit (80/min, `ratelimit:macro`
 | `GET /top-movers?country=&focus=utilities,food,shelter` | Substring filter on categories |
 | `GET /inflation/series?country=&series=&from=&to=&limit=` | Real history, latest vintage per period. Keys: `headline_cpi`, `core_cpi`, `pce`, `core_pce`, `trimmed_mean_cpi`, `energy_cpi`, `food_cpi`, `nowflation_gauge`, `dgs2`, `dgs10`, `dfii10`, `t10yie` (+ legacy aliases `headline`, `official_cpi`, `nowflation_cpi`, `core`) |
 | `GET /supported-countries` | Codes, currency, data source, `hasDailyData` |
-| `GET /fed-watch` | **New.** Core PCE vs 2% target, distance, trimmed mean, 2Y/10Y, 10Y–2Y spread, real 10Y (TIPS), 10Y breakeven, next FOMC (2026 calendar), stance heuristic. Odds `null` (no free API) |
-| `GET /items?country=` | **New.** Everyday item trackers. US: real average prices + computed YoY/MoM; PT/EA/BR: index YoY only (`latestPrice` null) |
+| `GET /fed-watch` | US-only. Core PCE vs 2% target, yields, next FOMC, stance. Odds `null`. |
+| `GET /policy-watch?country=` | **New.** Country-aware Fed/ECB/Bacen context (`US`/`BR`/`EA`). |
+| `GET /housing?country=` | **New.** Lite housing hub (HPI/mortgage/rent/starts/supply — coverage varies). |
+| `GET /economy?country=` | **New.** Lite growth/labor hub + Sahm rule (+ NBER US-only). |
+| `GET /items?country=` | Everyday item trackers. US: real average prices + computed YoY/MoM; PT/EA/BR: index YoY only (`latestPrice` null) |
 | `GET /items/{itemId}/series?country=` | **New.** Item history |
 
 DTOs live in `norviq-shared` `Sources/StockPlanShared/Macro/` (`MacroDTOs.swift`, `FedWatchDTOs.swift`, `MacroItemDTOs.swift`) — all Phase-2 changes were additive-optional; existing iOS builds keep decoding.

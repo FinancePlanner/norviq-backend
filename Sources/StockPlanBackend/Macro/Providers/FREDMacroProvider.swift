@@ -211,6 +211,9 @@ struct FREDMacroProvider: MacroProvider {
             }
         }
 
+        // Housing + economy hub series (lite). Failures are isolated per series.
+        points += try await fetchHubSeriesPoints(country: .us, on: req)
+
         let nextPrint = BLSCPIReleaseCalendar.nextPrint(after: now, lastOfficial: headline.officialValue)
         let snapshot = InflationSnapshotResponse(
             country: MacroCountry.us.rawValue,
@@ -226,6 +229,89 @@ struct FREDMacroProvider: MacroProvider {
             nextPrintCountdown: nextPrint
         )
         return MacroProviderResult(snapshot: snapshot, points: points)
+    }
+
+    // MARK: - Housing / economy hub series (FRED)
+
+    struct HubSeries {
+        let key: MacroSeriesKey
+        let id: String
+        let yoy: Bool
+        let unit: String
+        let observationStart: String
+    }
+
+    /// US lite hubs: HPI, mortgage, rent, starts, supply, labor, GDP, NBER, Fed funds.
+    private static let usHubSeries: [HubSeries] = [
+        HubSeries(key: .hpiYoY, id: "CSUSHPISA", yoy: true, unit: "percent", observationStart: monthlyObservationStart),
+        HubSeries(key: .mortgageRate, id: "MORTGAGE30US", yoy: false, unit: "percent", observationStart: dailyObservationStart),
+        HubSeries(key: .rentYoY, id: "CUSR0000SEHA", yoy: true, unit: "percent", observationStart: monthlyObservationStart),
+        HubSeries(key: .housingStarts, id: "HOUST", yoy: false, unit: "thousands", observationStart: monthlyObservationStart),
+        HubSeries(key: .monthsSupply, id: "MSACSR", yoy: false, unit: "months", observationStart: monthlyObservationStart),
+        HubSeries(key: .unemployment, id: "UNRATE", yoy: false, unit: "percent", observationStart: monthlyObservationStart),
+        HubSeries(key: .gdpGrowth, id: "A191RL1Q225SBEA", yoy: false, unit: "percent", observationStart: monthlyObservationStart),
+        HubSeries(key: .payrolls, id: "PAYEMS", yoy: false, unit: "thousands", observationStart: monthlyObservationStart),
+        HubSeries(key: .initialClaims, id: "ICSA", yoy: false, unit: "claims", observationStart: dailyObservationStart),
+        HubSeries(key: .policyRate, id: "DFEDTARU", yoy: false, unit: "percent", observationStart: dailyObservationStart),
+        HubSeries(key: .nberRecession, id: "USREC", yoy: false, unit: "flag", observationStart: monthlyObservationStart),
+    ]
+
+    /// EA lite hubs via FRED mirrors (Eurostat remains primary for HICP).
+    private static let eaHubSeries: [HubSeries] = [
+        HubSeries(key: .hpiYoY, id: "QEUR628BIS", yoy: true, unit: "percent", observationStart: monthlyObservationStart),
+        HubSeries(key: .unemployment, id: "LRHUTTTTEZM156S", yoy: false, unit: "percent", observationStart: monthlyObservationStart),
+        HubSeries(key: .gdpGrowth, id: "NAEXKP01EZQ657S", yoy: false, unit: "percent", observationStart: monthlyObservationStart),
+        HubSeries(key: .policyRate, id: "ECBDFR", yoy: false, unit: "percent", observationStart: dailyObservationStart),
+        HubSeries(key: .mortgageRate, id: "IRLTCT01EZM156N", yoy: false, unit: "percent", observationStart: monthlyObservationStart),
+    ]
+
+    /// BR lite hubs via FRED OECD mirrors (IBGE/BCB preferred when wired).
+    private static let brHubSeries: [HubSeries] = [
+        HubSeries(key: .unemployment, id: "LRHUTTTTBRM156S", yoy: false, unit: "percent", observationStart: monthlyObservationStart),
+        HubSeries(key: .gdpGrowth, id: "NAEXKP01BRQ657S", yoy: false, unit: "percent", observationStart: monthlyObservationStart),
+        HubSeries(key: .policyRate, id: "INTDSRBRM193N", yoy: false, unit: "percent", observationStart: monthlyObservationStart),
+    ]
+
+    /// Fetches housing/economy series for a country. Best-effort per series —
+    /// one bad FRED id never aborts the whole hub ingest.
+    func fetchHubSeriesPoints(country: MacroCountry, on req: Request) async throws -> [MacroSeriesPointRecord] {
+        let seriesList: [HubSeries]
+        switch country {
+        case .us: seriesList = Self.usHubSeries
+        case .ea: seriesList = Self.eaHubSeries
+        case .br: seriesList = Self.brHubSeries
+        case .pt: return []
+        }
+        let now = Date()
+        var points: [MacroSeriesPointRecord] = []
+        for series in seriesList {
+            do {
+                let observations = try await fetchObservations(
+                    seriesID: series.id,
+                    yoy: series.yoy,
+                    observationStart: series.observationStart,
+                    on: req
+                )
+                let limited = series.observationStart == Self.dailyObservationStart
+                    ? Array(observations.suffix(260))
+                    : observations
+                points += limited.map {
+                    MacroSeriesPointRecord(
+                        country: country.rawValue,
+                        seriesKey: series.key.rawValue,
+                        periodDate: $0.date,
+                        value: $0.value,
+                        unit: series.unit,
+                        source: name,
+                        vintageDate: now
+                    )
+                }
+            } catch {
+                req.logger.warning("macro_hub_fred_series_failed country=\(country.rawValue) id=\(series.id) error=\(error)")
+            }
+        }
+        // EA rent YoY from HICP housing division when available via separate path — skip here.
+        return points
     }
 
     // MARK: - International fallback (OECD series mirrored on FRED)

@@ -97,6 +97,20 @@ struct IBGEMacroProvider: MacroProvider {
         for group in Self.groups {
             guard let reading = groupReadings[group.code], let yoy = reading.yoy else { continue }
             components.append(InflationComponentDTO(category: group.label, ourYoY: yoy, blsYoY: yoy))
+            // Habitação (7445) → rent YoY for housing hub.
+            if group.code == "7445" {
+                points.append(
+                    MacroSeriesPointRecord(
+                        country: MacroCountry.br.rawValue,
+                        seriesKey: MacroSeriesKey.rentYoY.rawValue,
+                        periodDate: latestHeadline.period,
+                        value: yoy,
+                        unit: "percent",
+                        source: name,
+                        vintageDate: now
+                    )
+                )
+            }
             let direction: String = if let mom = reading.mom {
                 mom > 0 ? "up" : (mom < 0 ? "down" : "flat")
             } else {

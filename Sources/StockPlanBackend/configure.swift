@@ -332,9 +332,10 @@ public func configure(_ app: Application) async throws {
     )
     app.macroRepository = DatabaseMacroRepository()
     app.macroSyncStatus = MacroSyncStatus()
+    let fredProvider: FREDMacroProvider? = fredAPIKey.isEmpty ? nil : FREDMacroProvider(apiKey: fredAPIKey)
     app.macroProviderRegistry = MacroProviderRegistry.build(
         plan: macroPlan,
-        fred: fredAPIKey.isEmpty ? nil : FREDMacroProvider(apiKey: fredAPIKey),
+        fred: fredProvider,
         eurostat: EurostatMacroProvider(),
         ibge: IBGEMacroProvider(),
         nowflation: nowflation,
@@ -346,7 +347,9 @@ public func configure(_ app: Application) async throws {
     app.macroService = DefaultMacroService(
         repository: app.macroRepository,
         registry: app.macroProviderRegistry,
-        allowStubFallback: envBool("MACRO_ALLOW_STUB_FALLBACK", default: true)
+        allowStubFallback: envBool("MACRO_ALLOW_STUB_FALLBACK", default: true),
+        fredHub: fredProvider,
+        bcbHub: BCBSgsProvider()
     )
     let macroTickSeconds = Environment.get("MACRO_REFRESH_INTERVAL_SECONDS").flatMap(Int64.init(_:)) ?? 3600
     let macroUSRefreshSeconds = Environment.get("MACRO_US_REFRESH_SECONDS").flatMap(Double.init(_:)) ?? 21600

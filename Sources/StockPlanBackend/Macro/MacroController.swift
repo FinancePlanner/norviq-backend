@@ -15,6 +15,9 @@ struct MacroController: RouteCollection {
         macro.get("inflation", "series", use: getSeries)
         macro.get("supported-countries", use: getSupportedCountries)
         macro.get("fed-watch", use: getFedWatch)
+        macro.get("policy-watch", use: getPolicyWatch)
+        macro.get("housing", use: getHousing)
+        macro.get("economy", use: getEconomy)
         macro.get("items", use: getItems)
         macro.get("items", ":itemId", "series", use: getItemSeries)
     }
@@ -79,6 +82,23 @@ struct MacroController: RouteCollection {
     @Sendable
     func getFedWatch(req: Request) async throws -> FedWatchResponse {
         try await req.application.macroService.fedWatch(on: req)
+    }
+
+    // MARK: - Policy / Housing / Economy hubs
+
+    @Sendable
+    func getPolicyWatch(req: Request) async throws -> PolicyWatchResponse {
+        try await req.application.macroService.policyWatch(country: country(from: req), on: req)
+    }
+
+    @Sendable
+    func getHousing(req: Request) async throws -> HousingHubResponse {
+        try await req.application.macroService.housing(country: country(from: req), on: req)
+    }
+
+    @Sendable
+    func getEconomy(req: Request) async throws -> EconomyHubResponse {
+        try await req.application.macroService.economy(country: country(from: req), on: req)
     }
 
     // MARK: - Items

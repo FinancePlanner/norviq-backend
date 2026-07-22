@@ -306,6 +306,9 @@ extension RateMoveOddsDTO: @retroactive Content {}
 extension MacroItemDTO: @retroactive Content {}
 extension MacroItemsResponse: @retroactive Content {}
 extension MacroItemSeriesResponse: @retroactive Content {}
+extension HousingHubResponse: @retroactive Content {}
+extension EconomyHubResponse: @retroactive Content {}
+extension PolicyWatchResponse: @retroactive Content {}
 
 // MARK: - Receipts
 

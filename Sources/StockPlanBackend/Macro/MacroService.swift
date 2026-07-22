@@ -13,6 +13,9 @@ protocol MacroService: Sendable {
     func currentInflation(country: MacroCountry, on req: Request) async throws -> InflationSnapshotResponse
     func series(country: MacroCountry, rawSeries: String?, from: String?, to: String?, limit: Int, on req: Request) async throws -> MacroSeriesResponse
     func fedWatch(on req: Request) async throws -> FedWatchResponse
+    func housing(country: MacroCountry, on req: Request) async throws -> HousingHubResponse
+    func economy(country: MacroCountry, on req: Request) async throws -> EconomyHubResponse
+    func policyWatch(country: MacroCountry, on req: Request) async throws -> PolicyWatchResponse
     func items(country: MacroCountry, on req: Request) async throws -> MacroItemsResponse
     func itemSeries(itemID: String, country: MacroCountry, from: String?, to: String?, limit: Int, on req: Request) async throws -> MacroItemSeriesResponse
     func supportedCountries() -> [SupportedCountry]
@@ -25,6 +28,10 @@ struct DefaultMacroService: MacroService {
     let repository: any MacroRepository
     let registry: MacroProviderRegistry
     let allowStubFallback: Bool
+    /// Optional FRED client for EA/BR hub series (US hubs ride the primary FRED refresh).
+    var fredHub: FREDMacroProvider?
+    /// Optional BCB client for Brazil Selic (overrides FRED policy_rate when available).
+    var bcbHub: BCBSgsProvider?
 
     var isEnabled: Bool {
         !registry.enabledCountries.isEmpty
@@ -45,6 +52,20 @@ struct DefaultMacroService: MacroService {
     }
 
     private static let fedWatchTTL: Int64 = 3600
+
+    private static func policyWatchKey(_ country: MacroCountry) -> RedisKey {
+        RedisKey("macro:policywatch:v1:\(country.rawValue)")
+    }
+
+    private static func housingKey(_ country: MacroCountry) -> RedisKey {
+        RedisKey("macro:housing:v1:\(country.rawValue)")
+    }
+
+    private static func economyKey(_ country: MacroCountry) -> RedisKey {
+        RedisKey("macro:economy:v1:\(country.rawValue)")
+    }
+
+    private static let hubTTL: Int64 = 3600
 
     // MARK: - Current snapshot
 
@@ -71,7 +92,35 @@ struct DefaultMacroService: MacroService {
 
     @discardableResult
     func refresh(country: MacroCountry, on req: Request) async throws -> InflationSnapshotResponse {
-        let result = try await registry.fetch(country: country, on: req)
+        var result = try await registry.fetch(country: country, on: req)
+
+        // EA/BR: pull lite hub series from FRED when configured (US already includes them).
+        if let fred = fredHub, country == .ea || country == .br {
+            if let hubPoints = try? await fred.fetchHubSeriesPoints(country: country, on: req) {
+                result.points += hubPoints
+            }
+        }
+        // BR: prefer live Selic from BCB SGS over FRED OECD discount-rate mirror.
+        if country == .br, let bcb = bcbHub {
+            do {
+                let selic = try await bcb.fetchSelic(on: req)
+                let now = Date()
+                result.points += selic.map {
+                    MacroSeriesPointRecord(
+                        country: MacroCountry.br.rawValue,
+                        seriesKey: MacroSeriesKey.policyRate.rawValue,
+                        periodDate: $0.date,
+                        value: $0.value,
+                        unit: "percent",
+                        source: bcb.name,
+                        vintageDate: now
+                    )
+                }
+            } catch {
+                req.logger.warning("macro_bcb_selic_failed error=\(error)")
+            }
+        }
+
         let payloadData = try JSONEncoder().encode(result.snapshot)
         let record = MacroSnapshotRecord(
             country: country.rawValue,
@@ -84,6 +133,13 @@ struct DefaultMacroService: MacroService {
         let inserted = try await repository.insertPointsIfChanged(result.points, on: req.db)
         req.logger.info("macro_refresh country=\(country.rawValue) points_inserted=\(inserted) as_of=\(result.snapshot.asOf)")
         await cacheSet(Self.snapshotKey(country), value: result.snapshot, ttl: Self.snapshotTTL(country), on: req)
+        // Bust hub caches so next read rebuilds from fresh points.
+        await cacheDelete(Self.housingKey(country), on: req)
+        await cacheDelete(Self.economyKey(country), on: req)
+        await cacheDelete(Self.policyWatchKey(country), on: req)
+        if country == .us {
+            await cacheDelete(Self.fedWatchKey, on: req)
+        }
         return result.snapshot
     }
 
@@ -210,6 +266,315 @@ struct DefaultMacroService: MacroService {
             breakeven10Y: breakeven10Y,
             nextFOMC: FOMCCalendar.nextMeeting(after: now),
             stance: stance
+        )
+    }
+
+    // MARK: - Housing hub
+
+    func housing(country: MacroCountry, on req: Request) async throws -> HousingHubResponse {
+        if country == .pt {
+            return Self.emptyHousing(country: country, notes: "Housing hub covers US, BR, and EA in v1.")
+        }
+        if let cached: HousingHubResponse = await cacheGet(Self.housingKey(country), on: req) {
+            return cached
+        }
+        let response = try await buildHousing(country: country, on: req)
+        await cacheSet(Self.housingKey(country), value: response, ttl: Self.hubTTL, on: req)
+        return response
+    }
+
+    private func buildHousing(country: MacroCountry, on req: Request) async throws -> HousingHubResponse {
+        let hpi = try await latestIndicator(country: country, key: .hpiYoY, name: "Home Price Index YoY", on: req)
+        let mortgage = try await latestIndicator(country: country, key: .mortgageRate, name: "Mortgage / lending rate", on: req)
+        let rent = try await latestIndicator(country: country, key: .rentYoY, name: "Rent / shelter YoY", on: req)
+        let starts = try await latestIndicator(country: country, key: .housingStarts, name: "Housing starts", on: req)
+        let supply = try await latestIndicator(country: country, key: .monthsSupply, name: "Months' supply", on: req)
+
+        var coverage: [String] = []
+        if hpi != nil {
+            coverage.append("hpi")
+        }
+        if mortgage != nil {
+            coverage.append("mortgage")
+        }
+        if rent != nil {
+            coverage.append("rent")
+        }
+        if starts != nil {
+            coverage.append("starts")
+        }
+        if supply != nil {
+            coverage.append("supply")
+        }
+
+        let asOf = [hpi, mortgage, rent, starts, supply].compactMap(\.?.asOf).max() ?? ""
+        let sources = Set([hpi, mortgage, rent, starts, supply].compactMap(\.?.source))
+        let notes: String? = coverage.isEmpty
+            ? "No housing series ingested yet for \(country.rawValue). Wait for macro refresh."
+            : (country == .br && hpi == nil ? "Brazil lite: rent from IPCA Habitação; no national HPI in v1." : nil)
+
+        return HousingHubResponse(
+            country: country.rawValue,
+            currency: country.currency,
+            asOf: asOf.isEmpty ? String(ISO8601DateFormatter().string(from: Date()).prefix(10)) : asOf,
+            updatedAt: ISO8601DateFormatter().string(from: Date()),
+            source: sources.isEmpty ? sourceName(for: country) : sources.sorted().joined(separator: " + "),
+            coverage: coverage,
+            hpiYoY: hpi,
+            mortgageRate: mortgage,
+            rentYoY: rent,
+            housingStarts: starts,
+            monthsSupply: supply,
+            notes: notes
+        )
+    }
+
+    static func emptyHousing(country: MacroCountry, notes: String) -> HousingHubResponse {
+        HousingHubResponse(
+            country: country.rawValue,
+            currency: country.currency,
+            asOf: "",
+            updatedAt: ISO8601DateFormatter().string(from: Date()),
+            source: "none",
+            coverage: [],
+            notes: notes
+        )
+    }
+
+    // MARK: - Economy hub
+
+    func economy(country: MacroCountry, on req: Request) async throws -> EconomyHubResponse {
+        if country == .pt {
+            return Self.emptyEconomy(country: country, notes: "Growth hub covers US, BR, and EA in v1.")
+        }
+        if let cached: EconomyHubResponse = await cacheGet(Self.economyKey(country), on: req) {
+            return cached
+        }
+        let response = try await buildEconomy(country: country, on: req)
+        await cacheSet(Self.economyKey(country), value: response, ttl: Self.hubTTL, on: req)
+        return response
+    }
+
+    private func buildEconomy(country: MacroCountry, on req: Request) async throws -> EconomyHubResponse {
+        let unemployment = try await latestIndicator(country: country, key: .unemployment, name: "Unemployment rate", on: req)
+        let gdp = try await latestIndicator(country: country, key: .gdpGrowth, name: "Real GDP growth", on: req)
+        let payrolls = try await latestIndicator(country: country, key: .payrolls, name: "Nonfarm payrolls", on: req)
+        let claims = try await latestIndicator(country: country, key: .initialClaims, name: "Initial claims", on: req)
+        let policy = try await latestIndicator(country: country, key: .policyRate, name: "Policy rate", on: req)
+
+        let unempRows = try await repository.series(
+            country: country.rawValue,
+            seriesKey: MacroSeriesKey.unemployment.rawValue,
+            from: nil,
+            to: nil,
+            limit: 36,
+            on: req.db
+        )
+        let sahmValue = MacroHubMath.sahmRule(unemploymentValues: unempRows.map(\.value))
+        let sahm: MacroIndicatorDTO? = sahmValue.map {
+            MacroIndicatorDTO(
+                name: "Sahm rule",
+                value: $0,
+                unit: "pp",
+                asOf: unempRows.last?.periodDate ?? "",
+                source: "computed"
+            )
+        }
+
+        var officialRecession: Bool?
+        if country == .us {
+            if let flag = try await latestIndicator(country: .us, key: .nberRecession, name: "NBER recession", on: req) {
+                officialRecession = flag.value >= 0.5
+            }
+        }
+
+        var spread: Double?
+        if country == .us {
+            let two = try await latestIndicator(country: .us, key: .treasury2Y, name: "2Y", on: req)
+            let ten = try await latestIndicator(country: .us, key: .treasury10Y, name: "10Y", on: req)
+            if let two, let ten {
+                spread = ((ten.value - two.value) * 100).rounded() / 100
+            }
+        }
+
+        var coverage: [String] = []
+        if unemployment != nil {
+            coverage.append("unemployment")
+        }
+        if gdp != nil {
+            coverage.append("gdp")
+        }
+        if payrolls != nil {
+            coverage.append("payrolls")
+        }
+        if claims != nil {
+            coverage.append("claims")
+        }
+        if policy != nil {
+            coverage.append("policy_rate")
+        }
+        if sahm != nil {
+            coverage.append("sahm")
+        }
+        if officialRecession != nil {
+            coverage.append("nber")
+        }
+
+        let risk = MacroHubMath.riskLabel(sahm: sahmValue, officialRecession: officialRecession)
+        let asOf = [unemployment, gdp, payrolls, claims, policy].compactMap(\.?.asOf).max() ?? ""
+        let sources = Set([unemployment, gdp, payrolls, claims, policy].compactMap(\.?.source))
+
+        return EconomyHubResponse(
+            country: country.rawValue,
+            currency: country.currency,
+            asOf: asOf.isEmpty ? String(ISO8601DateFormatter().string(from: Date()).prefix(10)) : asOf,
+            updatedAt: ISO8601DateFormatter().string(from: Date()),
+            source: sources.isEmpty ? sourceName(for: country) : sources.sorted().joined(separator: " + "),
+            coverage: coverage,
+            unemployment: unemployment,
+            gdpGrowth: gdp,
+            payrolls: payrolls,
+            initialClaims: claims,
+            policyRate: policy,
+            sahmRule: sahm,
+            officialRecession: officialRecession,
+            riskLabel: coverage.isEmpty ? nil : risk,
+            yieldCurveSpread: spread,
+            notes: coverage.isEmpty
+                ? "No economy series ingested yet for \(country.rawValue)."
+                : nil
+        )
+    }
+
+    static func emptyEconomy(country: MacroCountry, notes: String) -> EconomyHubResponse {
+        EconomyHubResponse(
+            country: country.rawValue,
+            currency: country.currency,
+            asOf: "",
+            updatedAt: ISO8601DateFormatter().string(from: Date()),
+            source: "none",
+            coverage: [],
+            notes: notes
+        )
+    }
+
+    // MARK: - Policy watch (country-aware)
+
+    func policyWatch(country: MacroCountry, on req: Request) async throws -> PolicyWatchResponse {
+        if country == .pt {
+            throw Abort(.notFound, reason: "Policy watch covers US, BR, and EA. Use country=US|BR|EA.")
+        }
+        if let cached: PolicyWatchResponse = await cacheGet(Self.policyWatchKey(country), on: req) {
+            return cached
+        }
+        let response: PolicyWatchResponse
+        switch country {
+        case .us:
+            let fed = try await fedWatch(on: req)
+            var mapped = Self.policyFromFedWatch(fed)
+            let policy = try await latestIndicator(country: .us, key: .policyRate, name: "Fed funds (upper)", on: req)
+            mapped = PolicyWatchResponse(
+                country: mapped.country,
+                asOf: mapped.asOf,
+                updatedAt: mapped.updatedAt,
+                source: mapped.source,
+                institution: mapped.institution,
+                inflationGauge: mapped.inflationGauge,
+                inflationTarget: mapped.inflationTarget,
+                distanceToTarget: mapped.distanceToTarget,
+                policyRate: policy,
+                treasury2Y: mapped.treasury2Y,
+                treasury10Y: mapped.treasury10Y,
+                spread10Y2Y: mapped.spread10Y2Y,
+                real10Y: mapped.real10Y,
+                breakeven10Y: mapped.breakeven10Y,
+                nextMeeting: mapped.nextMeeting,
+                stance: mapped.stance,
+                notes: mapped.notes
+            )
+            response = mapped
+        case .ea, .br:
+            response = try await buildIntlPolicyWatch(country: country, on: req)
+        case .pt:
+            throw Abort(.notFound, reason: "Policy watch covers US, BR, and EA.")
+        }
+        await cacheSet(Self.policyWatchKey(country), value: response, ttl: Self.hubTTL, on: req)
+        return response
+    }
+
+    static func policyFromFedWatch(_ fed: FedWatchResponse) -> PolicyWatchResponse {
+        PolicyWatchResponse(
+            country: "US",
+            asOf: fed.asOf,
+            updatedAt: fed.updatedAt,
+            source: fed.source,
+            institution: "Federal Reserve",
+            inflationGauge: fed.corePCE,
+            inflationTarget: fed.fedTarget,
+            distanceToTarget: fed.distanceToTarget,
+            policyRate: nil,
+            treasury2Y: fed.treasury2Y,
+            treasury10Y: fed.treasury10Y,
+            spread10Y2Y: fed.spread10Y2Y,
+            real10Y: fed.real10Y,
+            breakeven10Y: fed.breakeven10Y,
+            nextMeeting: fed.nextFOMC,
+            stance: fed.stance,
+            notes: fed.notes
+        )
+    }
+
+    private func buildIntlPolicyWatch(country: MacroCountry, on req: Request) async throws -> PolicyWatchResponse {
+        let snapshot = try await currentInflation(country: country, on: req)
+        let inflation = MacroIndicatorDTO(
+            name: snapshot.headline.name,
+            value: snapshot.headline.nowValue,
+            asOf: snapshot.asOf,
+            source: snapshot.source
+        )
+        let target = country == .ea ? 2.0 : 3.0 // ECB 2%; Bacen target midpoint ~3% band
+        let distance = ((inflation.value - target) * 100).rounded() / 100
+        let policy = try await latestIndicator(country: country, key: .policyRate, name: "Policy rate", on: req)
+        let institution = country == .ea ? "European Central Bank" : "Banco Central do Brasil"
+        return PolicyWatchResponse(
+            country: country.rawValue,
+            asOf: inflation.asOf,
+            updatedAt: ISO8601DateFormatter().string(from: Date()),
+            source: [snapshot.source, policy?.source].compactMap(\.self).joined(separator: " + "),
+            institution: institution,
+            inflationGauge: inflation,
+            inflationTarget: target,
+            distanceToTarget: distance,
+            policyRate: policy,
+            stance: distance > 1.0 ? "restrictive" : (distance < -0.5 ? "accommodative" : "neutral"),
+            notes: "Meeting odds unavailable (no free licensed feed)."
+        )
+    }
+
+    private func latestIndicator(
+        country: MacroCountry,
+        key: MacroSeriesKey,
+        name: String,
+        on req: Request
+    ) async throws -> MacroIndicatorDTO? {
+        let rows = try await repository.series(
+            country: country.rawValue,
+            seriesKey: key.rawValue,
+            from: nil,
+            to: nil,
+            limit: 2,
+            on: req.db
+        )
+        guard let latest = rows.last else { return nil }
+        let previous = rows.count >= 2 ? rows[rows.count - 2] : nil
+        return MacroIndicatorDTO(
+            name: name,
+            value: latest.value,
+            unit: latest.unit,
+            asOf: latest.periodDate,
+            previousValue: previous?.value,
+            changeFromPrevious: previous.map { ((latest.value - $0.value) * 100).rounded() / 100 },
+            source: latest.source.isEmpty ? "macro" : latest.source
         )
     }
 
@@ -353,5 +718,10 @@ struct DefaultMacroService: MacroService {
         guard req.application.redis.configuration != nil else { return }
         guard let data = try? JSONEncoder().encode(value) else { return }
         _ = try? await req.redis.setex(key, to: String(decoding: data, as: UTF8.self), expirationInSeconds: Int(ttl)).get()
+    }
+
+    private func cacheDelete(_ key: RedisKey, on req: Request) async {
+        guard req.application.redis.configuration != nil else { return }
+        _ = try? await req.redis.delete(key).get()
     }
 }

@@ -6507,6 +6507,71 @@ paths:
           description: Unauthorized
         '503':
           description: No US macro data ingested yet and stub fallback disabled
+  /v1/macro/policy-watch:
+    get:
+      tags: [Macro]
+      operationId: macroPolicyWatch
+      summary: Policy watch (Fed / ECB / Bacen) — country-aware rates context
+      description: |
+        US maps from Fed Watch plus Fed funds upper bound. EA/BR use headline inflation
+        vs target plus policy rate. Meeting odds stay null (no free licensed feed).
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/MacroCountryParam'
+      responses:
+        '200':
+          description: Policy watch snapshot
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PolicyWatchResponse'
+        '401':
+          description: Unauthorized
+        '404':
+          description: Country not covered (e.g. PT)
+  /v1/macro/housing:
+    get:
+      tags: [Macro]
+      operationId: macroHousing
+      summary: Housing hub (lite) — HPI, mortgage, rent, starts/supply where covered
+      description: |
+        3-country lite. US has deepest coverage; EA has HPI/mortgage/rent; BR has rent
+        (+ mortgage when available). Missing gauges are null with `coverage` listing present fields.
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/MacroCountryParam'
+      responses:
+        '200':
+          description: Housing hub snapshot
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HousingHubResponse'
+        '401':
+          description: Unauthorized
+  /v1/macro/economy:
+    get:
+      tags: [Macro]
+      operationId: macroEconomy
+      summary: Economy / growth hub (lite) — unemployment, GDP, Sahm, policy rate
+      description: |
+        Assembles labor/GDP/recession-risk signals. Sahm computed server-side from unemployment.
+        NBER flag US-only. Payrolls/claims US-only.
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/MacroCountryParam'
+      responses:
+        '200':
+          description: Economy hub snapshot
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EconomyHubResponse'
+        '401':
+          description: Unauthorized
   /v1/macro/items:
     get:
       tags: [Macro]
@@ -13573,6 +13638,159 @@ components:
           type: string
           nullable: true
           enum: [restrictive, neutral, accommodative]
+        notes:
+          type: string
+          nullable: true
+    HousingHubResponse:
+      type: object
+      required: [country, currency, asOf, updatedAt, source, coverage]
+      properties:
+        country:
+          type: string
+        currency:
+          type: string
+        asOf:
+          type: string
+        updatedAt:
+          type: string
+        source:
+          type: string
+        coverage:
+          type: array
+          items:
+            type: string
+        hpiYoY:
+          nullable: true
+          allOf:
+            - $ref: '#/components/schemas/MacroIndicatorDTO'
+        mortgageRate:
+          nullable: true
+          allOf:
+            - $ref: '#/components/schemas/MacroIndicatorDTO'
+        rentYoY:
+          nullable: true
+          allOf:
+            - $ref: '#/components/schemas/MacroIndicatorDTO'
+        housingStarts:
+          nullable: true
+          allOf:
+            - $ref: '#/components/schemas/MacroIndicatorDTO'
+        monthsSupply:
+          nullable: true
+          allOf:
+            - $ref: '#/components/schemas/MacroIndicatorDTO'
+        notes:
+          type: string
+          nullable: true
+    EconomyHubResponse:
+      type: object
+      required: [country, currency, asOf, updatedAt, source, coverage]
+      properties:
+        country:
+          type: string
+        currency:
+          type: string
+        asOf:
+          type: string
+        updatedAt:
+          type: string
+        source:
+          type: string
+        coverage:
+          type: array
+          items:
+            type: string
+        unemployment:
+          nullable: true
+          allOf:
+            - $ref: '#/components/schemas/MacroIndicatorDTO'
+        gdpGrowth:
+          nullable: true
+          allOf:
+            - $ref: '#/components/schemas/MacroIndicatorDTO'
+        payrolls:
+          nullable: true
+          allOf:
+            - $ref: '#/components/schemas/MacroIndicatorDTO'
+        initialClaims:
+          nullable: true
+          allOf:
+            - $ref: '#/components/schemas/MacroIndicatorDTO'
+        policyRate:
+          nullable: true
+          allOf:
+            - $ref: '#/components/schemas/MacroIndicatorDTO'
+        sahmRule:
+          nullable: true
+          allOf:
+            - $ref: '#/components/schemas/MacroIndicatorDTO'
+        officialRecession:
+          type: boolean
+          nullable: true
+        riskLabel:
+          type: string
+          nullable: true
+          enum: [elevated, watch, low]
+        yieldCurveSpread:
+          type: number
+          format: double
+          nullable: true
+        notes:
+          type: string
+          nullable: true
+    PolicyWatchResponse:
+      type: object
+      required: [country, asOf, updatedAt, source, institution, inflationGauge, inflationTarget, distanceToTarget]
+      properties:
+        country:
+          type: string
+        asOf:
+          type: string
+        updatedAt:
+          type: string
+        source:
+          type: string
+        institution:
+          type: string
+        inflationGauge:
+          $ref: '#/components/schemas/MacroIndicatorDTO'
+        inflationTarget:
+          type: number
+          format: double
+        distanceToTarget:
+          type: number
+          format: double
+        policyRate:
+          nullable: true
+          allOf:
+            - $ref: '#/components/schemas/MacroIndicatorDTO'
+        treasury2Y:
+          nullable: true
+          allOf:
+            - $ref: '#/components/schemas/MacroIndicatorDTO'
+        treasury10Y:
+          nullable: true
+          allOf:
+            - $ref: '#/components/schemas/MacroIndicatorDTO'
+        spread10Y2Y:
+          type: number
+          format: double
+          nullable: true
+        real10Y:
+          nullable: true
+          allOf:
+            - $ref: '#/components/schemas/MacroIndicatorDTO'
+        breakeven10Y:
+          nullable: true
+          allOf:
+            - $ref: '#/components/schemas/MacroIndicatorDTO'
+        nextMeeting:
+          nullable: true
+          allOf:
+            - $ref: '#/components/schemas/FOMCMeetingDTO'
+        stance:
+          type: string
+          nullable: true
         notes:
           type: string
           nullable: true
