@@ -86,15 +86,16 @@ struct AIInsightsTests {
         }
     }
 
-    @Test("AI insights report unavailable when no OpenAI key is configured")
-    func disabledWithoutKey() async throws {
+    @Test("AI insights return a deterministic card when no provider key is configured")
+    func deterministicFallbackWithoutKey() async throws {
         try await withApp { app in
             // Default test config sets no OPENAI_API_KEY -> DisabledOpenAIChatClient.
             let auth = try await registerUser(on: app, identifier: "nokey")
             try await grantPremium(userId: auth.userId, on: app)
 
-            let (status, _) = try await get("v1/ai/insights/portfolio", token: auth.token, on: app)
-            #expect(status == .serviceUnavailable)
+            let (status, body) = try await get("v1/ai/insights/portfolio", token: auth.token, on: app)
+            #expect(status == .ok)
+            #expect(body.contains("Portfolio snapshot"))
         }
     }
 
@@ -108,9 +109,9 @@ struct AIInsightsTests {
 
             // Model returns a card WITHOUT a disclaimer field; the server must add the
             // standard disclaimer and ignore any model attempt to set one.
-            let modelJSON = #"{"title":"Your Portfolio","body":"A neutral summary.","highlights":[{"label":"Total","value":"$0.00"}]}"#
+            let modelJSON = #"{"title":"Your Portfolio","body":"A neutral summary.","highlights":[{"label":"Invented","value":"$999"}]}"#
             app.aiInsightsService = DefaultAIInsightsService(
-                client: ScriptedOpenAIChatClient(toolName: "get_financial_overview", finalJSON: modelJSON)
+                client: ScriptedOpenAIChatClient(finalJSON: modelJSON)
             )
 
             var decoded: AIInsightCardResponse?
@@ -126,28 +127,66 @@ struct AIInsightsTests {
             #expect(card.title == "Your Portfolio")
             #expect(card.body == "A neutral summary.")
             #expect(card.disclaimer == AIInsightCardResponse.standardDisclaimer)
-            #expect(card.highlights.first?.label == "Total")
+            #expect(card.highlights.first?.label == "Portfolio value")
+            #expect(card.highlights.contains { $0.label == "Invented" } == false)
         }
     }
 
-    @Test("Tool round executes in the caller's scope and returns a card")
-    func toolRoundExecutesForCaller() async throws {
+    @Test("Empty model output returns a deterministic fallback card")
+    func emptyOutputReturnsFallback() async throws {
         try await withApp { app in
             let auth = try await registerUser(on: app, identifier: "pro-tool")
             try await grantPremium(userId: auth.userId, on: app)
 
-            // Scripted client always requests a tool first, proving the loop runs the
-            // scoped tool (which reads ONLY this authenticated user's data) before
-            // producing the final card.
-            let modelJSON = #"{"title":"Snapshot","body":"Here is your data.","highlights":[]}"#
             app.aiInsightsService = DefaultAIInsightsService(
-                client: ScriptedOpenAIChatClient(toolName: "get_expense_report", finalJSON: modelJSON)
+                client: ScriptedOpenAIChatClient(finalJSON: nil)
             )
 
             let (status, body) = try await get("v1/ai/insights/expenses", token: auth.token, on: app)
             #expect(status == .ok)
-            #expect(body.contains("Snapshot"))
+            #expect(body.contains("Spending snapshot"))
         }
+    }
+
+    @Test("Numeric highlights are generated from server data")
+    func serverGeneratedHighlights() {
+        let dataset = DefaultAIInsightsService.InsightDataset(
+            dashboard: DashboardResponse(
+                totalValue: 12345.6,
+                dailyChange: -100,
+                dailyChangePercent: -0.8,
+                topPerformers: [],
+                bottomPerformers: [],
+                sectorAllocation: []
+            ),
+            dashboardInsights: DashboardInsightsResponse(
+                savingsRate: 17.25,
+                budgetStreak: 2,
+                watchlistCount: 4,
+                cashBuffer: 1000,
+                financialHealth: DashboardFinancialHealthDTO(score: 72, maxScore: 100, status: .healthy)
+            )
+        )
+
+        let highlights = DefaultAIInsightsService.highlights(for: .portfolio, dataset: dataset)
+
+        #expect(highlights[0].value == "12,345.60")
+        #expect(highlights[1].value == "-0.80%")
+        #expect(highlights[1].trend == "down")
+        #expect(highlights[2].value == "72/100")
+    }
+
+    @Test("Reasoning details round-trip without losing opaque fields")
+    func reasoningDetailsRoundTrip() throws {
+        let json = #"{"role":"assistant","content":null,"reasoning_details":[{"type":"reasoning.encrypted","data":"opaque","index":0}]}"#
+        let message = try JSONDecoder().decode(OpenAIMessage.self, from: Data(json.utf8))
+        let encoded = try JSONEncoder().encode(message)
+        let object = try #require(JSONSerialization.jsonObject(with: encoded) as? [String: Any])
+        let details = try #require(object["reasoning_details"] as? [[String: Any]])
+
+        #expect(details.first?["type"] as? String == "reasoning.encrypted")
+        #expect(details.first?["data"] as? String == "opaque")
+        #expect(details.first?["index"] as? Double == 0)
     }
 }
 
@@ -155,27 +194,14 @@ struct AIInsightsTests {
 /// return purely from the conversation so far — requests one tool call, then once
 /// a tool result is present, returns the scripted final JSON card.
 private struct ScriptedOpenAIChatClient: OpenAIChatClient {
-    let toolName: String
-    let finalJSON: String
+    let finalJSON: String?
 
     func chat(
-        messages: [OpenAIMessage],
+        messages _: [OpenAIMessage],
         tools _: [OpenAITool],
         responseFormat _: String?,
         on _: Request
     ) async throws -> OpenAIMessage {
-        if messages.contains(where: { $0.role == "tool" }) {
-            return OpenAIMessage(role: "assistant", content: finalJSON)
-        }
-        return OpenAIMessage(
-            role: "assistant",
-            toolCalls: [
-                OpenAIToolCall(
-                    id: "call_1",
-                    type: "function",
-                    function: OpenAIFunctionCall(name: toolName, arguments: "{}")
-                ),
-            ]
-        )
+        OpenAIMessage(role: "assistant", content: finalJSON)
     }
 }

@@ -134,6 +134,48 @@ struct AIChatTests {
             })
         }
     }
+
+    @Test("Persistent assistant executes the shared read tools")
+    func persistentAssistantUsesSharedReadTools() async throws {
+        try await withApp { app in
+            let user = try await registerUser(app: app)
+            try await grantPro(app: app, userId: user.userId)
+            let conversation = try AIConversation(
+                userId: user.userId,
+                titleEncrypted: app.userPIIEncryptionService.encryptString("Test"),
+                expiresAt: Date().addingTimeInterval(3600)
+            )
+            try await conversation.create(on: app.db)
+            app.openAIChatClient = ScriptedChatClient(
+                toolName: "list_expenses",
+                finalText: "Your expense records are currently empty."
+            )
+
+            try await app.testing().test(
+                .POST,
+                "v1/ai/assistant/conversations/\(conversation.requireID())/chat",
+                beforeRequest: { req in
+                    req.headers.bearerAuthorization = .init(token: user.token)
+                    try req.content.encode(["content": "Show my expenses"])
+                },
+                afterResponse: { res async in
+                    #expect(res.status == .ok)
+                    #expect(res.body.string.contains("Your expense records are currently empty."))
+                }
+            )
+        }
+    }
+
+    @Test("Shared registry advertises trusted macro and complete finance reads")
+    func sharedRegistryDefinitions() {
+        let names = Set(AIReadToolRegistry.toolDefinitions().map(\.function.name))
+
+        #expect(names.isSuperset(of: [
+            "get_current_inflation", "get_economy_snapshot", "get_policy_watch",
+            "get_financial_overview", "list_expenses", "get_expense_report",
+            "get_spending_report", "get_budget_planning",
+        ]))
+    }
 }
 
 /// A scripted assistant client: on the first turn it optionally calls one tool,
