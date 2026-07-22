@@ -347,7 +347,7 @@ public func configure(_ app: Application) async throws {
     app.macroService = DefaultMacroService(
         repository: app.macroRepository,
         registry: app.macroProviderRegistry,
-        allowStubFallback: envBool("MACRO_ALLOW_STUB_FALLBACK", default: true),
+        allowStubFallback: envBool("MACRO_ALLOW_STUB_FALLBACK", default: app.environment != .production),
         fredHub: fredProvider,
         bcbHub: BCBSgsProvider()
     )

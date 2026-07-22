@@ -1,5 +1,6 @@
 import Foundation
 import StockPlanShared
+import Vapor
 
 /// 2026 FOMC meeting dates. Source: federalreserve.gov meeting calendar —
 /// refresh this table annually alongside the BLS calendar below.
@@ -44,14 +45,62 @@ enum FOMCCalendar {
     }()
 }
 
-/// 2026 BLS CPI release dates (8:30 AM ET). Source: bls.gov/schedule —
-/// verified against the published schedule; refresh annually.
+/// CPI release dates published in BLS's official iCalendar feed. The embedded
+/// dates are only a continuity fallback for a temporary BLS outage.
 enum BLSCPIReleaseCalendar {
+    static let calendarURL = URI(string: "https://www.bls.gov/schedule/news_release/bls.ics")
+
     static let releaseDates2026: [String] = [
-        "2026-01-13", "2026-02-11", "2026-03-11", "2026-04-10",
+        "2026-01-13", "2026-02-13", "2026-03-11", "2026-04-10",
         "2026-05-12", "2026-06-10", "2026-07-14", "2026-08-12",
-        "2026-09-11", "2026-10-13", "2026-11-10", "2026-12-10",
+        "2026-09-11", "2026-10-14", "2026-11-10", "2026-12-10",
     ]
+
+    static func nextPrint(after date: Date, lastOfficial: Double?, on req: Request) async -> NextPrintDTO? {
+        do {
+            let response = try await req.client.get(calendarURL) { request in
+                request.headers.replaceOrAdd(name: .accept, value: "text/calendar")
+                request.headers.replaceOrAdd(
+                    name: .userAgent,
+                    value: "Mozilla/5.0 (compatible; NorviqMacro/1.0; +https://norviq.org)"
+                )
+                request.timeout = .seconds(10)
+            }
+            guard response.status == .ok, let body = response.body else {
+                throw Abort(.badGateway, reason: "BLS calendar returned HTTP \(response.status.code).")
+            }
+            let releases = releaseDates(from: body.getString(at: 0, length: body.readableBytes) ?? "")
+            if let next = nextPrint(after: date, lastOfficial: lastOfficial, releases: releases) {
+                return next
+            }
+            req.logger.warning("macro_bls_calendar_empty_or_expired using_embedded_fallback=true")
+        } catch {
+            req.logger.warning("macro_bls_calendar_failed using_embedded_fallback=true error=\(error)")
+        }
+        return nextPrint(after: date, lastOfficial: lastOfficial)
+    }
+
+    /// Extracts CPI event dates from an RFC 5545 calendar. BLS uses both plain
+    /// DTSTART and timezone-qualified DTSTART properties, so the parser reads
+    /// the property value rather than relying on one exact line shape.
+    static func releaseDates(from calendar: String) -> [String] {
+        let unfolded = calendar.replacingOccurrences(of: "\r\n ", with: "")
+            .replacingOccurrences(of: "\n ", with: "")
+        return unfolded.components(separatedBy: "BEGIN:VEVENT")
+            .dropFirst()
+            .compactMap { event -> String? in
+                guard event.localizedCaseInsensitiveContains("SUMMARY:Consumer Price Index") else { return nil }
+                guard let line = event.split(whereSeparator: \Character.isNewline).first(where: {
+                    $0.uppercased().hasPrefix("DTSTART")
+                }), let separator = line.firstIndex(of: ":") else { return nil }
+                let raw = line[line.index(after: separator)...]
+                guard raw.count >= 8 else { return nil }
+                let compact = String(raw.prefix(8))
+                guard compact.allSatisfy(\.isNumber) else { return nil }
+                return "\(compact.prefix(4))-\(compact.dropFirst(4).prefix(2))-\(compact.dropFirst(6).prefix(2))"
+            }
+            .sorted()
+    }
 
     static func nextPrint(after date: Date, lastOfficial: Double?, releases: [String] = releaseDates2026) -> NextPrintDTO? {
         let formatter = FOMCCalendar.dayFormatter

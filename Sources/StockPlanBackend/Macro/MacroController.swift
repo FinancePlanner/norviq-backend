@@ -13,6 +13,7 @@ struct MacroController: RouteCollection {
         macro.get("inflation", "components", use: getComponents)
         macro.get("top-movers", use: getTopMovers)
         macro.get("inflation", "series", use: getSeries)
+        macro.get("inflation", "personal", use: getPersonalInflation)
         macro.get("supported-countries", use: getSupportedCountries)
         macro.get("fed-watch", use: getFedWatch)
         macro.get("policy-watch", use: getPolicyWatch)
@@ -66,6 +67,17 @@ struct MacroController: RouteCollection {
             from: req.query[String.self, at: "from"],
             to: req.query[String.self, at: "to"],
             limit: req.query[Int.self, at: "limit"] ?? 120,
+            on: req
+        )
+    }
+
+    @Sendable
+    func getPersonalInflation(req: Request) async throws -> PersonalInflationResponse {
+        let session = try req.auth.require(SessionToken.self)
+        return try await req.application.macroService.personalInflation(
+            userID: session.userId,
+            country: country(from: req),
+            periodMonths: req.query[Int.self, at: "months"] ?? 12,
             on: req
         )
     }
