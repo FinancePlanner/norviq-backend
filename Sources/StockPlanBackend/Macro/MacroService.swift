@@ -1,3 +1,4 @@
+import Fluent
 import Foundation
 import Redis
 import RediStack
@@ -18,6 +19,7 @@ protocol MacroService: Sendable {
     func policyWatch(country: MacroCountry, on req: Request) async throws -> PolicyWatchResponse
     func items(country: MacroCountry, on req: Request) async throws -> MacroItemsResponse
     func itemSeries(itemID: String, country: MacroCountry, from: String?, to: String?, limit: Int, on req: Request) async throws -> MacroItemSeriesResponse
+    func personalInflation(userID: UUID, country: MacroCountry, periodMonths: Int, on req: Request) async throws -> PersonalInflationResponse
     func supportedCountries() -> [SupportedCountry]
     /// Live fetch + persist + cache. Called by MacroRefreshJob.
     @discardableResult
@@ -88,6 +90,50 @@ struct DefaultMacroService: MacroService {
             throw Abort(.serviceUnavailable, reason: "No macro data available for \(country.rawValue). Configure providers or enable MACRO_ALLOW_STUB_FALLBACK.")
         }
         return MacroStubData.snapshot(country: country)
+    }
+
+    // MARK: - Personal inflation
+
+    func personalInflation(
+        userID: UUID,
+        country: MacroCountry,
+        periodMonths: Int,
+        on req: Request
+    ) async throws -> PersonalInflationResponse {
+        let months = min(max(periodMonths, 3), 24)
+        let now = Date()
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+        guard let start = calendar.date(byAdding: .month, value: -months, to: now) else {
+            throw Abort(.internalServerError, reason: "Unable to calculate the personal inflation period.")
+        }
+
+        let expenses = try await Expense.query(on: req.db)
+            .filter(\.$user.$id == userID)
+            .filter(\.$occurredOn >= start)
+            .filter(\.$occurredOn <= now)
+            .with(\.$category)
+            .all()
+        let inputs = expenses.compactMap { expense -> PersonalInflationCalculator.ExpenseInput? in
+            let effectiveAmount = expense.splitMode == .shared
+                ? expense.amount * expense.userSharePercent / 100
+                : expense.amount
+            guard effectiveAmount.isFinite, effectiveAmount > 0 else { return nil }
+            return .init(
+                category: expense.category?.name,
+                title: expense.title,
+                amount: effectiveAmount
+            )
+        }
+        let snapshot = try await currentInflation(country: country, on: req)
+        return PersonalInflationCalculator.calculate(
+            expenses: inputs,
+            snapshot: snapshot,
+            country: country,
+            periodMonths: months,
+            sampleStart: start,
+            sampleEnd: now
+        )
     }
 
     @discardableResult

@@ -214,7 +214,11 @@ struct FREDMacroProvider: MacroProvider {
         // Housing + economy hub series (lite). Failures are isolated per series.
         points += try await fetchHubSeriesPoints(country: .us, on: req)
 
-        let nextPrint = BLSCPIReleaseCalendar.nextPrint(after: now, lastOfficial: headline.officialValue)
+        let nextPrint = await BLSCPIReleaseCalendar.nextPrint(
+            after: now,
+            lastOfficial: headline.officialValue,
+            on: req
+        )
         let snapshot = InflationSnapshotResponse(
             country: MacroCountry.us.rawValue,
             currency: MacroCountry.us.currency,

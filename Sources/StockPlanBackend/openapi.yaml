@@ -6380,6 +6380,35 @@ paths:
           description: Rate limit exceeded
         '503':
           description: No macro data available and stub fallback disabled
+  /v1/macro/inflation/personal:
+    get:
+      tags: [Macro]
+      operationId: macroPersonalInflation
+      summary: Spending-weighted inflation estimate from the signed-in user's expenses
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/MacroCountryParam'
+        - name: months
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 12
+            minimum: 3
+            maximum: 24
+          description: Trailing expense history window
+      responses:
+        '200':
+          description: Personal inflation estimate and category coverage
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PersonalInflationResponse'
+        '401':
+          description: Unauthorized
+        '503':
+          description: No current macro snapshot is available
   /v1/macro/inflation/components:
     get:
       tags: [Macro]
@@ -13494,6 +13523,81 @@ components:
           nullable: true
           allOf:
             - $ref: '#/components/schemas/NextPrintDTO'
+    PersonalInflationComponentDTO:
+      type: object
+      required: [category, macroCategory, spend, weight, inflationRate, contribution, expenseCount]
+      properties:
+        category:
+          type: string
+        macroCategory:
+          type: string
+        spend:
+          type: number
+          format: double
+        weight:
+          type: number
+          format: double
+        inflationRate:
+          type: number
+          format: double
+        contribution:
+          type: number
+          format: double
+        expenseCount:
+          type: integer
+    PersonalInflationResponse:
+      type: object
+      required: [country, currency, asOf, periodMonths, sampleStart, sampleEnd, officialRate, averageMonthlySpend, coveragePercent, mappedSpend, totalSpend, expenseCount, method, source, components]
+      properties:
+        country:
+          type: string
+        currency:
+          type: string
+        asOf:
+          type: string
+        periodMonths:
+          type: integer
+        sampleStart:
+          type: string
+        sampleEnd:
+          type: string
+        personalRate:
+          type: number
+          format: double
+          nullable: true
+        officialRate:
+          type: number
+          format: double
+        difference:
+          type: number
+          format: double
+          nullable: true
+        averageMonthlySpend:
+          type: number
+          format: double
+        estimatedAnnualImpact:
+          type: number
+          format: double
+          nullable: true
+        coveragePercent:
+          type: number
+          format: double
+        mappedSpend:
+          type: number
+          format: double
+        totalSpend:
+          type: number
+          format: double
+        expenseCount:
+          type: integer
+        method:
+          type: string
+        source:
+          type: string
+        components:
+          type: array
+          items:
+            $ref: '#/components/schemas/PersonalInflationComponentDTO'
     MacroSeriesPoint:
       type: object
       required: [date, value, series]

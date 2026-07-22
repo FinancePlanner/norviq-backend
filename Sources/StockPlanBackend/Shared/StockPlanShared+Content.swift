@@ -306,6 +306,8 @@ extension RateMoveOddsDTO: @retroactive Content {}
 extension MacroItemDTO: @retroactive Content {}
 extension MacroItemsResponse: @retroactive Content {}
 extension MacroItemSeriesResponse: @retroactive Content {}
+extension PersonalInflationResponse: @retroactive Content {}
+extension PersonalInflationComponentDTO: @retroactive Content {}
 extension HousingHubResponse: @retroactive Content {}
 extension EconomyHubResponse: @retroactive Content {}
 extension PolicyWatchResponse: @retroactive Content {}

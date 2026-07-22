@@ -185,4 +185,26 @@ struct MacroProviderDecodingTests {
         #expect(print?.daysRemaining == 5)
         #expect(print?.lastOfficial == 4.2)
     }
+
+    @Test("BLS iCalendar parser keeps only CPI releases")
+    func blsCalendarParser() {
+        let calendar = """
+        BEGIN:VCALENDAR
+        BEGIN:VEVENT
+        DTSTART;TZID=America/New_York:20260812T083000
+        SUMMARY:Consumer Price Index
+        END:VEVENT
+        BEGIN:VEVENT
+        DTSTART:20260814T083000Z
+        SUMMARY:Producer Price Index
+        END:VEVENT
+        BEGIN:VEVENT
+        DTSTART:20260911T083000Z
+        SUMMARY:Consumer Price Index
+        END:VEVENT
+        END:VCALENDAR
+        """
+
+        #expect(BLSCPIReleaseCalendar.releaseDates(from: calendar) == ["2026-08-12", "2026-09-11"])
+    }
 }
