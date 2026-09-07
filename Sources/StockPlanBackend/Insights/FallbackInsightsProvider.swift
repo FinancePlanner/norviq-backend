@@ -47,7 +47,10 @@ struct FallbackInsightsProvider: InsightsProvider {
         limit: Int,
         on req: Request
     ) async throws -> [SymbolPostBatch] {
-        try await firstSuccess("symbol-posts") {
+        try await firstSuccess(
+            "symbol-posts",
+            isUsable: { batches in batches.contains { !$0.posts.isEmpty } }
+        ) {
             try await $0.fetchSymbolPosts(
                 symbols: symbols,
                 sources: sources,
@@ -91,15 +94,24 @@ struct FallbackInsightsProvider: InsightsProvider {
         return false
     }
 
-    /// Runs `operation` against each provider in turn. The first value wins; a
-    /// thrown error is logged and the next provider is tried. When every
+    /// Runs `operation` against each provider in turn. The first *usable* value
+    /// wins; a thrown error is logged and the next provider is tried. When every
     /// provider fails the last error is rethrown, so callers keep seeing the
     /// same `Abort` surface a single provider would have produced.
+    ///
+    /// `isUsable` exists because not throwing is a weaker signal than it looks.
+    /// A degraded upstream answers HTTP 200 with an empty body, which used to
+    /// count as success and short-circuit the chain — so a Hermes whose scraper
+    /// had died starved both DeepAPI and the keyless Stocktwits feed behind it,
+    /// while every log line said `ok`. An unusable value now falls through, and
+    /// the last one is returned only when nobody did better.
     private func firstSuccess<T>(
         _ label: String,
+        isUsable: (T) -> Bool = { _ in true },
         _ operation: (any InsightsProvider) async throws -> T
     ) async throws -> T {
         var lastError: (any Error)?
+        var lastUnusable: T?
         var skipped = 0
 
         for (index, provider) in providers.enumerated() {
@@ -113,6 +125,13 @@ struct FallbackInsightsProvider: InsightsProvider {
                 let value = try await operation(provider)
                 // A success means whatever put it in cooldown is resolved.
                 cooldowns.clear(providerLabel)
+                guard isUsable(value) else {
+                    lastUnusable = value
+                    logger.warning(
+                        "Insights provider \(providerLabel) returned nothing usable for \(label), falling through."
+                    )
+                    continue
+                }
                 return value
             } catch let error as InsightsProviderError where error.isTerminalUntilTopUp {
                 lastError = error
@@ -128,6 +147,12 @@ struct FallbackInsightsProvider: InsightsProvider {
             }
         }
 
+        // An empty answer from a provider that was willing to answer is more
+        // honest than an error from one that was not, so it outranks lastError.
+        if let lastUnusable {
+            logger.warning("Every insights provider returned nothing usable for \(label).")
+            return lastUnusable
+        }
         if let lastError {
             throw lastError
         }
