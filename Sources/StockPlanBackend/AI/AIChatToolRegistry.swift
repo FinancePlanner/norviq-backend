@@ -9,25 +9,7 @@ import Vapor
 /// explicit confirm step for destructive actions.
 enum AIChatToolRegistry {
     static func toolDefinitions() -> [OpenAITool] {
-        AIReadToolRegistry.toolDefinitions() + [
-            tool("add_expense", "Add a new expense.", [
-                "title": OpenAIParameter(type: "string"),
-                "amount": OpenAIParameter(type: "number"),
-                "pillar": OpenAIParameter(type: "string", description: "one of fundamentals, futureYou, fun", enumValues: ["fundamentals", "futureYou", "fun"]),
-                "occurred_on": OpenAIParameter(type: "string", description: "YYYY-MM-DD"),
-            ], required: ["title", "amount", "pillar", "occurred_on"]),
-            tool("update_expense", "Update fields of an existing expense.", [
-                "id": OpenAIParameter(type: "string"),
-                "title": OpenAIParameter(type: "string"),
-                "amount": OpenAIParameter(type: "number"),
-                "pillar": OpenAIParameter(type: "string", enumValues: ["fundamentals", "futureYou", "fun"]),
-                "occurred_on": OpenAIParameter(type: "string", description: "YYYY-MM-DD"),
-            ], required: ["id"]),
-            tool("delete_expense", "Delete an expense. Returns needs_confirmation unless confirm=true; ask the user to confirm first.", [
-                "id": OpenAIParameter(type: "string"),
-                "confirm": OpenAIParameter(type: "boolean", description: "must be true to actually delete"),
-            ], required: ["id"]),
-        ]
+        AIReadToolRegistry.toolDefinitions() + ActionCatalog.toolDefinitions()
     }
 
     /// Executes a tool, returning a JSON string result for the model.
@@ -37,60 +19,9 @@ enum AIChatToolRegistry {
                 name: name, arguments: arguments, context: context, on: req
             )
         }
-        let args = parseArgs(arguments)
-        switch name {
-        case "add_expense":
-            guard let title = stringArg(args, "title"), let amount = doubleArg(args, "amount"),
-                  let pillarRaw = stringArg(args, "pillar"), let occurredOn = stringArg(args, "occurred_on")
-            else {
-                return #"{"error":"missing required fields"}"#
-            }
-            guard let pillar = BudgetPillar(rawValue: pillarRaw) else {
-                return #"{"error":"invalid pillar; use fundamentals, futureYou, or fun"}"#
-            }
-            let created = try await req.expensesService.createExpense(
-                userId: context.userId,
-                request: ExpenseRequest(title: title, amount: amount, pillar: pillar, occurredOn: occurredOn),
-                on: req.db
-            )
-            return try encode(created)
-
-        case "update_expense":
-            guard let idStr = stringArg(args, "id"), let id = UUID(uuidString: idStr) else {
-                return #"{"error":"invalid id"}"#
-            }
-            // Fetch existing to preserve unspecified fields.
-            let existing = try await req.expensesService.getExpenses(
-                userId: context.userId, from: nil, to: nil, limit: 10000, cursor: nil, on: req.db
-            ).items.first { $0.id == idStr }
-            guard let existing else { return #"{"error":"expense not found"}"# }
-            let pillar = stringArg(args, "pillar").flatMap { BudgetPillar(rawValue: $0) } ?? existing.pillar
-            let updated = try await req.expensesService.updateExpense(
-                userId: context.userId, expenseId: id,
-                request: ExpenseRequest(
-                    title: stringArg(args, "title") ?? existing.title,
-                    amount: doubleArg(args, "amount") ?? existing.amount,
-                    pillar: pillar,
-                    occurredOn: stringArg(args, "occurred_on") ?? existing.occurredOn,
-                    categoryId: existing.categoryId
-                ),
-                on: req.db
-            )
-            return try encode(updated)
-
-        case "delete_expense":
-            guard let idStr = stringArg(args, "id"), let id = UUID(uuidString: idStr) else {
-                return #"{"error":"invalid id"}"#
-            }
-            guard boolArg(args, "confirm") == true else {
-                return #"{"status":"needs_confirmation","message":"Ask the user to confirm deletion, then call again with confirm=true."}"#
-            }
-            try await req.expensesService.deleteExpense(userId: context.userId, expenseId: id, on: req.db)
-            return #"{"status":"deleted"}"#
-
-        default:
-            return #"{"error":"unknown tool"}"#
-        }
+        return try await ActionCatalog.execute(
+            name: name, arguments: ActionArguments(json: arguments), context: context, on: req
+        )
     }
 
     // MARK: - Helpers

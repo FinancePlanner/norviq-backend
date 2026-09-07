@@ -71,87 +71,16 @@ extension StockController {
     func createWatchlistItem(req: Request) async throws -> Response {
         let session = try req.auth.require(SessionToken.self)
         let payload = try req.content.decode(WatchlistItemRequest.self)
-        let symbol = try normalizeSymbol(payload.symbol)
-        let note = emptyToNil(payload.note)
-        let nextReviewAt = try parseISODateOnly(payload.nextReviewAt, field: "nextReviewAt")
-        guard let targetListId = try await resolveWatchlistListId(
-            requestedId: payload.watchlistListId,
+        // Upsert semantics (patch in place, revive an archived row, enforce the
+        // quota) live in WatchlistService so the assistant reaches the same
+        // behaviour in-process rather than a second copy of it.
+        let result = try await WatchlistService(req: req).upsert(
+            payload: payload,
             userId: session.userId,
-            on: req.db,
-            defaultWhenMissing: true
-        ) else {
-            throw Abort(.internalServerError, reason: "Failed to resolve watchlist list.")
-        }
-
-        if let existing = try await WatchlistItem.query(on: req.db)
-            .filter(\.$userId == session.userId)
-            .filter(\.$watchlistListId == targetListId)
-            .filter(\.$symbol == symbol)
-            .first()
-        {
-            var didChange = false
-
-            if let rawNote = payload.note {
-                let normalizedNote = emptyToNil(rawNote)
-                if existing.note != normalizedNote {
-                    existing.note = normalizedNote
-                    didChange = true
-                }
-            }
-
-            if let status = payload.status {
-                let normalizedStatus = status.rawValue
-                if existing.status != normalizedStatus {
-                    existing.status = normalizedStatus
-                    didChange = true
-                }
-            } else if existing.status == WatchlistStatus.archived.rawValue {
-                existing.status = WatchlistStatus.active.rawValue
-                didChange = true
-            }
-
-            if payload.nextReviewAt != nil, existing.nextReviewAt != nextReviewAt {
-                existing.nextReviewAt = nextReviewAt
-                didChange = true
-            }
-
-            if didChange {
-                try await existing.save(on: req.db)
-            }
-
-            let res = Response(status: .ok)
-            try res.content.encode(makeWatchlistItemResponse(from: existing))
-            return res
-        }
-
-        let currentCount = try await WatchlistItem.query(on: req.db)
-            .filter(\.$userId == session.userId)
-            .count()
-        try await req.usageCounterService.enforceResourceLimit(
-            .watchlistItems,
-            userId: session.userId,
-            currentCount: currentCount,
-            adding: 1,
             on: req.db
         )
-
-        let item = WatchlistItem(
-            userId: session.userId,
-            watchlistListId: targetListId,
-            symbol: symbol,
-            note: note,
-            status: payload.status ?? .active,
-            nextReviewAt: nextReviewAt
-        )
-        try await item.save(on: req.db)
-        try? await req.usageCounterService.syncResourceCount(
-            .watchlistItems,
-            userId: session.userId,
-            count: currentCount + 1,
-            on: req.db
-        )
-        let res = Response(status: .created)
-        try res.content.encode(makeWatchlistItemResponse(from: item))
+        let res = Response(status: result.created ? .created : .ok)
+        try res.content.encode(WatchlistService.response(from: result.item))
         return res
     }
 
