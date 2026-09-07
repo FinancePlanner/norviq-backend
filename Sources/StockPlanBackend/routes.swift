@@ -84,6 +84,7 @@ func routes(_ app: Application) throws {
     try api.grouped(macroRateLimit).register(collection: MacroController())
     try api.register(collection: PortfolioController())
     try api.register(collection: TransactionController())
+    try api.register(collection: ActionCatalogController())
     try api.register(collection: PortfolioManagementController())
     try api.register(collection: RebalancingController())
     try api.register(collection: RetirementController())

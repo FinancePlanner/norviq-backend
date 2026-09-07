@@ -2,6 +2,7 @@ import Foundation
 @testable import StockPlanBackend
 import StockPlanShared
 import Testing
+import VaporTesting
 
 @Suite("Action catalog")
 struct ActionCatalogTests {
@@ -88,5 +89,60 @@ struct ActionCatalogTests {
     func unknownActionIsRefused() {
         #expect(ActionCatalog.definition(named: "drop_all_tables") == nil)
         #expect(ActionCatalog.contains("add_position"))
+    }
+
+    // MARK: - Published catalog
+
+    @Test("GET /v1/actions/catalog publishes every action with its schema", .databaseLocked)
+    func catalogEndpointPublishesActions() async throws {
+        let app = try await Application.make(.testing)
+        do {
+            try await configure(app)
+            try await app.autoMigrate()
+
+            let identifier = UUID().uuidString.prefix(8).lowercased()
+            var token = ""
+            try await app.testing().test(.POST, "v1/auth/register", beforeRequest: { req in
+                try req.content.encode(StockPlanBackend.AuthRegisterRequest(
+                    username: "catalog_\(identifier)",
+                    password: "Password123!",
+                    confirmPassword: "Password123!",
+                    email: "catalog_\(identifier)@example.com",
+                    dateOfBirth: Date(timeIntervalSince1970: 946_684_800)
+                ))
+            }, afterResponse: { res async throws in
+                token = try res.content.decode(AuthResponse.self).token
+            })
+
+            try await app.testing().test(.GET, "v1/actions/catalog", beforeRequest: { req in
+                req.headers.bearerAuthorization = .init(token: token)
+            }, afterResponse: { res async throws in
+                #expect(res.status == .ok)
+                let body = try res.content.decode(ActionCatalogController.CatalogResponse.self)
+                let published = Dictionary(uniqueKeysWithValues: body.actions.map { ($0.name, $0) })
+
+                // Every catalog action is published, so the Go side can be diffed
+                // against this rather than hand-maintained in parallel.
+                for action in ActionCatalog.all {
+                    #expect(published[action.name] != nil, "\(action.name) missing from the published catalog")
+                }
+
+                // Destructive actions publish their confirm requirement, so a
+                // consumer can see the gate rather than infer it from the name.
+                for action in ActionCatalog.all where action.destructive {
+                    let entry = published[action.name]
+                    #expect(entry?.destructive == true)
+                    #expect(entry?.required.contains("confirm") == true)
+                    #expect(entry?.properties["confirm"] != nil)
+                }
+            })
+
+            try await app.autoRevert()
+        } catch {
+            try? await app.autoRevert()
+            try await app.asyncShutdown()
+            throw error
+        }
+        try await app.asyncShutdown()
     }
 }

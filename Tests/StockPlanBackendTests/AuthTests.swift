@@ -8,8 +8,28 @@ import VaporTesting
 
 @Suite("Auth Tests", .serialized)
 struct AuthTests {
-    private func withApp(_ test: (Application) async throws -> Void) async throws {
+    /// Boots an app, optionally with process-environment overrides applied.
+    ///
+    /// The overrides are applied *inside* DatabaseTestLock, not around the call.
+    /// `setenv` is process-global and glibc's `getenv` is not safe against a
+    /// concurrent `setenv`, so an override applied before the lock is acquired is
+    /// visible to whichever other suite currently holds it and is booting its own
+    /// app — which is how AUTH_MFA_ENABLED leaked out of the MFA tests and made
+    /// unrelated login tests answer 426 in a full run. Mutating under the lock
+    /// keeps the window closed.
+    private func withApp(
+        environment overrides: [String: String] = [:],
+        _ test: (Application) async throws -> Void
+    ) async throws {
         try await DatabaseTestLock.withLock {
+            for (key, value) in overrides {
+                setenv(key, value, 1)
+            }
+            defer {
+                for key in overrides.keys {
+                    unsetenv(key)
+                }
+            }
             let app = try await Application.make(.testing)
             do {
                 try await configure(app)
@@ -397,10 +417,7 @@ struct AuthTests {
 
     @Test("Login returns MFA challenge for MFA-capable clients")
     func loginReturnsMFAChallengeForCapableClient() async throws {
-        setenv("AUTH_MFA_ENABLED", "true", 1)
-        defer { unsetenv("AUTH_MFA_ENABLED") }
-
-        try await withApp { app in
+        try await withApp(environment: ["AUTH_MFA_ENABLED": "true"]) { app in
             let mailer = RecordingMailerService()
             app.mailer = mailer
             let registerReq = makeRegisterRequest(email: "mfa-login@example.com", password: "Password123!")
@@ -426,10 +443,7 @@ struct AuthTests {
 
     @Test("MFA email subject includes the generated verification code")
     func mfaEmailSubjectIncludesGeneratedCode() async throws {
-        setenv("AUTH_MFA_ENABLED", "true", 1)
-        defer { unsetenv("AUTH_MFA_ENABLED") }
-
-        try await withApp { app in
+        try await withApp(environment: ["AUTH_MFA_ENABLED": "true"]) { app in
             let mailer = RecordingMailerService()
             app.mailer = mailer
             let registerReq = makeRegisterRequest(email: "mfa-subject@example.com", password: "Password123!")
@@ -493,14 +507,7 @@ struct AuthTests {
 
     @Test("MFA bypass email authenticates without challenge")
     func loginBypassesMFAForConfiguredEmail() async throws {
-        setenv("AUTH_MFA_ENABLED", "true", 1)
-        setenv("AUTH_MFA_BYPASS_EMAILS", " review-bypass@example.com ", 1)
-        defer {
-            unsetenv("AUTH_MFA_ENABLED")
-            unsetenv("AUTH_MFA_BYPASS_EMAILS")
-        }
-
-        try await withApp { app in
+        try await withApp(environment: ["AUTH_MFA_ENABLED": "true", "AUTH_MFA_BYPASS_EMAILS": " review-bypass@example.com "]) { app in
             let registerReq = makeRegisterRequest(
                 email: "review-bypass@example.com",
                 username: "review_bypass_user"
@@ -530,10 +537,7 @@ struct AuthTests {
 
     @Test("MFA verify issues tokens for valid challenge")
     func mfaVerifyIssuesTokens() async throws {
-        setenv("AUTH_MFA_ENABLED", "true", 1)
-        defer { unsetenv("AUTH_MFA_ENABLED") }
-
-        try await withApp { app in
+        try await withApp(environment: ["AUTH_MFA_ENABLED": "true"]) { app in
             let registerReq = makeRegisterRequest(email: "mfa-verify@example.com", password: "Password123!")
             try await app.testing().test(.POST, "v1/auth/register", beforeRequest: { req in
                 try req.content.encode(registerReq)
@@ -574,14 +578,7 @@ struct AuthTests {
 
     @Test("Non-capable client is rejected when legacy bypass is disabled")
     func loginRejectsLegacyWhenBypassDisabled() async throws {
-        setenv("AUTH_MFA_ENABLED", "true", 1)
-        setenv("AUTH_MFA_ALLOW_LEGACY_BYPASS", "false", 1)
-        defer {
-            unsetenv("AUTH_MFA_ENABLED")
-            unsetenv("AUTH_MFA_ALLOW_LEGACY_BYPASS")
-        }
-
-        try await withApp { app in
+        try await withApp(environment: ["AUTH_MFA_ENABLED": "true", "AUTH_MFA_ALLOW_LEGACY_BYPASS": "false"]) { app in
             let registerReq = makeRegisterRequest(email: "legacy-bypass@example.com", password: "Password123!")
             try await app.testing().test(.POST, "v1/auth/register", beforeRequest: { req in
                 try req.content.encode(registerReq)
@@ -715,16 +712,7 @@ struct AuthTests {
 
     @Test("OAuth start succeeds for configured Google provider")
     func oauthStartGoogleSuccess() async throws {
-        setenv("OAUTH_GOOGLE_CLIENT_ID", "google-client-id", 1)
-        setenv("OAUTH_GOOGLE_CLIENT_SECRET", "google-client-secret", 1)
-        setenv("OAUTH_ALLOWED_REDIRECT_URIS", "norviqa://oauth/callback", 1)
-        defer {
-            unsetenv("OAUTH_GOOGLE_CLIENT_ID")
-            unsetenv("OAUTH_GOOGLE_CLIENT_SECRET")
-            unsetenv("OAUTH_ALLOWED_REDIRECT_URIS")
-        }
-
-        try await withApp { app in
+        try await withApp(environment: ["OAUTH_GOOGLE_CLIENT_ID": "google-client-id", "OAUTH_GOOGLE_CLIENT_SECRET": "google-client-secret", "OAUTH_ALLOWED_REDIRECT_URIS": "norviqa://oauth/callback"]) { app in
             let startReq = OAuthStartRequest(redirectURI: "norviqa://oauth/callback")
             try await app.testing().test(.POST, "v1/auth/oauth/google/start", beforeRequest: { req in
                 try req.content.encode(startReq)
