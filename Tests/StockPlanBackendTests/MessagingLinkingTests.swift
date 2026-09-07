@@ -670,6 +670,152 @@ struct MessagingLinkingTests {
         }
     }
 
+    // MARK: - Catalog actions on the Telegram surface
+
+    /// Links a chat and returns the thread it points at.
+    private func linkedThread(user: (token: String, userId: UUID), req: Request, app: Application) async throws -> AIConversation {
+        let thread = try AIConversation(
+            userId: user.userId,
+            titleEncrypted: req.userPIIEncryptionService.encryptString("Telegram"),
+            expiresAt: Date().addingTimeInterval(30 * 86400)
+        )
+        try await thread.create(on: app.db)
+        try await MessagingLink(
+            userId: user.userId, platform: MessagingPlatform.telegram,
+            externalID: "4242", conversationId: thread.requireID()
+        ).create(on: app.db)
+        return thread
+    }
+
+    @Test("A harmless write applies immediately, with no button and an audit row")
+    func nonDestructiveWriteAppliesInline() async throws {
+        try await withApp { app in
+            let user = try await registerUser(app: app)
+            try await Entitlement(userId: user.userId, level: "pro").save(on: app.db)
+            let req = backgroundRequest(app)
+            _ = try await linkedThread(user: user, req: req, app: app)
+
+            app.openAIChatClient = ScriptedToolCallChatClient(
+                toolName: "add_expense",
+                arguments: #"{"title":"Coffee","amount":12,"pillar":"fun","occurred_on":"2026-09-07"}"#,
+                followUp: "Logged the coffee."
+            )
+
+            let reply = try await MessagingService.handle(
+                inbound("add a 12 euro coffee expense for today", updateID: 1), req: req
+            )
+            #expect(reply.text == "Logged the coffee.")
+            #expect(reply.options.isEmpty, "a harmless write must not ask for a tap")
+
+            let expenses = try await Expense.query(on: app.db)
+                .filter(\.$user.$id == user.userId).all()
+            #expect(expenses.count == 1)
+            #expect(expenses.first?.title == "Coffee")
+
+            // Nothing is left waiting...
+            let pending = try await AIPendingAction.query(on: app.db)
+                .filter(\.$userId == user.userId)
+                .filter(\.$status == AIActionStatus.pending.rawValue)
+                .count()
+            #expect(pending == 0)
+
+            // ...but the write is still on the record, the same way a confirmed
+            // one would be. A trade the assistant booked must not be the one
+            // with no audit row.
+            let audits = try await AIActionAudit.query(on: app.db)
+                .filter(\.$userId == user.userId).all()
+            #expect(audits.count == 1)
+            #expect(audits.first?.toolName == "add_expense")
+            #expect(audits.first?.status == AIActionStatus.completed.rawValue)
+        }
+    }
+
+    @Test("A destructive write is proposed, applied once, and refused on replay")
+    func destructiveWriteNeedsATapAndCannotReplay() async throws {
+        try await withApp { app in
+            let user = try await registerUser(app: app)
+            try await Entitlement(userId: user.userId, level: "pro").save(on: app.db)
+            let req = backgroundRequest(app)
+            _ = try await linkedThread(user: user, req: req, app: app)
+
+            let expense = Expense(
+                userID: user.userId, title: "Coffee", amount: 12,
+                pillar: .fun, occurredOn: Date(timeIntervalSince1970: 1_788_000_000)
+            )
+            try await expense.create(on: app.db)
+            let expenseID = try expense.requireID()
+
+            app.openAIChatClient = ScriptedToolCallChatClient(
+                toolName: "delete_expense",
+                arguments: #"{"id":"\#(expenseID.uuidString)"}"#
+            )
+
+            let proposal = try await MessagingService.handle(
+                inbound("delete that coffee expense", updateID: 1), req: req
+            )
+            #expect(proposal.options.count == 2, "a deletion must arrive with Confirm/Cancel")
+            // Not gone yet.
+            #expect(try await Expense.find(expenseID, on: app.db) != nil)
+
+            let action = try await AIPendingAction.query(on: app.db)
+                .filter(\.$userId == user.userId)
+                .filter(\.$status == AIActionStatus.pending.rawValue)
+                .first()
+            let actionID = try #require(action).requireID().uuidString
+            // The summary has to say what it is about to touch.
+            let summary = try req.userPIIEncryptionService.decryptString(#require(action).summaryEncrypted)
+            #expect(summary.contains(String(expenseID.uuidString.prefix(8))), "summary identifies nothing: \(summary)")
+
+            let confirmed = try await MessagingService.handle(
+                inbound(MessagingService.confirmPrefix + actionID, updateID: 2), req: req
+            )
+            #expect(confirmed.text == "Expense deleted.")
+            #expect(try await Expense.find(expenseID, on: app.db) == nil)
+
+            // The claim transaction is the replay guard; a second tap must not
+            // execute anything a second time.
+            let replay = try await MessagingService.handle(
+                inbound(MessagingService.confirmPrefix + actionID, updateID: 3), req: req
+            )
+            #expect(replay.text.contains("expired or was already handled"))
+        }
+    }
+
+    @Test("A proposal made under the old tool name still confirms")
+    func legacyToolNameStillConfirms() async throws {
+        try await withApp { app in
+            let user = try await registerUser(app: app)
+            try await Entitlement(userId: user.userId, level: "pro").save(on: app.db)
+            let req = backgroundRequest(app)
+            let thread = try await linkedThread(user: user, req: req, app: app)
+            app.openAIChatClient = FixedReplyChatClient(text: "Here are your expenses.")
+
+            // A row as it existed before the catalog reached this surface: the
+            // argument shape is identical, only the name changed.
+            let action = AIPendingAction()
+            action.userId = user.userId
+            action.conversationId = try thread.requireID()
+            action.toolName = "create_expense"
+            action.argumentsEncrypted = try req.userPIIEncryptionService.encryptString(
+                #"{"title":"Legacy","amount":9,"pillar":"fun","occurred_on":"2026-09-07"}"#
+            )
+            action.summaryEncrypted = try req.userPIIEncryptionService.encryptString("Create the proposed expense.")
+            action.status = AIActionStatus.pending.rawValue
+            action.expiresAt = Date().addingTimeInterval(15 * 60)
+            try await action.create(on: app.db)
+
+            let confirmed = try await MessagingService.handle(
+                inbound(MessagingService.confirmPrefix + action.requireID().uuidString, updateID: 1), req: req
+            )
+            #expect(confirmed.text == "Expense created.")
+
+            let expenses = try await Expense.query(on: app.db)
+                .filter(\.$user.$id == user.userId).all()
+            #expect(expenses.count == 1)
+            #expect(expenses.first?.title == "Legacy")
+        }
+    }
+
     @Test("A Telegram turn continues the same conversation the web app shows")
     func sharesTheWebThread() async throws {
         try await withApp { app in
@@ -888,6 +1034,46 @@ private struct ExplodingChatClient: OpenAIChatClient {
         responseFormat _: String?, on _: Request
     ) async throws -> OpenAIMessage {
         throw ShouldNotBeCalled()
+    }
+}
+
+/// Calls one tool on the first round, then answers in prose.
+///
+/// A class rather than a struct because the round it is on is the whole point:
+/// the turn loop must execute the tool and come back for the reply.
+private final class ScriptedToolCallChatClient: OpenAIChatClient, @unchecked Sendable {
+    private let toolName: String
+    private let arguments: String
+    private let followUp: String
+    private let lock = NSLock()
+    private var rounds = 0
+
+    init(toolName: String, arguments: String, followUp: String = "Done.") {
+        self.toolName = toolName
+        self.arguments = arguments
+        self.followUp = followUp
+    }
+
+    func chat(
+        messages _: [OpenAIMessage], tools _: [OpenAITool],
+        responseFormat _: String?, on _: Request
+    ) async throws -> OpenAIMessage {
+        let round = lock.withLock {
+            rounds += 1
+            return rounds
+        }
+
+        guard round == 1 else {
+            return OpenAIMessage(role: "assistant", content: followUp)
+        }
+        return OpenAIMessage(
+            role: "assistant",
+            toolCalls: [OpenAIToolCall(
+                id: "call_1",
+                type: "function",
+                function: OpenAIFunctionCall(name: toolName, arguments: arguments)
+            )]
+        )
     }
 }
 

@@ -30,9 +30,21 @@ extension ActionCatalog {
                 guard let pillar = BudgetPillar(rawValue: pillarRaw) else {
                     return errorPayload("invalid pillar; use fundamentals, futureYou, or fun")
                 }
+                // ExpensesService only rejects a negative or non-finite amount and
+                // does not bound the title. The assistant's hand-written executor
+                // was stricter, and it used to be the only path an assistant could
+                // write an expense through — so these guards moved here with it
+                // rather than being dropped. They now also cover /v1/ai/chat and MCP.
+                guard amount.isFinite, amount > 0 else {
+                    return errorPayload("amount must be a positive number")
+                }
+                let cleanTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !cleanTitle.isEmpty, cleanTitle.count <= 200 else {
+                    return errorPayload("title is required, and must be 200 characters or fewer")
+                }
                 let created = try await req.expensesService.createExpense(
                     userId: context.userId,
-                    request: ExpenseRequest(title: title, amount: amount, pillar: pillar, occurredOn: occurredOn),
+                    request: ExpenseRequest(title: cleanTitle, amount: amount, pillar: pillar, occurredOn: occurredOn),
                     on: req.db
                 )
                 return try encode(created)

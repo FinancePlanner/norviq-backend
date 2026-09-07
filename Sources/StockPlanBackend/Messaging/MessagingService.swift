@@ -325,6 +325,14 @@ enum MessagingService {
             return OutboundMessage(text: result.message)
         } catch let abort as any AbortError where abort.status == .conflict {
             return OutboundMessage(text: "That action has expired or was already handled. Ask me again if you still want it.")
+        } catch let abort as any AbortError {
+            // Every other refusal — "Expense not found.", an invalid argument —
+            // also arrives carrying a sentence written for a person. Letting it
+            // escape returns a 500 to the webhook, and Telegram answers a 500 by
+            // redelivering the same update, so the user sees nothing and the
+            // confirm is retried against a row that is no longer pending.
+            req.logger.warning("messaging_confirm_refused status=\(abort.status.code)")
+            return OutboundMessage(text: abort.reason)
         }
     }
 

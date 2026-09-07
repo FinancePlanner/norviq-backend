@@ -3,85 +3,65 @@ import Foundation
 import StockPlanShared
 import Vapor
 
+/// Runs an action the user has already confirmed out of band.
+///
+/// This used to re-implement five actions by hand, which meant the persistent
+/// assistant and Telegram could write expenses and goals and nothing else while
+/// MCP grew a full portfolio surface. It is now an adapter: the persisted,
+/// status-checked `AIPendingAction` is the proof of consent, so it calls the
+/// catalog with ``ActionConfirmationMode/confirmed`` and translates the result.
+///
+/// It takes a `Request` rather than a `Database` because catalog handlers reach
+/// services through `req` and Fluent's `any Database` is not `Sendable`, so a
+/// transaction handle cannot be threaded into a `@Sendable` handler under Swift
+/// 6. That is why the caller claims, executes, then settles in three steps
+/// instead of wrapping the write and its audit row in one transaction — see
+/// `AIAssistantTurnCoordinator.confirm`.
 struct AIConfirmedActionExecutor {
-    private struct CreateExpenseArguments: Decodable {
-        let title: String
-        let amount: Double
-        let pillar: String
-        let occurredOn: String
-
-        enum CodingKeys: String, CodingKey {
-            case title, amount, pillar
-            case occurredOn = "occurred_on"
-        }
-    }
-
-    private struct IdentifiedArguments: Decodable { let id: UUID }
-    private struct CreateGoalArguments: Decodable { let title: String }
-    private struct UpdateGoalArguments: Decodable { let id: UUID; let title: String }
-
     struct Result: Sendable {
         let id: UUID?
         let message: String
     }
 
-    func execute(toolName: String, arguments: Data, userId: UUID, on db: any Database) async throws -> Result {
-        let decoder = JSONDecoder()
-        switch toolName {
-        case "create_expense":
-            let value = try decoder.decode(CreateExpenseArguments.self, from: arguments)
-            guard value.amount > 0, value.amount.isFinite, value.title.count <= 200,
-                  let pillar = BudgetPillar(rawValue: value.pillar),
-                  let occurredOn = Self.dayFormatter.date(from: value.occurredOn)
-            else { throw Abort(.badRequest, reason: "The proposed expense is invalid.") }
-            let expense = Expense(userID: userId, title: value.title.trimmingCharacters(in: .whitespacesAndNewlines),
-                                  amount: value.amount, pillar: pillar, occurredOn: occurredOn)
-            try await expense.create(on: db)
-            return try Result(id: expense.requireID(), message: "Expense created.")
-
-        case "delete_expense":
-            let value = try decoder.decode(IdentifiedArguments.self, from: arguments)
-            guard let expense = try await Expense.query(on: db).filter(\.$id == value.id)
-                .filter(\.$user.$id == userId).first()
-            else { throw Abort(.notFound, reason: "Expense not found.") }
-            try await expense.delete(on: db)
-            return Result(id: value.id, message: "Expense deleted.")
-
-        case "create_goal":
-            let value = try decoder.decode(CreateGoalArguments.self, from: arguments)
-            let title = value.title.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !title.isEmpty, title.count <= 200 else { throw Abort(.badRequest, reason: "The proposed goal is invalid.") }
-            let goal = try await Goal.create(title: title, userId: userId, on: db)
-            return try Result(id: goal.requireID(), message: "Goal created.")
-
-        case "update_goal":
-            let value = try decoder.decode(UpdateGoalArguments.self, from: arguments)
-            let title = value.title.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !title.isEmpty, title.count <= 200,
-                  let goal = try await Goal.find(value.id, userId: userId, on: db)
-            else { throw Abort(.notFound, reason: "Goal not found.") }
-            goal.title = title
-            try await goal.save(on: db)
-            return Result(id: value.id, message: "Goal updated.")
-
-        case "delete_goal":
-            let value = try decoder.decode(IdentifiedArguments.self, from: arguments)
-            guard let goal = try await Goal.find(value.id, userId: userId, on: db)
-            else { throw Abort(.notFound, reason: "Goal not found.") }
-            try await goal.delete(on: db)
-            return Result(id: value.id, message: "Goal deleted.")
-
-        default:
+    func execute(toolName: String, arguments: Data, userId: UUID, on req: Request) async throws -> Result {
+        let name = ActionCatalog.canonicalName(for: toolName)
+        guard ActionCatalog.contains(name) else {
             throw Abort(.badRequest, reason: "Unsupported assistant action.")
         }
+
+        let json = String(data: arguments, encoding: .utf8) ?? "{}"
+        let payload = try await ActionCatalog.execute(
+            name: name,
+            arguments: ActionArguments(json: json),
+            context: AIToolContext(userId: userId),
+            mode: .confirmed,
+            on: req
+        )
+
+        // Catalog handlers swallow AbortError and return {"error": "..."} so a
+        // model can read the reason. This path is not a model — it is an HTTP
+        // route and a Telegram reply — so turn it back into a thrown Abort,
+        // which is what both callers already render as a sentence.
+        let object = decodeObject(payload)
+        if let message = object["error"] as? String {
+            throw Abort(.unprocessableEntity, reason: message)
+        }
+        if (object["status"] as? String) == "needs_confirmation" {
+            // Unreachable under .confirmed; if it ever fires, the mode plumbing
+            // regressed and silently dropping the write would be worse.
+            throw Abort(.internalServerError, reason: "That action could not be confirmed.")
+        }
+
+        return Result(
+            id: (object["id"] as? String).flatMap(UUID.init(uuidString:)),
+            message: ActionCatalog.completionMessage(name: name)
+        )
     }
 
-    private static let dayFormatter: DateFormatter = {
-        let formatter = DateFormatter()
-        formatter.calendar = Calendar(identifier: .gregorian)
-        formatter.locale = Locale(identifier: "en_US_POSIX")
-        formatter.timeZone = TimeZone(secondsFromGMT: 0)
-        formatter.dateFormat = "yyyy-MM-dd"
-        return formatter
-    }()
+    private func decodeObject(_ json: String) -> [String: Any] {
+        guard let data = json.data(using: .utf8),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+        else { return [:] }
+        return object
+    }
 }

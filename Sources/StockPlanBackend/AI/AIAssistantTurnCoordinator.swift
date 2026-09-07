@@ -58,6 +58,7 @@ enum AIAssistantTurnCoordinator {
             userId: userId,
             conversation: conversation,
             content: content,
+            mode: confirmationMode(for: req),
             req: req
         )
         let assistantMessage = try AIAssistantMessage(
@@ -74,17 +75,53 @@ enum AIAssistantTurnCoordinator {
         return Outcome(text: result.text, pendingAction: result.pendingAction, assistantMessage: assistantMessage)
     }
 
+    /// How this caller must prove the user consented to a destructive action.
+    ///
+    /// A first-party session — the app, and Telegram, whose synthetic `Request`
+    /// carries no auth at all because a `MessagingLink` is itself proof of
+    /// account ownership — gets `.destructiveOnly`: harmless writes apply as the
+    /// user asked, deletions still need a tap.
+    ///
+    /// A scoped bearer token gets `.everyWrite`. `POST .../chat` only requires
+    /// `assistant:write`, so without this a token holding nothing else would
+    /// silently gain `expenses:write`, `stocks:write`, watchlist and transaction
+    /// writes the moment writes started applying inline. Under `.everyWrite` it
+    /// can still only *propose*, and completing a proposal requires the
+    /// first-party-only confirm route — so its blast radius is exactly what it
+    /// was before the catalog reached this surface.
+    static func confirmationMode(for req: Request) -> ActionConfirmationMode {
+        req.auth.get(ScopeContext.self) == nil
+            ? .deferred(requiring: .destructiveOnly)
+            : .deferred(requiring: .everyWrite)
+    }
+
     /// Executes a pending action the user has explicitly approved.
     ///
-    /// Status and expiry are re-checked inside the transaction, so a stale or
-    /// replayed confirmation — a Telegram button tapped twice, say — cannot
-    /// execute the action a second time.
+    /// Runs in three phases — claim, execute, settle — rather than one
+    /// transaction.
+    ///
+    /// **Claim** re-checks status and expiry and flips the row to `confirmed`
+    /// inside a transaction. That is the replay guard, and the only atomicity
+    /// that actually matters here: a Telegram button tapped twice finds a row
+    /// that is no longer `pending` and gets the 409 the bridge already renders.
+    ///
+    /// **Execute** then runs outside any transaction, because the action catalog
+    /// reaches its services through `Request` and Fluent's `any Database` is not
+    /// `Sendable`, so a transaction handle cannot be threaded into a `@Sendable`
+    /// handler under Swift 6 strict concurrency.
+    ///
+    /// This deliberately gives up committing the domain write and its audit row
+    /// together. That guarantee was already illusory for anything touching more
+    /// than one service — `sell_position` credits cash *and* records a trade —
+    /// and the audit row is written before the attempt and settled after it, so
+    /// a crash mid-execute leaves an `executing` row rather than no trace.
     static func confirm(
         actionId: UUID,
         userId: UUID,
         req: Request
     ) async throws -> AIConfirmedActionExecutor.Result {
-        try await req.db.transaction { database -> AIConfirmedActionExecutor.Result in
+        // Claim.
+        let claim = try await req.db.transaction { database -> (action: AIPendingAction, audit: AIActionAudit) in
             guard let action = try await AIPendingAction.query(on: database)
                 .filter(\.$id == actionId).filter(\.$userId == userId).first()
             else { throw Abort(.notFound) }
@@ -96,19 +133,41 @@ enum AIAssistantTurnCoordinator {
             try await audit.create(on: database)
             action.status = AIActionStatus.confirmed.rawValue
             try await action.save(on: database)
-            let argumentsText = try req.userPIIEncryptionService.decryptString(action.argumentsEncrypted)
-            guard let arguments = argumentsText.data(using: .utf8) else { throw Abort(.badRequest) }
-            let executed = try await AIConfirmedActionExecutor().execute(
-                toolName: action.toolName,
+            return (action, audit)
+        }
+
+        let argumentsText = try req.userPIIEncryptionService.decryptString(claim.action.argumentsEncrypted)
+        guard let arguments = argumentsText.data(using: .utf8) else { throw Abort(.badRequest) }
+
+        // Execute.
+        let executed: AIConfirmedActionExecutor.Result
+        do {
+            executed = try await AIConfirmedActionExecutor().execute(
+                toolName: claim.action.toolName,
                 arguments: arguments,
                 userId: userId,
-                on: database
+                on: req
             )
-            action.status = AIActionStatus.completed.rawValue
-            audit.status = AIActionStatus.completed.rawValue
-            try await action.save(on: database); try await audit.save(on: database)
-            return executed
+        } catch {
+            // Settle as failed, then surface the original reason — the caller
+            // renders it as a sentence to the user.
+            try? await req.db.transaction { database in
+                claim.action.status = AIActionStatus.failed.rawValue
+                claim.audit.status = AIActionStatus.failed.rawValue
+                try await claim.action.save(on: database)
+                try await claim.audit.save(on: database)
+            }
+            throw error
         }
+
+        // Settle.
+        try await req.db.transaction { database in
+            claim.action.status = AIActionStatus.completed.rawValue
+            claim.audit.status = AIActionStatus.completed.rawValue
+            try await claim.action.save(on: database)
+            try await claim.audit.save(on: database)
+        }
+        return executed
     }
 
     /// Runs one turn with whichever client the resolver picked.
@@ -122,6 +181,7 @@ enum AIAssistantTurnCoordinator {
         userId: UUID,
         conversation: AIConversation,
         content: String,
+        mode: ActionConfirmationMode = .deferred(requiring: .destructiveOnly),
         req: Request
     ) async throws -> AIAssistantTurnService.Result {
         // The kill switch normally runs inside consumeAssistantTurn, which a
@@ -133,7 +193,7 @@ enum AIAssistantTurnCoordinator {
 
         do {
             let result = try await AIAssistantTurnService(client: resolved.client)
-                .generate(userId: userId, conversation: conversation, userMessage: content, req: req)
+                .generate(userId: userId, conversation: conversation, userMessage: content, mode: mode, req: req)
             if let credential = resolved.credential {
                 await AIAssistantClientResolver.recordSuccess(credential, on: req)
             }
@@ -158,7 +218,7 @@ enum AIAssistantTurnCoordinator {
                 // also moving a free user onto the paid chain.
                 let routed = await AIPlanRouting.client(for: userId, on: req)
                 return try await AIAssistantTurnService(client: routed.client)
-                    .generate(userId: userId, conversation: conversation, userMessage: content, req: req)
+                    .generate(userId: userId, conversation: conversation, userMessage: content, mode: mode, req: req)
             }
             // 424 reads exactly right: your upstream dependency failed, not ours.
             throw Abort(.failedDependency, reason: failure.userFacingMessage)
