@@ -91,6 +91,36 @@ StockTwits users self-tag Bullish/Bearish. That is a stated stance from the
 author, so it is trusted over the lexicon — but at 0.8 confidence, not 1.0, since
 it is still one data point.
 
+See `stocktwits.md` for how we reach StockTwits, and why their MCP server cannot
+back the app.
+
+### A provider that answers with nothing
+
+`firstSuccess` used to return the first provider that did not **throw**. Not
+throwing is a weaker signal than it looks: a degraded upstream answers HTTP 200
+with an empty body, that counted as success, and the rest of the chain was never
+consulted — its cooldown was even cleared.
+
+This was live on 2026-09-07. Hermes is first in production and its scraper had
+died, so it answered every call with zero posts. Nothing threw, so nothing fell
+through, so DeepAPI and the keyless StockTwits feed behind it never ran. Retail
+sentiment stopped ingesting entirely while the daily job reported
+`sentiment_aggregation ok ... posts_fetched=0 posts_inserted=0 rows=33`, and the
+read path — Postgres-only, never touching a provider — kept serving 200s off
+ageing rows. It looked like thin coverage, not an outage.
+
+`firstSuccess` now takes an `isUsable` predicate (default: accept anything, so
+other call sites are unchanged). `fetchSymbolPosts` passes "at least one batch
+has a post". An unusable value is logged and falls through; the last one is
+returned only when nobody did better, because an empty answer from a provider
+willing to answer beats an error from one that was not.
+
+The aggregation job now **warns** rather than informs when a run upserts rows off
+zero fetched posts.
+
+This was the same defect the AI provider chain had. If you add a third chain,
+decide up front what "usable" means for it.
+
 ### Credit exhaustion
 
 Previously `insufficient_credits` was flattened into a generic `Abort` — fine as
@@ -254,12 +284,18 @@ and C never reach the LLM. Scrape spend is bounded per call by
 
 ### Diagnosing a quiet feature
 
-1. `postCount` 0 everywhere → check `DEEPAPI_SOCIAL_SCRAPING_ENABLED`.
-2. Scores present but only from `news` → DeepAPI is likely in credit cooldown;
+1. `posts_fetched=0` in `sentiment_aggregation` → nothing is ingesting at all.
+   Check that line first; it warns rather than informs when this happens. The
+   usual cause is the first provider in the chain answering with nothing (grep
+   `returned nothing usable`, and `hermes_sync ticker feed returned nothing`).
+   A 200 from `/v1/insights/sentiment/*` proves nothing here — reads never touch
+   a provider.
+2. `postCount` 0 everywhere → check `DEEPAPI_SOCIAL_SCRAPING_ENABLED`.
+3. Scores present but only from `news` → DeepAPI is likely in credit cooldown;
    grep logs for `is out of credit`.
-3. A specific symbol has no reading → check it is in
+4. A specific symbol has no reading → check it is in
    `sentiment_universe_symbols`; only Tier A is rebuilt automatically.
-4. Trending empty but symbols have scores → `volumeZ` needs 5 days of history per
+5. Trending empty but symbols have scores → `volumeZ` needs 5 days of history per
    symbol before it is populated.
 
 ## Not advice
