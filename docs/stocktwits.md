@@ -4,6 +4,11 @@ Written 2026-09-07, after asking "can we integrate the Stocktwits MCP server
 with the app?" The answer is no, and we already have the data anyway. This note
 exists so the question does not get re-litigated from scratch.
 
+Stocktwits markets this at **`https://ai.stocktwits.com`** and serves it from
+**`https://mcp.stocktwits.com/mcp`**. Those are the same product on two
+hostnames — see "Two hostnames, one server" below. If you arrived here from the
+marketing page, the rest of this document is the answer.
+
 ## We already consume Stocktwits. Two paths, neither of them MCP
 
 `SentimentSource.stocktwits` is part of the persisted storage contract
@@ -21,6 +26,41 @@ the Bullish/Bearish self-tag as a `providedScore` at 0.8 confidence.
 
 See `retail-sentiment.md` for the chain as a whole.
 
+## Two hostnames, one server
+
+The URL you find first is not the one you connect to.
+
+| Host | What it is | MCP endpoint? |
+|---|---|---|
+| `ai.stocktwits.com` | Marketing and onboarding site — Next.js on Vercel, `application-name: Stocktwits MCP` | **No** |
+| `mcp.stocktwits.com/mcp` | The actual Streamable-HTTP MCP server | Yes, behind OAuth |
+
+Verified 2026-09-07, no account needed:
+
+```sh
+# The marketing host serves no protocol surface at all — every one of these is 404:
+for p in /mcp /sse /api/mcp /docs \
+         /.well-known/oauth-protected-resource \
+         /.well-known/oauth-authorization-server; do
+  curl -sS -o /dev/null -w "%{http_code} $p\n" "https://ai.stocktwits.com$p"
+done
+```
+
+This matters because it is a re-litigation trap. `ai.stocktwits.com` reads as a
+platform front door — its own metadata says "Bring live Stocktwits market
+context, sentiment, and visual answers to any MCP-compatible agent" and names
+Claude, ChatGPT, Cursor, Codex, OpenClaw and Hermes as targets. Landing there
+after this document was written invites asking the integration question a second
+time, against what looks like a different and newer offering. It is not
+different. The OAuth constraint below is the whole answer for both hostnames.
+
+Their page also advertises "visual answers" and "symbol cards" — capabilities
+beyond the `read` / `watch_lists` scopes the server's own metadata declares.
+Recorded as their claim, not as something verified here: reading the tool list
+requires completing the browser consent, so nobody has enumerated it. It changes
+nothing about the conclusion either way, because the blocker is the grant type,
+not the tools.
+
 ## Their MCP server cannot back the app
 
 `https://mcp.stocktwits.com/mcp`. Verify any time — no account needed:
@@ -35,7 +75,9 @@ curl -sS -i -X POST https://mcp.stocktwits.com/mcp \
 curl -sS https://mcp.stocktwits.com/.well-known/oauth-authorization-server
 ```
 
-As of 2026-09-07 that returns:
+As of 2026-09-07 that returns (re-checked later the same day, after the
+`ai.stocktwits.com` page was found — identical, `client_credentials` still
+absent):
 
 ```
 grant_types_supported: ["authorization_code", "refresh_token"]
@@ -64,10 +106,11 @@ receive. Hermes hit exactly this and never connected.
 
 ## What the MCP server *is* good for: your own sessions
 
-Norviq already ships `norviq-mcp` (Go, separate service, ~70 tools including
-`get_insights`). Running Stocktwits' server alongside it lets an agent join the
-two — "which of my positions are trending on Stocktwits today?" — with no app
-code involved.
+Norviq already ships `norviq-mcp` (Go, separate service, 53 registered tools
+including `get_insights`; 31 of them are writes, per
+`internal/tools/confirmation.go`). Running Stocktwits' server alongside it lets
+an agent join the two — "which of my positions are trending on Stocktwits
+today?" — with no app code involved.
 
 ### Rebuild checklist (new machine)
 
@@ -90,6 +133,15 @@ real portfolio.
 a read-only PAT means the write tools are never registered and no injected
 instruction can reach them. Keep the write-scoped PAT for sessions where
 Stocktwits is switched off.
+
+**This got more important on 2026-09-07, not less.** `ActionCatalog` now backs
+all three assistant surfaces, so the in-app assistant and Telegram reach 16
+actions — six of them destructive — where they previously reached five
+proposals. The in-app path is confirmation-gated and a scoped token is held to
+`.everyWrite`, so that surface is guarded. But none of those guards live in
+`norviq-mcp`: an MCP client acting on a write-scoped PAT is doing what the PAT
+authorises. The scope on the token is the only control that applies to the
+Stocktwits-plus-Norviq session, which is why it is the one to get right.
 
 ## Operational state as of 2026-09-07
 
