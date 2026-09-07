@@ -124,6 +124,53 @@ private struct CountingInsightsProvider: InsightsProvider {
     }
 }
 
+/// Answers every call successfully but with nothing in it — the shape a degraded
+/// upstream actually produces. Hermes did exactly this in production: HTTP 200,
+/// `symbols_failed=0`, zero posts, because its scraper had stopped feeding it.
+private struct EmptyPostsInsightsProvider: InsightsProvider {
+    let counter: CallCounter
+
+    var isEnabled: Bool {
+        true
+    }
+
+    func fetchEvents(days _: Int, limit _: Int, on _: Request) async throws -> HermesEventsResponse {
+        counter.increment()
+        return HermesEventsResponse(count: 0, events: [])
+    }
+
+    func fetchSummary(days: Int, on _: Request) async throws -> HermesSummaryResponse {
+        counter.increment()
+        return HermesSummaryResponse(windowDays: days, totalEvents: 0, byTopic: [:])
+    }
+
+    func fetchSentiment(topic: String?, days: Int, on _: Request) async throws -> HermesSentimentResponse {
+        counter.increment()
+        return HermesSentimentResponse(
+            topic: topic,
+            windowDays: days,
+            count: 0,
+            labelCounts: [:],
+            averageScore: nil,
+            sampled: 0
+        )
+    }
+
+    func fetchNetWorth(on _: Request) async throws -> HermesNetWorthResponse {
+        counter.increment()
+        return HermesNetWorthResponse(latest: nil, history: [])
+    }
+
+    func fetchTickerPosts(symbol: String, days: Int, limit _: Int, on _: Request) async throws -> HermesTickerPostsResponse {
+        counter.increment()
+        return HermesTickerPostsResponse(symbol: symbol, days: days, count: 0, posts: [])
+    }
+
+    func health(on _: Request) async -> Bool {
+        true
+    }
+}
+
 @Suite("FallbackInsightsProvider Tests")
 struct FallbackInsightsProviderTests {
     /// A bare application: the chain never touches the database, so there is no
@@ -248,6 +295,85 @@ struct FallbackInsightsProviderTests {
                 logger: Logger(label: "test")
             )
             #expect(await allDown.health(on: req) == false)
+        }
+    }
+
+    @Test("A provider that returns no posts falls through to one that has them")
+    func fallsThroughOnEmptyPosts() async throws {
+        try await withRequest { req in
+            let primaryCalls = CallCounter()
+            let fallbackCalls = CallCounter()
+            let provider = FallbackInsightsProvider(
+                providers: [
+                    EmptyPostsInsightsProvider(counter: primaryCalls),
+                    CountingInsightsProvider(behaviour: .succeeding(marker: "fallback"), counter: fallbackCalls),
+                ],
+                logger: Logger(label: "test")
+            )
+
+            let batches = try await provider.fetchSymbolPosts(
+                symbols: ["AMD"],
+                sources: [.x],
+                days: 7,
+                limit: 5,
+                on: req
+            )
+
+            // Without this, an empty 200 from the primary counts as success and
+            // the healthy fallback is never consulted.
+            #expect(batches.flatMap(\.posts).first?.text == "fallback")
+            #expect(primaryCalls.count == 1)
+            #expect(fallbackCalls.count == 1)
+        }
+    }
+
+    @Test("An honest empty answer survives when no provider has posts")
+    func returnsEmptyWhenNobodyHasPosts() async throws {
+        try await withRequest { req in
+            let lastCalls = CallCounter()
+            let provider = FallbackInsightsProvider(
+                providers: [
+                    EmptyPostsInsightsProvider(counter: CallCounter()),
+                    EmptyPostsInsightsProvider(counter: lastCalls),
+                ],
+                logger: Logger(label: "test")
+            )
+
+            let batches = try await provider.fetchSymbolPosts(
+                symbols: ["AMD"],
+                sources: [.x],
+                days: 7,
+                limit: 5,
+                on: req
+            )
+
+            // Nobody having posts today is a legitimate answer, not an error.
+            #expect(batches.flatMap(\.posts).isEmpty)
+            #expect(lastCalls.count == 1)
+        }
+    }
+
+    @Test("An empty answer does not mask a later provider's error")
+    func emptyThenFailingStillThrows() async throws {
+        try await withRequest { req in
+            let provider = FallbackInsightsProvider(
+                providers: [
+                    CountingInsightsProvider(behaviour: .failing(reason: "hermes feed down"), counter: CallCounter()),
+                    EmptyPostsInsightsProvider(counter: CallCounter()),
+                ],
+                logger: Logger(label: "test")
+            )
+
+            // The empty result is still the most honest thing available, so it
+            // wins over rethrowing the earlier failure.
+            let batches = try await provider.fetchSymbolPosts(
+                symbols: ["AMD"],
+                sources: [.x],
+                days: 7,
+                limit: 5,
+                on: req
+            )
+            #expect(batches.flatMap(\.posts).isEmpty)
         }
     }
 }

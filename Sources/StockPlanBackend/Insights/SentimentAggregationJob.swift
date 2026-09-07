@@ -81,15 +81,24 @@ final class SentimentAggregationJob: LifecycleHandler, @unchecked Sendable {
             let summary = try await app.sentimentAggregationService.runDailyAggregation(on: req)
             state.recordCompleted(summary.asOfDate)
             app.sentimentSyncStatus.recordSuccess()
-            app.logger.info(
-                """
-                sentiment_aggregation ok date=\(summary.asOfDate) \
-                considered=\(summary.symbolsConsidered) ingested=\(summary.symbolsIngested) \
-                failed=\(summary.symbolsFailed) posts_fetched=\(summary.postsFetched) \
-                posts_inserted=\(summary.postsInserted) rows=\(summary.rowsUpserted) \
-                themes=\(summary.themesGenerated) themes_skipped=\(summary.themesSkipped)
-                """
-            )
+            let line = """
+            sentiment_aggregation ok date=\(summary.asOfDate) \
+            considered=\(summary.symbolsConsidered) ingested=\(summary.symbolsIngested) \
+            failed=\(summary.symbolsFailed) posts_fetched=\(summary.postsFetched) \
+            posts_inserted=\(summary.postsInserted) rows=\(summary.rowsUpserted) \
+            themes=\(summary.themesGenerated) themes_skipped=\(summary.themesSkipped)
+            """
+            // Upserting rows off zero fetched posts is the shape of a silent
+            // stall: the run "succeeds", the read path keeps serving 200s off
+            // ageing rows, and coverage looks thin rather than broken. Say so,
+            // the way hermes_sync already does for its own empty feed.
+            if summary.postsFetched == 0, summary.symbolsConsidered > 0 {
+                app.logger.warning(
+                    "\(line) — no provider produced a single post; retail sentiment is not ingesting."
+                )
+            } else {
+                app.logger.info("\(line)")
+            }
         } catch {
             // Not marked complete: the next tick retries rather than skipping
             // the day outright.
