@@ -7,7 +7,8 @@ extension ActionCatalog {
         [
             ActionDefinition(
                 "list_watchlist",
-                "List the user's watchlist entries with their status and notes."
+                "List the user's watchlist entries with their status and notes.",
+                readOnly: true
             ) { context, _, req in
                 let items = try await WatchlistService(req: req).list(userId: context.userId, on: req.db)
                 return try encode(items.map(WatchlistService.response(from:)))

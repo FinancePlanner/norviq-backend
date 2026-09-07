@@ -11,7 +11,8 @@ extension ActionCatalog {
         [
             ActionDefinition(
                 "list_transactions",
-                "List the user's recorded trades, both hand-entered and broker-imported."
+                "List the user's recorded trades, both hand-entered and broker-imported.",
+                readOnly: true
             ) { context, _, req in
                 let rows = try await TransactionService(req: req).list(userId: context.userId, on: req.db)
                 return try encode(rows)

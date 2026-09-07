@@ -42,6 +42,12 @@ struct ActionCatalogController: RouteCollection {
             .get("actions", "catalog", use: catalog)
     }
 
+    /// Publishes the `.inline` shape deliberately.
+    ///
+    /// MCP asks for one confirmation per call, so a destructive action's
+    /// `confirm` flag is part of the contract the Go side is diffed against.
+    /// That the persistent assistant defers confirmation instead is invisible
+    /// here, and should stay that way — see ``ActionConfirmationMode``.
     @Sendable
     func catalog(req _: Request) async throws -> CatalogResponse {
         CatalogResponse(actions: ActionCatalog.all.map { action in
