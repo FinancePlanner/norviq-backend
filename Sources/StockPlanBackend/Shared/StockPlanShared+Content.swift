@@ -160,6 +160,11 @@ extension CsvImportPreviewItem: @retroactive Content {}
 extension CsvImportPreviewError: @retroactive Content {}
 extension CsvImportPreviewResponse: @retroactive Content {}
 extension CsvImportCommitResponse: @retroactive Content {}
+extension ScreenshotImportPreviewResponse: @retroactive Content {}
+extension ScreenshotImportCommitRequest: @retroactive Content {}
+extension ReceiptBatchScanResponse: @retroactive Content {}
+extension ReceiptImportCommitRequest: @retroactive Content {}
+extension ReceiptImportCommitResponse: @retroactive Content {}
 extension WatchlistCsvImportPreviewItem: @retroactive Content {}
 extension WatchlistCsvImportPreviewResponse: @retroactive Content {}
 extension WatchlistCsvImportCommitResponse: @retroactive Content {}

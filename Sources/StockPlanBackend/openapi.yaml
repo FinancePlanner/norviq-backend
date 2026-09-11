@@ -6544,6 +6544,75 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/CsvImportCommitResponse'
+  /v1/brokers/import/screenshot:
+    post:
+      operationId: importBrokersScreenshotPreview
+      tags: [Brokers]
+      summary: Upload broker screenshots and preview extracted positions
+      description: >
+        Reads up to three broker screenshots with a vision model and returns
+        editable rows for review. Requires the screenshot_import entitlement and
+        is first-party only, because each image spends an AI call. The images
+        are never stored; they are sent to the model and discarded.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: provider
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: portfolioListId
+          in: query
+          required: false
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                file:
+                  type: array
+                  maxItems: 3
+                  items:
+                    type: string
+                    format: binary
+              required: [file]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ScreenshotImportPreviewResponse'
+        '503':
+          description: Screenshot import is not configured on this deployment.
+  /v1/brokers/import/screenshot/commit:
+    post:
+      operationId: importBrokersScreenshotCommit
+      tags: [Brokers]
+      summary: Commit the reviewed rows from a screenshot import
+      description: >
+        Takes the rows the user approved, not the images. Extraction already
+        happened at preview time and is not repeated, so this costs no AI call.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ScreenshotImportCommitRequest'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CsvImportCommitResponse'
   /v1/brokers/ibkr/connect/start:
     post:
       operationId: startIbkrConnect
@@ -14744,6 +14813,18 @@ components:
         notes:
           type: string
           nullable: true
+        existingPositionKind:
+          type: string
+          enum: [none, manual, imported, mixed]
+        willReplaceExistingImport:
+          type: boolean
+        confidence:
+          type: number
+          format: double
+          nullable: true
+          description: >
+            Extraction confidence in 0..1 for image-sourced rows. Absent for CSV
+            rows, which are read exactly rather than inferred.
       required: [line, symbol]
     CsvImportPreviewError:
       type: object
@@ -14786,6 +14867,46 @@ components:
           items:
             $ref: '#/components/schemas/CsvImportPreviewError'
       required: [provider, inserted, updated, errors]
+    ScreenshotImportKind:
+      type: string
+      enum: [holdings, trades, unknown]
+      description: >
+        What the screenshot turned out to be. A holdings list states what is
+        owned now, so it carries no cost basis; a trades list carries a real
+        per-lot price and date. `unknown` means the image was not classifiable
+        and carries no rows.
+    ScreenshotImportPreviewResponse:
+      type: object
+      properties:
+        provider:
+          type: string
+        kind:
+          $ref: '#/components/schemas/ScreenshotImportKind'
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/CsvImportPreviewItem'
+        errors:
+          type: array
+          items:
+            $ref: '#/components/schemas/CsvImportPreviewError'
+        imageCount:
+          type: integer
+          format: int32
+      required: [provider, kind, items, errors, imageCount]
+    ScreenshotImportCommitRequest:
+      type: object
+      properties:
+        provider:
+          type: string
+        portfolioListId:
+          type: string
+          nullable: true
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/CsvImportPreviewItem'
+      required: [provider, items]
     WatchlistCsvImportPreviewItem:
       type: object
       properties:
