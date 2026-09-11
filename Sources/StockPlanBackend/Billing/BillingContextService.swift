@@ -287,6 +287,7 @@ private struct BillingFeatureDescriptor {
         .init(feature: .crypto, title: "Cryptocurrency", proOnly: true),
         .init(feature: .receiptScan, title: "Receipt photo scanning (OCR)", proOnly: true),
         .init(feature: .spreadsheetImport, title: "Smart spreadsheet import", proOnly: true),
+        .init(feature: .screenshotImport, title: "Portfolio screenshot import", proOnly: true),
         .init(feature: .bankSync, title: "Bank sync", proOnly: true),
         .init(feature: .advancedPortfolios, title: "Retirement and hypothetical portfolios", proOnly: true),
         .init(feature: .jointPortfolios, title: "Joint portfolio collaboration", proOnly: true),

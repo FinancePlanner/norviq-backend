@@ -111,6 +111,7 @@ public func configure(_ app: Application) async throws {
         tokenVault: app.tokenEncryptionService
     )
     app.receiptOCRProvider = ReceiptOCRProviderBootstrap.fromEnvironment(app: app)
+    app.screenshotPortfolioExtractor = ScreenshotPortfolioExtractorBootstrap.fromEnvironment(app: app)
     app.spreadsheetAnalysisProvider = SpreadsheetAnalysisProviderBootstrap.fromEnvironment(app: app)
 
     configureBankProviders(app)

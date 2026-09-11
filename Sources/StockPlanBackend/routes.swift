@@ -127,6 +127,11 @@ func routes(_ app: Application) throws {
     )
     try api.grouped(spreadsheetImportRateLimit, IdempotencyMiddleware(keyPrefix: "idempotency:expense-import"))
         .register(collection: ExpenseImportController())
+    // Committing reviewed receipt rows writes expenses but spends no AI, so it
+    // shares the import rate limit and gets idempotency: a retried commit must
+    // not double-insert someone's shopping.
+    try api.grouped(spreadsheetImportRateLimit, IdempotencyMiddleware(keyPrefix: "idempotency:receipt-import"))
+        .register(collection: ReceiptImportController())
     // Bank connect/sync hit the aggregator API; rate-limit and dedupe retried POSTs.
     let bankRateLimit = RateLimitMiddleware(limit: 30, interval: 60, keyPrefix: "ratelimit:banks")
     try api.grouped(bankRateLimit, IdempotencyMiddleware(keyPrefix: "idempotency:banks"))

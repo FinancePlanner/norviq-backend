@@ -4,6 +4,7 @@ import StockPlanShared
 import Vapor
 
 struct CsvPortfolioImportService {
+    /// Parses CSV text, then enriches the rows exactly as `preview(items:…)` does.
     func preview(
         csv: String,
         provider: String,
@@ -12,6 +13,34 @@ struct CsvPortfolioImportService {
         on req: Request
     ) async throws -> CsvImportPreviewResponse {
         let base = try CsvImportService().preview(csv: csv, provider: provider)
+        return try await preview(
+            items: base.items,
+            errors: base.errors,
+            provider: provider,
+            portfolioListId: rawPortfolioListId,
+            userId: userId,
+            on: req
+        )
+    }
+
+    /// Validates and classifies already-parsed rows against the user's existing
+    /// positions.
+    ///
+    /// Split out from the CSV entry point so non-CSV sources — a broker
+    /// screenshot read by the vision extractor, say — reach the same validation,
+    /// dedupe classification and commit path without being round-tripped through
+    /// synthetic CSV text. `errors` carries problems the caller already found
+    /// (an unreadable row, an unclassifiable image) so they survive into the
+    /// response alongside the ones found here.
+    func preview(
+        items baseItems: [CsvImportPreviewItem],
+        errors baseErrors: [CsvImportPreviewError] = [],
+        provider: String,
+        portfolioListId rawPortfolioListId: String?,
+        userId: UUID,
+        on req: Request
+    ) async throws -> CsvImportPreviewResponse {
+        let base = (items: baseItems, errors: baseErrors)
         let existingBySymbol = try await existingStockKinds(userId: userId, on: req.db)
         let sourceAccountId = try await resolveImportAccount(
             provider: provider,
@@ -53,7 +82,8 @@ struct CsvPortfolioImportService {
                     buyDate: item.buyDate,
                     notes: item.notes,
                     existingPositionKind: existing,
-                    willReplaceExistingImport: hasExistingImportedSymbolForSource
+                    willReplaceExistingImport: hasExistingImportedSymbolForSource,
+                    confidence: item.confidence
                 )
             )
         }
@@ -68,8 +98,33 @@ struct CsvPortfolioImportService {
         userId: UUID,
         on req: Request
     ) async throws -> CsvImportCommitResponse {
+        let base = try CsvImportService().preview(csv: csv, provider: provider)
+        return try await commit(
+            items: base.items,
+            errors: base.errors,
+            provider: provider,
+            portfolioListId: rawPortfolioListId,
+            userId: userId,
+            on: req
+        )
+    }
+
+    /// Commits already-parsed rows. See `preview(items:…)` for why this exists.
+    ///
+    /// Re-runs the preview from scratch rather than trusting the caller's
+    /// classification: rows coming back from a review UI have been edited by the
+    /// user, and the position they would replace may have changed since.
+    func commit(
+        items baseItems: [CsvImportPreviewItem],
+        errors baseErrors: [CsvImportPreviewError] = [],
+        provider: String,
+        portfolioListId rawPortfolioListId: String?,
+        userId: UUID,
+        on req: Request
+    ) async throws -> CsvImportCommitResponse {
         let preview = try await preview(
-            csv: csv,
+            items: baseItems,
+            errors: baseErrors,
             provider: provider,
             portfolioListId: rawPortfolioListId,
             userId: userId,

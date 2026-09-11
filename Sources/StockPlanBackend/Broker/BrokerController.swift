@@ -15,10 +15,22 @@ struct BrokerController: RouteCollection {
         // prefix, so they follow the holdings domain, not integrations.
         protected.grouped(ScopeRequirementMiddleware(.holdingsRead)).get("holdings", use: listHoldings)
         read.get(":provider", use: getBroker)
-        protected.grouped(ScopeRequirementMiddleware(.holdingsWrite))
+        let holdingsWrite = protected.grouped(ScopeRequirementMiddleware(.holdingsWrite))
+        holdingsWrite
             .group("import", "csv") { csv in
                 csv.post(use: importCsvPreview)
                 csv.post("commit", use: importCsvCommit)
+            }
+        // Screenshot import spends Norviq's own AI budget, so it is first-party
+        // only — the same reasoning as the spreadsheet import endpoints. It also
+        // gets a limit of its own: the collection-wide broker limit of 30/min
+        // would allow 90 paid vision calls a minute at three images each.
+        holdingsWrite
+            .grouped(FirstPartyOnlyMiddleware())
+            .grouped(RateLimitMiddleware(limit: 10, interval: 60, keyPrefix: "ratelimit:portfolio-screenshot"))
+            .group("import", "screenshot") { shot in
+                shot.post(use: importScreenshotPreview)
+                shot.post("commit", use: importScreenshotCommit)
             }
         write.post("ibkr", "connect", "start", use: startIBKRConnect)
         write.post("ibkr", "connect", "credentials", use: connectIBKRCredentials)
@@ -148,6 +160,131 @@ struct BrokerController: RouteCollection {
         )
         await req.reconcileBadges(userId: session.userId, on: req.db)
         return response
+    }
+
+    @Sendable
+    func importScreenshotPreview(req: Request) async throws -> ScreenshotImportPreviewResponse {
+        let session = try req.auth.require(SessionToken.self)
+        try await req.usageCounterService.requirePremium(
+            .screenshotImport, userId: session.userId, on: req.db
+        )
+        let upload = try await readScreenshotUpload(req)
+        let response = try await ScreenshotPortfolioImportService().preview(
+            images: upload.images,
+            provider: upload.provider,
+            portfolioListId: req.query[String.self, at: "portfolioListId"],
+            userId: session.userId,
+            on: req
+        )
+        req.logger.info(
+            "portfolio_screenshot_preview images=\(response.imageCount) kind=\(response.kind.rawValue) rows=\(response.items.count) errors=\(response.errors.count)"
+        )
+        return response
+    }
+
+    /// Commits the rows the user approved in the review UI.
+    ///
+    /// Takes JSON, not images: the extraction already happened at preview time
+    /// and is not repeated, so committing costs no AI call and the screenshot
+    /// itself never has to be re-uploaded or held server-side.
+    @Sendable
+    func importScreenshotCommit(req: Request) async throws -> CsvImportCommitResponse {
+        let session = try req.auth.require(SessionToken.self)
+        try await req.usageCounterService.requirePremium(
+            .screenshotImport, userId: session.userId, on: req.db
+        )
+        let payload = try req.content.decode(ScreenshotImportCommitRequest.self)
+        let provider = try BrokerProvider.normalize(payload.provider)
+        guard !payload.items.isEmpty else {
+            throw Abort(.badRequest, reason: "No rows to import.")
+        }
+        guard payload.items.count <= maxScreenshotRows else {
+            throw Abort(.badRequest, reason: "Too many rows in one import (max \(maxScreenshotRows).")
+        }
+
+        // Re-index so a client that dropped rows from the review list cannot
+        // produce duplicate or sparse line numbers in the error report.
+        let items = payload.items.enumerated().map { index, item in
+            CsvImportPreviewItem(
+                line: index,
+                symbol: item.symbol,
+                shares: item.shares,
+                buyPrice: item.buyPrice,
+                buyDate: item.buyDate,
+                notes: item.notes,
+                confidence: item.confidence
+            )
+        }
+
+        let response = try await CsvPortfolioImportService().commit(
+            items: items,
+            provider: provider,
+            portfolioListId: payload.portfolioListId ?? req.query[String.self, at: "portfolioListId"],
+            userId: session.userId,
+            on: req
+        )
+        await req.reconcileBadges(userId: session.userId, on: req.db)
+        req.logger.info(
+            "portfolio_screenshot_commit inserted=\(response.inserted.count) updated=\(response.updated.count) errors=\(response.errors.count)"
+        )
+        return response
+    }
+
+    /// A generous ceiling on a single review list — three screenshots cannot
+    /// legitimately produce this many positions, so anything larger is a client
+    /// bug or an abuse attempt.
+    private var maxScreenshotRows: Int {
+        300
+    }
+
+    /// 8 MB per image, matching the receipt OCR cap.
+    private var maxScreenshotImageBytes: Int {
+        8 * 1024 * 1024
+    }
+
+    private struct ScreenshotMultipartUpload: Content {
+        var provider: String?
+        var file: [File]?
+        var image: [File]?
+        var files: [File]?
+    }
+
+    private func readScreenshotUpload(
+        _ req: Request
+    ) async throws -> (provider: String, images: [ScreenshotPortfolioImportService.Image]) {
+        guard req.headers.contentType?.type.lowercased() == "multipart" else {
+            throw Abort(.unsupportedMediaType, reason: "Upload screenshots as multipart/form-data.")
+        }
+
+        let upload = try req.content.decode(ScreenshotMultipartUpload.self)
+        let provider = try requireProvider(req, multipartValue: upload.provider)
+        let parts = (upload.file ?? []) + (upload.image ?? []) + (upload.files ?? [])
+
+        guard !parts.isEmpty else {
+            throw Abort(.badRequest, reason: "Missing image field in multipart body.")
+        }
+        guard parts.count <= ScreenshotPortfolioImportService.maxImages else {
+            throw Abort(
+                .badRequest,
+                reason: "Upload at most \(ScreenshotPortfolioImportService.maxImages) screenshots at a time."
+            )
+        }
+
+        var images: [ScreenshotPortfolioImportService.Image] = []
+        images.reserveCapacity(parts.count)
+        for part in parts {
+            var buffer = part.data
+            guard buffer.readableBytes <= maxScreenshotImageBytes else {
+                throw Abort(.payloadTooLarge, reason: "Each screenshot must be 8 MB or smaller.")
+            }
+            let contentType = part.contentType?.serialize() ?? "application/octet-stream"
+            guard contentType.lowercased().hasPrefix("image/") || contentType == "application/octet-stream" else {
+                throw Abort(.badRequest, reason: "Screenshots must be images.")
+            }
+            let data = buffer.readData(length: buffer.readableBytes) ?? Data()
+            images.append(.init(data: data, contentType: contentType))
+        }
+        return (provider: provider, images: images)
     }
 
     private struct CsvMultipartUpload: Content {

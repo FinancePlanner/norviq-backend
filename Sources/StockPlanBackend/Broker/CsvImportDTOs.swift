@@ -5,3 +5,6 @@ typealias CsvImportPreviewItem = StockPlanShared.CsvImportPreviewItem
 typealias CsvImportPreviewError = StockPlanShared.CsvImportPreviewError
 typealias CsvImportPreviewResponse = StockPlanShared.CsvImportPreviewResponse
 typealias CsvImportCommitResponse = StockPlanShared.CsvImportCommitResponse
+typealias ScreenshotImportKind = StockPlanShared.ScreenshotImportKind
+typealias ScreenshotImportPreviewResponse = StockPlanShared.ScreenshotImportPreviewResponse
+typealias ScreenshotImportCommitRequest = StockPlanShared.ScreenshotImportCommitRequest

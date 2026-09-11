@@ -146,6 +146,10 @@ enum BillingFeature: String {
     /// `csvImports`, which is a counted free-tier allowance with different
     /// semantics; this one costs an AI call per upload.
     case spreadsheetImport = "spreadsheet_import"
+    /// AI-assisted import of broker screenshots into the portfolio — Pro/trial
+    /// only. Like `spreadsheetImport` and unlike `csvImports`, this is a gate
+    /// rather than a counted allowance, because each upload spends a vision call.
+    case screenshotImport = "screenshot_import"
     /// Retirement, joint, and hypothetical portfolios beyond the free personal portfolio.
     case advancedPortfolios = "advanced_portfolios"
     /// Sharing a portfolio with verified editor accounts.
@@ -217,7 +221,7 @@ struct BillingPlanLimits {
              .advancedResearch, .peerComparison, .earningsText,
              .householdPartner, .recurringTemplates, .yearOverview, .smartSuggestions,
              .crypto, .aiInsights, .mcpAccess, .scenarioPlanning, .taxOptimization, .receiptScan, .bankSync,
-             .spreadsheetImport,
+             .spreadsheetImport, .screenshotImport,
              .advancedPortfolios, .jointPortfolios, .advancedReportTemplates,
              .advancedReportSchedules, .advancedReportRuns,
              .netWorthForecasting, .smartScreening, .rebalancingRules, .goalPlanning:
@@ -324,7 +328,7 @@ struct DefaultUsageCounterService: UsageCounterService {
              .statistics, .marketFundamentals, .advancedResearch, .peerComparison, .earningsText,
              .householdPartner, .recurringTemplates, .yearOverview, .smartSuggestions,
              .crypto, .aiInsights, .mcpAccess, .scenarioPlanning, .taxOptimization, .receiptScan, .bankSync,
-             .spreadsheetImport,
+             .spreadsheetImport, .screenshotImport,
              .advancedPortfolios, .jointPortfolios, .advancedReportTemplates,
              .advancedReportSchedules, .advancedReportRuns,
              .netWorthForecasting, .smartScreening, .rebalancingRules, .goalPlanning:
@@ -348,7 +352,7 @@ struct DefaultUsageCounterService: UsageCounterService {
              .statistics, .marketFundamentals, .advancedResearch, .peerComparison, .earningsText,
              .householdPartner, .recurringTemplates, .yearOverview, .smartSuggestions,
              .crypto, .aiInsights, .mcpAccess, .scenarioPlanning, .taxOptimization, .receiptScan, .bankSync,
-             .spreadsheetImport,
+             .spreadsheetImport, .screenshotImport,
              .advancedPortfolios, .jointPortfolios, .advancedReportTemplates,
              .advancedReportSchedules, .advancedReportRuns,
              .netWorthForecasting, .smartScreening, .rebalancingRules, .goalPlanning:
