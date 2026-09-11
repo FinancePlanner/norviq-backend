@@ -19,26 +19,30 @@ struct AdvancedReportGenerator {
         }
     }
 
+    /// Exposed so the wire format can be asserted without standing up a fake
+    /// HTTP client: Gotenberg rejects a malformed body with a 400 that reads
+    /// like an outage.
+    static func gotenbergBody(html: String, boundary: String = "norviq-\(UUID().uuidString)") -> MultipartBody {
+        var body = MultipartBody(boundary: boundary, reservingCapacity: html.utf8.count + 512)
+        body.addFile(
+            name: "files",
+            filename: "index.html",
+            contentType: "text/html; charset=utf-8",
+            bytes: Array(html.utf8)
+        )
+        body.addField(name: "printBackground", value: "true")
+        return body
+    }
+
     private func pdf(document: ReportDocument, client: any Client) async throws -> Data {
         let html = ReportHTMLRenderer().render(document)
-        let boundary = "norviq-\(UUID().uuidString)"
-        var body = ByteBufferAllocator().buffer(capacity: html.utf8.count + 512)
-        body.writeString("--\(boundary)\r\n")
-        body.writeString("Content-Disposition: form-data; name=\"files\"; filename=\"index.html\"\r\n")
-        body.writeString("Content-Type: text/html; charset=utf-8\r\n\r\n")
-        body.writeString(html)
-        body.writeString("\r\n--\(boundary)\r\n")
-        body.writeString("Content-Disposition: form-data; name=\"printBackground\"\r\n\r\ntrue\r\n")
-        body.writeString("--\(boundary)--\r\n")
+        let body = Self.gotenbergBody(html: html)
 
         let endpoint = gotenbergBaseURL.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
             + "/forms/chromium/convert/html"
         let response = try await client.post(URI(string: endpoint)) { request in
-            request.headers.replaceOrAdd(
-                name: .contentType,
-                value: "multipart/form-data; boundary=\(boundary)"
-            )
-            request.body = body
+            request.headers.replaceOrAdd(name: .contentType, value: body.contentType)
+            request.body = body.finalized()
         }
         guard response.status == .ok, var responseBody = response.body else {
             throw Abort(.serviceUnavailable, reason: "PDF renderer is unavailable.")

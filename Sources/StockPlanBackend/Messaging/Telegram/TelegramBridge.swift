@@ -137,6 +137,9 @@ enum TelegramBridge {
             )
             await client.leave(chatID: chatID, req: req)
 
+        case let .voice(note):
+            try await transcribeAndAnswer(note, client: client, req: req)
+
         case let .answer(inbound):
             if let callbackID = inbound.callbackQueryID {
                 await client.answerCallback(id: callbackID, req: req)
@@ -160,6 +163,154 @@ enum TelegramBridge {
             typing.cancel()
             try await client.send(chatID: inbound.externalID, message: reply, req: req)
         }
+    }
+}
+
+extension TelegramBridge {
+    /// Picks the wording for a failed voice turn.
+    ///
+    /// Anything that is not a typed transcription failure — a download error,
+    /// a decode error — is reported as a failure to hear, never as a billing
+    /// problem the user cannot act on.
+    static func transcriptionFailureMessage(for error: any Error) -> String {
+        (error as? TranscriptionFailure ?? .failed).message
+    }
+
+    /// Shown before the answer so a misheard ticker reads as a mistake the user
+    /// can correct, rather than arriving invisibly inside a confident answer
+    /// about the wrong company.
+    static func voiceEcho(_ transcript: String) -> String {
+        "\u{1F3A4} \u{201C}\(transcript)\u{201D}"
+    }
+
+    /// Audio in, text out: transcribe, show the user what was heard, then hand
+    /// the words to exactly the path a typed message takes.
+    private static func transcribeAndAnswer(
+        _ note: TelegramUpdate.VoiceNote,
+        client: TelegramClient,
+        req: Request
+    ) async throws {
+        let chatID = note.externalID
+
+        let provider = req.application.transcriptionProvider
+        guard provider.isEnabled else {
+            await client.send(
+                chatID: chatID,
+                message: OutboundMessage(text: "I can't listen to voice notes yet. Type it and I'll answer."),
+                fallingBackSilently: req
+            )
+            return
+        }
+
+        let limits = req.application.transcriptionLimits
+        // Checked before the download, not after: the update already carries
+        // duration and size, and this pod holds the audio in memory.
+        if let rejection = limits.rejection(duration: note.duration, fileSize: note.fileSize) {
+            await client.send(
+                chatID: chatID,
+                message: OutboundMessage(text: rejection.message),
+                fallingBackSilently: req
+            )
+            return
+        }
+
+        // An unlinked chat must not be able to spend the transcription budget.
+        guard let link = try await MessagingService.linkedUser(
+            platform: MessagingPlatform.telegram, externalID: chatID, req: req
+        ) else {
+            await client.send(
+                chatID: chatID,
+                message: OutboundMessage(text: MessagingService.connectInstructions),
+                fallingBackSilently: req
+            )
+            return
+        }
+
+        let typing = Task {
+            while !Task.isCancelled {
+                await client.typing(chatID: chatID, req: req)
+                try? await Task.sleep(for: typingInterval)
+            }
+        }
+        defer { typing.cancel() }
+
+        do {
+            try await VoiceDailyCap.charge(req, userId: link.userId, seconds: note.duration)
+        } catch let abort as any AbortError {
+            typing.cancel()
+            await client.send(
+                chatID: chatID,
+                message: OutboundMessage(text: abort.reason),
+                fallingBackSilently: req
+            )
+            return
+        }
+
+        let transcript: String
+        do {
+            let file = try await client.getFile(fileID: note.fileID, req: req)
+            // getFile reports the real size; the update's was advisory.
+            if let rejection = limits.rejection(duration: note.duration, fileSize: file.fileSize) {
+                typing.cancel()
+                await client.send(
+                    chatID: chatID,
+                    message: OutboundMessage(text: rejection.message),
+                    fallingBackSilently: req
+                )
+                return
+            }
+            let audio = try await client.downloadFile(path: file.filePath, req: req)
+            let hint = await TranscriptionHint.forUser(link.userId, req: req)
+            transcript = try await provider.transcribe(
+                audio: audio, mimeType: note.mimeType, hint: hint, on: req
+            )
+        } catch {
+            typing.cancel()
+            req.logger.error("telegram_transcription_failed error=\(String(reflecting: type(of: error)))")
+            await client.send(
+                chatID: chatID,
+                message: OutboundMessage(text: transcriptionFailureMessage(for: error)),
+                fallingBackSilently: req
+            )
+            return
+        }
+
+        guard !transcript.isEmpty else {
+            typing.cancel()
+            await client.send(
+                chatID: chatID,
+                message: OutboundMessage(text: "I couldn't make out any words in that. Try again, or type it."),
+                fallingBackSilently: req
+            )
+            return
+        }
+
+        await client.send(
+            chatID: chatID,
+            message: OutboundMessage(text: voiceEcho(transcript)),
+            fallingBackSilently: req
+        )
+
+        // From here the audio no longer exists as far as the bot is concerned:
+        // this is the same InboundMessage a typed message would have produced.
+        let inbound = InboundMessage(
+            platform: MessagingPlatform.telegram,
+            externalID: chatID,
+            updateID: note.updateID,
+            text: transcript,
+            isPrivateChat: true,
+            callbackQueryID: nil
+        )
+
+        let reply: OutboundMessage
+        do {
+            reply = try await MessagingService.handle(inbound, req: req)
+        } catch {
+            req.logger.error("messaging_handle_failed error=\(String(reflecting: type(of: error)))")
+            reply = OutboundMessage(text: "Something went wrong on my side. Try again in a moment.")
+        }
+        typing.cancel()
+        try await client.send(chatID: chatID, message: reply, req: req)
     }
 }
 
