@@ -278,6 +278,11 @@ public func configure(_ app: Application) async throws {
         pinnedTickers: pinnedTickers
     )
 
+    // Voice transcription. Shared by every surface; a missing key leaves the
+    // disabled provider in place, so the app boots and only voice is off.
+    app.transcriptionProvider = TranscriptionProviderFactory.make()
+    app.transcriptionLimits = TranscriptionLimits.fromEnvironment()
+
     // Telegram. A missing bot token disables the whole feature: no route is
     // mounted and no poller runs, so a deployment without one behaves exactly
     // as it did before the bot existed.

@@ -164,6 +164,57 @@ struct TelegramClient: MessagingTransport {
         return envelope.result ?? []
     }
 
+    // MARK: - Files
+
+    struct File: Decodable {
+        let filePath: String
+        let fileSize: Int64?
+
+        enum CodingKeys: String, CodingKey {
+            case filePath = "file_path"
+            case fileSize = "file_size"
+        }
+    }
+
+    /// Where a file's bytes actually live. Note the `/file` prefix — the bot
+    /// method host serves JSON, not content, and a GET against it returns a 404
+    /// that reads like the file is gone.
+    func fileDownloadURL(path: String) -> String {
+        "\(baseURL)/file/bot\(token)/\(path)"
+    }
+
+    /// Resolves a `file_id` to a downloadable path.
+    func getFile(fileID: String, req: Request) async throws -> File {
+        let response = try await post(method: "getFile", body: ["file_id": .string(fileID)], req: req)
+        return try Self.decodeFile(from: Data(buffer: response))
+    }
+
+    /// Downloads the bytes. Held in memory deliberately: the chart mounts no
+    /// scratch volume, so the alternative is the container's writable layer.
+    /// Callers cap the size before getting here.
+    func downloadFile(path: String, req: Request) async throws -> ByteBuffer {
+        let response = try await req.client.get(URI(string: fileDownloadURL(path: path)))
+        guard response.status == .ok, let buffer = response.body else {
+            throw TelegramError.http(response.status.code)
+        }
+        return buffer
+    }
+
+    static func decodeFile(from data: Data) throws -> File {
+        // Plain decoder, same reason as `call`: the global key strategy would
+        // eat `file_path`.
+        struct Envelope: Decodable {
+            let ok: Bool
+            let result: File?
+            let description: String?
+        }
+        let envelope = try JSONDecoder().decode(Envelope.self, from: data)
+        guard envelope.ok, let file = envelope.result else {
+            throw TelegramError.api(envelope.description ?? "getFile failed")
+        }
+        return file
+    }
+
     // MARK: - Transport
 
     enum TelegramError: Error {

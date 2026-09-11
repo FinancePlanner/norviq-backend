@@ -123,6 +123,23 @@ enum MessagingService {
         return link
     }
 
+    /// The link for a chat, without claiming the update.
+    ///
+    /// The voice path needs the sender before it will download or transcribe
+    /// anything — an unlinked chat must not be able to spend the transcription
+    /// budget — but it must not consume the dedupe watermark either, because
+    /// `handle` claims it properly once the audio has become text.
+    static func linkedUser(
+        platform: String,
+        externalID: String,
+        req: Request
+    ) async throws -> MessagingLink? {
+        try await MessagingLink.query(on: req.db)
+            .filter(\.$platform == platform)
+            .filter(\.$externalID == externalID)
+            .first()
+    }
+
     private static func existingLink(_ inbound: InboundMessage, req: Request) async throws -> MessagingLink? {
         try await MessagingLink.query(on: req.db)
             .filter(\.$platform == inbound.platform)
