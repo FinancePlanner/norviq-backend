@@ -121,6 +121,16 @@ struct DefaultBillingService: BillingService {
         try await billingEvent.save(on: db)
 
         guard let userId else {
+            // The purchase completed at the store but names a subscriber we
+            // cannot resolve, so nothing is granted and the caller still gets a
+            // 200. Silence here costs real purchases — a web checkout link whose
+            // app_user_id segment is not the Norviq UUID lands exactly here — so
+            // log loudly. The row stays in billing_events for replay.
+            db.logger.error("""
+            Billing webhook dropped: app_user_id is not a Norviq user UUID. \
+            event=\(event.id) type=\(event.type) product=\(event.productId ?? "unknown") \
+            store=\(normalizedStore(for: event) ?? "unknown")
+            """)
             return
         }
 
