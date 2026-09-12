@@ -435,6 +435,8 @@ public func configure(_ app: Application) async throws {
     app.lifecycle.use(PortfolioSnapshotJob(
         intervalSeconds: Environment.get("PORTFOLIO_SNAPSHOT_INTERVAL_SECONDS").flatMap(Int64.init) ?? 3600
     ))
+    // Operator-triggered reconstruction of history predating the job above.
+    app.asyncCommands.use(PortfolioBackfillCommand(), as: "portfolio-backfill")
 
     // Macro / inflation (Nowflation parity). FRED is the keystone provider:
     // without FRED_API_KEY the US (and intl fallback) stay disabled while
