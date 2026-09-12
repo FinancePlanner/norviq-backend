@@ -12,6 +12,10 @@ final class AdvancedReportWorker: LifecycleHandler, @unchecked Sendable {
     private let lock = NSLock()
     private var scheduled: RepeatedTask?
     private var running = false
+    /// The run currently in flight, so shutdown can wait for it rather than
+    /// leaving it to reach a torn-down application.
+    private var inFlight: Task<Void, Never>?
+    private var isShutDown = false
 
     init(gotenbergBaseURL: String, intervalSeconds: Int64 = 10) {
         generator = AdvancedReportGenerator(gotenbergBaseURL: gotenbergBaseURL)
@@ -24,18 +28,75 @@ final class AdvancedReportWorker: LifecycleHandler, @unchecked Sendable {
             delay: .seconds(intervalSeconds)
         ) { _ in
             guard self.begin() else { return }
-            Task {
+            let task = Task {
                 defer { self.finish() }
                 await self.runOnce(app)
             }
+            self.track(task: task)
         }
     }
 
+    /// Synchronous shutdown cannot wait, so it can only stop new runs starting.
+    /// Anything already running is covered by `shutdownAsync`, which is the path
+    /// `Application.asyncShutdown()` takes.
     func shutdown(_: Application) {
+        stopAcceptingRuns()
+    }
+
+    func shutdownAsync(_ application: Application) async {
+        shutdown(application)
+        await drainInFlight()
+    }
+
+    /// The shutdown sequence itself, independent of the `Application` the
+    /// protocol hands over but never uses here.
+    ///
+    /// Stop accepting runs, then wait for the one in flight to actually stop.
+    /// Cancellation is cooperative: without the wait, the run continues into
+    /// `app.db` after the databases are gone, and Fluent force-unwraps a nil.
+    func stopAndDrain() async {
+        stopAcceptingRuns()
+        await drainInFlight()
+    }
+
+    private func stopAcceptingRuns() {
         lock.lock()
+        isShutDown = true
         scheduled?.cancel()
         scheduled = nil
+        let task = inFlight
         lock.unlock()
+        task?.cancel()
+    }
+
+    private func track(task: Task<Void, Never>) {
+        lock.lock()
+        let alreadyShutDown = isShutDown
+        if !alreadyShutDown {
+            inFlight = task
+        }
+        lock.unlock()
+        if alreadyShutDown {
+            task.cancel()
+        }
+    }
+
+    private func drainInFlight() async {
+        while let task = takeInFlight() {
+            task.cancel()
+            await task.value
+        }
+    }
+
+    /// Separated so the lock is never held across a suspension point — NSLock is
+    /// unavailable from async contexts, and holding one over an await would risk
+    /// the resumed continuation landing on a different thread.
+    private func takeInFlight() -> Task<Void, Never>? {
+        lock.lock()
+        defer { lock.unlock() }
+        let task = inFlight
+        inFlight = nil
+        return task
     }
 
     func runOnce(_ app: Application) async {
@@ -474,7 +535,9 @@ final class AdvancedReportWorker: LifecycleHandler, @unchecked Sendable {
     private func begin() -> Bool {
         lock.lock()
         defer { lock.unlock() }
-        guard !running else { return false }
+        // Refusing once shut down is what stops a timer tick that fires during
+        // teardown from starting a run against a dead application.
+        guard !running, !isShutDown else { return false }
         running = true
         return true
     }
@@ -483,6 +546,27 @@ final class AdvancedReportWorker: LifecycleHandler, @unchecked Sendable {
         lock.lock()
         running = false
         lock.unlock()
+    }
+}
+
+/// Test hooks for the shutdown contract above. The state machine is the part
+/// worth testing directly; the crash it prevents is a race that cannot be
+/// reproduced reliably from a test.
+extension AdvancedReportWorker {
+    func beginForTesting() -> Bool {
+        begin()
+    }
+
+    func finishForTesting() {
+        finish()
+    }
+
+    func trackForTesting(task: Task<Void, Never>) {
+        track(task: task)
+    }
+
+    func shutdownForTesting() async {
+        await stopAndDrain()
     }
 }
 
