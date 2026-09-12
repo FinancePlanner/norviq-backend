@@ -110,6 +110,17 @@ extension AllocationModelBulkCopyRequest: @retroactive Content {}
 extension AllocationModelBulkCopyResult: @retroactive Content {}
 extension RebalancingDashboardSummary: @retroactive Content {}
 
+// MARK: - Portfolio Simulation
+
+extension PortfolioSimulationLeg: @retroactive Content {}
+extension PortfolioSimulationLegInput: @retroactive Content {}
+extension PortfolioSimulation: @retroactive Content {}
+extension PortfolioSimulationUpsertRequest: @retroactive Content {}
+extension PortfolioSimulationComputeRequest: @retroactive Content {}
+extension PortfolioSimulationListResponse: @retroactive Content {}
+extension PortfolioSimulationDiffRow: @retroactive Content {}
+extension PortfolioSimulationResult: @retroactive Content {}
+
 // MARK: - Retirement Planning
 
 extension RetirementPlanInput: @retroactive Content {}

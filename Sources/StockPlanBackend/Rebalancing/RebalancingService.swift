@@ -635,104 +635,21 @@ struct DefaultRebalancingService: RebalancingServicing {
         let targetSymbols = model?.buckets.flatMap(\.leaves).compactMap { leaf in
             leaf.kind == .security ? normalizedSymbol(leaf.symbol) : nil
         } ?? []
-        let symbols = Array(Set(quantityBySymbol.keys).union(targetSymbols)).sorted()
-        let quotes = await fetchQuotes(symbols: symbols, req: req)
         let cashByCurrency = try await cashBalances(
             portfolioId: portfolioId,
             userId: dataOwnerUserId,
             on: req.db
         )
-        var warnings = [RebalancingValuationWarning]()
-        var quality = RebalancingPriceQuality.live
-        var oldestPriceDate: Date?
-        var rates: [String: Double] = [baseCurrency.uppercased(): 1]
-        let currencies = Set(quotes.values.compactMap(\.currency).map { $0.uppercased() })
-            .union(cashByCurrency.keys)
-        for currency in currencies where currency != baseCurrency.uppercased() {
-            do {
-                let fx = try await req.application.marketDataService.fx(
-                    pair: "\(currency)/\(baseCurrency.uppercased())",
-                    on: req
-                )
-                rates[currency] = fx.rate
-            } catch {
-                rates[currency] = 1
-                quality = .incomplete
-                warnings.append(.init(code: "missing_fx", message: "Missing \(currency)/\(baseCurrency) exchange rate."))
-            }
-        }
-
-        let now = Date()
-        var holdings = [RebalancingHolding]()
-        for symbol in symbols {
-            let quantity = quantityBySymbol[symbol, default: 0]
-            let averageCost = quantity > 0 ? basisBySymbol[symbol, default: 0] / quantity : 0
-            if let quote = quotes[symbol] {
-                let date = Date(timeIntervalSince1970: quote.timestamp)
-                oldestPriceDate = min(oldestPriceDate ?? date, date)
-                if now.timeIntervalSince(date) > 72 * 60 * 60, quality == .live {
-                    quality = .stale
-                    warnings.append(.init(code: "stale_price", symbol: symbol, message: "The latest price for \(symbol) is stale."))
-                }
-                let rate = rates[quote.currency.uppercased(), default: 1]
-                holdings.append(
-                    .init(
-                        symbol: symbol,
-                        name: symbol,
-                        quantity: quantity,
-                        price: quote.currentPrice * rate,
-                        averageCost: averageCost * rate
-                    )
-                )
-            } else if quantity > 0 {
-                quality = .incomplete
-                let fallback = averageCost > 0 ? averageCost : 0.01
-                warnings.append(.init(code: "missing_price", symbol: symbol, message: "No current price is available for \(symbol)."))
-                holdings.append(.init(symbol: symbol, name: symbol, quantity: quantity, price: fallback, averageCost: averageCost))
-            } else {
-                quality = .incomplete
-                warnings.append(.init(code: "missing_target_price", symbol: symbol, message: "No current price is available for target \(symbol)."))
-            }
-        }
-        let cash = cashByCurrency.reduce(0) { total, item in
-            total + item.value * rates[item.key, default: 1]
-        }
-        return .init(
-            holdings: holdings,
-            cash: cash,
-            baseCurrency: baseCurrency,
-            priceQuality: quality,
-            pricedAt: formatISODateTime(oldestPriceDate),
-            warnings: warnings
+        return try await PortfolioSnapshotPricer().snapshot(
+            PortfolioPricingInput(
+                quantityBySymbol: quantityBySymbol,
+                basisBySymbol: basisBySymbol,
+                targetSymbols: targetSymbols,
+                cashByCurrency: cashByCurrency,
+                baseCurrency: baseCurrency
+            ),
+            req: req
         )
-    }
-
-    private func fetchQuotes(symbols: [String], req: Request) async -> [String: QuoteResponse] {
-        guard !symbols.isEmpty else { return [:] }
-        var result: [String: QuoteResponse] = [:]
-        for start in stride(from: 0, to: symbols.count, by: 10) {
-            let chunk = Array(symbols[start ..< min(start + 10, symbols.count)])
-            let application = req.application
-            let values = await withTaskGroup(of: QuoteResponse?.self) { group in
-                for symbol in chunk {
-                    group.addTask {
-                        let child = Request(application: application, on: application.eventLoopGroup.next())
-                        return try? await application.marketDataService.quote(symbol: symbol, on: child)
-                    }
-                }
-                var values = [QuoteResponse]()
-                for await value in group {
-                    if let value {
-                        values.append(value)
-                    }
-                }
-                return values
-            }
-            for value in values {
-                result[value.symbol.uppercased()] = value
-            }
-        }
-        return result
     }
 
     private func cashBalances(

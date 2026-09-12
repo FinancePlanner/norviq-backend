@@ -327,6 +327,7 @@ func registerMigrations(_ app: Application) {
     app.migrations.add(CreateTaxPackEntitlements())
     app.migrations.add(AddDividendWithholding())
     app.migrations.add(CreatePortfolioValueSnapshot())
+    app.migrations.add(CreatePortfolioSimulationTables())
 }
 
 func envBool(_ key: String, default defaultValue: Bool) -> Bool {

@@ -8405,6 +8405,67 @@ paths:
       parameters: [{ name: portfolioId, in: path, required: true, schema: { type: string, format: uuid } }]
       responses:
         '200': { description: Current allocation and drift, content: { application/json: { schema: { $ref: '#/components/schemas/RebalancingDocument' } } } }
+  /v1/portfolio/simulations:
+    get:
+      operationId: listPortfolioSimulations
+      tags: [Portfolio Simulation]
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: limit, in: query, required: false, schema: { type: integer, minimum: 1, maximum: 100, default: 25 } }
+        - { name: cursor, in: query, required: false, schema: { type: string } }
+      responses:
+        '200': { description: 'Saved simulations, newest first', content: { application/json: { schema: { $ref: '#/components/schemas/PortfolioSimulationDocument' } } } }
+    post:
+      operationId: createPortfolioSimulation
+      tags: [Portfolio Simulation]
+      security: [{ bearerAuth: [] }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/PortfolioSimulationDocument' } } } }
+      responses:
+        '201': { description: The saved simulation, content: { application/json: { schema: { $ref: '#/components/schemas/PortfolioSimulationDocument' } } } }
+        '422': { description: 'Weights total more than 100%, or a ticker is invalid' }
+  /v1/portfolio/simulations/preview:
+    post:
+      operationId: previewPortfolioSimulation
+      tags: [Portfolio Simulation]
+      security: [{ bearerAuth: [] }]
+      description: Computes an unsaved simulation so a client can scrub weights without writing a row per keystroke.
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/PortfolioSimulationDocument' } } } }
+      responses:
+        '200': { description: 'Trades, total cash needed, and the diff against the current portfolio', content: { application/json: { schema: { $ref: '#/components/schemas/PortfolioSimulationDocument' } } } }
+        '422': { description: A target ticker could not be priced }
+  /v1/portfolio/simulations/{simulationId}:
+    parameters: [{ name: simulationId, in: path, required: true, schema: { type: string, format: uuid } }]
+    get:
+      operationId: getPortfolioSimulation
+      tags: [Portfolio Simulation]
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200': { description: The simulation, content: { application/json: { schema: { $ref: '#/components/schemas/PortfolioSimulationDocument' } } } }
+        '404': { description: Simulation not found }
+    put:
+      operationId: updatePortfolioSimulation
+      tags: [Portfolio Simulation]
+      security: [{ bearerAuth: [] }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/PortfolioSimulationDocument' } } } }
+      responses:
+        '200': { description: The updated simulation, content: { application/json: { schema: { $ref: '#/components/schemas/PortfolioSimulationDocument' } } } }
+        '409': { description: The simulation was changed elsewhere }
+    delete:
+      operationId: deletePortfolioSimulation
+      tags: [Portfolio Simulation]
+      security: [{ bearerAuth: [] }]
+      responses:
+        '204': { description: Deleted }
+  /v1/portfolio/simulations/{simulationId}/compute:
+    post:
+      operationId: computePortfolioSimulation
+      tags: [Portfolio Simulation]
+      security: [{ bearerAuth: [] }]
+      parameters: [{ name: simulationId, in: path, required: true, schema: { type: string, format: uuid } }]
+      requestBody: { content: { application/json: { schema: { $ref: '#/components/schemas/PortfolioSimulationDocument' } } } }
+      responses:
+        '200': { description: 'Trades, total cash needed, and the diff against the current portfolio', content: { application/json: { schema: { $ref: '#/components/schemas/PortfolioSimulationDocument' } } } }
+        '422': { description: A target ticker could not be priced }
   /v1/portfolios/{portfolioId}/rebalancing/simulate:
     post:
       operationId: simulateRebalancing
@@ -8744,6 +8805,10 @@ components:
     RebalancingDocument:
       type: object
       description: Rebalancing contract defined in the versioned StockPlanShared package.
+      additionalProperties: true
+    PortfolioSimulationDocument:
+      type: object
+      description: Portfolio simulation contract defined in the versioned StockPlanShared package.
       additionalProperties: true
     ScenarioJSON:
       type: object

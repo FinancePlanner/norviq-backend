@@ -197,6 +197,7 @@ public func configure(_ app: Application) async throws {
     app.usageCounterService = DefaultUsageCounterService(entitlementResolver: app.entitlementResolver)
     app.portfolioAccessService = PortfolioAccessService(entitlementResolver: app.entitlementResolver)
     app.rebalancingService = DefaultRebalancingService()
+    app.portfolioSimulationService = DefaultPortfolioSimulationService()
     let advancedReportStoragePath = Environment.get("ADVANCED_REPORT_STORAGE_PATH")
         ?? app.directory.workingDirectory + "storage/advanced-reports"
     app.advancedReportStorage = LocalAdvancedReportStorage(rootDirectory: advancedReportStoragePath)

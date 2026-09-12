@@ -280,6 +280,8 @@ struct OpenAPIDocsTests {
             "/v1/dashboard:",
             "/v1/dashboard/insights:",
             "/v1/crypto/portfolio:",
+            "/v1/portfolio/simulations:",
+            "/v1/portfolio/simulations/{simulationId}:",
         ]
         for path in requiredPublicPaths {
             #expect(body.contains(path), "Missing OpenAPI path \(path)")
