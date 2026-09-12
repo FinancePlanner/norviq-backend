@@ -563,7 +563,7 @@ struct StockPlanBackendTests {
             })
 
             let stock = try #require(createdStock)
-            let holdingsValueAfterSell = 4 * 100.0
+            let holdingsCostAfterSell = 4 * 100.0
             let expectedCash = 1 * 150.0
 
             try await app.testing().test(.POST, "v1/stocks/id/\(stock.id)/sell", beforeRequest: { req in
@@ -588,16 +588,34 @@ struct StockPlanBackendTests {
                 let summary = try res.content.decode(PortfolioSummaryResponse.self)
                 #expect(abs(summary.cashBalance - expectedCash) < 0.001)
                 #expect(summary.allocation.contains(where: { $0.symbol == "CASH" }))
-                #expect(abs(summary.totalValue - (holdingsValueAfterSell + expectedCash)) < 0.001)
+
+                // Cost basis is what the remaining shares were bought for, and
+                // is the only figure here that does not depend on a quote.
+                #expect(abs(summary.totalCost - holdingsCostAfterSell) < 0.001)
+
+                // The total is holdings at market plus cash. It used to be
+                // cost basis under the name "value", so it could not move with
+                // the market at all; asserting it against the allocation keeps
+                // the check honest without pinning it to whatever price the
+                // configured market data provider happens to return.
+                let allocationTotal = summary.allocation.reduce(0.0) { $0 + $1.value }
+                #expect(abs(summary.totalValue - allocationTotal) < 0.01)
+                #expect(summary.totalValue >= expectedCash)
             })
 
+            // Performance is read from recorded daily snapshots. This account has
+            // none — nothing has captured a day for it — so the honest answer is
+            // an empty series and no changes. It used to return seven points
+            // generated from the current total plus random noise, which is what
+            // made the "vs last period" figure meaningless.
             try await app.testing().test(.GET, "v1/portfolio/performance", beforeRequest: { req in
                 req.headers.bearerAuthorization = .init(token: token)
             }, afterResponse: { res async throws in
                 #expect(res.status == .ok)
                 let performance = try res.content.decode(PortfolioPerformanceResponse.self)
-                #expect(!performance.points.isEmpty)
-                #expect(performance.points.allSatisfy { $0.value > holdingsValueAfterSell })
+                #expect(performance.points.isEmpty)
+                #expect(performance.changes == nil)
+                #expect(performance.asOf == nil)
             })
         }
     }

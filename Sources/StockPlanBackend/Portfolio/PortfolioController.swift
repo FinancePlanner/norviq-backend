@@ -7,6 +7,10 @@ struct PortfolioController: RouteCollection {
     private struct PortfolioFilterQuery: Content {
         let portfolioListId: String?
         let portfolioId: String?
+        /// Chart window for `performance`: 1W, 1M, 3M, 1Y or ALL. Ignored
+        /// elsewhere. Unrecognised values fall back to the default rather than
+        /// erroring, so an older client cannot break on a value it never sends.
+        let range: String?
     }
 
     private struct ResolvedPortfolioFilter {
@@ -193,71 +197,83 @@ struct PortfolioController: RouteCollection {
             on: req.db
         )
 
-        var allocation = stocks
-            .map { stock in
-                AllocationItem(
-                    symbol: stock.symbol,
-                    value: stock.shares * stock.buyPrice,
-                    currency: filter.baseCurrency
-                )
-            }
+        // Previously this summed shares × buyPrice and reported it as both
+        // totalValue and totalCost, with unrealizedPnl hardcoded to zero — so
+        // the headline was cost basis wearing the label "value", and could not
+        // move with the market. The valuation service already prices holdings
+        // from live quotes for the pnl endpoint; this uses the same numbers, so
+        // the two endpoints can no longer disagree about what the portfolio is
+        // worth.
+        let valuation = try await req.application.portfolioValuationService.value(
+            stocks: stocks,
+            cashBalance: cashBalance,
+            asOf: Date(),
+            on: req
+        )
+
+        var allocation = valuation.holdings.map { holding in
+            AllocationItem(
+                symbol: holding.symbol,
+                value: round2(holding.marketValue),
+                currency: filter.baseCurrency
+            )
+        }
         if cashBalance > 0 {
             allocation.append(
                 AllocationItem(
                     symbol: "CASH",
-                    value: cashBalance,
+                    value: round2(cashBalance),
                     currency: filter.baseCurrency
                 )
             )
         }
         allocation.sort(by: { $0.value > $1.value })
 
-        let totalCost = allocation.reduce(0.0) { $0 + $1.value }
-
         return PortfolioSummaryResponse(
             baseCurrency: filter.baseCurrency,
-            totalValue: totalCost,
-            totalCost: totalCost,
-            unrealizedPnl: 0,
+            totalValue: round2(valuation.totalValue),
+            totalCost: round2(valuation.totalCost),
+            unrealizedPnl: round2(valuation.unrealizedPnl),
             realizedPnl: 0,
-            cashBalance: cashBalance,
-            allocation: allocation
+            cashBalance: round2(cashBalance),
+            allocation: allocation,
+            dayChange: round2(valuation.dayChange),
+            dayChangePercent: valuation.dayChangePercent.map(round2),
+            unrealizedPnlPercent: valuation.unrealizedPnlPercent.map(round2),
+            asOf: formatISODateOnly(valuation.asOf)
         )
     }
 
+    /// Portfolio value over time, read from recorded daily snapshots.
+    ///
+    /// Returns only what has actually been recorded. A new account, or one whose
+    /// history has not been backfilled, gets an empty series and no changes —
+    /// which is the honest answer, and which clients render as an empty state.
     @Sendable
     func performance(req: Request) async throws -> PortfolioPerformanceResponse {
         let session = try req.auth.require(SessionToken.self)
         let query = try req.query.decode(PortfolioFilterQuery.self)
         let filter = try await resolveFilter(query, userId: session.userId, req: req)
-        let stocksQuery = Stock.query(on: req.db)
+        let range = PortfolioPerformanceRange(query: query.range)
+
+        // The whole stored history, not just the requested window: a one-week
+        // chart still reports a year-to-date change, and computing that from
+        // seven days of data would answer a different question.
+        let snapshots = try await PortfolioValueSnapshot.query(on: req.db)
             .filter(\.$userId == filter.dataOwnerUserId)
-        stocksQuery.filter(\.$portfolioListId ~~ filter.portfolioIds)
-        let stocks = try await stocksQuery.all()
+            .filter(\.$portfolioListId ~~ filter.portfolioIds)
+            .sort(\.$capturedOn)
+            .all()
 
-        let holdingsValue = stocks.reduce(0.0) { $0 + ($1.shares * $1.buyPrice) }
-        let cashBalance = try await totalCashBalance(
-            userId: filter.dataOwnerUserId,
-            portfolioId: filter.portfolioId,
-            on: req.db
+        let days = PortfolioPerformanceBuilder.days(
+            from: snapshots,
+            listIds: filter.portfolioIds
         )
-        let totalValue = holdingsValue + cashBalance
 
-        let calendar = Calendar(identifier: .gregorian)
-        let today = Date()
-
-        var points: [PerformancePoint] = []
-        for i in (0 ..< 7).reversed() {
-            let d = calendar.date(byAdding: .day, value: -i, to: today)!
-            // Add a tiny bit of random noise for a better UI look (±0.5%)
-            let noise = totalValue * Double.random(in: -0.005 ... 0.005)
-            let val = max(0, totalValue + noise)
-            points.append(.init(date: formatISODateOnly(d), value: val))
-        }
-
-        return PortfolioPerformanceResponse(
-            baseCurrency: filter.baseCurrency,
-            points: points
+        return PortfolioPerformanceBuilder.response(
+            days: days,
+            range: range,
+            baseCurrency: filter.baseCurrency
         )
     }
 

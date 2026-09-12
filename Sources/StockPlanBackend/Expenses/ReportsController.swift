@@ -156,9 +156,31 @@ struct ReportsController: RouteCollection {
             return preferred
         }
 
-        let totalMarketValue = stocks.reduce(0) { $0 + ($1.shares * $1.buyPrice) }
+        // This used to report shares × buyPrice as market value, so a portfolio
+        // that had doubled still showed its purchase price and unrealized P&L
+        // was structurally zero. Prices come from stored quotes and bars; a
+        // symbol that cannot be priced falls back to its cost, which is the best
+        // available answer on this degraded path, but the totals below now
+        // distinguish value from cost either way.
+        let priceBySymbol = try await PortfolioSnapshotValuator().prices(
+            for: stocks.map(\.symbol),
+            asOf: Date(),
+            pricing: .live,
+            on: db
+        )
+
+        func marketValue(of stock: Stock) -> Double {
+            let symbol = normalizePortfolioSymbol(stock.symbol)
+            guard let price = priceBySymbol[symbol], price > 0 else {
+                return stock.shares * stock.buyPrice
+            }
+            return stock.shares * price
+        }
+
+        let totalMarketValue = stocks.reduce(0) { $0 + marketValue(of: $1) }
+        let totalCostBasis = stocks.reduce(0) { $0 + ($1.shares * $1.buyPrice) }
         let summaries = stocks.map { stock in
-            let value = stock.shares * stock.buyPrice
+            let value = marketValue(of: stock)
             let weight = totalMarketValue > 0 ? (value / totalMarketValue) * 100 : 0
             return StockStatisticsSummaryDTO(
                 symbol: stock.symbol,
@@ -167,11 +189,11 @@ struct ReportsController: RouteCollection {
                 dailyChangePercent: nil,
                 weeklyChangePercent: nil,
                 monthlyChangePercent: nil,
-                unrealizedPnl: 0
+                unrealizedPnl: roundCurrency(value - (stock.shares * stock.buyPrice))
             )
         }
         let allocations = stocks.map { stock in
-            let value = stock.shares * stock.buyPrice
+            let value = marketValue(of: stock)
             let weight = totalMarketValue > 0 ? (value / totalMarketValue) * 100 : 0
             return StockAllocationDTO(
                 symbol: stock.symbol,
@@ -183,8 +205,8 @@ struct ReportsController: RouteCollection {
         return ImportedStocksStatisticsDTO(
             totalPositions: stocks.count,
             totalMarketValue: roundCurrency(totalMarketValue),
-            totalCostBasis: roundCurrency(totalMarketValue),
-            totalUnrealizedPnl: 0,
+            totalCostBasis: roundCurrency(totalCostBasis),
+            totalUnrealizedPnl: roundCurrency(totalMarketValue - totalCostBasis),
             totalRealizedPnl: preferred.totalRealizedPnl,
             stockSummaries: summaries.sorted { $0.marketValue > $1.marketValue },
             stockAllocations: allocations.sorted { $0.value > $1.value },
