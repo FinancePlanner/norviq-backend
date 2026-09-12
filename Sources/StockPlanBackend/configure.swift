@@ -429,6 +429,13 @@ public func configure(_ app: Application) async throws {
     ))
     configureGoalPlanningJob(app)
 
+    // Portfolio value history. Ticks hourly but writes at most one row per
+    // portfolio per day — the extra ticks are retries for a pod that booted
+    // mid-day or missed a window, not extra data points.
+    app.lifecycle.use(PortfolioSnapshotJob(
+        intervalSeconds: Environment.get("PORTFOLIO_SNAPSHOT_INTERVAL_SECONDS").flatMap(Int64.init) ?? 3600
+    ))
+
     // Macro / inflation (Nowflation parity). FRED is the keystone provider:
     // without FRED_API_KEY the US (and intl fallback) stay disabled while
     // Eurostat/IBGE still serve PT/EA/BR.
