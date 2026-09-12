@@ -55,11 +55,11 @@ struct PortfolioPerformanceBuilder: Sendable {
 
     /// Snapshots for the given lists, summed per day.
     ///
-    /// A day is only included when every list that already had history by then
-    /// also has a row for it. Summing a day where one of three portfolios is
-    /// missing would under-report the total and draw a dip that never happened —
-    /// the same partial-data failure the capture job refuses at the row level,
-    /// which has to be refused again here at the aggregate level.
+    /// A day is only included when every list that was recording at the time has
+    /// a row for it. Summing a day where one of three portfolios is missing
+    /// would under-report the total and draw a dip that never happened — the
+    /// same partial-data failure the capture job refuses at the row level, which
+    /// has to be refused again here at the aggregate level.
     static func days(
         from snapshots: [PortfolioValueSnapshot],
         listIds: [UUID]
@@ -68,25 +68,41 @@ struct PortfolioPerformanceBuilder: Sendable {
 
         let sorted = snapshots.sorted { $0.capturedOn < $1.capturedOn }
         var byDay: [Date: [UUID: PortfolioValueSnapshot]] = [:]
-        var firstDayByList: [UUID: Date] = [:]
+        var spanByList: [UUID: (first: Date, last: Date)] = [:]
 
         for snapshot in sorted {
             let day = PortfolioSnapshotValuator.startOfDay(snapshot.capturedOn)
-            byDay[day, default: [:]][snapshot.portfolioListId] = snapshot
             let listId = snapshot.portfolioListId
-            if firstDayByList[listId] == nil || day < firstDayByList[listId]! {
-                firstDayByList[listId] = day
+            byDay[day, default: [:]][listId] = snapshot
+            if let span = spanByList[listId] {
+                spanByList[listId] = (min(span.first, day), max(span.last, day))
+            } else {
+                spanByList[listId] = (day, day)
             }
         }
 
-        let relevant = Set(listIds).intersection(firstDayByList.keys)
+        let relevant = Set(listIds).intersection(spanByList.keys)
 
         return byDay.keys.sorted().compactMap { day -> Day? in
             let rows = byDay[day] ?? [:]
-            // Lists that had started recording by this day must all be present.
+            // Every list that had started recording by this day must have a row
+            // for it. Summing without one would under-report the total and draw
+            // a dip that never happened.
+            //
+            // Trailing gaps are the hard case, and they are deliberately treated
+            // as failures rather than as the portfolio having stopped: once a
+            // list has any history, a day missing its row is dropped. A
+            // portfolio that was emptied and one whose capture failed look
+            // identical here — neither writes a row — so this errs toward
+            // showing nothing over showing a number that is silently low, the
+            // same direction taken everywhere else in this feature.
+            //
+            // The cost is that a portfolio emptied but not archived stops the
+            // series advancing until it is archived, at which point it leaves
+            // `listIds` and drops out of the aggregate entirely.
             let expected = relevant.filter { listId in
-                guard let first = firstDayByList[listId] else { return false }
-                return first <= day
+                guard let span = spanByList[listId] else { return false }
+                return span.first <= day
             }
             guard !expected.isEmpty, expected.allSatisfy({ rows[$0] != nil }) else {
                 return nil

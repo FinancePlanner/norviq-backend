@@ -246,6 +246,51 @@ struct PortfolioPerformanceBuilderTests {
         #expect(try #require(days.last).totalValue == 1500)
     }
 
+    /// A trailing gap is treated as a failed capture, not as the portfolio
+    /// having stopped: the two are indistinguishable in the data, and dropping
+    /// the day shows nothing rather than a total that is silently low.
+    ///
+    /// The cost, documented here so it is a decision rather than a surprise: a
+    /// portfolio emptied but not archived holds the series back until it is
+    /// archived, at which point it leaves `listIds` and drops out entirely.
+    @Test("A trailing gap is treated as a missing capture, not a stopped portfolio")
+    func trailingGapIsTreatedAsMissingCapture() throws {
+        let userId = UUID()
+        let kept = UUID()
+        let stopped = UUID()
+        let snapshots = [
+            makeSnapshot(userId: userId, listId: kept, dayOffset: -2, marketValue: 1000),
+            makeSnapshot(userId: userId, listId: stopped, dayOffset: -2, marketValue: 400),
+            makeSnapshot(userId: userId, listId: kept, dayOffset: -1, marketValue: 1010),
+        ]
+
+        let days = PortfolioPerformanceBuilder.days(from: snapshots, listIds: [kept, stopped])
+
+        #expect(days.count == 1)
+        #expect(try #require(days.first).totalValue == 1400)
+    }
+
+    /// Archiving is the supported way for a portfolio to leave the aggregate:
+    /// it drops out of `listIds`, and the remaining ones keep reporting.
+    @Test("A portfolio outside listIds does not hold the series back")
+    func archivedPortfolioDoesNotHoldSeriesBack() throws {
+        let userId = UUID()
+        let kept = UUID()
+        let archived = UUID()
+        let snapshots = [
+            makeSnapshot(userId: userId, listId: kept, dayOffset: -2, marketValue: 1000),
+            makeSnapshot(userId: userId, listId: archived, dayOffset: -2, marketValue: 400),
+            makeSnapshot(userId: userId, listId: kept, dayOffset: -1, marketValue: 1010),
+            makeSnapshot(userId: userId, listId: kept, dayOffset: 0, marketValue: 1020),
+        ]
+
+        // Only the kept list is asked for, as resolveFilter would after archiving.
+        let days = PortfolioPerformanceBuilder.days(from: snapshots, listIds: [kept])
+
+        #expect(days.count == 3)
+        #expect(try #require(days.last).totalValue == 1020)
+    }
+
     @Test("A day is marked backfilled when any contributing row was reconstructed")
     func marksBackfilledDays() throws {
         let userId = UUID()
