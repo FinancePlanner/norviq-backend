@@ -13,7 +13,7 @@ final class MacroRefreshJob: LifecycleHandler, @unchecked Sendable {
     private let initialDelaySeconds: Int64
     private let usRefreshSeconds: TimeInterval
     private let intlRefreshSeconds: TimeInterval
-    private let state = MacroRefreshJobState()
+    private let state = BackgroundJobState()
 
     init(
         tickIntervalSeconds: Int64,
@@ -48,21 +48,25 @@ final class MacroRefreshJob: LifecycleHandler, @unchecked Sendable {
             initialDelay: .seconds(initialDelaySeconds),
             delay: .seconds(tickIntervalSeconds)
         ) { _ in
-            guard self.state.beginRun() else {
+            guard self.state.begin() else {
                 app.logger.debug("macro_refresh skipped overlapping tick")
                 return
             }
             let task = Task {
-                defer { self.state.finishRun() }
+                defer { self.state.finish() }
                 await self.tick(app)
             }
-            self.state.setCurrentTask(task)
+            self.state.track(task: task)
         }
-        state.setScheduled(scheduled)
+        state.set(scheduled: scheduled)
     }
 
     func shutdown(_: Application) {
-        state.cancelAll()
+        state.stopAcceptingRuns()
+    }
+
+    func shutdownAsync(_: Application) async {
+        await state.stopAndDrain()
     }
 
     func runOnce(_ app: Application, force: Bool = false) async {
@@ -109,51 +113,6 @@ final class MacroRefreshJob: LifecycleHandler, @unchecked Sendable {
                 app.logger.warning("macro_refresh failed country=\(country.rawValue) error=\(detail)")
             }
         }
-    }
-}
-
-private final class MacroRefreshJobState: @unchecked Sendable {
-    private let lock = NSLock()
-    private var scheduled: RepeatedTask?
-    private var currentTask: Task<Void, Never>?
-    private var isRunning = false
-
-    func setScheduled(_ scheduled: RepeatedTask) {
-        lock.lock()
-        self.scheduled?.cancel()
-        self.scheduled = scheduled
-        lock.unlock()
-    }
-
-    func beginRun() -> Bool {
-        lock.lock()
-        defer { lock.unlock() }
-        guard !isRunning else { return false }
-        isRunning = true
-        return true
-    }
-
-    func setCurrentTask(_ task: Task<Void, Never>) {
-        lock.lock()
-        currentTask = task
-        lock.unlock()
-    }
-
-    func finishRun() {
-        lock.lock()
-        currentTask = nil
-        isRunning = false
-        lock.unlock()
-    }
-
-    func cancelAll() {
-        lock.lock()
-        scheduled?.cancel()
-        scheduled = nil
-        currentTask?.cancel()
-        currentTask = nil
-        isRunning = false
-        lock.unlock()
     }
 }
 

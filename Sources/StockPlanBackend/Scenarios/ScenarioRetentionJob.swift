@@ -4,17 +4,28 @@ import NIOCore
 import Vapor
 
 final class ScenarioRetentionJob: LifecycleHandler, @unchecked Sendable {
-    private var scheduled: RepeatedTask?
+    private let state = BackgroundJobState()
 
     func didBoot(_ app: Application) throws {
         guard envBool("SCENARIO_PLANNING_ENABLED", default: false) else { return }
-        scheduled = app.eventLoopGroup.next().scheduleRepeatedTask(initialDelay: .minutes(5), delay: .hours(24)) { _ in
-            Task { await self.runOnce(app) }
-        }
+        let scheduled = app.eventLoopGroup.next()
+            .scheduleRepeatedTask(initialDelay: .minutes(5), delay: .hours(24)) { _ in
+                guard self.state.begin() else { return }
+                let task = Task {
+                    defer { self.state.finish() }
+                    await self.runOnce(app)
+                }
+                self.state.track(task: task)
+            }
+        state.set(scheduled: scheduled)
     }
 
     func shutdown(_: Application) {
-        scheduled?.cancel(); scheduled = nil
+        state.stopAcceptingRuns()
+    }
+
+    func shutdownAsync(_: Application) async {
+        await state.stopAndDrain()
     }
 
     func runOnce(_ app: Application) async {

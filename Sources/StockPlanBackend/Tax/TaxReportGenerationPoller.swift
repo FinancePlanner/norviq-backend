@@ -5,7 +5,7 @@ import Vapor
 
 final class TaxReportGenerationPoller: LifecycleHandler, @unchecked Sendable {
     private let intervalSeconds: Int64
-    private let state = TaxReportGenerationPollerState()
+    private let state = BackgroundJobState()
 
     init(intervalSeconds: Int64 = 10) {
         self.intervalSeconds = max(5, intervalSeconds)
@@ -35,13 +35,17 @@ final class TaxReportGenerationPoller: LifecycleHandler, @unchecked Sendable {
                 defer { self.state.finish() }
                 await self.runOnce(app)
             }
-            self.state.set(task: task)
+            self.state.track(task: task)
         }
         state.set(scheduled: scheduled)
     }
 
     func shutdown(_: Application) {
-        state.cancel()
+        state.stopAcceptingRuns()
+    }
+
+    func shutdownAsync(_: Application) async {
+        await state.stopAndDrain()
     }
 
     func runOnce(_ app: Application) async {
@@ -105,45 +109,5 @@ final class TaxReportGenerationPoller: LifecycleHandler, @unchecked Sendable {
 
     static func retryDelaySeconds(for attempt: Int) -> Int {
         min(3600, 30 * (1 << max(0, attempt - 1)))
-    }
-}
-
-private final class TaxReportGenerationPollerState: @unchecked Sendable {
-    private let lock = NSLock()
-    private var scheduled: RepeatedTask?
-    private var task: Task<Void, Never>?
-    private var running = false
-
-    func begin() -> Bool {
-        lock.withLock {
-            guard !running else { return false }
-            running = true
-            return true
-        }
-    }
-
-    func finish() {
-        lock.withLock {
-            running = false
-            task = nil
-        }
-    }
-
-    func set(scheduled: RepeatedTask) {
-        lock.withLock { self.scheduled = scheduled }
-    }
-
-    func set(task: Task<Void, Never>) {
-        lock.withLock { self.task = task }
-    }
-
-    func cancel() {
-        lock.withLock {
-            scheduled?.cancel()
-            task?.cancel()
-            scheduled = nil
-            task = nil
-            running = false
-        }
     }
 }

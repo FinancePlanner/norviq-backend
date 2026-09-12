@@ -6,7 +6,7 @@ import Vapor
 
 final class GoalPlanningDailyJob: LifecycleHandler, @unchecked Sendable {
     private let intervalSeconds: Int64
-    private let state = GoalPlanningDailyJobState()
+    private let state = BackgroundJobState()
 
     init(intervalSeconds: Int64 = 86400) {
         self.intervalSeconds = max(300, intervalSeconds)
@@ -21,13 +21,17 @@ final class GoalPlanningDailyJob: LifecycleHandler, @unchecked Sendable {
                 defer { self.state.finish() }
                 await self.runOnce(app)
             }
-            self.state.set(task: task)
+            self.state.track(task: task)
         }
         state.set(scheduled: scheduled)
     }
 
     func shutdown(_: Application) {
-        state.cancel()
+        state.stopAcceptingRuns()
+    }
+
+    func shutdownAsync(_: Application) async {
+        await state.stopAndDrain()
     }
 
     func runOnce(_ app: Application) async {
@@ -113,36 +117,5 @@ final class GoalPlanningDailyJob: LifecycleHandler, @unchecked Sendable {
         let cutoff = Calendar.current.date(byAdding: .day, value: -400, to: Date()) ?? .distantPast
         try await GoalProgressSnapshotModel.query(on: db)
             .filter(\.$calculatedAt < cutoff).filter(\.$isMonthEnd == false).delete()
-    }
-}
-
-private final class GoalPlanningDailyJobState: @unchecked Sendable {
-    private let lock = NSLock()
-    private var scheduled: RepeatedTask?
-    private var task: Task<Void, Never>?
-    private var running = false
-
-    func begin() -> Bool {
-        lock.withLock {
-            if running {
-                return false
-            }; running = true; return true
-        }
-    }
-
-    func set(scheduled: RepeatedTask) {
-        lock.withLock { self.scheduled = scheduled }
-    }
-
-    func set(task: Task<Void, Never>) {
-        lock.withLock { self.task = task }
-    }
-
-    func finish() {
-        lock.withLock { task = nil; running = false }
-    }
-
-    func cancel() {
-        lock.withLock { scheduled?.cancel(); task?.cancel(); scheduled = nil; task = nil; running = false }
     }
 }

@@ -13,20 +13,29 @@ import Vapor
 /// Runs hourly rather than daily like the assistant's retention job, because
 /// these rows live for an hour, not a fortnight.
 final class ExpenseImportRetentionJob: LifecycleHandler, @unchecked Sendable {
-    private var scheduled: RepeatedTask?
+    private let state = BackgroundJobState()
 
     func didBoot(_ app: Application) throws {
-        scheduled = app.eventLoopGroup.next().scheduleRepeatedTask(
+        let scheduled = app.eventLoopGroup.next().scheduleRepeatedTask(
             initialDelay: .minutes(5),
             delay: .hours(1)
         ) { _ in
-            Task { await self.runOnce(app) }
+            guard self.state.begin() else { return }
+            let task = Task {
+                defer { self.state.finish() }
+                await self.runOnce(app)
+            }
+            self.state.track(task: task)
         }
+        state.set(scheduled: scheduled)
     }
 
     func shutdown(_: Application) {
-        scheduled?.cancel()
-        scheduled = nil
+        state.stopAcceptingRuns()
+    }
+
+    func shutdownAsync(_: Application) async {
+        await state.stopAndDrain()
     }
 
     func runOnce(_ app: Application) async {

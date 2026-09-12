@@ -18,7 +18,7 @@ import Vapor
 /// the day-over-day change is honestly "versus the previous trading day".
 final class PortfolioSnapshotJob: LifecycleHandler, @unchecked Sendable {
     private let intervalSeconds: Int64
-    private let state = PortfolioSnapshotJobState()
+    private let state = BackgroundJobState()
     private let valuator = PortfolioSnapshotValuator()
 
     init(intervalSeconds: Int64 = 3600) {
@@ -34,13 +34,17 @@ final class PortfolioSnapshotJob: LifecycleHandler, @unchecked Sendable {
                 defer { self.state.finish() }
                 await self.runOnce(app)
             }
-            self.state.set(task: task)
+            self.state.track(task: task)
         }
         state.set(scheduled: scheduled)
     }
 
     func shutdown(_: Application) {
-        state.cancel()
+        state.stopAcceptingRuns()
+    }
+
+    func shutdownAsync(_: Application) async {
+        await state.stopAndDrain()
     }
 
     func runOnce(_ app: Application) async {
@@ -218,44 +222,5 @@ final class PortfolioSnapshotJob: LifecycleHandler, @unchecked Sendable {
             .filter(\.$asOf < next)
             .count()
         return quoteCount > 0
-    }
-}
-
-private final class PortfolioSnapshotJobState: @unchecked Sendable {
-    private let lock = NSLock()
-    private var scheduled: RepeatedTask?
-    private var task: Task<Void, Never>?
-    private var running = false
-
-    func begin() -> Bool {
-        lock.withLock {
-            if running {
-                return false
-            }
-            running = true
-            return true
-        }
-    }
-
-    func set(scheduled: RepeatedTask) {
-        lock.withLock { self.scheduled = scheduled }
-    }
-
-    func set(task: Task<Void, Never>) {
-        lock.withLock { self.task = task }
-    }
-
-    func finish() {
-        lock.withLock { task = nil; running = false }
-    }
-
-    func cancel() {
-        lock.withLock {
-            scheduled?.cancel()
-            task?.cancel()
-            scheduled = nil
-            task = nil
-            running = false
-        }
     }
 }
