@@ -9,13 +9,7 @@ import Vapor
 final class AdvancedReportWorker: LifecycleHandler, @unchecked Sendable {
     private let intervalSeconds: Int64
     private let generator: AdvancedReportGenerator
-    private let lock = NSLock()
-    private var scheduled: RepeatedTask?
-    private var running = false
-    /// The run currently in flight, so shutdown can wait for it rather than
-    /// leaving it to reach a torn-down application.
-    private var inFlight: Task<Void, Never>?
-    private var isShutDown = false
+    private let state = BackgroundJobState()
 
     init(gotenbergBaseURL: String, intervalSeconds: Int64 = 10) {
         generator = AdvancedReportGenerator(gotenbergBaseURL: gotenbergBaseURL)
@@ -23,80 +17,26 @@ final class AdvancedReportWorker: LifecycleHandler, @unchecked Sendable {
     }
 
     func didBoot(_ app: Application) throws {
-        scheduled = app.eventLoopGroup.next().scheduleRepeatedTask(
+        let scheduled = app.eventLoopGroup.next().scheduleRepeatedTask(
             initialDelay: .seconds(2),
             delay: .seconds(intervalSeconds)
         ) { _ in
-            guard self.begin() else { return }
+            guard self.state.begin() else { return }
             let task = Task {
-                defer { self.finish() }
+                defer { self.state.finish() }
                 await self.runOnce(app)
             }
-            self.track(task: task)
+            self.state.track(task: task)
         }
+        state.set(scheduled: scheduled)
     }
 
-    /// Synchronous shutdown cannot wait, so it can only stop new runs starting.
-    /// Anything already running is covered by `shutdownAsync`, which is the path
-    /// `Application.asyncShutdown()` takes.
     func shutdown(_: Application) {
-        stopAcceptingRuns()
+        state.stopAcceptingRuns()
     }
 
-    func shutdownAsync(_ application: Application) async {
-        shutdown(application)
-        await drainInFlight()
-    }
-
-    /// The shutdown sequence itself, independent of the `Application` the
-    /// protocol hands over but never uses here.
-    ///
-    /// Stop accepting runs, then wait for the one in flight to actually stop.
-    /// Cancellation is cooperative: without the wait, the run continues into
-    /// `app.db` after the databases are gone, and Fluent force-unwraps a nil.
-    func stopAndDrain() async {
-        stopAcceptingRuns()
-        await drainInFlight()
-    }
-
-    private func stopAcceptingRuns() {
-        lock.lock()
-        isShutDown = true
-        scheduled?.cancel()
-        scheduled = nil
-        let task = inFlight
-        lock.unlock()
-        task?.cancel()
-    }
-
-    private func track(task: Task<Void, Never>) {
-        lock.lock()
-        let alreadyShutDown = isShutDown
-        if !alreadyShutDown {
-            inFlight = task
-        }
-        lock.unlock()
-        if alreadyShutDown {
-            task.cancel()
-        }
-    }
-
-    private func drainInFlight() async {
-        while let task = takeInFlight() {
-            task.cancel()
-            await task.value
-        }
-    }
-
-    /// Separated so the lock is never held across a suspension point — NSLock is
-    /// unavailable from async contexts, and holding one over an await would risk
-    /// the resumed continuation landing on a different thread.
-    private func takeInFlight() -> Task<Void, Never>? {
-        lock.lock()
-        defer { lock.unlock() }
-        let task = inFlight
-        inFlight = nil
-        return task
+    func shutdownAsync(_: Application) async {
+        await state.stopAndDrain()
     }
 
     func runOnce(_ app: Application) async {
@@ -530,43 +470,6 @@ final class AdvancedReportWorker: LifecycleHandler, @unchecked Sendable {
             .replacingOccurrences(of: #"[^a-z0-9]+"#, with: "-", options: .regularExpression)
             .trimmingCharacters(in: CharacterSet(charactersIn: "-"))
         return "\(slug.isEmpty ? "norviq-report" : String(slug.prefix(60)))-\(Int(Date().timeIntervalSince1970)).\(format.rawValue)"
-    }
-
-    private func begin() -> Bool {
-        lock.lock()
-        defer { lock.unlock() }
-        // Refusing once shut down is what stops a timer tick that fires during
-        // teardown from starting a run against a dead application.
-        guard !running, !isShutDown else { return false }
-        running = true
-        return true
-    }
-
-    private func finish() {
-        lock.lock()
-        running = false
-        lock.unlock()
-    }
-}
-
-/// Test hooks for the shutdown contract above. The state machine is the part
-/// worth testing directly; the crash it prevents is a race that cannot be
-/// reproduced reliably from a test.
-extension AdvancedReportWorker {
-    func beginForTesting() -> Bool {
-        begin()
-    }
-
-    func finishForTesting() {
-        finish()
-    }
-
-    func trackForTesting(task: Task<Void, Never>) {
-        track(task: task)
-    }
-
-    func shutdownForTesting() async {
-        await stopAndDrain()
     }
 }
 

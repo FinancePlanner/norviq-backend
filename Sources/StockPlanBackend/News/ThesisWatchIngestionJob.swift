@@ -7,6 +7,7 @@ final class ThesisWatchIngestionJob: LifecycleHandler, @unchecked Sendable {
     private let intervalSeconds: Int64
     private let maxSymbolsPerRun: Int
     private let state = ThesisWatchIngestionState()
+    private let lifecycle = BackgroundJobState()
     private var scheduled: RepeatedTask?
 
     init(intervalSeconds: Int64 = 900, maxSymbolsPerRun: Int = 30) {
@@ -19,13 +20,27 @@ final class ThesisWatchIngestionJob: LifecycleHandler, @unchecked Sendable {
             initialDelay: .seconds(45),
             delay: .seconds(intervalSeconds)
         ) { _ in
-            Task { await self.tick(app) }
+            guard self.lifecycle.begin() else {
+                app.logger.debug("thesis_watch_ingestion skipped overlapping tick")
+                return
+            }
+            let task = Task {
+                defer { self.lifecycle.finish() }
+                await self.tick(app)
+            }
+            self.lifecycle.track(task: task)
+        }
+        if let scheduled {
+            lifecycle.set(scheduled: scheduled)
         }
     }
 
     func shutdown(_: Application) {
-        scheduled?.cancel()
-        scheduled = nil
+        lifecycle.stopAcceptingRuns()
+    }
+
+    func shutdownAsync(_: Application) async {
+        await lifecycle.stopAndDrain()
     }
 
     func runOnce(_ app: Application) async {
@@ -33,12 +48,6 @@ final class ThesisWatchIngestionJob: LifecycleHandler, @unchecked Sendable {
     }
 
     private func tick(_ app: Application) async {
-        guard await state.begin() else {
-            app.logger.debug("thesis_watch_ingestion skipped overlapping tick")
-            return
-        }
-        defer { Task { await state.finish() } }
-
         do {
             let holdingSymbols = try await Stock.query(on: app.db).all().map(\.symbol)
             let watchlistSymbols = try await WatchlistItem.query(on: app.db)
@@ -58,19 +67,11 @@ final class ThesisWatchIngestionJob: LifecycleHandler, @unchecked Sendable {
     }
 }
 
+/// Round-robin cursor over the tracked symbols, so each run refreshes a
+/// different slice rather than always the first `maxSymbolsPerRun`. Overlap
+/// guarding lives in `BackgroundJobState` now.
 private actor ThesisWatchIngestionState {
-    private var isRunning = false
     private var cursor = 0
-
-    func begin() -> Bool {
-        guard !isRunning else { return false }
-        isRunning = true
-        return true
-    }
-
-    func finish() {
-        isRunning = false
-    }
 
     func nextBatch(from symbols: [String], limit: Int) -> [String] {
         guard !symbols.isEmpty else {

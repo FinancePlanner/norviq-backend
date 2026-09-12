@@ -177,7 +177,7 @@ struct RebalancingAlertEvaluator: Sendable {
 
 final class RebalancingAlertPoller: LifecycleHandler, @unchecked Sendable {
     private let intervalSeconds: Int64
-    private let state = RebalancingPollerState()
+    private let state = BackgroundJobState()
 
     init(intervalSeconds: Int64) {
         self.intervalSeconds = max(intervalSeconds, 60)
@@ -193,57 +193,21 @@ final class RebalancingAlertPoller: LifecycleHandler, @unchecked Sendable {
                 defer { self.state.finish() }
                 await self.runOnce(app)
             }
-            self.state.set(task: task)
+            self.state.track(task: task)
         }
         state.set(scheduled: scheduled)
     }
 
     func shutdown(_: Application) {
-        state.cancel()
+        state.stopAcceptingRuns()
+    }
+
+    func shutdownAsync(_: Application) async {
+        await state.stopAndDrain()
     }
 
     func runOnce(_ app: Application) async {
         let request = Request(application: app, on: app.eventLoopGroup.next())
         await RebalancingAlertEvaluator().evaluate(req: request)
-    }
-}
-
-private final class RebalancingPollerState: @unchecked Sendable {
-    private let lock = NSLock()
-    private var scheduled: RepeatedTask?
-    private var task: Task<Void, Never>?
-    private var running = false
-
-    func begin() -> Bool {
-        lock.withLock {
-            guard !running else { return false }
-            running = true
-            return true
-        }
-    }
-
-    func set(scheduled: RepeatedTask) {
-        lock.withLock { self.scheduled = scheduled }
-    }
-
-    func set(task: Task<Void, Never>) {
-        lock.withLock { self.task = task }
-    }
-
-    func finish() {
-        lock.withLock {
-            task = nil
-            running = false
-        }
-    }
-
-    func cancel() {
-        lock.withLock {
-            scheduled?.cancel()
-            task?.cancel()
-            scheduled = nil
-            task = nil
-            running = false
-        }
     }
 }

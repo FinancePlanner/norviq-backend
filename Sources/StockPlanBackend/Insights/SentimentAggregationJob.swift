@@ -16,7 +16,9 @@ final class SentimentAggregationJob: LifecycleHandler, @unchecked Sendable {
     private let tickIntervalSeconds: Int64
     private let initialDelaySeconds: Int64
     private let targetHourUTC: Int
-    private let state = SentimentAggregationJobState()
+    private let state = BackgroundJobState()
+    /// Marks the day's aggregation as done so later ticks skip it.
+    private let completion = SentimentAggregationCompletion()
 
     init(
         tickIntervalSeconds: Int64 = 3600,
@@ -40,21 +42,25 @@ final class SentimentAggregationJob: LifecycleHandler, @unchecked Sendable {
             initialDelay: .seconds(initialDelaySeconds),
             delay: .seconds(tickIntervalSeconds)
         ) { _ in
-            guard self.state.beginRun() else {
+            guard self.state.begin() else {
                 app.logger.debug("sentiment_aggregation skipped overlapping tick")
                 return
             }
             let task = Task {
-                defer { self.state.finishRun() }
+                defer { self.state.finish() }
                 await self.tick(app)
             }
-            self.state.setCurrentTask(task)
+            self.state.track(task: task)
         }
-        state.setScheduled(scheduled)
+        state.set(scheduled: scheduled)
     }
 
     func shutdown(_: Application) {
-        state.cancelAll()
+        state.stopAcceptingRuns()
+    }
+
+    func shutdownAsync(_: Application) async {
+        await state.stopAndDrain()
     }
 
     /// Forces a run regardless of the clock or today's completion marker. Used
@@ -65,7 +71,7 @@ final class SentimentAggregationJob: LifecycleHandler, @unchecked Sendable {
 
     private func tick(_ app: Application) async {
         let today = SentimentDate.today()
-        guard state.lastCompletedDate() != today else { return }
+        guard completion.lastCompletedDate() != today else { return }
         guard Self.currentHourUTC() >= targetHourUTC else { return }
 
         await execute(app)
@@ -79,7 +85,7 @@ final class SentimentAggregationJob: LifecycleHandler, @unchecked Sendable {
         let req = Request(application: app, on: app.eventLoopGroup.next())
         do {
             let summary = try await app.sentimentAggregationService.runDailyAggregation(on: req)
-            state.recordCompleted(summary.asOfDate)
+            completion.recordCompleted(summary.asOfDate)
             app.sentimentSyncStatus.recordSuccess()
             let line = """
             sentiment_aggregation ok date=\(summary.asOfDate) \
@@ -113,40 +119,11 @@ final class SentimentAggregationJob: LifecycleHandler, @unchecked Sendable {
     }
 }
 
-private final class SentimentAggregationJobState: @unchecked Sendable {
+/// The one piece of state the shared job lifecycle does not cover: which day's
+/// aggregation has already completed, so an hourly tick runs at most once a day.
+private final class SentimentAggregationCompletion: @unchecked Sendable {
     private let lock = NSLock()
-    private var scheduled: RepeatedTask?
-    private var currentTask: Task<Void, Never>?
-    private var isRunning = false
     private var completedDate: String?
-
-    func setScheduled(_ scheduled: RepeatedTask) {
-        lock.lock()
-        self.scheduled?.cancel()
-        self.scheduled = scheduled
-        lock.unlock()
-    }
-
-    func beginRun() -> Bool {
-        lock.lock()
-        defer { lock.unlock() }
-        guard !isRunning else { return false }
-        isRunning = true
-        return true
-    }
-
-    func setCurrentTask(_ task: Task<Void, Never>) {
-        lock.lock()
-        currentTask = task
-        lock.unlock()
-    }
-
-    func finishRun() {
-        lock.lock()
-        currentTask = nil
-        isRunning = false
-        lock.unlock()
-    }
 
     func recordCompleted(_ date: String) {
         lock.lock()
@@ -158,16 +135,6 @@ private final class SentimentAggregationJobState: @unchecked Sendable {
         lock.lock()
         defer { lock.unlock() }
         return completedDate
-    }
-
-    func cancelAll() {
-        lock.lock()
-        scheduled?.cancel()
-        scheduled = nil
-        currentTask?.cancel()
-        currentTask = nil
-        isRunning = false
-        lock.unlock()
     }
 }
 
@@ -182,7 +149,7 @@ final class SentimentRetentionJob: LifecycleHandler, @unchecked Sendable {
     private let intervalSeconds: Int64
     private let postRetentionDays: Int
     private let dailyRetentionDays: Int
-    private let state = SentimentAggregationJobState()
+    private let state = BackgroundJobState()
 
     init(intervalSeconds: Int64 = 86400, postRetentionDays: Int = 90, dailyRetentionDays: Int = 730) {
         self.intervalSeconds = max(intervalSeconds, 3600)
@@ -202,18 +169,22 @@ final class SentimentRetentionJob: LifecycleHandler, @unchecked Sendable {
             initialDelay: .seconds(600),
             delay: .seconds(intervalSeconds)
         ) { _ in
-            guard self.state.beginRun() else { return }
+            guard self.state.begin() else { return }
             let task = Task {
-                defer { self.state.finishRun() }
+                defer { self.state.finish() }
                 await self.tick(app)
             }
-            self.state.setCurrentTask(task)
+            self.state.track(task: task)
         }
-        state.setScheduled(scheduled)
+        state.set(scheduled: scheduled)
     }
 
     func shutdown(_: Application) {
-        state.cancelAll()
+        state.stopAcceptingRuns()
+    }
+
+    func shutdownAsync(_: Application) async {
+        await state.stopAndDrain()
     }
 
     func runOnce(_ app: Application) async {

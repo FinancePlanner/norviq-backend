@@ -8,7 +8,7 @@ import Vapor
 final class WealthAutomationDailyJob: LifecycleHandler, @unchecked Sendable {
     private let intervalSeconds: Int64
     private let rebalanceCooldownSeconds: TimeInterval
-    private let state = WealthAutomationDailyJobState()
+    private let state = BackgroundJobState()
 
     init(intervalSeconds: Int64 = 86400, rebalanceCooldownSeconds: Int64 = 604_800) {
         self.intervalSeconds = max(300, intervalSeconds)
@@ -25,13 +25,17 @@ final class WealthAutomationDailyJob: LifecycleHandler, @unchecked Sendable {
                 defer { self.state.finish() }
                 await self.runOnce(app)
             }
-            self.state.set(task: task)
+            self.state.track(task: task)
         }
         state.set(scheduled: scheduled)
     }
 
     func shutdown(_: Application) {
-        state.cancel()
+        state.stopAcceptingRuns()
+    }
+
+    func shutdownAsync(_: Application) async {
+        await state.stopAndDrain()
     }
 
     func runOnce(_ app: Application) async {
@@ -163,42 +167,4 @@ final class WealthAutomationDailyJob: LifecycleHandler, @unchecked Sendable {
 
 private struct LeaseAcquisition: Decodable {
     let owner: String
-}
-
-private final class WealthAutomationDailyJobState: @unchecked Sendable {
-    // Every mutable field is accessed only while holding this lock.
-    private let lock = NSLock()
-    private var running = false
-    private var scheduled: RepeatedTask?
-    private var task: Task<Void, Never>?
-
-    func begin() -> Bool {
-        lock.withLock {
-            guard !running else { return false }
-            running = true
-            return true
-        }
-    }
-
-    func finish() {
-        lock.withLock { running = false; task = nil }
-    }
-
-    func set(scheduled: RepeatedTask) {
-        lock.withLock { self.scheduled = scheduled }
-    }
-
-    func set(task: Task<Void, Never>) {
-        lock.withLock { self.task = task }
-    }
-
-    func cancel() {
-        lock.withLock {
-            scheduled?.cancel()
-            scheduled = nil
-            task?.cancel()
-            task = nil
-            running = false
-        }
-    }
 }
