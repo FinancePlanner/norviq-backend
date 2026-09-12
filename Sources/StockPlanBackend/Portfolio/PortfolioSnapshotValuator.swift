@@ -284,6 +284,27 @@ struct PortfolioSnapshotValuator: Sendable {
         return result
     }
 
+    /// Best available price per symbol, from stored data only.
+    ///
+    /// Exposed for callers that hold their own set of positions rather than a
+    /// portfolio list — they still need prices resolved the same way, and a
+    /// symbol absent from the result is one that could not be priced.
+    func prices(
+        for symbols: [String],
+        asOf: Date,
+        pricing: PortfolioSnapshotPricing,
+        on db: any Database
+    ) async throws -> [String: Double] {
+        let day = Self.startOfDay(asOf)
+        let normalized = Self.uniqueSymbols(symbols)
+        var resolved = try await closes(symbols: normalized, on: day, on: db)
+        guard pricing == .live else { return resolved }
+        for (symbol, quote) in try await latestQuotes(symbols: normalized, on: db) {
+            resolved[symbol] = quote.price
+        }
+        return resolved
+    }
+
     /// Adjusted close on or before `day`, per symbol.
     private func closes(
         symbols: [String],

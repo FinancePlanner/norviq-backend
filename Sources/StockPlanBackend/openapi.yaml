@@ -6275,6 +6275,17 @@ paths:
           schema:
             type: string
             format: uuid
+        - name: range
+          in: query
+          required: false
+          description: >-
+            Window the returned points cover. Changes are always computed over
+            the full recorded history regardless of this value. Unrecognised
+            values fall back to the default.
+          schema:
+            type: string
+            enum: ['1W', '1M', '3M', '1Y', 'ALL']
+            default: '1M'
       responses:
         '200':
           description: OK
@@ -13942,6 +13953,17 @@ components:
         value:
           type: number
           format: double
+        costBasis:
+          type: number
+          format: double
+          description: Cost basis of the holdings on this day, when recorded.
+        source:
+          type: string
+          enum: [live, backfill]
+          description: >-
+            How the point was arrived at. `live` was observed on the day it is
+            dated; `backfill` was reconstructed afterwards from historical
+            prices and is approximate.
       required: [date, value]
     DividendProjectedItem:
       type: object
@@ -13971,6 +13993,51 @@ components:
           items:
             $ref: '#/components/schemas/DividendMonthlyBreakdown'
       required: [annualProjectedIncome, upcomingDividends, monthlyBreakdown]
+    PortfolioChange:
+      type: object
+      description: >-
+        A change measured over an explicit window. `fromDate`/`toDate`/`basis`
+        state what was actually compared, so a client can label the number
+        truthfully rather than guessing what "period" meant.
+      properties:
+        percent:
+          type: number
+          format: double
+          description: Fractional, not percentage points. -0.004 is -0.4%.
+        absolute:
+          type: number
+          format: double
+        fromDate:
+          type: string
+          format: date
+        toDate:
+          type: string
+          format: date
+        basis:
+          type: string
+          description: >-
+            What the change was measured against. Not a closed enum: new values
+            may be added, and clients must tolerate ones they do not know.
+          example: previousTradingDay
+      required: [percent, absolute, fromDate, toDate, basis]
+    PortfolioChanges:
+      type: object
+      description: >-
+        Changes over the standard windows. A member is ABSENT when there is not
+        enough history to compute it. Absent is not zero: clients must render an
+        empty state, never "0.0%", since a zero would assert the portfolio was
+        flat over a window nobody measured.
+      properties:
+        day:
+          $ref: '#/components/schemas/PortfolioChange'
+        week:
+          $ref: '#/components/schemas/PortfolioChange'
+        month:
+          $ref: '#/components/schemas/PortfolioChange'
+        ytd:
+          $ref: '#/components/schemas/PortfolioChange'
+        sinceInception:
+          $ref: '#/components/schemas/PortfolioChange'
     PortfolioPerformanceResponse:
       type: object
       properties:
@@ -13980,6 +14047,16 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/PerformancePoint'
+        range:
+          type: string
+          description: The window the points cover.
+          enum: ['1W', '1M', '3M', '1Y', 'ALL']
+        asOf:
+          type: string
+          format: date
+          description: Date of the most recent recorded point.
+        changes:
+          $ref: '#/components/schemas/PortfolioChanges'
       required: [baseCurrency, points]
     TransactionResponse:
       type: object
