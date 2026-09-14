@@ -6,7 +6,7 @@ struct RetirementProjectionEngine: Sendable {
     let rules: RetirementRuleRegistry
 
     func project(
-        portfolioId: UUID,
+        portfolioId: UUID?,
         input: RetirementPlanInput,
         request: RetirementProjectionRequest
     ) throws -> RetirementProjection {
@@ -99,7 +99,7 @@ struct RetirementProjectionEngine: Sendable {
 
         return RetirementProjection(
             id: UUID().uuidString,
-            portfolioId: portfolioId.uuidString,
+            portfolioId: portfolioId?.uuidString,
             ruleVersion: rulePack.version,
             currency: input.currency,
             summary: .init(
