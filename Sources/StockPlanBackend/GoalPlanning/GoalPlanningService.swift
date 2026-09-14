@@ -67,25 +67,38 @@ struct GoalPlanningService {
             principal: valuation.value,
             monthlyContribution: trajectoryContribution,
             annualRate: annualReturn,
-            months: monthsRemaining
+            months: monthsRemaining,
+            annualContributionGrowthRate: goal.annualContributionGrowth
         )
         let monthsElapsed = max(0, Self.months(from: goal.createdAt ?? now, to: now, calendar: calendar))
         let plannedToday = PlanningEngine.futureValue(
             principal: goal.startingCapital,
             monthlyContribution: goal.monthlyContribution,
             annualRate: goal.expectedAnnualReturn,
-            months: monthsElapsed
+            months: monthsElapsed,
+            annualContributionGrowthRate: goal.annualContributionGrowth
+        )
+        // The target is stated in today's money, so the number actually standing at the
+        // target date is larger. Comparisons made *today* keep the today's-money figure;
+        // comparisons made *at the target date* use this one.
+        let targetAtDate = PlanningEngine.inflatedTarget(
+            goal.targetAmount,
+            annualInflationRate: goal.inflationAssumption,
+            months: monthsRemaining
         )
         let completionMonths = PlanningEngine.monthsToTarget(
             principal: valuation.value,
             target: goal.targetAmount,
             monthlyContribution: trajectoryContribution,
-            annualRate: annualReturn
+            annualRate: annualReturn,
+            annualContributionGrowthRate: goal.annualContributionGrowth,
+            annualInflationRate: goal.inflationAssumption
         )
         let driftMonths = completionMonths.map { $0 - monthsRemaining }
         let state = driftState(
             current: valuation.value,
             target: goal.targetAmount,
+            targetAtDate: targetAtDate,
             projected: projected,
             driftMonths: driftMonths
         )
@@ -250,7 +263,9 @@ struct GoalPlanningService {
                 principal: progress.currentValue,
                 target: goal.targetAmount,
                 annualRate: goal.expectedAnnualReturn,
-                months: months
+                months: months,
+                annualContributionGrowthRate: goal.annualContributionGrowth,
+                annualInflationRate: goal.inflationAssumption
             )
             let increase = max(0, required - progress.observedMonthlyContribution)
             if increase > 0.5 {
@@ -288,7 +303,9 @@ struct GoalPlanningService {
             let months = max(1, Self.months(from: Date(), to: goal.targetDate, calendar: calendar))
             let required = try PlanningEngine.requiredMonthlyContribution(
                 principal: progress.currentValue, target: goal.targetAmount,
-                annualRate: goal.expectedAnnualReturn, months: months
+                annualRate: goal.expectedAnnualReturn, months: months,
+                annualContributionGrowthRate: goal.annualContributionGrowth,
+                annualInflationRate: goal.inflationAssumption
             )
             let reduction = max(0, goal.monthlyContribution - required)
             if reduction > 0.5 {
@@ -404,12 +421,17 @@ struct GoalPlanningService {
             let date = calendar.date(byAdding: .month, value: month, to: start) ?? start
             let planned = PlanningEngine.futureValue(
                 principal: goal.startingCapital, monthlyContribution: goal.monthlyContribution,
-                annualRate: goal.expectedAnnualReturn, months: month
+                annualRate: goal.expectedAnnualReturn, months: month,
+                annualContributionGrowthRate: goal.annualContributionGrowth
             )
+            // The forward leg grows from today rather than from the goal's start: the
+            // contribution it begins from is what the user is observably paying now, which
+            // already carries whatever growth has happened so far.
             let futureMonth = max(0, month - elapsed)
             let projected = month < elapsed ? planned : PlanningEngine.futureValue(
                 principal: currentValue, monthlyContribution: monthlyContribution,
-                annualRate: annualReturn, months: futureMonth
+                annualRate: annualReturn, months: futureMonth,
+                annualContributionGrowthRate: goal.annualContributionGrowth
             )
             return GoalTrajectoryPoint(
                 date: Self.dateString(date), plannedValue: planned,
@@ -419,12 +441,21 @@ struct GoalPlanningService {
         }
     }
 
-    private func driftState(current: Double, target: Double, projected: Double, driftMonths: Int?) -> GoalDriftState {
+    /// `target` is in today's money and `targetAtDate` is the same target carried to the
+    /// target date. Completion is judged today, against money as it stands today; being on
+    /// track is judged at the target date, where the goalposts have moved.
+    private func driftState(
+        current: Double,
+        target: Double,
+        targetAtDate: Double,
+        projected: Double,
+        driftMonths: Int?
+    ) -> GoalDriftState {
         if current >= target {
             return .complete
         }
         guard let driftMonths else { return .insufficientData }
-        if abs(projected - target) <= target * 0.01 || abs(driftMonths) <= 1 {
+        if abs(projected - targetAtDate) <= targetAtDate * 0.01 || abs(driftMonths) <= 1 {
             return .onTrack
         }
         return driftMonths < 0 ? .ahead : .behind

@@ -286,17 +286,25 @@ struct TaxGoalImpactCalculator: Sendable {
             }
             let applied = benefit * Decimal(min(1, max(0, allocation)))
             let principal = latestSnapshot[goalID]?.currentValue ?? goal.startingCapital
+            // Both legs carry the goal's own contribution growth and inflation assumption.
+            // The figure reported is the difference between them, so leaving either out of
+            // both would still skew it - the two legs have different principals, and the
+            // gap between them moves with the assumptions.
             let baselineMonths = PlanningEngine.monthsToTarget(
                 principal: principal,
                 target: goal.targetAmount,
                 monthlyContribution: goal.monthlyContribution,
-                annualRate: goal.expectedAnnualReturn
+                annualRate: goal.expectedAnnualReturn,
+                annualContributionGrowthRate: goal.annualContributionGrowth,
+                annualInflationRate: goal.inflationAssumption
             )
             let improvedMonths = PlanningEngine.monthsToTarget(
                 principal: principal + NSDecimalNumber(decimal: applied).doubleValue,
                 target: goal.targetAmount,
                 monthlyContribution: goal.monthlyContribution,
-                annualRate: goal.expectedAnnualReturn
+                annualRate: goal.expectedAnnualReturn,
+                annualContributionGrowthRate: goal.annualContributionGrowth,
+                annualInflationRate: goal.inflationAssumption
             )
             return TaxGoalImpact(
                 goalId: goalID.uuidString,
