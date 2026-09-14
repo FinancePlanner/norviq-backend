@@ -286,13 +286,13 @@ struct TaxGoalImpactCalculator: Sendable {
             }
             let applied = benefit * Decimal(min(1, max(0, allocation)))
             let principal = latestSnapshot[goalID]?.currentValue ?? goal.startingCapital
-            let baselineMonths = GoalProjectionCalculator.monthsToTarget(
+            let baselineMonths = PlanningEngine.monthsToTarget(
                 principal: principal,
                 target: goal.targetAmount,
                 monthlyContribution: goal.monthlyContribution,
                 annualRate: goal.expectedAnnualReturn
             )
-            let improvedMonths = GoalProjectionCalculator.monthsToTarget(
+            let improvedMonths = PlanningEngine.monthsToTarget(
                 principal: principal + NSDecimalNumber(decimal: applied).doubleValue,
                 target: goal.targetAmount,
                 monthlyContribution: goal.monthlyContribution,

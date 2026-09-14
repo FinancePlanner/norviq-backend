@@ -26,7 +26,6 @@ struct RetirementProjectionEngine: Sendable {
             var balance = input.accounts.reduce(0) { $0 + max(0, $1.currentBalance) }
             var salary = input.annualSalary
             var contribution = annualContribution(input: input, salary: salary)
-            var spending = input.desiredAnnualSpending
             var firstShortfall: Int?
             samples[0].append(balance)
 
@@ -46,9 +45,12 @@ struct RetirementProjectionEngine: Sendable {
                 } else {
                     let pension = pensionIncome(input.publicPension, age: age)
                         + input.otherAnnualRetirementIncome
-                    let withdrawal = withdrawal(input: input, balance: balance, spending: spending)
+                    let withdrawal = withdrawal(
+                        input: input,
+                        balance: balance,
+                        spending: inflatedSpending(input: input, offset: offset)
+                    )
                     balance = max(0, balance - max(0, withdrawal - pension))
-                    spending *= 1 + input.inflationRate
                     if balance <= 0, firstShortfall == nil {
                         firstShortfall = age
                     }
@@ -82,7 +84,9 @@ struct RetirementProjectionEngine: Sendable {
                 p75: percentile(sorted, 0.75),
                 p90: percentile(sorted, 0.90),
                 annualContribution: contribution,
-                annualWithdrawal: age >= input.retirementAge ? withdrawal(input: input, balance: median, spending: input.desiredAnnualSpending) : 0,
+                annualWithdrawal: age >= input.retirementAge
+                    ? withdrawal(input: input, balance: median, spending: inflatedSpending(input: input, offset: index))
+                    : 0,
                 annualPensionIncome: pension
             )
         }
@@ -146,6 +150,13 @@ struct RetirementProjectionEngine: Sendable {
             }
             return total + value
         }
+    }
+
+    /// Desired spending is entered in today's money, so it has to be carried forward by
+    /// inflation across the whole horizon - the accumulation years included. Leaving it frozen
+    /// until retirement understates the need by roughly a third over twenty years at 2%.
+    private func inflatedSpending(input: RetirementPlanInput, offset: Int) -> Double {
+        input.desiredAnnualSpending * pow(1 + input.inflationRate, Double(offset))
     }
 
     private func withdrawal(input: RetirementPlanInput, balance: Double, spending: Double) -> Double {

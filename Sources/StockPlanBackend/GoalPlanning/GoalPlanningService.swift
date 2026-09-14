@@ -63,20 +63,20 @@ struct GoalPlanningService {
         let plannedContribution = overrideContribution ?? goal.monthlyContribution
         let trajectoryContribution = overrideContribution ?? (observed > 0 ? observed : goal.monthlyContribution)
         let annualReturn = overrideReturn ?? goal.expectedAnnualReturn
-        let projected = GoalProjectionCalculator.futureValue(
+        let projected = PlanningEngine.futureValue(
             principal: valuation.value,
             monthlyContribution: trajectoryContribution,
             annualRate: annualReturn,
             months: monthsRemaining
         )
         let monthsElapsed = max(0, Self.months(from: goal.createdAt ?? now, to: now, calendar: calendar))
-        let plannedToday = GoalProjectionCalculator.futureValue(
+        let plannedToday = PlanningEngine.futureValue(
             principal: goal.startingCapital,
             monthlyContribution: goal.monthlyContribution,
             annualRate: goal.expectedAnnualReturn,
             months: monthsElapsed
         )
-        let completionMonths = GoalProjectionCalculator.monthsToTarget(
+        let completionMonths = PlanningEngine.monthsToTarget(
             principal: valuation.value,
             target: goal.targetAmount,
             monthlyContribution: trajectoryContribution,
@@ -246,7 +246,7 @@ struct GoalPlanningService {
         var generated: [GoalSuggestionModel] = []
         if progress.driftState == .behind {
             let months = max(1, Self.months(from: Date(), to: goal.targetDate, calendar: calendar))
-            let required = try GoalProjectionCalculator.requiredMonthlyContribution(
+            let required = try PlanningEngine.requiredMonthlyContribution(
                 principal: progress.currentValue,
                 target: goal.targetAmount,
                 annualRate: goal.expectedAnnualReturn,
@@ -286,7 +286,7 @@ struct GoalPlanningService {
             ))
         } else if progress.driftState == .ahead, goal.monthlyContribution > 0 {
             let months = max(1, Self.months(from: Date(), to: goal.targetDate, calendar: calendar))
-            let required = try GoalProjectionCalculator.requiredMonthlyContribution(
+            let required = try PlanningEngine.requiredMonthlyContribution(
                 principal: progress.currentValue, target: goal.targetAmount,
                 annualRate: goal.expectedAnnualReturn, months: months
             )
@@ -402,12 +402,12 @@ struct GoalPlanningService {
             .compactMapValues { $0.last }
         return (0 ... totalMonths).map { month in
             let date = calendar.date(byAdding: .month, value: month, to: start) ?? start
-            let planned = GoalProjectionCalculator.futureValue(
+            let planned = PlanningEngine.futureValue(
                 principal: goal.startingCapital, monthlyContribution: goal.monthlyContribution,
                 annualRate: goal.expectedAnnualReturn, months: month
             )
             let futureMonth = max(0, month - elapsed)
-            let projected = month < elapsed ? planned : GoalProjectionCalculator.futureValue(
+            let projected = month < elapsed ? planned : PlanningEngine.futureValue(
                 principal: currentValue, monthlyContribution: monthlyContribution,
                 annualRate: annualReturn, months: futureMonth
             )
