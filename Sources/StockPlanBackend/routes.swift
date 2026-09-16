@@ -155,6 +155,11 @@ func routes(_ app: Application) throws {
     // Rate limit Hermes-backed insights (reads hit Postgres, but keep parity with market data).
     let insightsRateLimit = RateLimitMiddleware(limit: 60, interval: 60, keyPrefix: "ratelimit:insights")
     try api.grouped(insightsRateLimit).register(collection: InsightsController())
+
+    // Internal operator endpoint: user count for the portfolio dashboard.
+    // Guarded by METRICS_SECRET; mounted directly on `app` (not `api`) so the
+    // path is /internal/metrics without a version prefix.
+    try app.register(collection: InternalMetricsController())
 }
 
 private func goalPlanningRoutesEnabled() -> Bool {
