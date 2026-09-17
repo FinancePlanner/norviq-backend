@@ -125,6 +125,42 @@ struct MCPTokenAuthTests {
         }
     }
 
+    /// The public ticker pages are served by the web pod, which authenticates
+    /// with a PAT. Nothing on the market group asks for a first-party session, so
+    /// `market:read` is the whole requirement — this pins that down for the two
+    /// routes those pages lean on hardest.
+    @Test("PAT with market:read clears auth on the technicals and earnings-calendar routes")
+    func patMarketReadClearsMarketReadRoutes() async throws {
+        try await withApp { app in
+            let user = try await registerUser(app: app)
+            let pat = try await mintPAT(app: app, userId: user.userId, scopes: [.marketRead])
+
+            for path in ["v1/market/technicals/AAPL", "v1/market/earnings-calendar"] {
+                try await app.testing().test(.GET, path, beforeRequest: { req in
+                    req.headers.bearerAuthorization = .init(token: pat)
+                }, afterResponse: { res async in
+                    // 503 is the unconfigured market provider answering, which
+                    // only happens once the request has cleared authentication,
+                    // the scope check and routing.
+                    #expect(res.status == .serviceUnavailable)
+                })
+            }
+        }
+    }
+
+    @Test("PAT without market:read is forbidden from the technicals route")
+    func patWithoutMarketReadForbiddenFromTechnicals() async throws {
+        try await withApp { app in
+            let user = try await registerUser(app: app)
+            let pat = try await mintPAT(app: app, userId: user.userId, scopes: [.expensesRead])
+            try await app.testing().test(.GET, "v1/market/technicals/AAPL", beforeRequest: { req in
+                req.headers.bearerAuthorization = .init(token: pat)
+            }, afterResponse: { res async in
+                #expect(res.status == .forbidden)
+            })
+        }
+    }
+
     @Test("PAT without research:write cannot write news items")
     func patCannotCreateNewsWithoutScope() async throws {
         try await withApp { app in
