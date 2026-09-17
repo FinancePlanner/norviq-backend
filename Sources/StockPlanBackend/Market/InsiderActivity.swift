@@ -93,6 +93,14 @@ enum InsiderActivityConfig {
     static let maxRows = 500
     static let pageSize = 100
 
+    /// Brings any requested window inside `windowDaysRange`.
+    ///
+    /// The HTTP route never needs this — it answers 400 for an out-of-range
+    /// `days` before the service is called, because silently returning a
+    /// different window than the one asked for is worse than refusing. The
+    /// clamp is the service's own guarantee to its other callers and to the
+    /// cache key, which must never be built from an unbounded number.
+    /// Exercised through the service in `MarketOwnershipServiceTests`.
     static func clampWindowDays(_ requested: Int) -> Int {
         min(max(requested, windowDaysRange.lowerBound), windowDaysRange.upperBound)
     }
