@@ -40,6 +40,7 @@ struct MarketDataController: RouteCollection {
         rateLimited.get("ratios", ":symbol", use: ratios)
         rateLimited.get("historical-sector-performance", use: historicalSectorPerformance)
         rateLimited.get("history", ":symbol", use: history)
+        rateLimited.get("technicals", ":symbol", use: technicals)
         rateLimited.get("search", use: search)
         rateLimited.get("fx", use: fx)
         rateLimited.get("price-chart", "compare", use: priceChartComparison)
@@ -662,6 +663,48 @@ struct MarketDataController: RouteCollection {
         response.headers.add(name: .eTag, value: etag)
         response.headers.add(name: .cacheControl, value: "public, max-age=300")
         return response
+    }
+
+    /// Soft-failing, so an unreachable Redis costs a recomputation rather than
+    /// the response.
+    private static let technicalsCache = RedisJSONCache(label: "market.technicals")
+
+    @Sendable
+    func technicals(req: Request) async throws -> TechnicalSignalsResponse {
+        // Same teaser model as `earningsCalendar`: the signals are what makes a
+        // public ticker page worth reading, and the fundamentals behind them
+        // stay Pro-gated.
+        _ = try req.auth.require(SessionToken.self)
+        guard let raw = req.parameters.get("symbol")?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+            !raw.isEmpty
+        else {
+            throw Abort(.badRequest, reason: "Missing symbol.")
+        }
+        let symbol = raw.uppercased()
+
+        let cacheKey = TechnicalSignalsConfig.redisKey(symbol)
+        if let cached: TechnicalSignalsResponse = await Self.technicalsCache.get(cacheKey, on: req) {
+            return cached
+        }
+
+        let history = try await req.application.marketDataService.history(
+            symbol: symbol,
+            from: TechnicalSignalsConfig.historyStart(),
+            to: nil,
+            on: req
+        )
+        guard let signals = TechnicalSignals.compute(symbol: symbol, bars: history.bars) else {
+            throw Abort(.notFound, reason: "No price history available for \(symbol).")
+        }
+
+        await Self.technicalsCache.set(
+            cacheKey,
+            value: signals,
+            ttlSeconds: TechnicalSignalsConfig.ttlSecondsFromEnvironment(),
+            on: req
+        )
+        return signals
     }
 
     @Sendable

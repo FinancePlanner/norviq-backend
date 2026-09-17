@@ -279,6 +279,16 @@ struct TechnicalSignalsTests {
         #expect(full.fiftyTwoWeek == capped.fiftyTwoWeek)
     }
 
+    // MARK: - Configuration
+
+    @Test("The upstream history window starts 600 calendar days back, in UTC")
+    func historyStartIsSixHundredDaysBack() {
+        let now = Date(timeIntervalSince1970: 1_735_689_600) // 2025-01-01T00:00:00Z
+
+        #expect(TechnicalSignalsConfig.historyStart(relativeTo: now) == "2023-05-12")
+        #expect(TechnicalSignalsConfig.redisKey("AAPL") == "market:technicals:AAPL")
+    }
+
     @Test("Candles arriving newest-first are still read chronologically")
     func unsortedCandlesAreOrderedBeforeComputing() throws {
         let closes = (1 ... 300).map(Double.init)

@@ -2964,6 +2964,35 @@ paths:
           description: Unauthorized
         '503':
           description: Market data provider unavailable or misconfigured
+  /v1/market/technicals/{symbol}:
+    parameters:
+      - name: symbol
+        in: path
+        required: true
+        schema:
+          type: string
+    get:
+      operationId: getMarketTechnicals
+      tags: [MarketData]
+      summary: Get technical signals for a symbol
+      description: Returns trend, momentum, and 52-week range signals derived from up to 300 trailing daily closes of the backend's cached price history. Indicators without enough sessions are `null` rather than approximated. Cached for an hour (`MARKET_TTL_TECHNICALS_SECONDS`).
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TechnicalSignalsResponse'
+        '400':
+          description: Missing or invalid symbol
+        '401':
+          description: Unauthorized
+        '404':
+          description: No price history available for the symbol
+        '503':
+          description: Market data provider unavailable or misconfigured
   /v1/market/search:
     get:
       operationId: searchSymbols
@@ -12840,6 +12869,85 @@ components:
           items:
             $ref: '#/components/schemas/PriceBarResponse'
       required: [symbol, currency, bars]
+    TechnicalMACD:
+      type: object
+      properties:
+        line:
+          type: number
+          format: double
+          description: 12-period EMA minus 26-period EMA.
+        signal:
+          type: number
+          format: double
+          description: 9-period EMA of `line`.
+        histogram:
+          type: number
+          format: double
+          description: '`line` minus `signal`.'
+        sign:
+          type: string
+          enum: [positive, negative]
+          description: Sign of the histogram, i.e. the line against its own signal.
+      required: [line, signal, histogram, sign]
+    TechnicalFiftyTwoWeek:
+      type: object
+      properties:
+        high:
+          type: number
+          format: double
+        low:
+          type: number
+          format: double
+        positionPct:
+          type: number
+          format: double
+          minimum: 0
+          maximum: 100
+          description: Where the last close sits between `low` and `high`. A flat range reports 50.
+      required: [high, low, positionPct]
+    TechnicalSignalsResponse:
+      type: object
+      properties:
+        symbol:
+          type: string
+        asOf:
+          type: string
+          format: date
+          description: Date of the last candle used.
+        close:
+          type: number
+          format: double
+        sma50:
+          type: number
+          format: double
+          nullable: true
+          description: Null until 50 sessions are available.
+        sma200:
+          type: number
+          format: double
+          nullable: true
+          description: Null until 200 sessions are available.
+        trend:
+          type: string
+          enum: [aboveBoth, belowBoth, mixed]
+          description: Where the last close sits relative to both averages. `mixed` also covers "not knowable yet".
+        cross:
+          type: string
+          enum: [goldenCross, deathCross, none]
+          description: Whether the 50/200 relationship flipped within the last 10 sessions. `none` means no flip in that window.
+        rsi14:
+          type: number
+          format: double
+          nullable: true
+          description: Wilder-smoothed 14-period RSI. Null until 15 sessions are available.
+        macd:
+          allOf:
+            - $ref: '#/components/schemas/TechnicalMACD'
+          nullable: true
+          description: Null until 34 sessions are available.
+        fiftyTwoWeek:
+          $ref: '#/components/schemas/TechnicalFiftyTwoWeek'
+      required: [symbol, asOf, close, trend, cross, fiftyTwoWeek]
     SearchResultResponse:
       type: object
       properties:

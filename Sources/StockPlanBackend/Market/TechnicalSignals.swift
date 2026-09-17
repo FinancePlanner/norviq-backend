@@ -85,6 +85,21 @@ enum TechnicalSignalsConfig {
         let ttl = Environment.get("MARKET_TTL_TECHNICALS_SECONDS").flatMap(Int.init(_:)) ?? 3600
         return max(60, ttl)
     }
+
+    /// `from` for the upstream history call, as `yyyy-MM-dd`. The providers
+    /// default to one year, which is too thin for a 200-day average plus a
+    /// cross window, so the range is always requested explicitly.
+    static func historyStart(relativeTo now: Date = Date()) -> String {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(secondsFromGMT: 0) ?? .gmt
+        let start = calendar.date(byAdding: .day, value: -historyLookbackDays, to: now) ?? now
+
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = TimeZone(secondsFromGMT: 0)
+        formatter.dateFormat = "yyyy-MM-dd"
+        return formatter.string(from: start)
+    }
 }
 
 // MARK: - Calculation
