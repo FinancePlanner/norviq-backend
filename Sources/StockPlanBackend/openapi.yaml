@@ -13736,14 +13736,23 @@ components:
           type: integer
           minimum: 0
           description: >-
-            Consecutive reported quarters, ending at this one, where EPS came in at or above the
-            estimate. Zero when this quarter missed, and zero when it has no actual or no estimate
-            to compare. Exactly one of `beatStreak` and `missStreak` is non-zero. Only
-            `getMarketEarnings` fills these; calendar rows leave both at zero.
+            The beat run ending at THIS row: consecutive reported quarters, this one included,
+            where EPS came in at or above the estimate. At most one of `beatStreak` and
+            `missStreak` is non-zero. Both zero means this row has no comparable result — it has
+            not reported (no actual, or no estimate to compare against), or it is a row from the
+            cross-symbol `getMarketEarningsCalendar`, which belongs to no single symbol's run.
+            Both zero does NOT mean the quarter missed; a miss is `missStreak >= 1`. The symbol's
+            headline run is the first row with a non-zero streak, which is usually not the first
+            row of the response, because the newest row is typically the next scheduled quarter
+            at 0/0.
         missStreak:
           type: integer
           minimum: 0
-          description: Consecutive reported quarters, ending at this one, where EPS came in below the estimate.
+          description: >-
+            The miss run ending at THIS row: consecutive reported quarters, this one included,
+            where EPS came in below the estimate. Same invariant as `beatStreak` — at most one of
+            the two is non-zero, and both zero means this row carries no comparable result rather
+            than a beat.
       required: [symbol, date, hasTranscript, beatStreak, missStreak]
     EarningsTranscriptResponse:
       type: object

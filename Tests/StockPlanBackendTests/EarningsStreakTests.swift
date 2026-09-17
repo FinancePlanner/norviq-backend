@@ -105,6 +105,38 @@ struct EarningsStreakTests {
         #expect(annotated[2].beatStreak == 1)
     }
 
+    /// `annotate` used to rebuild each row field by field, which would silently
+    /// drop any field added to the DTO later. It now mutates a copy, and this
+    /// pins that: everything except the two streak fields comes back untouched.
+    @Test("Annotating changes the streaks and nothing else")
+    func annotatingPreservesEveryOtherField() throws {
+        let original = EarningsResponse(
+            symbol: "AAPL",
+            date: "2025-01-15",
+            epsActual: 1.20,
+            epsEstimated: 1.00,
+            revenueActual: 123_456,
+            revenueEstimated: 120_000,
+            lastUpdated: "2025-01-16",
+            surprisePercent: 20.0,
+            hasTranscript: true
+        )
+        let annotated = try #require(EarningsStreak.annotate([original]).first)
+
+        #expect(annotated.beatStreak == 1)
+        #expect(annotated.missStreak == 0)
+        #expect(annotated.surprisePercent == 20.0)
+        #expect(annotated.hasTranscript)
+
+        // Put the streaks back and the row must be identical to the one that went
+        // in — Equatable covers every field, so a field dropped by a future
+        // rewrite of `annotate` fails here rather than in production.
+        var withStreaksUndone = annotated
+        withStreaksUndone.beatStreak = original.beatStreak
+        withStreaksUndone.missStreak = original.missStreak
+        #expect(withStreaksUndone == original)
+    }
+
     @Test("No quarters at all yields no quarters at all")
     func emptyInputYieldsEmptyOutput() {
         #expect(EarningsStreak.annotate([]).isEmpty)

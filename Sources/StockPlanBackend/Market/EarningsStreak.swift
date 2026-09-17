@@ -3,12 +3,12 @@ import Foundation
 /// Fills in the `beatStreak` / `missStreak` fields of a symbol's earnings
 /// history.
 ///
-/// A streak ends at the quarter that carries it, so every row in the response is
-/// true about itself rather than repeating one symbol-level number on all of
-/// them. The newest *reported* quarter therefore carries the headline "beaten
-/// three in a row"; a quarter that is only scheduled — no actual, or no estimate
-/// to compare it against — carries nothing, which is what lets a caller tell "no
-/// run" apart from "not reported yet".
+/// A streak ends at the quarter that carries it, so every row is true about
+/// itself rather than repeating one symbol-level number on all of them. At most
+/// one of the two is non-zero; both zero means the row has no comparable result,
+/// which is the normal state of the next *scheduled* quarter — so the symbol's
+/// headline run is the first row with a non-zero streak, not simply the first
+/// row.
 enum EarningsStreak {
     /// Returns `quarters` in the order they arrived, with the two streak fields
     /// replaced. Input order is not trusted: providers return earnings newest-
@@ -45,19 +45,7 @@ enum EarningsStreak {
 
         return quarters.enumerated().map { index, quarter in
             let streak = streaks[index] ?? (0, 0)
-            return EarningsResponse(
-                symbol: quarter.symbol,
-                date: quarter.date,
-                epsActual: quarter.epsActual,
-                epsEstimated: quarter.epsEstimated,
-                revenueActual: quarter.revenueActual,
-                revenueEstimated: quarter.revenueEstimated,
-                lastUpdated: quarter.lastUpdated,
-                surprisePercent: quarter.surprisePercent,
-                hasTranscript: quarter.hasTranscript,
-                beatStreak: streak.beat,
-                missStreak: streak.miss
-            )
+            return quarter.withStreaks(beat: streak.beat, miss: streak.miss)
         }
     }
 

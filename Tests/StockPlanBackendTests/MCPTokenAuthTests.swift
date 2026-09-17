@@ -135,14 +135,25 @@ struct MCPTokenAuthTests {
             let user = try await registerUser(app: app)
             let pat = try await mintPAT(app: app, userId: user.userId, scopes: [.marketRead])
 
-            for path in ["v1/market/technicals/AAPL", "v1/market/earnings-calendar"] {
-                try await app.testing().test(.GET, path, beforeRequest: { req in
+            for path in [["technicals", ":symbol"], ["earnings-calendar"]] {
+                // Assert the route exists separately from calling it, so that a
+                // 404 from a mistyped path can never be mistaken for the market
+                // provider declining to answer.
+                let expected = ["v1", "market"] + path
+                #expect(app.routes.all.contains {
+                    $0.method == .GET && $0.path.map(\.description) == expected
+                })
+
+                let requested = expected.map { $0 == ":symbol" ? "AAPL" : $0 }.joined(separator: "/")
+                try await app.testing().test(.GET, requested, beforeRequest: { req in
                     req.headers.bearerAuthorization = .init(token: pat)
                 }, afterResponse: { res async in
-                    // 503 is the unconfigured market provider answering, which
-                    // only happens once the request has cleared authentication,
-                    // the scope check and routing.
-                    #expect(res.status == .serviceUnavailable)
+                    // Whatever the market provider is configured to do in this
+                    // run — answer, 404 an empty symbol, or 503 while
+                    // unconfigured — the request got past auth and the scope
+                    // check to reach it, which is the whole claim here.
+                    #expect(res.status != .unauthorized)
+                    #expect(res.status != .forbidden)
                 })
             }
         }
