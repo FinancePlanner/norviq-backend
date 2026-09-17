@@ -2993,6 +2993,145 @@ paths:
           description: No price history available for the symbol
         '503':
           description: Market data provider unavailable or misconfigured
+  /v1/market/insider/{symbol}:
+    parameters:
+      - name: symbol
+        in: path
+        required: true
+        schema:
+          type: string
+    get:
+      operationId: getMarketInsiderActivity
+      tags: [MarketData]
+      summary: Get insider filings and any cluster-buy signal for a symbol
+      description: >-
+        Returns SEC Form 4 filings for the symbol inside the requested window, newest transaction first, with buy/sell
+        totals and a cluster-buy signal when three or more distinct reporters bought on the open market inside a
+        30-day span. `trades` is empty, `summary` is all zeros and `clusterBuy` is null when the symbol has no filings
+        in the window, and also when the upstream plan does not cover insider data — an empty response is not
+        evidence that no insider traded. Cached for six hours (`MARKET_TTL_OWNERSHIP_SECONDS`).
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: days
+          in: query
+          required: false
+          description: Length of the window in days. Defaults to 365.
+          schema:
+            type: integer
+            minimum: 30
+            maximum: 1825
+            default: 365
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InsiderActivityResponse'
+        '400':
+          description: Missing or invalid symbol, or `days` outside 30…1825
+        '401':
+          description: Unauthorized
+        '503':
+          description: Market data provider unavailable or misconfigured
+  /v1/market/congress/recent:
+    get:
+      operationId: getRecentCongressTrades
+      tags: [MarketData]
+      summary: Get the latest congressional trade disclosures across all symbols
+      description: >-
+        Returns the most recent Senate and House disclosures merged into one list, newest transaction first. `trades`
+        is empty when there are no recent disclosures, and also when the upstream plan does not cover them. Cached for
+        six hours (`MARKET_TTL_OWNERSHIP_SECONDS`).
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: limit
+          in: query
+          required: false
+          description: Maximum number of merged disclosures to return. Defaults to 100.
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 200
+            default: 100
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CongressTradesResponse'
+        '400':
+          description: '`limit` outside 1…200'
+        '401':
+          description: Unauthorized
+        '503':
+          description: Market data provider unavailable or misconfigured
+  /v1/market/congress/{symbol}:
+    parameters:
+      - name: symbol
+        in: path
+        required: true
+        schema:
+          type: string
+    get:
+      operationId: getCongressTrades
+      tags: [MarketData]
+      summary: Get congressional trade disclosures for a symbol
+      description: >-
+        Returns Senate and House disclosures for the symbol merged into one list, newest transaction first. `trades`
+        is empty when the symbol has no disclosures, and also when the upstream plan does not cover them. Cached for
+        six hours (`MARKET_TTL_OWNERSHIP_SECONDS`).
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CongressTradesResponse'
+        '400':
+          description: Missing or invalid symbol
+        '401':
+          description: Unauthorized
+        '503':
+          description: Market data provider unavailable or misconfigured
+  /v1/market/institutional/{symbol}:
+    parameters:
+      - name: symbol
+        in: path
+        required: true
+        schema:
+          type: string
+    get:
+      operationId: getInstitutionalOwnership
+      tags: [MarketData]
+      summary: Get 13F institutional ownership for a symbol
+      description: >-
+        Returns the ten largest 13F holders of the symbol, largest first, plus the ownership totals for the same
+        quarter. 13Fs are filed after a quarter closes, so `asOfQuarter` is never the current quarter; when the most
+        recently closed quarter has no filings yet the previous one is used. The holder list and the totals are two
+        separate upstream calls and either may be missing: `topHolders` can be empty while the totals are populated,
+        and the three totals can be null while holders are listed. Both are also empty or null when the upstream plan
+        does not cover ownership data. Cached for six hours (`MARKET_TTL_OWNERSHIP_SECONDS`).
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InstitutionalOwnershipResponse'
+        '400':
+          description: Missing or invalid symbol
+        '401':
+          description: Unauthorized
+        '503':
+          description: Market data provider unavailable or misconfigured
   /v1/market/search:
     get:
       operationId: searchSymbols
@@ -12948,6 +13087,247 @@ components:
         fiftyTwoWeek:
           $ref: '#/components/schemas/TechnicalFiftyTwoWeek'
       required: [symbol, asOf, close, trend, cross, fiftyTwoWeek]
+    InsiderTrade:
+      type: object
+      properties:
+        date:
+          type: string
+          format: date
+          description: Transaction date.
+        reporterName:
+          type: string
+          description: The reporting insider's name as filed, or `Undisclosed insider` when the filing carried none.
+        reporterTitle:
+          type: string
+          nullable: true
+          description: The reporter's relationship to the issuer, as filed. Free text.
+        transactionType:
+          type: string
+          description: The SEC transaction code exactly as it arrived, e.g. `P-Purchase`. Empty when the row had none.
+        kind:
+          type: string
+          enum: [buy, sell, award, other]
+          description: >-
+            `transactionType` reduced to four categories by its leading letter — `P` is buy, `S` is sell, `A` is
+            award. `other` covers everything else (gifts, exempt dispositions, in-kind transfers) and a row with no
+            code at all.
+        shares:
+          type: number
+          format: double
+        pricePerShare:
+          type: number
+          format: double
+          nullable: true
+          description: Null when the filing carried no price, which is normal for awards and gifts.
+        value:
+          type: number
+          format: double
+          nullable: true
+          description: '`shares` × `pricePerShare`. Null whenever `pricePerShare` is.'
+        sharesOwnedAfter:
+          type: number
+          format: double
+          nullable: true
+        filingURL:
+          type: string
+          nullable: true
+      required: [date, reporterName, transactionType, kind, shares]
+    InsiderActivitySummary:
+      type: object
+      properties:
+        buys:
+          type: integer
+          description: Number of `buy` filings in the window.
+        sells:
+          type: integer
+          description: Number of `sell` filings in the window.
+        netShares:
+          type: number
+          format: double
+          description: >-
+            Bought shares minus sold shares. Awards and other non-market transactions move neither this nor
+            `netValue`: a grant is compensation, not a view on the price.
+        netValue:
+          type: number
+          format: double
+          description: >-
+            Bought value minus sold value. Trades whose filing carried no price contribute 0, so this is a floor on
+            the real flow rather than a complete total.
+      required: [buys, sells, netShares, netValue]
+    ClusterBuySignal:
+      type: object
+      properties:
+        insiderCount:
+          type: integer
+          minimum: 3
+          description: Distinct reporters who bought inside the window.
+        windowStart:
+          type: string
+          format: date
+          description: Date of the earliest qualifying buy.
+        windowEnd:
+          type: string
+          format: date
+          description: Date of the latest qualifying buy.
+        totalValue:
+          type: number
+          format: double
+          description: >-
+            Sum of the qualifying buys' values. Buys whose filing carried no price contribute 0, so this can be 0
+            even for a real cluster.
+      required: [insiderCount, windowStart, windowEnd, totalValue]
+    InsiderActivityResponse:
+      type: object
+      properties:
+        symbol:
+          type: string
+        windowDays:
+          type: integer
+          description: The window actually used, after clamping the request to 30…1825.
+        trades:
+          type: array
+          description: >-
+            Filings inside the window, newest transaction first. Empty when the symbol has none, and also when the
+            upstream plan does not cover insider data.
+          items:
+            $ref: '#/components/schemas/InsiderTrade'
+        summary:
+          $ref: '#/components/schemas/InsiderActivitySummary'
+        clusterBuy:
+          allOf:
+            - $ref: '#/components/schemas/ClusterBuySignal'
+          nullable: true
+          description: >-
+            Null unless some 30-day span inside the window holds open-market buys by three or more distinct
+            reporters. When several spans qualify, the most recent one is reported.
+      required: [symbol, windowDays, trades, summary]
+    CongressTrade:
+      type: object
+      properties:
+        chamber:
+          type: string
+          enum: [senate, house]
+        politician:
+          type: string
+          description: The filer's name, or `Unknown` when the disclosure carried no name fields.
+        party:
+          type: string
+          nullable: true
+          description: Party as filed. Null when the disclosure feed does not carry one, which is the common case.
+        state:
+          type: string
+          nullable: true
+          description: >-
+            Two-letter state code, from the filing's state field or the leading two letters of a house district like
+            `TX07`. Null when neither is present.
+        symbol:
+          type: string
+        transactionDate:
+          type: string
+          format: date
+        disclosureDate:
+          type: string
+          description: '`YYYY-MM-DD`, or empty when the filing carried no disclosure date.'
+        type:
+          type: string
+          enum: [purchase, sale, exchange, other]
+          description: '`other` covers receipts, transfers and a row with no type at all.'
+        amountRange:
+          type: string
+          description: >-
+            The bracket exactly as disclosed, e.g. `$1,001 - $15,000`. Congressional disclosures report a range,
+            never an amount. Empty when the filing carried none.
+        amountMin:
+          type: number
+          format: double
+          nullable: true
+          description: Lower bound of `amountRange`. Null for an open-below bracket, or when the text held no figure.
+        amountMax:
+          type: number
+          format: double
+          nullable: true
+          description: >-
+            Upper bound of `amountRange`. Null for an open-above bracket such as `Over $50,000,000`, or when the text
+            held no figure.
+        assetDescription:
+          type: string
+          nullable: true
+        link:
+          type: string
+          nullable: true
+      required: [chamber, politician, symbol, transactionDate, disclosureDate, type, amountRange]
+    CongressTradesResponse:
+      type: object
+      properties:
+        trades:
+          type: array
+          description: >-
+            Both chambers merged, newest transaction first, ties broken on the disclosure date. Empty when there are
+            no disclosures, and also when the upstream plan does not cover them.
+          items:
+            $ref: '#/components/schemas/CongressTrade'
+      required: [trades]
+    InstitutionalHolder:
+      type: object
+      properties:
+        name:
+          type: string
+          description: The filer's name as it appears on the 13F.
+        shares:
+          type: number
+          format: double
+        marketValue:
+          type: number
+          format: double
+          nullable: true
+        changeInShares:
+          type: number
+          format: double
+          nullable: true
+          description: Change in shares held against the previous quarter. Negative is a trim.
+        changePct:
+          type: number
+          format: double
+          nullable: true
+          description: That change as a percentage of the previous quarter's position.
+        weightPct:
+          type: number
+          format: double
+          nullable: true
+          description: The position's weight in the filer's own portfolio, as reported by the upstream analytics.
+      required: [name, shares]
+    InstitutionalOwnershipResponse:
+      type: object
+      properties:
+        symbol:
+          type: string
+        asOfQuarter:
+          type: string
+          description: The 13F quarter the figures are drawn from, e.g. `2026Q2`. Never the current quarter.
+        holdersCount:
+          type: integer
+          nullable: true
+          description: Number of institutions holding the symbol. Null when the positions summary was unavailable.
+        institutionalOwnershipPct:
+          type: number
+          format: double
+          nullable: true
+          description: >-
+            Institutional ownership as a percentage of shares outstanding. Null when the positions summary was
+            unavailable.
+        totalShares:
+          type: number
+          format: double
+          nullable: true
+          description: Total shares held across all 13F filers. Null when the positions summary was unavailable.
+        topHolders:
+          type: array
+          description: >-
+            The ten largest holders by share count, largest first. Empty when no holder analytics came back for the
+            quarter, and also when the upstream plan does not cover them.
+          items:
+            $ref: '#/components/schemas/InstitutionalHolder'
+      required: [symbol, asOfQuarter, topHolders]
     SearchResultResponse:
       type: object
       properties:

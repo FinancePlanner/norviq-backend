@@ -45,6 +45,7 @@ Caching behavior is tuned via environment variables in `MarketDataCacheConfig`:
 | `MARKET_TTL_FMP_SECONDS` | TTL for FMP-backed analyst, growth, and ratio data. | `86400` (24h) |
 | `MARKET_TTL_QUOTE_SECONDS` | TTL for stock quotes (price + change/percentChange from Finnhub). Short TTL enables "live" polling UIs. | `20` |
 | `MARKET_TTL_HISTORY_SECONDS` | TTL for historical price bars. | `86400` (24h) |
+| `MARKET_TTL_OWNERSHIP_SECONDS` | TTL for the three filing-driven ownership routes: `/v1/market/insider/{symbol}`, `/v1/market/congress/*`, `/v1/market/institutional/{symbol}`. Redis only — these have no Postgres cold cache. A response assembled from a degraded upstream call is not written to the cache, so a transient failure does not pin an empty answer for the whole TTL. | `21600` (6h) |
 | `REDIS_URL` | Redis connection string (required for Hot Cache). | N/A |
 
 **Live prices note:** `QuoteResponse` (and `/v1/market/quote` + batch) already returns `currentPrice`, `change`, `percentChange`, and `timestamp`. Clients can poll the batch endpoint frequently (or use WS in future) to achieve updating ticker-style displays across portfolio lists, watchlists, and details. See iOS PortfolioViewModel + PortfolioRow for example enrichment.
