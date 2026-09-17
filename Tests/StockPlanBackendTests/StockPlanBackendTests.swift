@@ -1002,8 +1002,8 @@ struct StockPlanBackendTests {
             )
             await fmpState.setPressureHistory(makePressureHistory(symbol: "AAPL", sessions: 40, volume: 1_000_000, spikeLast: 3_000_000))
             await fmpState.setPressureInsiders([
-                FMPInsiderTrade(symbol: "AAPL", transactionDate: "2026-07-20", transactionType: "S-Sale", securitiesTransacted: 50000, reportingName: "Jane Exec", typeOfOwner: "officer", acquisitionOrDisposition: "D"),
-                FMPInsiderTrade(symbol: "AAPL", transactionDate: "2026-07-21", transactionType: "P-Purchase", securitiesTransacted: 10000, reportingName: "Sam Director", typeOfOwner: "director", acquisitionOrDisposition: "A"),
+                FMPInsiderTrade(symbol: "AAPL", filingDate: nil, transactionDate: "2026-07-20", transactionType: "S-Sale", securitiesTransacted: 50000, securitiesOwned: nil, price: nil, reportingName: "Jane Exec", typeOfOwner: "officer", acquisitionOrDisposition: "D", url: nil),
+                FMPInsiderTrade(symbol: "AAPL", filingDate: nil, transactionDate: "2026-07-21", transactionType: "P-Purchase", securitiesTransacted: 10000, securitiesOwned: nil, price: nil, reportingName: "Sam Director", typeOfOwner: "director", acquisitionOrDisposition: "A", url: nil),
             ])
             app.marketDataService = makeTestMarketService(
                 state: state,
