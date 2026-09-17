@@ -160,10 +160,32 @@ public func configure(_ app: Application) async throws {
     app.statisticsRepository = DatabaseStatisticsRepository()
     app.statisticsService = DefaultStatisticsService(repo: app.statisticsRepository)
     app.newsRepository = DatabaseNewsRepository()
-    let newsProvider: (any NewsProvider)? = if let finnhubAPIKey, !finnhubAPIKey.isEmpty {
+    // News providers: NEWS_PROVIDERS picks the chain (default finnhub). The
+    // jsonfeed provider reads the cluster's shared feed aggregator — no key,
+    // no vendor — and is the source for the breaking-news ticker.
+    let finnhubNewsProvider: (any NewsProvider)? = if let finnhubAPIKey, !finnhubAPIKey.isEmpty {
         FinnhubNewsProvider(apiKey: finnhubAPIKey)
     } else {
         nil
+    }
+    let feedsBaseURL = Environment.get("FEEDS_BASE_URL")?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    let feedsClient: (any FeedsClient)? = feedsBaseURL.isEmpty ? nil : HTTPFeedsClient(baseURL: feedsBaseURL)
+    let tickerFeeds = JSONFeedNewsProvider.feedList(Environment.get("NEWS_TICKER_FEEDS"))
+    let jsonFeedNewsProvider: (any NewsProvider)? = feedsClient.map {
+        JSONFeedNewsProvider(client: $0, generalFeeds: tickerFeeds)
+    }
+    let newsProviderNames = NewsProviderSelection.parse(Environment.get("NEWS_PROVIDERS"))
+    if newsProviderNames.contains("jsonfeed"), feedsClient == nil {
+        app.logger.warning("NEWS_PROVIDERS includes jsonfeed but FEEDS_BASE_URL is not configured; skipping it.")
+    }
+    let newsProvider = NewsProviderSelection.build(
+        names: newsProviderNames, finnhub: finnhubNewsProvider, jsonfeed: jsonFeedNewsProvider
+    )
+    if let feedsClient {
+        app.newsTickerService = DefaultNewsTickerService(client: feedsClient, curatedFeeds: tickerFeeds)
+    } else {
+        app.logger.info("FEEDS_BASE_URL not configured; news ticker disabled.")
+        app.newsTickerService = DisabledNewsTickerService()
     }
     app.marketNewsArchiveService = DefaultMarketNewsArchiveService(
         provider: newsProvider,

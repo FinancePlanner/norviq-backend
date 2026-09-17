@@ -20,14 +20,15 @@ Configured via `NEWS_PROVIDERS` (comma-separated). Default: `finnhub`.
 | Value | Requirements | Notes |
 |-------|--------------|--------|
 | `finnhub` | `FINNHUB_API_KEY` | Company news API (primary) |
-| `rss` / `yahoo` / `yahoo_rss` | `NEWS_RSS_URL_TEMPLATE` with `{symbol}` | Allowed RSS/Atom only — **not** HTML scrapers |
+| `jsonfeed` (aliases `rss`, `yahoo`, `yahoo_rss`) | `FEEDS_BASE_URL` (cluster feed aggregator), `NEWS_TICKER_FEEDS`, optional `NEWS_SYMBOL_FEED_TEMPLATE` with `{symbol}` | Reads JSON Feed 1.1 from the shared aggregator, which does the RSS/Atom parsing. Never parses XML here. |
 
 Optional RSS env:
 
 | Variable | Default | Purpose |
 |----------|---------|---------|
-| `NEWS_RSS_URL_TEMPLATE` | _(empty = disabled)_ | e.g. `https://feeds.finance.yahoo.com/rss/2.0/headline?s={symbol}&region=US&lang=en-US` |
-| `NEWS_RSS_SOURCE_NAME` | `rss` | Label stored in `source` |
+| `FEEDS_BASE_URL` | _(empty = jsonfeed + ticker disabled)_ | `http://feeds.horus.svc.cluster.local:8080` in the cluster; see `platform/infra/docs/feeds.md` |
+| `NEWS_TICKER_FEEDS` | _(empty)_ | Comma-separated curated feed URLs for `fetchGeneral` and the breaking-news ticker |
+| `NEWS_SYMBOL_FEED_TEMPLATE` | _(empty = per-symbol disabled)_ | e.g. `https://feeds.finance.yahoo.com/rss/2.0/headline?s={symbol}&region=US&lang=en-US` |
 | `NEWS_RSS_MAX_ARTICLES_PER_SYMBOL` | `15` | Cap per symbol per sync |
 
 Multiple providers are merged by `CompositeNewsProvider` (soft-fail per child, dedupe by URL).
@@ -51,3 +52,18 @@ Multiple providers are merged by `CompositeNewsProvider` (soft-fail per child, d
 - iOS: portfolio news + stock detail news tab
 - Web: `/portfolio/news` + stock news tab
 - Pull-to-refresh should call `POST /v1/news/sync`; background job keeps feeds warm without app open
+
+## Breaking-news ticker
+
+`GET /v1/news/ticker` serves curated feeds (`NEWS_TICKER_FEEDS`) plus the
+user's own subscriptions (`/v1/news/ticker/feeds`, discovered through the
+aggregator's `POST /v1/discover`, max 10 per user) in one aggregator call,
+cached 60 s per distinct feed set. `PUT /v1/news/ticker/settings` is the
+per-user switch. Headlines only: title, source, time, link. No bodies.
+
+Suggested curated list (verify each through `POST /v1/discover` before
+enabling; keep it in config, not code): CNBC Top News and Finance, MarketWatch
+Top Stories and Market Pulse, Federal Reserve press releases, ECB press, SEC
+press releases, CoinDesk, Yahoo Finance, a Google News finance query. Reuters
+and Bloomberg have no public RSS. FT's home feed is keyless but read the terms
+before enabling.

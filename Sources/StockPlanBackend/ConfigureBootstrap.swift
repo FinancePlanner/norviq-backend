@@ -329,6 +329,7 @@ func registerMigrations(_ app: Application) {
     app.migrations.add(CreatePortfolioValueSnapshot())
     app.migrations.add(CreatePortfolioSimulationTables())
     app.migrations.add(CreatePlanningScenarios())
+    app.migrations.add(CreateNewsTickerTables())
 }
 
 func envBool(_ key: String, default defaultValue: Bool) -> Bool {
