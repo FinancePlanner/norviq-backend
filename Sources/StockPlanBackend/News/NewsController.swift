@@ -7,9 +7,11 @@ struct NewsController: RouteCollection {
 
         // The feed keeps its own gate: it is reference data rather than the user's
         // saved library, so market:read is what the MCP `get_news` tool carries.
-        protected.grouped("news")
-            .grouped(ScopeRequirementMiddleware(.marketRead))
-            .get("feed", use: feedNews)
+        let marketNews = protected.grouped("news").grouped(ScopeRequirementMiddleware(.marketRead))
+        marketNews.get("feed", use: feedNews)
+        // The breaking-news ticker is reference data too: headlines from the
+        // cluster's shared feed aggregator, never bodies.
+        marketNews.get("ticker", use: newsTicker)
 
         // The saved-article library and thesis watch are the user's own research.
         let read = protected.grouped(ScopeRequirementMiddleware(.researchRead)).grouped("news")
@@ -20,11 +22,16 @@ struct NewsController: RouteCollection {
         read.get("thesis-watch", "notifications", use: thesisWatchNotificationPreferences)
         read.get("thesis-watch", ":storyId", use: thesisWatchStory)
         read.get(":newsId", use: getNews)
+        read.get("ticker", "settings", use: newsTickerSettings)
+        read.get("ticker", "feeds", use: listNewsTickerFeeds)
 
         write.post(use: createNews)
         write.post("sync", use: syncNews)
         write.post("view", use: recordNewsView)
         write.put("thesis-watch", "notifications", use: updateThesisWatchNotificationPreferences)
+        write.put("ticker", "settings", use: updateNewsTickerSettings)
+        write.post("ticker", "feeds", use: addNewsTickerFeed)
+        write.delete("ticker", "feeds", ":feedId", use: deleteNewsTickerFeed)
         write.group("thesis-watch", ":storyId") { story in
             story.post("feedback", use: thesisWatchFeedback)
             story.post("view", use: markThesisWatchStoryRead)
@@ -33,6 +40,49 @@ struct NewsController: RouteCollection {
             item.put(use: updateNews)
             item.delete(use: deleteNews)
         }
+    }
+
+    // MARK: - Breaking-news ticker
+
+    @Sendable
+    func newsTicker(req: Request) async throws -> NewsTickerResponse {
+        let session = try req.auth.require(SessionToken.self)
+        let limit = clampedLimit(req.query[Int.self, at: "limit"], default: 30, max: 100)
+        return try await req.newsTickerService.ticker(userId: session.userId, limit: limit, on: req)
+    }
+
+    @Sendable
+    func newsTickerSettings(req: Request) async throws -> NewsTickerSettings {
+        let session = try req.auth.require(SessionToken.self)
+        return try await req.newsTickerService.settings(userId: session.userId, on: req.db)
+    }
+
+    @Sendable
+    func updateNewsTickerSettings(req: Request) async throws -> NewsTickerSettings {
+        let session = try req.auth.require(SessionToken.self)
+        let payload = try req.content.decode(UpdateNewsTickerSettingsRequest.self)
+        return try await req.newsTickerService.updateSettings(userId: session.userId, enabled: payload.enabled, on: req.db)
+    }
+
+    @Sendable
+    func listNewsTickerFeeds(req: Request) async throws -> NewsTickerFeedsResponse {
+        let session = try req.auth.require(SessionToken.self)
+        return try await req.newsTickerService.listFeeds(userId: session.userId, on: req.db)
+    }
+
+    @Sendable
+    func addNewsTickerFeed(req: Request) async throws -> NewsTickerFeed {
+        let session = try req.auth.require(SessionToken.self)
+        let payload = try req.content.decode(AddNewsTickerFeedRequest.self)
+        return try await req.newsTickerService.addFeed(userId: session.userId, url: payload.url, on: req)
+    }
+
+    @Sendable
+    func deleteNewsTickerFeed(req: Request) async throws -> HTTPStatus {
+        let session = try req.auth.require(SessionToken.self)
+        let feedId = try requireUUIDParameter(req, name: "feedId", reason: "Invalid feed ID")
+        try await req.newsTickerService.removeFeed(userId: session.userId, feedId: feedId, on: req.db)
+        return .noContent
     }
 
     @Sendable

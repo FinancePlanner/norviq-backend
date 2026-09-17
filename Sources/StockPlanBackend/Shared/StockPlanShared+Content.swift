@@ -369,3 +369,13 @@ extension SpreadsheetImportAnalysisResponse: @retroactive Content {}
 extension SpreadsheetImportPreviewResponse: @retroactive Content {}
 extension SpreadsheetImportRowResult: @retroactive Content {}
 extension SpreadsheetImportCommitResponse: @retroactive Content {}
+
+// MARK: - Breaking-news ticker
+
+extension NewsTickerItem: @retroactive Content {}
+extension NewsTickerResponse: @retroactive Content {}
+extension NewsTickerSettings: @retroactive Content {}
+extension UpdateNewsTickerSettingsRequest: @retroactive Content {}
+extension NewsTickerFeed: @retroactive Content {}
+extension NewsTickerFeedsResponse: @retroactive Content {}
+extension AddNewsTickerFeedRequest: @retroactive Content {}

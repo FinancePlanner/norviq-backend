@@ -123,18 +123,6 @@ struct ExternalAPINewsProvider: NewsProvider {
     }
 }
 
-struct RSSNewsProvider: NewsProvider {
-    let name: String = "rss"
-
-    func fetch(symbols _: [String], on _: Request) async throws -> [ProviderNewsItem] {
-        throw Abort(.notImplemented, reason: "RSS news provider fetch is not implemented yet.")
-    }
-
-    func fetchGeneral(on _: Request) async throws -> [ProviderNewsItem] {
-        throw Abort(.notImplemented, reason: "RSS news provider fetchGeneral is not implemented yet.")
-    }
-}
-
 private extension FinnhubNewsProvider {
     struct CompanyNewsWindow {
         let from: String

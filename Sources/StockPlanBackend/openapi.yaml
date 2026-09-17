@@ -1573,6 +1573,134 @@ paths:
                   $ref: '#/components/schemas/NewsItemResponse'
         '401':
           description: Unauthorized
+  /v1/news/ticker:
+    get:
+      operationId: getNewsTicker
+      tags: [News]
+      summary: Breaking-news ticker headlines
+      description: >-
+        Headlines from the cluster's shared feed aggregator: curated market
+        feeds plus the user's own. Headline, source, time and link only —
+        never article bodies. Empty with `enabled: false` when the user has
+        switched the ticker off.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            format: int32
+            default: 30
+            maximum: 100
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NewsTickerResponse'
+        '401':
+          description: Unauthorized
+        '502':
+          description: Feed aggregator unavailable
+  /v1/news/ticker/settings:
+    get:
+      operationId: getNewsTickerSettings
+      tags: [News]
+      summary: Get news ticker settings
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NewsTickerSettings'
+    put:
+      operationId: updateNewsTickerSettings
+      tags: [News]
+      summary: Enable or disable the news ticker
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateNewsTickerSettingsRequest'
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NewsTickerSettings'
+        '503':
+          description: Ticker not configured on this server
+  /v1/news/ticker/feeds:
+    get:
+      operationId: listNewsTickerFeeds
+      tags: [News]
+      summary: List the user's own ticker feeds
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NewsTickerFeedsResponse'
+    post:
+      operationId: addNewsTickerFeed
+      tags: [News]
+      summary: Follow a feed by site or feed URL
+      description: >-
+        The server discovers the feed behind a site URL and stores the first
+        candidate. Feed URLs are private to the user.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AddNewsTickerFeedRequest'
+      responses:
+        '200':
+          description: Followed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NewsTickerFeed'
+        '400':
+          description: Not a usable http(s) URL
+        '409':
+          description: Already followed, or at the per-user limit
+        '422':
+          description: No feed found at that address
+  /v1/news/ticker/feeds/{feedId}:
+    delete:
+      operationId: deleteNewsTickerFeed
+      tags: [News]
+      summary: Unfollow a ticker feed
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: feedId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '204':
+          description: Removed
+        '404':
+          description: Feed not found
   /v1/news/thesis-watch:
     get:
       operationId: getThesisWatchFeed
@@ -12586,6 +12714,60 @@ components:
           format: int32
           description: Number of provider items skipped because they were invalid, untracked, or duplicates.
       required: [provider, symbolsCount, fetchedCount, insertedCount, updatedCount, skippedCount]
+    NewsTickerItem:
+      type: object
+      properties:
+        id: { type: string }
+        title: { type: string }
+        url: { type: string, nullable: true }
+        source: { type: string }
+        sourceUrl: { type: string, nullable: true }
+        publishedAt: { type: string, format: date-time }
+      required: [id, title, source, publishedAt]
+    NewsTickerResponse:
+      type: object
+      properties:
+        enabled: { type: boolean }
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/NewsTickerItem'
+        generatedAt: { type: string, format: date-time }
+        stale:
+          type: boolean
+          description: At least one feed is serving cached items after a failed fetch.
+      required: [enabled, items, generatedAt, stale]
+    NewsTickerSettings:
+      type: object
+      properties:
+        enabled: { type: boolean }
+      required: [enabled]
+    UpdateNewsTickerSettingsRequest:
+      type: object
+      properties:
+        enabled: { type: boolean }
+      required: [enabled]
+    NewsTickerFeed:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        url: { type: string }
+        title: { type: string, nullable: true }
+      required: [id, url]
+    NewsTickerFeedsResponse:
+      type: object
+      properties:
+        feeds:
+          type: array
+          items:
+            $ref: '#/components/schemas/NewsTickerFeed'
+        maxFeeds: { type: integer, format: int32 }
+      required: [feeds, maxFeeds]
+    AddNewsTickerFeedRequest:
+      type: object
+      properties:
+        url: { type: string }
+      required: [url]
     ThesisWatchExposure:
       type: object
       properties:
