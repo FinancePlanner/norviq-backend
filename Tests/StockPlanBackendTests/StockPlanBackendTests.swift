@@ -1756,6 +1756,10 @@ struct StockPlanBackendTests {
                 #expect(body.first?.epsActual == 1.64)
                 #expect(body.first?.surprisePercent == 2.5)
                 #expect(body.first?.hasTranscript == true)
+                // 1.64 against a 1.60 estimate is one beat, and the route is
+                // where the run gets attached.
+                #expect(body.first?.beatStreak == 1)
+                #expect(body.first?.missStreak == 0)
             })
 
             #expect(await fmpState.earningsCalls() == 1)
@@ -1795,6 +1799,10 @@ struct StockPlanBackendTests {
                 #expect(body.count == 1)
                 #expect(body.first?.surprisePercent == 2.5)
                 #expect(body.first?.hasTranscript == false)
+                // The calendar is cross-symbol, so its rows belong to no single
+                // symbol's run and stay at 0/0 even though this one beat.
+                #expect(body.first?.beatStreak == 0)
+                #expect(body.first?.missStreak == 0)
             })
 
             #expect(await fmpState.earningsCalendarCalls() == 1)

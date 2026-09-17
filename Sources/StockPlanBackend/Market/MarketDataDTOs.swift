@@ -85,8 +85,6 @@ public struct EarningsResponse: Content, Sendable, Equatable {
         beatStreak: Int = 0,
         missStreak: Int = 0
     ) {
-        self.beatStreak = beatStreak
-        self.missStreak = missStreak
         self.symbol = symbol
         self.date = date
         self.epsActual = epsActual
@@ -96,6 +94,8 @@ public struct EarningsResponse: Content, Sendable, Equatable {
         self.lastUpdated = lastUpdated
         self.surprisePercent = surprisePercent
         self.hasTranscript = hasTranscript
+        self.beatStreak = beatStreak
+        self.missStreak = missStreak
     }
 
     /// A copy carrying the given streaks. Mutating a copy rather than rebuilding
