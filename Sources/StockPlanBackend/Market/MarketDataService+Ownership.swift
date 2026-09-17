@@ -36,6 +36,14 @@ extension MarketDataService {
 /// `degraded` exists so a degraded answer is not written to Redis: an FMP plan
 /// that momentarily 502s would otherwise pin an empty response for the whole
 /// TTL.
+/// Which congressional feed a chamber is being asked for.
+private enum CongressQuery {
+    /// Every disclosure this chamber filed for one symbol.
+    case symbol(String)
+    /// The chamber's most recent disclosures across all symbols.
+    case latest(Int)
+}
+
 private struct OwnershipFetch<Row> {
     let rows: [Row]
     let degraded: Bool
@@ -134,8 +142,8 @@ extension DefaultMarketDataService {
             throw Abort(.serviceUnavailable, reason: "Congressional trades require the FMP provider.")
         }
 
-        async let senateTask = loadCongressTrades(fmp: fmp, chamber: .senate, symbol: symbol, limit: 0, on: req)
-        async let houseTask = loadCongressTrades(fmp: fmp, chamber: .house, symbol: symbol, limit: 0, on: req)
+        async let senateTask = loadCongressTrades(fmp: fmp, chamber: .senate, query: .symbol(symbol), on: req)
+        async let houseTask = loadCongressTrades(fmp: fmp, chamber: .house, query: .symbol(symbol), on: req)
         let senate = try await senateTask
         let house = try await houseTask
 
@@ -159,8 +167,8 @@ extension DefaultMarketDataService {
 
         // Each chamber is asked for the full limit; the merged list is then cut
         // back to it, so a quiet chamber does not cost the caller rows.
-        async let senateTask = loadCongressTrades(fmp: fmp, chamber: .senate, symbol: nil, limit: limit, on: req)
-        async let houseTask = loadCongressTrades(fmp: fmp, chamber: .house, symbol: nil, limit: limit, on: req)
+        async let senateTask = loadCongressTrades(fmp: fmp, chamber: .senate, query: .latest(limit), on: req)
+        async let houseTask = loadCongressTrades(fmp: fmp, chamber: .house, query: .latest(limit), on: req)
         let senate = try await senateTask
         let house = try await houseTask
 
@@ -172,24 +180,22 @@ extension DefaultMarketDataService {
         return response
     }
 
-    /// One chamber, either for a symbol (`symbol` non-nil) or the latest
-    /// disclosures across all symbols.
+    /// One chamber's disclosures.
     private func loadCongressTrades(
         fmp: any FMPMarketDataProvider,
         chamber: CongressChamber,
-        symbol: String?,
-        limit: Int,
+        query: CongressQuery,
         on req: Request
     ) async throws -> OwnershipFetch<CongressTrade> {
         do {
-            let wire: [FMPCongressTrade] = switch (chamber, symbol) {
-            case let (.senate, .some(symbol)):
+            let wire: [FMPCongressTrade] = switch (chamber, query) {
+            case let (.senate, .symbol(symbol)):
                 try await fmp.senateTrades(symbol: symbol, on: req)
-            case let (.house, .some(symbol)):
+            case let (.house, .symbol(symbol)):
                 try await fmp.houseTrades(symbol: symbol, on: req)
-            case (.senate, .none):
+            case let (.senate, .latest(limit)):
                 try await fmp.latestSenateTrades(limit: limit, on: req)
-            case (.house, .none):
+            case let (.house, .latest(limit)):
                 try await fmp.latestHouseTrades(limit: limit, on: req)
             }
             return .loaded(wire.compactMap { CongressTrades.trade(from: $0, chamber: chamber) })

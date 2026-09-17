@@ -719,11 +719,12 @@ struct MarketDataController: RouteCollection {
 
     // MARK: - Ownership routes
 
-    //
-    // Same teaser model as `technicals`: session auth, no premium gate. The web
-    // decides how much of each response a free reader sees. Caching, upstream
-    // calls and degradation all live in MarketDataService+Ownership.
-
+    /// Insider filings for a symbol, with any cluster-buy signal.
+    ///
+    /// Same teaser model as `technicals`: session auth, no premium gate. The web
+    /// decides how much of the response a free reader sees. Caching, upstream
+    /// calls and degradation all live in `MarketDataService+Ownership`, which is
+    /// true of the three routes below as well.
     @Sendable
     func insiderActivity(req: Request) async throws -> InsiderActivityResponse {
         _ = try req.auth.require(SessionToken.self)
