@@ -41,6 +41,11 @@ struct MarketDataController: RouteCollection {
         rateLimited.get("historical-sector-performance", use: historicalSectorPerformance)
         rateLimited.get("history", ":symbol", use: history)
         rateLimited.get("technicals", ":symbol", use: technicals)
+        rateLimited.get("insider", ":symbol", use: insiderActivity)
+        // `recent` first: a constant segment must not be swallowed by :symbol.
+        rateLimited.get("congress", "recent", use: recentCongressTrades)
+        rateLimited.get("congress", ":symbol", use: congressTrades)
+        rateLimited.get("institutional", ":symbol", use: institutionalOwnership)
         rateLimited.get("search", use: search)
         rateLimited.get("fx", use: fx)
         rateLimited.get("price-chart", "compare", use: priceChartComparison)
@@ -710,6 +715,70 @@ struct MarketDataController: RouteCollection {
             on: req
         )
         return signals
+    }
+
+    // MARK: - Ownership routes
+
+    //
+    // Same teaser model as `technicals`: session auth, no premium gate. The web
+    // decides how much of each response a free reader sees. Caching, upstream
+    // calls and degradation all live in MarketDataService+Ownership.
+
+    @Sendable
+    func insiderActivity(req: Request) async throws -> InsiderActivityResponse {
+        _ = try req.auth.require(SessionToken.self)
+        let symbol = try requirePathSymbol(req)
+        let days = req.query[Int.self, at: "days"] ?? InsiderActivityConfig.defaultWindowDays
+        guard InsiderActivityConfig.windowDaysRange.contains(days) else {
+            throw Abort(
+                .badRequest,
+                reason: "`days` must be between \(InsiderActivityConfig.windowDaysRange.lowerBound) "
+                    + "and \(InsiderActivityConfig.windowDaysRange.upperBound)."
+            )
+        }
+        return try await req.application.marketDataService.insiderActivity(
+            symbol: symbol,
+            windowDays: days,
+            on: req
+        )
+    }
+
+    @Sendable
+    func congressTrades(req: Request) async throws -> CongressTradesResponse {
+        _ = try req.auth.require(SessionToken.self)
+        let symbol = try requirePathSymbol(req)
+        return try await req.application.marketDataService.congressTrades(symbol: symbol, on: req)
+    }
+
+    @Sendable
+    func recentCongressTrades(req: Request) async throws -> CongressTradesResponse {
+        _ = try req.auth.require(SessionToken.self)
+        let limit = req.query[Int.self, at: "limit"] ?? CongressTradesConfig.defaultRecentLimit
+        guard CongressTradesConfig.recentLimitRange.contains(limit) else {
+            throw Abort(
+                .badRequest,
+                reason: "`limit` must be between \(CongressTradesConfig.recentLimitRange.lowerBound) "
+                    + "and \(CongressTradesConfig.recentLimitRange.upperBound)."
+            )
+        }
+        return try await req.application.marketDataService.recentCongressTrades(limit: limit, on: req)
+    }
+
+    @Sendable
+    func institutionalOwnership(req: Request) async throws -> InstitutionalOwnershipResponse {
+        _ = try req.auth.require(SessionToken.self)
+        let symbol = try requirePathSymbol(req)
+        return try await req.application.marketDataService.institutionalOwnership(symbol: symbol, on: req)
+    }
+
+    private func requirePathSymbol(_ req: Request) throws -> String {
+        guard let raw = req.parameters.get("symbol")?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+            !raw.isEmpty
+        else {
+            throw Abort(.badRequest, reason: "Missing symbol.")
+        }
+        return raw.uppercased()
     }
 
     @Sendable

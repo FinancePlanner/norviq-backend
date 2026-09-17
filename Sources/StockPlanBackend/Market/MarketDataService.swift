@@ -8,6 +8,10 @@ protocol MarketDataService: Sendable {
     var fmpProvider: (any FMPMarketDataProvider)? { get }
     func marketOverview(on req: Request) async throws -> MarketOverviewResponse
     func marketPressure(symbol: String, on req: Request) async throws -> MarketPressureResponse
+    func insiderActivity(symbol: String, windowDays: Int, on req: Request) async throws -> InsiderActivityResponse
+    func congressTrades(symbol: String, on req: Request) async throws -> CongressTradesResponse
+    func recentCongressTrades(limit: Int, on req: Request) async throws -> CongressTradesResponse
+    func institutionalOwnership(symbol: String, on req: Request) async throws -> InstitutionalOwnershipResponse
     func periodReturns(symbol: String, on req: Request) async throws -> StockPeriodReturnsResponse
     func periodReturnsBatch(symbols: [String], on req: Request) async throws -> StockPeriodReturnsBatchResponse
     func quote(symbol: String, on req: Request) async throws -> QuoteResponse
@@ -94,6 +98,10 @@ struct MarketDataCacheConfig {
     let profileTTLSeconds: Int
     let basicFinancialsTTLSeconds: Int
     let fmpTTLSeconds: Int
+    /// One knob for insider filings, congressional disclosures and 13F
+    /// ownership: all three are filing-driven and change a few times a day at
+    /// most.
+    let ownershipTTLSeconds: Int
     let defaultCurrency: String
 
     static func fromEnvironment() -> MarketDataCacheConfig {
@@ -107,6 +115,7 @@ struct MarketDataCacheConfig {
         let basicFinancialsTTL =
             Environment.get("MARKET_TTL_BASIC_FINANCIALS_SECONDS").flatMap(Int.init(_:)) ?? 86400
         let fmpTTL = Environment.get("MARKET_TTL_FMP_SECONDS").flatMap(Int.init(_:)) ?? 86400
+        let ownershipTTL = Environment.get("MARKET_TTL_OWNERSHIP_SECONDS").flatMap(Int.init(_:)) ?? 21600
         let currency = Environment.get("MARKET_DEFAULT_CURRENCY") ?? "USD"
 
         return .init(
@@ -117,6 +126,7 @@ struct MarketDataCacheConfig {
             profileTTLSeconds: max(60, profileTTL),
             basicFinancialsTTLSeconds: max(60, basicFinancialsTTL),
             fmpTTLSeconds: max(60, fmpTTL),
+            ownershipTTLSeconds: max(60, ownershipTTL),
             defaultCurrency: currency.uppercased()
         )
     }
