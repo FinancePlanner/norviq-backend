@@ -66,6 +66,8 @@ struct OpenAPIDocsTests {
         #expect(body.contains("TechnicalMACD:"))
         #expect(body.contains("TechnicalFiftyTwoWeek:"))
         #expect(body.contains("MARKET_TTL_TECHNICALS_SECONDS"))
+        #expect(body.contains("beatStreak:"))
+        #expect(body.contains("missStreak:"))
         #expect(body.contains("Premium or paid FMP plan required for this symbol"))
         #expect(body.contains("Market data provider unavailable or misconfigured"))
         #expect(body.contains("Market news provider unavailable or misconfigured"))

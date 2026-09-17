@@ -13732,7 +13732,19 @@ components:
         lastUpdated: { type: string, format: date, nullable: true }
         surprisePercent: { type: number, format: double, nullable: true }
         hasTranscript: { type: boolean }
-      required: [symbol, date, hasTranscript]
+        beatStreak:
+          type: integer
+          minimum: 0
+          description: >-
+            Consecutive reported quarters, ending at this one, where EPS came in at or above the
+            estimate. Zero when this quarter missed, and zero when it has no actual or no estimate
+            to compare. Exactly one of `beatStreak` and `missStreak` is non-zero. Only
+            `getMarketEarnings` fills these; calendar rows leave both at zero.
+        missStreak:
+          type: integer
+          minimum: 0
+          description: Consecutive reported quarters, ending at this one, where EPS came in below the estimate.
+      required: [symbol, date, hasTranscript, beatStreak, missStreak]
     EarningsTranscriptResponse:
       type: object
       properties:

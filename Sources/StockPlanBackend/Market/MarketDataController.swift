@@ -485,10 +485,15 @@ struct MarketDataController: RouteCollection {
         }
 
         let limit = req.query[Int.self, at: "limit"]
-        return try await req.application.marketDataService.earnings(
-            symbol: symbol,
-            limit: limit,
-            on: req
+        // Derived here rather than in the service so the provider's own shape is
+        // what gets cached, and so the cross-symbol calendar — which shares this
+        // DTO but has no per-symbol run to count — is left alone.
+        return try await EarningsStreak.annotate(
+            req.application.marketDataService.earnings(
+                symbol: symbol,
+                limit: limit,
+                on: req
+            )
         )
     }
 

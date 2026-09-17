@@ -53,6 +53,18 @@ public struct EarningsResponse: Content, Sendable, Equatable {
     public let lastUpdated: String?
     public let surprisePercent: Double?
     public let hasTranscript: Bool
+    /// Consecutive reported quarters, ending at *this* one, where EPS came in at
+    /// or above the estimate. Zero when this quarter missed, and zero when it
+    /// has no actual or no estimate to compare — a scheduled quarter reports no
+    /// streak, the reported quarter below it does. Exactly one of `beatStreak`
+    /// and `missStreak` is non-zero.
+    ///
+    /// Only the per-symbol earnings route fills these; a cross-symbol calendar
+    /// row has no run to belong to and leaves both at zero.
+    public let beatStreak: Int
+    /// The `beatStreak` counterpart: consecutive reported quarters ending at
+    /// this one where EPS came in below the estimate.
+    public let missStreak: Int
 
     public init(
         symbol: String,
@@ -63,8 +75,12 @@ public struct EarningsResponse: Content, Sendable, Equatable {
         revenueEstimated: Double?,
         lastUpdated: String?,
         surprisePercent: Double?,
-        hasTranscript: Bool
+        hasTranscript: Bool,
+        beatStreak: Int = 0,
+        missStreak: Int = 0
     ) {
+        self.beatStreak = beatStreak
+        self.missStreak = missStreak
         self.symbol = symbol
         self.date = date
         self.epsActual = epsActual
