@@ -20,6 +20,16 @@ enum RecentEarnings {
         "market:earnings-recent:fmp:\(symbol)"
     }
 
+    /// Today in UTC as `YYYY-MM-DD`, in the same shape the provider dates its
+    /// quarters, so the two compare lexicographically.
+    static func today(_ now: Date = Date()) -> String {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = TimeZone(identifier: "UTC")
+        formatter.dateFormat = "yyyy-MM-dd"
+        return formatter.string(from: now)
+    }
+
     /// Picks the teaser's rows out of a symbol's earnings history.
     ///
     /// `history` must already carry its streaks — pass it through
@@ -27,18 +37,32 @@ enum RecentEarnings {
     /// slicing is the point: a run longer than `reportedQuarterCount` would
     /// otherwise be silently truncated, and the teaser promises the same
     /// numbers the full earnings route reports.
-    static func build(symbol: String, history: [EarningsResponse]) -> RecentEarningsResponse {
+    /// `today` (UTC, `YYYY-MM-DD`) is only consulted for a symbol with no
+    /// reported quarter at all; see below.
+    static func build(
+        symbol: String,
+        history: [EarningsResponse],
+        today: String = RecentEarnings.today()
+    ) -> RecentEarningsResponse {
         let newestFirst = history.sorted { $0.date > $1.date }
         let reported = newestFirst.filter(EarningsStreak.isReported)
 
-        // The next scheduled quarter is the earliest un-reported row that is
-        // newer than the last report. Rows older than that are gaps in the
-        // history — a quarter the provider never filled an estimate in for —
-        // not a date to put on the page.
+        // The next scheduled quarter is the *earliest* un-reported row after the
+        // last report — `newestFirst.last(where:)` is that earliest match. Rows
+        // before the last report are gaps in the history (a quarter the provider
+        // never filled an estimate in for), not a date to put on the page.
+        //
+        // The date of the last report is deliberately the only floor when there
+        // is one: providers routinely leave a scheduled date in place for days
+        // after it passes, and the page's next-report line should still show it.
+        // With no reported quarter to anchor to — a newly listed company —
+        // every un-reported row would otherwise qualify and the *oldest* one in
+        // the whole history would win, which can be years in the past. There,
+        // and only there, "next" falls back to meaning "not before today".
         let newestReportedDate = reported.first?.date
         let scheduled = newestFirst.last { row in
             guard !EarningsStreak.isReported(row) else { return false }
-            guard let newestReportedDate else { return true }
+            guard let newestReportedDate else { return row.date >= today }
             return row.date > newestReportedDate
         }
 
@@ -91,6 +115,11 @@ extension DefaultMarketDataService {
         )
         let response = RecentEarnings.build(symbol: symbol, history: history)
 
+        // Worth noting for whoever tunes this: a miss costs two upstream calls,
+        // not one — `earnings` fetches the history and the provider's transcript
+        // *availability* list to fill `hasTranscript`. An empty answer is cached
+        // like any other, for an hour, which is strictly shorter than the day
+        // `earnings()` already pins its own empty payload for.
         await redisSetValue(
             cacheKey,
             value: response,

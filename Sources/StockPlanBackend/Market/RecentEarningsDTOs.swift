@@ -18,8 +18,15 @@ public struct RecentEarningsResponse: Content, Sendable, Equatable {
     /// the provider does not cover. It is a real answer, not an error and not a
     /// statement that the company has never reported.
     public let quarters: [RecentEarningsQuarter]
-    /// The next quarter the provider has scheduled but not yet reported, or
-    /// `nil` when it lists none. Never one of `quarters`.
+    /// The next quarter the provider lists but has not reported yet. Never one
+    /// of `quarters`, so it cannot displace a reported quarter.
+    ///
+    /// Absent — the JSON key is omitted, not set to null — when the provider
+    /// lists no such quarter. A date that has just passed can still appear here:
+    /// providers leave a scheduled date in place for a while after it, and the
+    /// page's next-report line should still show it. The one exception is a
+    /// symbol with nothing reported at all, where there is no last report to
+    /// anchor to and only a quarter dated today or later qualifies.
     public let nextScheduled: RecentEarningsQuarter?
 
     public init(
@@ -38,7 +45,14 @@ public struct RecentEarningsQuarter: Content, Sendable, Equatable {
     /// The earnings date, `YYYY-MM-DD`.
     public let date: String
     public let epsEstimated: Double?
-    /// `nil` for a `scheduled` quarter.
+    /// The EPS the company reported, or `nil` when the provider has not
+    /// reported one.
+    ///
+    /// Usually `nil` on a `scheduled` row, but **not guaranteed**: a quarter is
+    /// `scheduled` when *either* side of the comparison is missing, so a row the
+    /// provider lists with an actual and no estimate is `scheduled` and carries
+    /// that actual. Read `status` for whether the quarter has a comparable
+    /// result; do not infer it from this field.
     public let epsActual: Double?
     /// How far the actual came in above (positive) or below (negative) the
     /// estimate, in percent. `nil` when either side is missing or the estimate
@@ -89,7 +103,8 @@ public struct RecentEarningsQuarter: Content, Sendable, Equatable {
 }
 
 /// Reported or scheduled, said on the row itself so a flattened list stays
-/// unambiguous.
+/// unambiguous. This — not the nullability of `epsActual` — is the field to
+/// branch on.
 public enum RecentEarningsQuarterStatus: String, Codable, Sendable, Equatable {
     /// Both an EPS actual and an EPS estimate are present, so the quarter has a
     /// comparable result.

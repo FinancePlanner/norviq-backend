@@ -58,8 +58,15 @@ private enum RecentEarningsFixture {
 /// labels them. Pure: no app, no provider, no cache.
 @Suite("Recent earnings selection")
 struct RecentEarningsSelectionTests {
-    private func build(_ history: [EarningsResponse], symbol: String = "AAPL") -> RecentEarningsResponse {
-        RecentEarnings.build(symbol: symbol, history: EarningsStreak.annotate(history))
+    /// `today` is pinned rather than read from the clock: it only matters for a
+    /// symbol with no reported quarter at all, and a test that drifted with the
+    /// calendar would be worse than no test.
+    private func build(
+        _ history: [EarningsResponse],
+        symbol: String = "AAPL",
+        today: String = "2026-09-18"
+    ) -> RecentEarningsResponse {
+        RecentEarnings.build(symbol: symbol, history: EarningsStreak.annotate(history), today: today)
     }
 
     @Test("Four reported quarters are returned when more exist, newest first")
@@ -130,6 +137,87 @@ struct RecentEarningsSelectionTests {
         #expect(response.symbol == "AAPL")
         #expect(response.quarters.isEmpty)
         #expect(response.nextScheduled == nil)
+    }
+
+    @Test("The earliest of several upcoming quarters is the next scheduled one")
+    func theEarliestUpcomingQuarterIsChosen() {
+        // Two un-reported rows after the last report. `.last(where:)` over a
+        // newest-first array means "earliest match", which is correct but is not
+        // obvious from reading it — this is the test that says so.
+        let response = build([
+            RecentEarningsFixture.row("2025-06-01", estimate: 1.4, actual: 1.5),
+            RecentEarningsFixture.row("2025-09-01", estimate: 1.6, actual: nil),
+            RecentEarningsFixture.row("2025-12-01", estimate: 1.7, actual: nil),
+        ])
+
+        #expect(response.nextScheduled?.date == "2025-09-01")
+    }
+
+    @Test("A scheduled row can carry an EPS actual, because scheduled means not comparable")
+    func aScheduledRowCanCarryAnActual() throws {
+        // `scheduled` is `!isReported`, which is "actual OR estimate missing" —
+        // not "no actual". A row the provider lists with an actual but no
+        // estimate is scheduled and keeps its actual. The schema says so; this
+        // pins it, because the opposite claim would flow into the generated
+        // client's doc comments.
+        let response = build([
+            RecentEarningsFixture.row("2025-03-01", estimate: 1.3, actual: 1.4),
+            RecentEarningsFixture.row("2025-06-01", estimate: 1.4, actual: 1.5),
+            RecentEarningsFixture.row("2025-09-01", estimate: nil, actual: 0.5),
+        ])
+
+        let scheduled = try #require(response.nextScheduled)
+        #expect(scheduled.date == "2025-09-01")
+        #expect(scheduled.status == .scheduled)
+        #expect(scheduled.epsActual == 0.5)
+        #expect(scheduled.epsEstimated == nil)
+        // Still no comparable result, so still no run.
+        #expect(scheduled.beatStreak == 0)
+        #expect(scheduled.missStreak == 0)
+    }
+
+    // MARK: - No reported quarter at all
+
+    @Test("With nothing reported, a quarter in the past is not offered as the next one")
+    func withNothingReportedAPastQuarterIsNotNext() {
+        // A newly listed company: the provider lists dates but has reported no
+        // comparable result. Without a last report to anchor to, "next" can only
+        // mean "not in the past" — otherwise the oldest row in the history wins
+        // and the page prints a next-report date from years ago.
+        let response = build(
+            [
+                RecentEarningsFixture.row("2020-01-01", estimate: nil, actual: nil),
+                RecentEarningsFixture.row("2026-12-01", estimate: 1.0, actual: nil),
+            ],
+            today: "2026-09-18"
+        )
+
+        #expect(response.quarters.isEmpty)
+        #expect(response.nextScheduled?.date == "2026-12-01")
+    }
+
+    @Test("With nothing reported and nothing upcoming, there is no next scheduled quarter")
+    func withNothingReportedAndNothingUpcomingThereIsNoNext() {
+        let response = build(
+            [
+                RecentEarningsFixture.row("2020-01-01", estimate: nil, actual: nil),
+                RecentEarningsFixture.row("2021-01-01", estimate: nil, actual: nil),
+            ],
+            today: "2026-09-18"
+        )
+
+        #expect(response.quarters.isEmpty)
+        #expect(response.nextScheduled == nil)
+    }
+
+    @Test("A quarter dated today still counts as upcoming")
+    func aQuarterDatedTodayCountsAsUpcoming() {
+        let response = build(
+            [RecentEarningsFixture.row("2026-09-18", estimate: 1.0, actual: nil)],
+            today: "2026-09-18"
+        )
+
+        #expect(response.nextScheduled?.date == "2026-09-18")
     }
 
     @Test("The response carries transcript availability but never transcript text")
@@ -410,8 +498,13 @@ struct RecentEarningsRouteTests {
             try await app.testing().test(.GET, "v1/market/earnings/AAPL/recent", beforeRequest: { req in
                 req.headers.bearerAuthorization = .init(token: pat)
             }, afterResponse: { res async in
-                #expect(res.status != .forbidden)
-                #expect(res.status != .paymentRequired)
+                // The positive, not three negatives: the test app configures no
+                // FMP provider, so a teaser that got all the way past auth, the
+                // scope check, routing and the (absent) entitlement gate lands
+                // on exactly 503. Asserting that makes the test fail loudly if
+                // the route ever 404s or 400s short of the gate instead of
+                // quietly still "not being forbidden".
+                #expect(res.status == .serviceUnavailable)
                 #expect(!res.body.string.contains("upgrade_required"))
             })
         }

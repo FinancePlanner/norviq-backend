@@ -2819,12 +2819,14 @@ paths:
       summary: Get the recent-earnings teaser for a symbol
       description: >-
         The un-gated slice of a symbol's earnings history, for pages that are open to the internet:
-        the last four reported quarters plus the next scheduled one. Unlike `getMarketEarnings`, this
-        route requires no premium entitlement — a session or a `market:read` personal access token is
-        enough. It never returns earnings call transcript text; `hasTranscript` says only whether a
-        transcript exists, and `getMarketEarningsTranscript` remains premium-only. Cached for
-        `MARKET_TTL_RECENT_EARNINGS_SECONDS` (default 3600). On limited FMP plans, unsupported symbols
-        return `402 Payment Required`.
+        up to four of its most recently reported quarters, and the next quarter the provider has
+        scheduled when it lists one. Either part can be empty — a symbol with nothing reported yet
+        returns `quarters: []`, and `nextScheduled` is omitted when there is no upcoming quarter to
+        name. Unlike `getMarketEarnings`, this route requires no premium entitlement — a session or a
+        `market:read` personal access token is enough. It never returns earnings call transcript
+        text; `hasTranscript` says only whether a transcript exists, and `getMarketEarningsTranscript`
+        remains premium-only. Cached for `MARKET_TTL_RECENT_EARNINGS_SECONDS` (default 3600). On
+        limited FMP plans, unsupported symbols return `402 Payment Required`.
       security:
         - bearerAuth: []
       responses:
@@ -14359,6 +14361,14 @@ components:
       required: [symbol, date, hasTranscript, beatStreak, missStreak]
     RecentEarningsResponse:
       type: object
+      description: >-
+        `nextScheduled` is the next quarter the provider lists but has not reported yet. It is never
+        one of `quarters`, so it cannot displace a reported quarter, and the key is omitted entirely
+        (not set to null) when the provider lists no such quarter. A date that has only just passed
+        can still appear there: providers leave a scheduled date in place for a while after it, and a
+        next-report line should still show it. The one exception is a symbol with nothing reported at
+        all, where there is no last report to anchor to and only a quarter dated today or later
+        qualifies.
       properties:
         symbol: { type: string }
         quarters:
@@ -14372,12 +14382,7 @@ components:
           items:
             $ref: '#/components/schemas/RecentEarningsQuarter'
         nextScheduled:
-          nullable: true
-          description: >-
-            The next quarter the provider lists but has not reported yet, or null when it lists none.
-            Never one of `quarters`, so it does not displace a reported quarter.
-          allOf:
-            - $ref: '#/components/schemas/RecentEarningsQuarter'
+          $ref: '#/components/schemas/RecentEarningsQuarter'
       required: [symbol, quarters]
     RecentEarningsQuarter:
       type: object
@@ -14388,7 +14393,12 @@ components:
           type: number
           format: double
           nullable: true
-          description: Null when `status` is `scheduled`.
+          description: >-
+            The EPS the company reported, or null when the provider has not reported one. Usually
+            null when `status` is `scheduled`, but NOT guaranteed: a quarter is `scheduled` when
+            either side of the comparison is missing, so a row the provider lists with an actual and
+            no estimate is `scheduled` and carries that actual. Branch on `status`, not on whether
+            this field is null.
         surprisePercent:
           type: number
           format: double
@@ -14407,8 +14417,9 @@ components:
           enum: [reported, scheduled]
           description: >-
             `reported` when both an EPS actual and an EPS estimate are present, so the quarter has a
-            comparable result; `scheduled` when the provider lists the quarter but no result for it
-            yet.
+            comparable result; `scheduled` otherwise — the provider lists the quarter but not a
+            comparable result for it. This is the field to branch on, rather than the nullability of
+            `epsActual` or `epsEstimated`.
         beatStreak:
           type: integer
           minimum: 0
