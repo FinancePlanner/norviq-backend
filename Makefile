@@ -9,7 +9,8 @@ HERMES_LOCAL_PORT ?= 8787
 .PHONY: help build services migrate start logs stop lint dev build-dev \
 	container-local health production-preflight rollback-app prune-images \
 	backup-db restore-drill export-user-data backend-test backend-openapi-check \
-	apns-production-check grafana-tunnel hermes-tunnel
+	apns-production-check grafana-tunnel hermes-tunnel \
+	backend-test-schemas backend-test-schemas-drop
 
 help:
 	@printf "Targets:\n"
@@ -77,6 +78,16 @@ backend-test:
 
 backend-openapi-check:
 	LOG_LEVEL=$(or $(LOG_LEVEL),warning) swift test --filter OpenAPIDocsTests
+
+# Report leaked `stockplan_test_<uuid>` schemas without touching anything.
+backend-test-schemas:
+	./scripts/gc-test-schemas.sh $(GC_FLAGS)
+
+# Drop them. Stamped schemas older than OLDER_THAN (default "2 hours") go
+# unconditionally; the pre-stamp backlog needs GC_FLAGS=--include-unstamped and
+# an otherwise-idle database. See the header of the script.
+backend-test-schemas-drop:
+	./scripts/gc-test-schemas.sh --apply --older-than "$(or $(OLDER_THAN),2 hours)" $(GC_FLAGS)
 
 container-local:
 	@test -n "$(APP_IMAGE)" || (echo "APP_IMAGE is required. Example: make container-local APP_IMAGE=ghcr.io/owner/StockPlanBackend" && exit 1)
