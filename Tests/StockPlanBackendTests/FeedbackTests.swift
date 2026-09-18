@@ -6,7 +6,7 @@ import VaporTesting
 @Suite("Feedback Tests", .serialized)
 struct FeedbackTests {
     private func withApp(_ test: (Application) async throws -> Void) async throws {
-        try await DatabaseTestLock.withLock {
+        try await DatabaseTestLock.withSharedAccess {
             let app = try await Application.make(.testing)
             do {
                 try await configure(app)

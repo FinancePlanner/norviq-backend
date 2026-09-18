@@ -103,7 +103,7 @@ struct StockPlanBackendTests {
     }
 
     private func withApp(_ test: (Application) async throws -> Void) async throws {
-        try await DatabaseTestLock.withLock {
+        try await DatabaseTestLock.withSharedAccess {
             for attempt in 0 ..< 2 {
                 let app = try await Application.make(.testing)
                 do {

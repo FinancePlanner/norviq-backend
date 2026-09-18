@@ -8,7 +8,7 @@ import Vapor
 struct PortfolioReportingTests {
     @Test("Portfolio and reporting migrations apply and revert")
     func migrationsApplyAndRevert() async throws {
-        try await DatabaseTestLock.withLock {
+        try await DatabaseTestLock.withSharedAccess {
             let app = try await Application.make(.testing)
             do {
                 try await configure(app)
@@ -89,7 +89,7 @@ struct PortfolioReportingTests {
 
     @Test("Advanced report worker stops runs after portfolio access is revoked")
     func workerStopsRunsAfterPortfolioAccessRevoked() async throws {
-        try await DatabaseTestLock.withLock {
+        try await DatabaseTestLock.withSharedAccess {
             let app = try await Application.make(.testing)
             do {
                 try await configure(app)
