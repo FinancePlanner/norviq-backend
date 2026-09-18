@@ -54,6 +54,7 @@ struct MarketOwnershipServiceTests {
                     basicFinancialsTTLSeconds: 3600,
                     fmpTTLSeconds: 3600,
                     ownershipTTLSeconds: 3600,
+                    recentEarningsTTLSeconds: 3600,
                     defaultCurrency: "USD"
                 )
             )

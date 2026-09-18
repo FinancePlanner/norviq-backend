@@ -12,6 +12,7 @@ protocol MarketDataService: Sendable {
     func congressTrades(symbol: String, on req: Request) async throws -> CongressTradesResponse
     func recentCongressTrades(limit: Int, on req: Request) async throws -> CongressTradesResponse
     func institutionalOwnership(symbol: String, on req: Request) async throws -> InstitutionalOwnershipResponse
+    func recentEarnings(symbol: String, on req: Request) async throws -> RecentEarningsResponse
     func periodReturns(symbol: String, on req: Request) async throws -> StockPeriodReturnsResponse
     func periodReturnsBatch(symbols: [String], on req: Request) async throws -> StockPeriodReturnsBatchResponse
     func quote(symbol: String, on req: Request) async throws -> QuoteResponse
@@ -102,6 +103,11 @@ struct MarketDataCacheConfig {
     /// ownership: all three are filing-driven and change a few times a day at
     /// most.
     let ownershipTTLSeconds: Int
+    /// The public ticker page's earnings teaser
+    /// (`MARKET_TTL_RECENT_EARNINGS_SECONDS`). Separate from `fmpTTLSeconds`
+    /// because it is a derived, publicly cached shape rather than the
+    /// provider's own payload, and it is read by anonymous page traffic.
+    let recentEarningsTTLSeconds: Int
     let defaultCurrency: String
 
     static func fromEnvironment() -> MarketDataCacheConfig {
@@ -116,6 +122,8 @@ struct MarketDataCacheConfig {
             Environment.get("MARKET_TTL_BASIC_FINANCIALS_SECONDS").flatMap(Int.init(_:)) ?? 86400
         let fmpTTL = Environment.get("MARKET_TTL_FMP_SECONDS").flatMap(Int.init(_:)) ?? 86400
         let ownershipTTL = Environment.get("MARKET_TTL_OWNERSHIP_SECONDS").flatMap(Int.init(_:)) ?? 21600
+        let recentEarningsTTL =
+            Environment.get("MARKET_TTL_RECENT_EARNINGS_SECONDS").flatMap(Int.init(_:)) ?? 3600
         let currency = Environment.get("MARKET_DEFAULT_CURRENCY") ?? "USD"
 
         return .init(
@@ -127,6 +135,7 @@ struct MarketDataCacheConfig {
             basicFinancialsTTLSeconds: max(60, basicFinancialsTTL),
             fmpTTLSeconds: max(60, fmpTTL),
             ownershipTTLSeconds: max(60, ownershipTTL),
+            recentEarningsTTLSeconds: max(60, recentEarningsTTL),
             defaultCurrency: currency.uppercased()
         )
     }

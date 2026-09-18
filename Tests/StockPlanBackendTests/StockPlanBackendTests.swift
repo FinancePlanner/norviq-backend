@@ -215,6 +215,7 @@ struct StockPlanBackendTests {
                 basicFinancialsTTLSeconds: basicFinancialsTTLSeconds,
                 fmpTTLSeconds: 3600,
                 ownershipTTLSeconds: 3600,
+                recentEarningsTTLSeconds: 3600,
                 defaultCurrency: "USD"
             ),
             fmpAccessTier: fmpAccessTier
@@ -1366,6 +1367,7 @@ struct StockPlanBackendTests {
                     basicFinancialsTTLSeconds: 3600,
                     fmpTTLSeconds: 3600,
                     ownershipTTLSeconds: 3600,
+                    recentEarningsTTLSeconds: 3600,
                     defaultCurrency: "USD"
                 )
             )
@@ -1406,6 +1408,7 @@ struct StockPlanBackendTests {
                     basicFinancialsTTLSeconds: 3600,
                     fmpTTLSeconds: 3600,
                     ownershipTTLSeconds: 3600,
+                    recentEarningsTTLSeconds: 3600,
                     defaultCurrency: "USD"
                 )
             )

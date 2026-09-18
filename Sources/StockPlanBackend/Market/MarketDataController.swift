@@ -33,8 +33,12 @@ struct MarketDataController: RouteCollection {
         rateLimited.get("ratios-ttm", ":symbol", use: ratiosTTM)
         rateLimited.get("grades-consensus", ":symbol", use: gradesConsensus)
         rateLimited.get("financial-growth", ":symbol", use: financialGrowth)
-        rateLimited.get("earnings", ":symbol", use: earnings)
+        // Literal third segments before anything that could take their place.
+        // Nothing registers `earnings/:symbol/:something` today; registering
+        // these first keeps it that way if something ever does.
+        rateLimited.get("earnings", ":symbol", "recent", use: recentEarnings)
         rateLimited.get("earnings", ":symbol", "transcript", use: earningsTranscript)
+        rateLimited.get("earnings", ":symbol", use: earnings)
         rateLimited.get("earnings-calendar", use: earningsCalendar)
         rateLimited.get("analyst-estimates", ":symbol", use: analystEstimates)
         rateLimited.get("ratios", ":symbol", use: ratios)
@@ -500,6 +504,21 @@ struct MarketDataController: RouteCollection {
                 on: req
             )
         )
+    }
+
+    /// The public ticker page's teaser: session auth only, no `requirePremium`.
+    ///
+    /// Everything it can answer is already public — EPS estimates, reported
+    /// actuals and their surprise. Transcript *text* is what `earningsText`
+    /// pays for, and it is not here; see `RecentEarningsResponse`.
+    @Sendable
+    func recentEarnings(req: Request) async throws -> RecentEarningsResponse {
+        _ = try req.auth.require(SessionToken.self)
+        guard let symbol = req.parameters.get("symbol") else {
+            throw Abort(.badRequest, reason: "Missing symbol.")
+        }
+
+        return try await req.application.marketDataService.recentEarnings(symbol: symbol, on: req)
     }
 
     @Sendable
