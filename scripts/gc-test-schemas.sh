@@ -257,12 +257,16 @@ for entry in "${candidates[@]}"; do
     fi
 
     # --- guard 5: the process that created it is still alive -----------------
-    # The stamp records the test process's pid. `kill -0` is only meaningful
-    # when the sweep runs on the same host as the suite, which is the normal
-    # case here; on any other host it simply never matches and we fall back to
-    # the age guard. Pid reuse can only make this skip a schema it could have
-    # dropped, never drop one it should not have — and the age guard means a
-    # reused pid is already at least --older-than old.
+    # The stamp records the test process's pid, and `kill -0` asks about a pid
+    # on *this* host. It is only a true owner check when the sweep runs where
+    # the suite ran, which is the normal case here.
+    #
+    # Run it elsewhere — or against a schema old enough for its pid to have been
+    # recycled — and the number matches some unrelated local process instead.
+    # That is a false positive, not a miss: the schema is skipped when it could
+    # have been dropped. Over-skipping is the safe direction and re-running
+    # after the imposter exits collects it, so this stays a skip rather than
+    # something cleverer. It is never a reason to drop a schema.
     if [ -n "$owner_pid" ] && kill -0 "$owner_pid" 2>/dev/null; then
         echo "  skip (creating process $owner_pid still alive): $schema"
         skipped=$((skipped + 1))

@@ -47,9 +47,13 @@ actor DatabaseAccessGate {
     /// defines and leave the next boot with a real `setenv` to perform.
     ///
     /// A failed warm-up is not swallowed. If it were, every later boot would
-    /// perform the genuine first dotenv write under reader concurrency, which
-    /// is precisely the crash this exists to prevent, and nothing would say so.
-    private func warmDotEnv() async {
+    /// perform the genuine first dotenv write, and nothing would say so.
+    ///
+    /// Returns whether the environment is warm. Two things hang off a `false`,
+    /// both in ``DatabaseTestLock``: nothing is granted shared access, and the
+    /// exclusive scopes stop restoring `environ`. See `prepare()`.
+    @discardableResult
+    private func warmDotEnv() async -> Bool {
         if warmUp == nil {
             warmUp = Task.detached {
                 do {
@@ -62,20 +66,26 @@ actor DatabaseAccessGate {
             }
         }
 
-        guard let task = warmUp else { return }
-        guard let failure = await task.value else { return }
-        guard !reportedWarmUpFailure else { return }
+        guard let task = warmUp else { return true }
+        guard let failure = await task.value else { return true }
+        guard !reportedWarmUpFailure else { return false }
         reportedWarmUpFailure = true
         // Reached from the test's own task, so this is attributed to whichever
         // test happened to be first through the gate.
         Issue.record(
             """
-            Dotenv warm-up failed, so the first Application.make of this process \
-            will perform the real setenv storm under reader concurrency. Treat \
-            any SIGSEGV in Environment.get after this as caused by it. Error: \
-            \(failure)
+            Dotenv warm-up failed, so this run falls back to fully serialised \
+            app boots and stops restoring the environment between them. Expect \
+            it to be slow; fix the boot. Error: \(failure)
             """
         )
+        return false
+    }
+
+    /// Warms the environment if that has not happened yet, and reports whether
+    /// it worked. Idempotent, and cheap after the first call.
+    func prepare() async -> Bool {
+        await warmDotEnv()
     }
 
     func acquireShared() async {
@@ -163,15 +173,28 @@ enum DatabaseTestLock {
             }
             return try await operation()
         }
+        // Only restore against a *warm* environment. If the warm-up failed,
+        // `environ` still lacks every `.env` key, so a snapshot would be of the
+        // cold state: the app boot inside the scope loads the dotenv files and
+        // the restore would strip them all out again on the way out, turning
+        // one setenv storm into one per scope, forever — and that is the
+        // Critical this restore was added to fix, reintroduced by its own fix.
+        // Skipping it lets the first successful boot warm the process and
+        // leaves it warm, which is what happened before this gate existed. The
+        // warm-up failure is already an Issue, and `withSharedAccess` refuses
+        // to grant shared access in this state, so nothing overlaps the storm.
+        let isWarm = await gate.prepare()
         await gate.acquireExclusive()
-        let entryEnvironment = ProcessInfo.processInfo.environment
+        // Snapshot inside the exclusive window: outside it, another scope could
+        // mutate between the read and the acquire.
+        let entryEnvironment = isWarm ? ProcessInfo.processInfo.environment : nil
         do {
             let result = try await $held.withValue(.exclusive) { try await operation() }
-            restore(entryEnvironment)
+            entryEnvironment.map(restore)
             await gate.releaseExclusive()
             return result
         } catch {
-            restore(entryEnvironment)
+            entryEnvironment.map(restore)
             await gate.releaseExclusive()
             throw error
         }
@@ -214,6 +237,14 @@ enum DatabaseTestLock {
     static func withSharedAccess<T>(_ operation: () async throws -> T) async rethrows -> T {
         if held != nil {
             return try await operation()
+        }
+        // Shared access is only sound because the dotenv files are already
+        // loaded, so an app boot's `setenv` calls are no-ops. If the warm-up
+        // failed that is not true, and letting boots overlap would be the
+        // SIGSEGV of 4a0b137 / 741c55a. Fall back to fully serialised boots:
+        // slow, correct, and the failure is already recorded as an Issue.
+        guard await gate.prepare() else {
+            return try await withLock(operation)
         }
         await gate.acquireShared()
         do {
