@@ -29,7 +29,8 @@ actor DatabaseAccessGate {
     private var writer = false
     private var readerWaiters: [CheckedContinuation<Void, Never>] = []
     private var writerWaiters: [CheckedContinuation<Void, Never>] = []
-    private var warmUp: Task<Void, Never>?
+    private var warmUp: Task<String?, Never>?
+    private var reportedWarmUpFailure = false
 
     /// Loads the dotenv files once, with nothing else running.
     ///
@@ -39,14 +40,42 @@ actor DatabaseAccessGate {
     /// exists to prevent — and under the old global mutex it was accidentally
     /// safe because every boot was serialised. Every acquirer awaits this
     /// first, so the writes land before any test body runs.
+    ///
+    /// This only establishes the *cold* state. Keeping it that way is
+    /// ``DatabaseTestLock/withLock``'s job: it restores the environment an
+    /// exclusive scope was handed, so a test cannot remove a key that `.env`
+    /// defines and leave the next boot with a real `setenv` to perform.
+    ///
+    /// A failed warm-up is not swallowed. If it were, every later boot would
+    /// perform the genuine first dotenv write under reader concurrency, which
+    /// is precisely the crash this exists to prevent, and nothing would say so.
     private func warmDotEnv() async {
         if warmUp == nil {
             warmUp = Task.detached {
-                guard let app = try? await Application.make(.testing) else { return }
-                try? await app.asyncShutdown()
+                do {
+                    let app = try await Application.make(.testing)
+                    try await app.asyncShutdown()
+                    return nil
+                } catch {
+                    return String(describing: error)
+                }
             }
         }
-        await warmUp?.value
+
+        guard let task = warmUp else { return }
+        guard let failure = await task.value else { return }
+        guard !reportedWarmUpFailure else { return }
+        reportedWarmUpFailure = true
+        // Reached from the test's own task, so this is attributed to whichever
+        // test happened to be first through the gate.
+        Issue.record(
+            """
+            Dotenv warm-up failed, so the first Application.make of this process \
+            will perform the real setenv storm under reader concurrency. Treat \
+            any SIGSEGV in Environment.get after this as caused by it. Error: \
+            \(failure)
+            """
+        )
     }
 
     func acquireShared() async {
@@ -118,10 +147,13 @@ enum DatabaseTestLock {
     static func withLock<T>(_ operation: () async throws -> T) async rethrows -> T {
         if let held {
             if held == .shared {
-                // Running an environment writer inside a shared scope would
-                // reintroduce the exact race this file exists to prevent, and
-                // it would do so silently. Fail the test instead.
-                Issue.record(
+                // Running an environment writer inside a shared scope is the
+                // exact race this file exists to prevent. Recording an issue
+                // and continuing fails open: the `setenv` still fires next to
+                // three readers sitting in `Environment.get`, and the process
+                // can be gone before anyone reads the diagnostic. Stop here —
+                // a hard, legible halt beats a segfault in an unrelated suite.
+                preconditionFailure(
                     """
                     withLock (exclusive) was entered from inside withSharedAccess. \
                     The enclosing suite mutates the process environment and must not \
@@ -132,13 +164,43 @@ enum DatabaseTestLock {
             return try await operation()
         }
         await gate.acquireExclusive()
+        let entryEnvironment = ProcessInfo.processInfo.environment
         do {
             let result = try await $held.withValue(.exclusive) { try await operation() }
+            restore(entryEnvironment)
             await gate.releaseExclusive()
             return result
         } catch {
+            restore(entryEnvironment)
             await gate.releaseExclusive()
             throw error
+        }
+    }
+
+    /// Puts `environ` back the way the exclusive scope was handed it, while
+    /// exclusivity still holds.
+    ///
+    /// Restoring what a test *added* is the obvious half. The half that matters
+    /// is restoring what it *removed*: the usual cleanup idiom here is
+    /// `setenv(k, v, 1); defer { unsetenv(k) }`, and three tests apply it to
+    /// `BYPASS_BILLING`, which `.env` defines. Leaving the key absent is not
+    /// inert — the next `Application.make` reaches `setenv(k, v, 0)` on a
+    /// missing name, which is a genuine `environ` mutation (a realloc on
+    /// glibc), not the no-op an already-present key gives. Under the old single
+    /// mutex no two boots overlapped so it could not bite; with app boots on
+    /// the reader side it would fire next to three concurrent `Environment.get`
+    /// calls. `warmDotEnv` only establishes the cold state; this keeps it.
+    private static func restore(_ snapshot: [String: String]) {
+        let current = ProcessInfo.processInfo.environment
+        for (key, value) in current where snapshot[key] != value {
+            if let original = snapshot[key] {
+                setenv(key, original, 1)
+            } else {
+                unsetenv(key)
+            }
+        }
+        for (key, value) in snapshot where current[key] == nil {
+            setenv(key, value, 1)
         }
     }
 
