@@ -1904,7 +1904,7 @@ struct StockPlanBackendTests {
         }
     }
 
-    @Test("Earnings transcript endpoint blocks free users with billing-upgrade 403")
+    @Test("Earnings transcript endpoint blocks free users with billing-upgrade 403", .databaseLocked)
     func earningsTranscriptEndpoint_nonPremiumReturns403() async throws {
         setenv("BYPASS_BILLING", "false", 1)
         defer { unsetenv("BYPASS_BILLING") }
@@ -2601,7 +2601,7 @@ struct StockPlanBackendTests {
         }
     }
 
-    @Test("Finnhub news webhook ingests tracked symbols and deduplicates repeated deliveries")
+    @Test("Finnhub news webhook ingests tracked symbols and deduplicates repeated deliveries", .databaseLocked)
     func finnhubNewsWebhookIngestsTrackedSymbols() async throws {
         setenv("FINNHUB_WEBHOOK_SECRET", "test-finnhub-secret", 1)
         setenv("FINNHUB_WEBHOOK_URL", "http://localhost:8080/webhooks/finnhub/news", 1)
@@ -2696,7 +2696,7 @@ struct StockPlanBackendTests {
         }
     }
 
-    @Test("Finnhub news webhook rejects an invalid secret")
+    @Test("Finnhub news webhook rejects an invalid secret", .databaseLocked)
     func finnhubNewsWebhookRejectsInvalidSecret() async throws {
         setenv("FINNHUB_WEBHOOK_SECRET", "test-finnhub-secret", 1)
         defer { unsetenv("FINNHUB_WEBHOOK_SECRET") }

@@ -2,6 +2,7 @@
 import Testing
 import Vapor
 
+@Suite(.databaseLocked)
 struct IBKROAuthClientTests {
     @Test("IBKR OAuth client builds authorization URL with backend callback")
     func ibkrOAuthClientBuildsAuthorizationURLWithBackendCallback() throws {

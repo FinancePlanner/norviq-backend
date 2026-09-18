@@ -290,7 +290,7 @@ struct WhyMovedTests {
 
     /// This endpoint has no Pro gate, so a free user reaches it. Reaching it must
     /// not put them on a metered model.
-    @Test("A free user's why-moved summary comes from the free chain, not the paid one")
+    @Test("A free user's why-moved summary comes from the free chain, not the paid one", .databaseLocked)
     func whyMovedFreeUserStaysOnFreeChain() async throws {
         // The local `.env` ships BYPASS_BILLING=true, which resolves every user to
         // Pro. Without this the test would pass for the wrong reason.
@@ -317,7 +317,7 @@ struct WhyMovedTests {
         }
     }
 
-    @Test("A Pro user's why-moved summary comes from the pro chain")
+    @Test("A Pro user's why-moved summary comes from the pro chain", .databaseLocked)
     func whyMovedProUserUsesProChain() async throws {
         setenv("BYPASS_BILLING", "false", 1)
         defer { unsetenv("BYPASS_BILLING") }

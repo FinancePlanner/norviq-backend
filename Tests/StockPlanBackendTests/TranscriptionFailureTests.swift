@@ -53,7 +53,7 @@ struct TranscriptionFailureTests {
 /// The endpoint shape, not the vendor, is what the code depends on: Groq, a
 /// self-hosted whisper server and anything else speaking
 /// `POST /v1/audio/transcriptions` are one provider with different URLs.
-@Suite("Transcription provider selection, neutral naming", .serialized)
+@Suite("Transcription provider selection, neutral naming", .serialized, .databaseLocked)
 struct NeutralProviderSelectionTests {
     private func clear() {
         for key in ["TRANSCRIBE_PROVIDER",
