@@ -53,6 +53,24 @@ public struct EarningsResponse: Content, Sendable, Equatable {
     public let lastUpdated: String?
     public let surprisePercent: Double?
     public let hasTranscript: Bool
+    /// The beat run *ending at this row*: consecutive reported quarters, this
+    /// one included, where EPS came in at or above the estimate.
+    ///
+    /// At most one of `beatStreak` and `missStreak` is non-zero. **Both zero
+    /// means this row has no comparable result** — it is a quarter that has not
+    /// reported (no actual, or no estimate to compare against), or a row from the
+    /// cross-symbol earnings calendar, which belongs to no single symbol's run
+    /// and leaves both at zero. Both zero does *not* mean the quarter missed; a
+    /// miss is `missStreak >= 1`.
+    ///
+    /// The symbol's headline run is the first row with a non-zero streak, which
+    /// is not necessarily the first row of the response: the newest row is
+    /// usually the next *scheduled* quarter, at 0/0.
+    public var beatStreak: Int
+    /// The `beatStreak` counterpart: the miss run ending at this row. Same
+    /// invariant — at most one of the two is non-zero, and both zero means this
+    /// row carries no comparable result rather than a beat.
+    public var missStreak: Int
 
     public init(
         symbol: String,
@@ -63,7 +81,9 @@ public struct EarningsResponse: Content, Sendable, Equatable {
         revenueEstimated: Double?,
         lastUpdated: String?,
         surprisePercent: Double?,
-        hasTranscript: Bool
+        hasTranscript: Bool,
+        beatStreak: Int = 0,
+        missStreak: Int = 0
     ) {
         self.symbol = symbol
         self.date = date
@@ -74,6 +94,18 @@ public struct EarningsResponse: Content, Sendable, Equatable {
         self.lastUpdated = lastUpdated
         self.surprisePercent = surprisePercent
         self.hasTranscript = hasTranscript
+        self.beatStreak = beatStreak
+        self.missStreak = missStreak
+    }
+
+    /// A copy carrying the given streaks. Mutating a copy rather than rebuilding
+    /// through `init` keeps the field list in one place: a field added later
+    /// survives this untouched instead of silently resetting to its default.
+    public func withStreaks(beat: Int, miss: Int) -> EarningsResponse {
+        var copy = self
+        copy.beatStreak = beat
+        copy.missStreak = miss
+        return copy
     }
 }
 

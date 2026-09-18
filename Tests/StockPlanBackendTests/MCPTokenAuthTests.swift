@@ -16,8 +16,30 @@ struct MCPTokenAuthTests {
 
     // MARK: - Harness
 
-    private func withApp(_ test: @escaping (Application) async throws -> Void) async throws {
+    /// `billingBypass` pins `BYPASS_BILLING` for the run, so a test can tell the
+    /// scope check apart from the entitlement check instead of inheriting
+    /// whatever the last suite left behind. It is set and restored *inside*
+    /// `DatabaseTestLock`, which is what keeps a `setenv` from racing another
+    /// suite's booting `Environment.get` — see `DatabaseLockedTrait`.
+    private func withApp(
+        billingBypass: Bool? = nil,
+        _ test: @escaping (Application) async throws -> Void
+    ) async throws {
         try await DatabaseTestLock.withLock {
+            let previousBypass = getenv("BYPASS_BILLING").map { String(cString: $0) }
+            if let billingBypass {
+                setenv("BYPASS_BILLING", billingBypass ? "true" : "false", 1)
+            }
+            defer {
+                if billingBypass != nil {
+                    if let previousBypass {
+                        setenv("BYPASS_BILLING", previousBypass, 1)
+                    } else {
+                        unsetenv("BYPASS_BILLING")
+                    }
+                }
+            }
+
             let app = try await Application.make(.testing)
             do {
                 try await configure(app)
@@ -118,6 +140,129 @@ struct MCPTokenAuthTests {
             let user = try await registerUser(app: app)
             let pat = try await mintPAT(app: app, userId: user.userId, scopes: [.expensesRead])
             try await app.testing().test(.GET, "v1/news/feed", beforeRequest: { req in
+                req.headers.bearerAuthorization = .init(token: pat)
+            }, afterResponse: { res async in
+                #expect(res.status == .forbidden)
+            })
+        }
+    }
+
+    /// The public ticker pages are served by the web pod, which authenticates
+    /// with a PAT. `market:read` is what the market group checks, and the two
+    /// routes below need nothing more than it — but that is not the whole
+    /// requirement for the page, on two counts:
+    ///
+    /// - `/v1/market/earnings/{symbol}` sits on this same group and also calls
+    ///   `requirePremium(.earningsText)`, so the token's *owner* must be on Pro.
+    /// - `/v1/insights/tickers/{symbol}/sentiment` is not on this group at all.
+    ///   It needs `insights:read`, and `requirePremium(.aiInsights)` on top.
+    ///
+    /// Every one of those refusals is a 403 the public page swallows, so the
+    /// section simply is not there at HTTP 200. The tests that follow pin each.
+    @Test("PAT with market:read clears auth on the technicals and earnings-calendar routes")
+    func patMarketReadClearsMarketReadRoutes() async throws {
+        try await withApp { app in
+            let user = try await registerUser(app: app)
+            let pat = try await mintPAT(app: app, userId: user.userId, scopes: [.marketRead])
+
+            for path in [["technicals", ":symbol"], ["earnings-calendar"]] {
+                // Assert the route exists separately from calling it, so that a
+                // 404 from a mistyped path can never be mistaken for the market
+                // provider declining to answer.
+                let expected = ["v1", "market"] + path
+                #expect(app.routes.all.contains {
+                    $0.method == .GET && $0.path.map(\.description) == expected
+                })
+
+                let requested = expected.map { $0 == ":symbol" ? "AAPL" : $0 }.joined(separator: "/")
+                try await app.testing().test(.GET, requested, beforeRequest: { req in
+                    req.headers.bearerAuthorization = .init(token: pat)
+                }, afterResponse: { res async in
+                    // Whatever the market provider is configured to do in this
+                    // run — answer, 404 an empty symbol, or 503 while
+                    // unconfigured — the request got past auth and the scope
+                    // check to reach it, which is the whole claim here.
+                    #expect(res.status != .unauthorized)
+                    #expect(res.status != .forbidden)
+                })
+            }
+        }
+    }
+
+    /// The public page's sentiment badge comes from the insights group, not the
+    /// market group, so a PAT minted on the "market:read is the whole
+    /// requirement" advice is refused here — and the page swallows it.
+    @Test("PAT with market:read alone is forbidden from the ticker sentiment route")
+    func patMarketReadAloneForbiddenFromTickerSentiment() async throws {
+        try await withApp(billingBypass: true) { app in
+            let user = try await registerUser(app: app)
+            let pat = try await mintPAT(app: app, userId: user.userId, scopes: [.marketRead])
+            try await app.testing().test(.GET, "v1/insights/tickers/AAPL/sentiment", beforeRequest: { req in
+                req.headers.bearerAuthorization = .init(token: pat)
+            }, afterResponse: { res async in
+                // Billing is bypassed for this run, so the only thing left
+                // that can refuse is the scope requirement.
+                #expect(res.status == .forbidden)
+            })
+        }
+    }
+
+    @Test("PAT with insights:read clears auth on the ticker sentiment route")
+    func patInsightsReadClearsTickerSentiment() async throws {
+        try await withApp(billingBypass: true) { app in
+            let user = try await registerUser(app: app)
+            let pat = try await mintPAT(app: app, userId: user.userId, scopes: [.marketRead, .insightsRead])
+            try await app.testing().test(.GET, "v1/insights/tickers/AAPL/sentiment", beforeRequest: { req in
+                req.headers.bearerAuthorization = .init(token: pat)
+            }, afterResponse: { res async in
+                #expect(res.status != .unauthorized)
+                #expect(res.status != .forbidden)
+            })
+        }
+    }
+
+    /// Scopes are only half of it. A PAT is always minted for a user, and these
+    /// two routes read that user's plan, so a token owned by a free account
+    /// loses the public page its earnings table and its sentiment badge with no
+    /// signal beyond a 403 the web pod is written to ignore.
+    @Test("PAT owned by a free account is refused earnings and ticker sentiment")
+    func patOnFreeAccountRefusedProMarketRoutes() async throws {
+        try await withApp(billingBypass: false) { app in
+            let user = try await registerUser(app: app)
+            // Registration starts a trial, and a trial resolves as Pro. A
+            // service account minted months ago is past that, which is the
+            // state this pins: no entitlement row, no live trial.
+            let account = try #require(try await User.find(user.userId, on: app.db))
+            account.trialStartedAt = nil
+            account.trialDays = nil
+            account.trialTier = nil
+            try await account.save(on: app.db)
+
+            let pat = try await mintPAT(
+                app: app,
+                userId: user.userId,
+                scopes: [.marketRead, .insightsRead]
+            )
+
+            for path in ["v1/market/earnings/AAPL", "v1/insights/tickers/AAPL/sentiment"] {
+                try await app.testing().test(.GET, path, beforeRequest: { req in
+                    req.headers.bearerAuthorization = .init(token: pat)
+                }, afterResponse: { res async in
+                    #expect(res.status == .forbidden)
+                    // Distinguishes the entitlement gate from a scope
+                    // failure, which answers 403 as well.
+                    #expect(res.body.string.contains("upgrade_required"))
+                })
+            }
+        }
+    }
+
+    @Test("PAT without market:read is forbidden from the technicals route")
+    func patWithoutMarketReadForbiddenFromTechnicals() async throws {
+        try await withApp { app in
+            let user = try await registerUser(app: app)
+            let pat = try await mintPAT(app: app, userId: user.userId, scopes: [.expensesRead])
+            try await app.testing().test(.GET, "v1/market/technicals/AAPL", beforeRequest: { req in
                 req.headers.bearerAuthorization = .init(token: pat)
             }, afterResponse: { res async in
                 #expect(res.status == .forbidden)

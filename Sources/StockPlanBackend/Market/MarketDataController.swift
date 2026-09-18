@@ -40,6 +40,12 @@ struct MarketDataController: RouteCollection {
         rateLimited.get("ratios", ":symbol", use: ratios)
         rateLimited.get("historical-sector-performance", use: historicalSectorPerformance)
         rateLimited.get("history", ":symbol", use: history)
+        rateLimited.get("technicals", ":symbol", use: technicals)
+        rateLimited.get("insider", ":symbol", use: insiderActivity)
+        // `recent` first: a constant segment must not be swallowed by :symbol.
+        rateLimited.get("congress", "recent", use: recentCongressTrades)
+        rateLimited.get("congress", ":symbol", use: congressTrades)
+        rateLimited.get("institutional", ":symbol", use: institutionalOwnership)
         rateLimited.get("search", use: search)
         rateLimited.get("fx", use: fx)
         rateLimited.get("price-chart", "compare", use: priceChartComparison)
@@ -484,10 +490,15 @@ struct MarketDataController: RouteCollection {
         }
 
         let limit = req.query[Int.self, at: "limit"]
-        return try await req.application.marketDataService.earnings(
-            symbol: symbol,
-            limit: limit,
-            on: req
+        // Derived here rather than in the service so the provider's own shape is
+        // what gets cached, and so the cross-symbol calendar — which shares this
+        // DTO but has no per-symbol run to count — is left alone.
+        return try await EarningsStreak.annotate(
+            req.application.marketDataService.earnings(
+                symbol: symbol,
+                limit: limit,
+                on: req
+            )
         )
     }
 
@@ -662,6 +673,113 @@ struct MarketDataController: RouteCollection {
         response.headers.add(name: .eTag, value: etag)
         response.headers.add(name: .cacheControl, value: "public, max-age=300")
         return response
+    }
+
+    /// Soft-failing, so an unreachable Redis costs a recomputation rather than
+    /// the response.
+    private static let technicalsCache = RedisJSONCache(label: "market.technicals")
+
+    @Sendable
+    func technicals(req: Request) async throws -> TechnicalSignalsResponse {
+        // Same teaser model as `earningsCalendar`: the signals are what makes a
+        // public ticker page worth reading, and the fundamentals behind them
+        // stay Pro-gated.
+        _ = try req.auth.require(SessionToken.self)
+        guard let raw = req.parameters.get("symbol")?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+            !raw.isEmpty
+        else {
+            throw Abort(.badRequest, reason: "Missing symbol.")
+        }
+        let symbol = raw.uppercased()
+
+        let cacheKey = TechnicalSignalsConfig.redisKey(symbol)
+        if let cached: TechnicalSignalsResponse = await Self.technicalsCache.get(cacheKey, on: req) {
+            return cached
+        }
+
+        let history = try await req.application.marketDataService.history(
+            symbol: symbol,
+            from: TechnicalSignalsConfig.historyStart(),
+            to: nil,
+            on: req
+        )
+        guard let signals = TechnicalSignals.compute(symbol: symbol, bars: history.bars) else {
+            throw Abort(.notFound, reason: "No price history available for \(symbol).")
+        }
+
+        await Self.technicalsCache.set(
+            cacheKey,
+            value: signals,
+            ttlSeconds: TechnicalSignalsConfig.ttlSecondsFromEnvironment(),
+            on: req
+        )
+        return signals
+    }
+
+    // MARK: - Ownership routes
+
+    /// Insider filings for a symbol, with any cluster-buy signal.
+    ///
+    /// Same teaser model as `technicals`: session auth, no premium gate. The web
+    /// decides how much of the response a free reader sees. Caching, upstream
+    /// calls and degradation all live in `MarketDataService+Ownership`, which is
+    /// true of the three routes below as well.
+    @Sendable
+    func insiderActivity(req: Request) async throws -> InsiderActivityResponse {
+        _ = try req.auth.require(SessionToken.self)
+        let symbol = try requirePathSymbol(req)
+        let days = req.query[Int.self, at: "days"] ?? InsiderActivityConfig.defaultWindowDays
+        guard InsiderActivityConfig.windowDaysRange.contains(days) else {
+            throw Abort(
+                .badRequest,
+                reason: "`days` must be between \(InsiderActivityConfig.windowDaysRange.lowerBound) "
+                    + "and \(InsiderActivityConfig.windowDaysRange.upperBound)."
+            )
+        }
+        return try await req.application.marketDataService.insiderActivity(
+            symbol: symbol,
+            windowDays: days,
+            on: req
+        )
+    }
+
+    @Sendable
+    func congressTrades(req: Request) async throws -> CongressTradesResponse {
+        _ = try req.auth.require(SessionToken.self)
+        let symbol = try requirePathSymbol(req)
+        return try await req.application.marketDataService.congressTrades(symbol: symbol, on: req)
+    }
+
+    @Sendable
+    func recentCongressTrades(req: Request) async throws -> CongressTradesResponse {
+        _ = try req.auth.require(SessionToken.self)
+        let limit = req.query[Int.self, at: "limit"] ?? CongressTradesConfig.defaultRecentLimit
+        guard CongressTradesConfig.recentLimitRange.contains(limit) else {
+            throw Abort(
+                .badRequest,
+                reason: "`limit` must be between \(CongressTradesConfig.recentLimitRange.lowerBound) "
+                    + "and \(CongressTradesConfig.recentLimitRange.upperBound)."
+            )
+        }
+        return try await req.application.marketDataService.recentCongressTrades(limit: limit, on: req)
+    }
+
+    @Sendable
+    func institutionalOwnership(req: Request) async throws -> InstitutionalOwnershipResponse {
+        _ = try req.auth.require(SessionToken.self)
+        let symbol = try requirePathSymbol(req)
+        return try await req.application.marketDataService.institutionalOwnership(symbol: symbol, on: req)
+    }
+
+    private func requirePathSymbol(_ req: Request) throws -> String {
+        guard let raw = req.parameters.get("symbol")?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+            !raw.isEmpty
+        else {
+            throw Abort(.badRequest, reason: "Missing symbol.")
+        }
+        return raw.uppercased()
     }
 
     @Sendable

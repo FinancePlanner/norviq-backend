@@ -214,6 +214,7 @@ struct StockPlanBackendTests {
                 profileTTLSeconds: profileTTLSeconds,
                 basicFinancialsTTLSeconds: basicFinancialsTTLSeconds,
                 fmpTTLSeconds: 3600,
+                ownershipTTLSeconds: 3600,
                 defaultCurrency: "USD"
             ),
             fmpAccessTier: fmpAccessTier
@@ -1002,8 +1003,8 @@ struct StockPlanBackendTests {
             )
             await fmpState.setPressureHistory(makePressureHistory(symbol: "AAPL", sessions: 40, volume: 1_000_000, spikeLast: 3_000_000))
             await fmpState.setPressureInsiders([
-                FMPInsiderTrade(symbol: "AAPL", transactionDate: "2026-07-20", transactionType: "S-Sale", securitiesTransacted: 50000, reportingName: "Jane Exec", typeOfOwner: "officer", acquisitionOrDisposition: "D"),
-                FMPInsiderTrade(symbol: "AAPL", transactionDate: "2026-07-21", transactionType: "P-Purchase", securitiesTransacted: 10000, reportingName: "Sam Director", typeOfOwner: "director", acquisitionOrDisposition: "A"),
+                FMPInsiderTrade(symbol: "AAPL", filingDate: nil, transactionDate: "2026-07-20", transactionType: "S-Sale", securitiesTransacted: 50000, securitiesOwned: nil, price: nil, reportingName: "Jane Exec", typeOfOwner: "officer", acquisitionOrDisposition: "D", url: nil),
+                FMPInsiderTrade(symbol: "AAPL", filingDate: nil, transactionDate: "2026-07-21", transactionType: "P-Purchase", securitiesTransacted: 10000, securitiesOwned: nil, price: nil, reportingName: "Sam Director", typeOfOwner: "director", acquisitionOrDisposition: "A", url: nil),
             ])
             app.marketDataService = makeTestMarketService(
                 state: state,
@@ -1364,6 +1365,7 @@ struct StockPlanBackendTests {
                     profileTTLSeconds: 3600,
                     basicFinancialsTTLSeconds: 3600,
                     fmpTTLSeconds: 3600,
+                    ownershipTTLSeconds: 3600,
                     defaultCurrency: "USD"
                 )
             )
@@ -1403,6 +1405,7 @@ struct StockPlanBackendTests {
                     profileTTLSeconds: 3600,
                     basicFinancialsTTLSeconds: 3600,
                     fmpTTLSeconds: 3600,
+                    ownershipTTLSeconds: 3600,
                     defaultCurrency: "USD"
                 )
             )
@@ -1756,6 +1759,10 @@ struct StockPlanBackendTests {
                 #expect(body.first?.epsActual == 1.64)
                 #expect(body.first?.surprisePercent == 2.5)
                 #expect(body.first?.hasTranscript == true)
+                // 1.64 against a 1.60 estimate is one beat, and the route is
+                // where the run gets attached.
+                #expect(body.first?.beatStreak == 1)
+                #expect(body.first?.missStreak == 0)
             })
 
             #expect(await fmpState.earningsCalls() == 1)
@@ -1795,6 +1802,10 @@ struct StockPlanBackendTests {
                 #expect(body.count == 1)
                 #expect(body.first?.surprisePercent == 2.5)
                 #expect(body.first?.hasTranscript == false)
+                // The calendar is cross-symbol, so its rows belong to no single
+                // symbol's run and stay at 0/0 even though this one beat.
+                #expect(body.first?.beatStreak == 0)
+                #expect(body.first?.missStreak == 0)
             })
 
             #expect(await fmpState.earningsCalendarCalls() == 1)

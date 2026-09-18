@@ -95,7 +95,33 @@ protocol FMPMarketDataProvider: Sendable {
     func fetchBiggestLosers(on req: Request) async throws -> [FMPMoverItem]
     func fetchTopMarketCapUniverse(limit: Int, on req: Request) async throws -> [FMPScreenerItem]
     func fetchInsiderTrades(symbol: String, limit: Int, on req: Request) async throws -> [FMPInsiderTrade]
+    /// One page of insider filings. The page-less overload above is the
+    /// pressure snapshot's "just the newest few"; this one is for walking a
+    /// window.
+    func fetchInsiderTrades(symbol: String, page: Int, limit: Int, on req: Request) async throws -> [FMPInsiderTrade]
     func stockPriceChange(symbol: String, on req: Request) async throws -> [FMPStockPriceChange]
+
+    // MARK: - Congressional disclosures
+
+    func senateTrades(symbol: String, on req: Request) async throws -> [FMPCongressTrade]
+    func houseTrades(symbol: String, on req: Request) async throws -> [FMPCongressTrade]
+    func latestSenateTrades(limit: Int, on req: Request) async throws -> [FMPCongressTrade]
+    func latestHouseTrades(limit: Int, on req: Request) async throws -> [FMPCongressTrade]
+
+    // MARK: - Institutional ownership
+
+    func institutionalHolders(
+        symbol: String,
+        year: Int,
+        quarter: Int,
+        on req: Request
+    ) async throws -> [FMPInstitutionalHolder]
+    func institutionalPositionsSummary(
+        symbol: String,
+        year: Int,
+        quarter: Int,
+        on req: Request
+    ) async throws -> [FMPInstitutionalPositionsSummary]
 }
 
 /// Defaults keep pre-existing conformers (test stubs) compiling; the live
@@ -121,8 +147,51 @@ extension FMPMarketDataProvider {
         throw Abort(.serviceUnavailable, reason: "Insider trades are not supported by this provider.")
     }
 
+    func fetchInsiderTrades(
+        symbol _: String,
+        page _: Int,
+        limit _: Int,
+        on _: Request
+    ) async throws -> [FMPInsiderTrade] {
+        throw Abort(.serviceUnavailable, reason: "Insider trades are not supported by this provider.")
+    }
+
     func stockPriceChange(symbol _: String, on _: Request) async throws -> [FMPStockPriceChange] {
         throw Abort(.serviceUnavailable, reason: "Stock price change is not supported by this provider.")
+    }
+
+    func senateTrades(symbol _: String, on _: Request) async throws -> [FMPCongressTrade] {
+        throw Abort(.serviceUnavailable, reason: "Congressional trades are not supported by this provider.")
+    }
+
+    func houseTrades(symbol _: String, on _: Request) async throws -> [FMPCongressTrade] {
+        throw Abort(.serviceUnavailable, reason: "Congressional trades are not supported by this provider.")
+    }
+
+    func latestSenateTrades(limit _: Int, on _: Request) async throws -> [FMPCongressTrade] {
+        throw Abort(.serviceUnavailable, reason: "Congressional trades are not supported by this provider.")
+    }
+
+    func latestHouseTrades(limit _: Int, on _: Request) async throws -> [FMPCongressTrade] {
+        throw Abort(.serviceUnavailable, reason: "Congressional trades are not supported by this provider.")
+    }
+
+    func institutionalHolders(
+        symbol _: String,
+        year _: Int,
+        quarter _: Int,
+        on _: Request
+    ) async throws -> [FMPInstitutionalHolder] {
+        throw Abort(.serviceUnavailable, reason: "Institutional ownership is not supported by this provider.")
+    }
+
+    func institutionalPositionsSummary(
+        symbol _: String,
+        year _: Int,
+        quarter _: Int,
+        on _: Request
+    ) async throws -> [FMPInstitutionalPositionsSummary] {
+        throw Abort(.serviceUnavailable, reason: "Institutional ownership is not supported by this provider.")
     }
 }
 
@@ -782,11 +851,91 @@ struct LiveFMPMarketDataProvider: FMPMarketDataProvider, CryptoDataProvider {
         )
     }
 
+    func fetchInsiderTrades(
+        symbol: String,
+        page: Int,
+        limit: Int,
+        on req: Request
+    ) async throws -> [FMPInsiderTrade] {
+        let symbol = try normalizeSymbol(symbol)
+        return try await fetchJSON(
+            path: "/stable/insider-trading/search",
+            query: [("symbol", symbol), ("page", String(max(0, page))), ("limit", String(limit))],
+            on: req
+        )
+    }
+
     func stockPriceChange(symbol rawSymbol: String, on req: Request) async throws -> [FMPStockPriceChange] {
         let symbol = try normalizeSymbol(rawSymbol)
         return try await fetchJSON(
             path: "/stable/stock-price-change",
             query: [("symbol", symbol)],
+            on: req
+        )
+    }
+
+    // MARK: - Congressional disclosures
+
+    func senateTrades(symbol rawSymbol: String, on req: Request) async throws -> [FMPCongressTrade] {
+        let symbol = try normalizeSymbol(rawSymbol)
+        return try await fetchJSON(
+            path: "/stable/senate-trades",
+            query: [("symbol", symbol)],
+            on: req
+        )
+    }
+
+    func houseTrades(symbol rawSymbol: String, on req: Request) async throws -> [FMPCongressTrade] {
+        let symbol = try normalizeSymbol(rawSymbol)
+        return try await fetchJSON(
+            path: "/stable/house-trades",
+            query: [("symbol", symbol)],
+            on: req
+        )
+    }
+
+    func latestSenateTrades(limit: Int, on req: Request) async throws -> [FMPCongressTrade] {
+        try await fetchJSON(
+            path: "/stable/senate-latest",
+            query: [("page", "0"), ("limit", String(limit))],
+            on: req
+        )
+    }
+
+    func latestHouseTrades(limit: Int, on req: Request) async throws -> [FMPCongressTrade] {
+        try await fetchJSON(
+            path: "/stable/house-latest",
+            query: [("page", "0"), ("limit", String(limit))],
+            on: req
+        )
+    }
+
+    // MARK: - Institutional ownership
+
+    func institutionalHolders(
+        symbol rawSymbol: String,
+        year: Int,
+        quarter: Int,
+        on req: Request
+    ) async throws -> [FMPInstitutionalHolder] {
+        let symbol = try normalizeSymbol(rawSymbol)
+        return try await fetchJSON(
+            path: "/stable/institutional-ownership/extract-analytics/holder",
+            query: [("symbol", symbol), ("year", String(year)), ("quarter", String(quarter))],
+            on: req
+        )
+    }
+
+    func institutionalPositionsSummary(
+        symbol rawSymbol: String,
+        year: Int,
+        quarter: Int,
+        on req: Request
+    ) async throws -> [FMPInstitutionalPositionsSummary] {
+        let symbol = try normalizeSymbol(rawSymbol)
+        return try await fetchJSON(
+            path: "/stable/institutional-ownership/symbol-positions-summary",
+            query: [("symbol", symbol), ("year", String(year)), ("quarter", String(quarter))],
             on: req
         )
     }
