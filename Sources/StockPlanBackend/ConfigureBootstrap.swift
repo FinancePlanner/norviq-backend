@@ -105,11 +105,20 @@ func configurePersistence(_ app: Application) async throws {
         try await sqlDatabase.raw("CREATE SCHEMA IF NOT EXISTS \(unsafeRaw: schema)").run()
 
         if case .ephemeral = testDatabaseSchema {
+            // Register the teardown before anything else can throw. If the
+            // stamp below failed first, the schema would exist, be unstamped,
+            // and have no teardown — and an unstamped schema is only reachable
+            // by the sweeper's --include-unstamped path, which refuses unless
+            // the whole database is idle. That is a permanent, un-collectable
+            // leak bought for one statement's worth of ordering.
+            app.lifecycle.use(TestSchemaTeardown(schema: schema))
+
             // Stamp the schema with its birth time so `make backend-test-schemas`
             // can tell residue from a schema a *running* suite still owns. The
             // comment is the only durable record: `pg_namespace` has no
             // creation time, and a suite that reverts its migrations leaves an
-            // empty schema with nothing else to date it by.
+            // empty schema with nothing else to date it by. The pid lets the
+            // sweeper skip a schema whose owner is still alive.
             //
             // `COMMENT ... IS` takes a literal, not a bind parameter; the text
             // is entirely machine-generated, so there is nothing to inject.
@@ -118,7 +127,6 @@ func configurePersistence(_ app: Application) async throws {
             pid=\(ProcessInfo.processInfo.processIdentifier)
             """
             try await sqlDatabase.raw("COMMENT ON SCHEMA \(unsafeRaw: schema) IS \(literal: stamp)").run()
-            app.lifecycle.use(TestSchemaTeardown(schema: schema))
         }
     }
 
