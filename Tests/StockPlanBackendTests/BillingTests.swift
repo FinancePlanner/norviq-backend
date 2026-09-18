@@ -1009,7 +1009,7 @@ struct BillingTests {
         }
     }
 
-    @Test("Configured premium email resolves to Pro without subscription")
+    @Test("Configured premium email resolves to Pro without subscription", .databaseLocked)
     func configuredPremiumEmailResolvesToProWithoutSubscription() async throws {
         setenv("BILLING_PREMIUM_EMAILS", " ABC@gmail.com , xyz@gmail.com ", 1)
         defer { unsetenv("BILLING_PREMIUM_EMAILS") }

@@ -36,8 +36,9 @@ struct BillingWebhookSecurityTests {
     @Test
     func productionBootFailsWhenWebhookSecretAndHMACSecretBothMissing() async throws {
         try await DatabaseTestLock.withLock {
-            let app = try await Application.make(.production)
-            // Unset AFTER make: Application bootstrap loads .env files into the process env.
+            let app = try await TestApplication.makeIsolated(.production)
+            // `makeIsolated` already strips whatever the local dotenv files carry; this
+            // clears anything inherited from the real process environment.
             unsetenv("REVENUECAT_WEBHOOK_SECRET")
             unsetenv("REVENUECAT_HMAC_SECRET")
             unsetenv("REVENUECAT_API_KEY")
@@ -54,7 +55,7 @@ struct BillingWebhookSecurityTests {
             setenv("REVENUECAT_WEBHOOK_SECRET", "present", 1)
             unsetenv("REVENUECAT_HMAC_SECRET")
             setenv("REVENUECAT_API_KEY", "present", 1)
-            let app = try await Application.make(.production)
+            let app = try await TestApplication.makeIsolated(.production)
             do {
                 try validateBillingSecrets(app)
             } catch {
@@ -73,7 +74,7 @@ struct BillingWebhookSecurityTests {
             unsetenv("REVENUECAT_WEBHOOK_SECRET")
             setenv("REVENUECAT_HMAC_SECRET", "present_hmac", 1)
             setenv("REVENUECAT_API_KEY", "present", 1)
-            let app = try await Application.make(.production)
+            let app = try await TestApplication.makeIsolated(.production)
             do {
                 try validateBillingSecrets(app)
             } catch {
@@ -89,8 +90,9 @@ struct BillingWebhookSecurityTests {
     @Test
     func developmentBootDoesNotThrowWhenSecretsMissing() async throws {
         try await DatabaseTestLock.withLock {
-            let app = try await Application.make(.development)
-            // Unset AFTER make: Application bootstrap loads .env files into the process env.
+            let app = try await TestApplication.makeIsolated(.development)
+            // `makeIsolated` already strips whatever the local dotenv files carry; this
+            // clears anything inherited from the real process environment.
             unsetenv("REVENUECAT_WEBHOOK_SECRET")
             unsetenv("REVENUECAT_HMAC_SECRET")
             unsetenv("REVENUECAT_API_KEY")

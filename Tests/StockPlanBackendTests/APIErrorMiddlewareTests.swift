@@ -27,7 +27,7 @@ struct APIErrorMiddlewareTests {
 
     @Test("Unexpected errors do not expose internals in production")
     func productionUnexpectedErrorsUseSafeReason() async throws {
-        let app = try await Application.make(.production)
+        let app = try await TestApplication.makeIsolated(.production)
         app.middleware = .init()
         app.middleware.use(APIErrorMiddleware())
         app.get("boom") { _ async throws -> String in

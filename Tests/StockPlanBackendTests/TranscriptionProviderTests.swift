@@ -68,7 +68,7 @@ struct GroqTranscriptionWireTests {
 
 /// Voice is metered in seconds, not in calls: one 5-minute note costs what ten
 /// short questions cost, and charging per call would let it through free.
-@Suite("Voice daily budget", .serialized)
+@Suite("Voice daily budget", .serialized, .databaseLocked)
 struct VoiceDailyCapTests {
     @Test("The default allowance is fifteen minutes a day")
     func defaultAllowance() {

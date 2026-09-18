@@ -2,7 +2,7 @@ import Foundation
 @testable import StockPlanBackend
 import Testing
 
-@Suite("AICostControls", .serialized)
+@Suite("AICostControls", .serialized, .databaseLocked)
 struct AICostControlsTests {
     @Test("AI_ENABLED defaults to true and accepts common falsy values")
     func enabledParsing() {
