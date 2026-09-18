@@ -33,20 +33,37 @@ func configurePersistence(_ app: Application) async throws {
             ?? Environment.get("DATABASE_NAME")
             ?? "vapor_database")
         : (Environment.get("DATABASE_NAME") ?? "vapor_database")
-    let testDatabaseSchema: String? = {
+    // `.ephemeral` schemas are created here and dropped again when the
+    // application shuts down (see `TestSchemaTeardown`). A `TEST_DATABASE_SCHEMA`
+    // supplied from outside belongs to whoever set it, so it is only created,
+    // never dropped.
+    enum TestSchema {
+        case ephemeral(String)
+        case caller(String)
+
+        var name: String {
+            switch self {
+            case let .ephemeral(name), let .caller(name): name
+            }
+        }
+    }
+
+    let testDatabaseSchema: TestSchema? = {
         guard isTesting else { return nil }
         if let configured = Environment.get("TEST_DATABASE_SCHEMA")?
             .trimmingCharacters(in: .whitespacesAndNewlines),
             !configured.isEmpty
         {
-            return configured.replacingOccurrences(
+            return .caller(configured.replacingOccurrences(
                 of: #"[^a-zA-Z0-9_]"#,
                 with: "_",
                 options: .regularExpression
-            )
+            ))
         }
 
-        return "stockplan_test_\(UUID().uuidString.replacingOccurrences(of: "-", with: "_").lowercased())"
+        return .ephemeral(
+            "stockplan_test_\(UUID().uuidString.replacingOccurrences(of: "-", with: "_").lowercased())"
+        )
     }()
 
     var postgresConfiguration = try SQLPostgresConfiguration(
@@ -58,15 +75,20 @@ func configurePersistence(_ app: Application) async throws {
         tls: .prefer(.init(configuration: .clientDefault))
     )
     if let testDatabaseSchema {
-        postgresConfiguration.searchPath = [testDatabaseSchema]
+        postgresConfiguration.searchPath = [testDatabaseSchema.name]
     }
 
     // Fluent's default is one connection per event loop, which on an 8-loop pod
     // caps the pool at 8 Postgres connections shared between request handlers
     // and 28 background pollers. Size it explicitly; keep Postgres
     // `max_connections` >= replicas * event loops * this value.
+    //
+    // Tests are the other way round: several applications are alive at once
+    // (see `DatabaseAccessGate`), each with its own schema, against a dev
+    // server with `max_connections = 100`. 4 per loop x 14 loops x 4 concurrent
+    // apps would be 224 connections, so testing defaults to one per loop.
     let maxConnectionsPerEventLoop = Environment.get("DATABASE_MAX_CONNECTIONS_PER_EVENT_LOOP")
-        .flatMap(Int.init(_:)) ?? 4
+        .flatMap(Int.init(_:)) ?? (isTesting ? 1 : 4)
     app.databases.use(
         DatabaseConfigurationFactory.postgres(
             configuration: postgresConfiguration,
@@ -79,7 +101,25 @@ func configurePersistence(_ app: Application) async throws {
     if let testDatabaseSchema,
        let sqlDatabase = app.db(.psql) as? any SQLDatabase
     {
-        try await sqlDatabase.raw("CREATE SCHEMA IF NOT EXISTS \(unsafeRaw: testDatabaseSchema)").run()
+        let schema = testDatabaseSchema.name
+        try await sqlDatabase.raw("CREATE SCHEMA IF NOT EXISTS \(unsafeRaw: schema)").run()
+
+        if case .ephemeral = testDatabaseSchema {
+            // Stamp the schema with its birth time so `make backend-test-schemas`
+            // can tell residue from a schema a *running* suite still owns. The
+            // comment is the only durable record: `pg_namespace` has no
+            // creation time, and a suite that reverts its migrations leaves an
+            // empty schema with nothing else to date it by.
+            //
+            // `COMMENT ... IS` takes a literal, not a bind parameter; the text
+            // is entirely machine-generated, so there is nothing to inject.
+            let stamp = """
+            norviq-test-schema created=\(ISO8601DateFormatter().string(from: Date())) \
+            pid=\(ProcessInfo.processInfo.processIdentifier)
+            """
+            try await sqlDatabase.raw("COMMENT ON SCHEMA \(unsafeRaw: schema) IS \(literal: stamp)").run()
+            app.lifecycle.use(TestSchemaTeardown(schema: schema))
+        }
     }
 
     if isTesting {
@@ -103,6 +143,51 @@ func configurePersistence(_ app: Application) async throws {
         }
     } else {
         app.logger.warning("Redis disabled: REDIS_URL not set. IdempotencyMiddleware disabled")
+    }
+}
+
+/// Drops the per-test schema when its application shuts down.
+///
+/// Registered only for schemas `configurePersistence` generated itself. It runs
+/// from `Application.asyncShutdown()`, which walks the lifecycle handlers
+/// *before* it tears down storage (Vapor `Application.swift`), so the database
+/// is still usable here.
+///
+/// Why a lifecycle handler and not a line in each of the 47 `withApp` helpers:
+/// the drop then lives at the same place as the `CREATE SCHEMA`, it cannot be
+/// forgotten by a new suite, and it happens on the failure path too — every
+/// helper calls `asyncShutdown()` from both its `do` and its `catch`.
+///
+/// `DROP SCHEMA ... CASCADE` is a single transactional DDL statement: it either
+/// takes the schema and everything in it or leaves all of it alone, so there is
+/// no half-dropped state to recover from. It names one schema explicitly, and
+/// that name is a UUID this application generated, so it can never reach a
+/// schema another test is using.
+struct TestSchemaTeardown: LifecycleHandler {
+    let schema: String
+
+    func shutdownAsync(_ application: Application) async {
+        guard let sqlDatabase = application.db(.psql) as? any SQLDatabase else {
+            application.logger.warning("Test schema \(schema) not dropped: no SQL database at shutdown.")
+            return
+        }
+
+        do {
+            try await sqlDatabase.raw("DROP SCHEMA IF EXISTS \(unsafeRaw: schema) CASCADE").run()
+        } catch {
+            // Never fail a shutdown over cleanup. The schema keeps its stamp,
+            // so the sweeper will collect it later.
+            application.logger.warning("Test schema \(schema) not dropped: \(error)")
+        }
+    }
+
+    func shutdown(_ application: Application) {
+        // The synchronous path cannot await the drop. Every suite in this
+        // package uses `asyncShutdown()`; if a new one does not, say so rather
+        // than leaking silently.
+        application.logger.warning(
+            "Test schema \(schema) left behind: shut down synchronously. Use asyncShutdown()."
+        )
     }
 }
 
