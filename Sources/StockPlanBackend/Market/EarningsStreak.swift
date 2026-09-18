@@ -49,11 +49,21 @@ enum EarningsStreak {
         }
     }
 
+    /// Whether the quarter has a comparable result: both an EPS actual and an
+    /// EPS estimate. The one definition of "reported" in the codebase — the
+    /// earnings teaser selects its rows with it too, so the two cannot drift.
+    static func isReported(_ quarter: EarningsResponse) -> Bool {
+        quarter.epsActual != nil && quarter.epsEstimated != nil
+    }
+
     /// `true` for a beat, `false` for a miss, nil when the quarter has not
     /// reported a comparable result. Meeting the estimate exactly counts as a
     /// beat, matching how the surprise percentage already reads it.
     private static func outcome(of quarter: EarningsResponse) -> Bool? {
-        guard let actual = quarter.epsActual, let estimate = quarter.epsEstimated else {
+        guard isReported(quarter),
+              let actual = quarter.epsActual,
+              let estimate = quarter.epsEstimated
+        else {
             return nil
         }
         return actual >= estimate

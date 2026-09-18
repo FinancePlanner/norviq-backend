@@ -2806,6 +2806,47 @@ paths:
         '503':
           description: FMP provider unavailable or misconfigured
 
+  /v1/market/earnings/{symbol}/recent:
+    parameters:
+      - name: symbol
+        in: path
+        required: true
+        schema:
+          type: string
+    get:
+      operationId: getMarketRecentEarnings
+      tags: [MarketData]
+      summary: Get the recent-earnings teaser for a symbol
+      description: >-
+        The un-gated slice of a symbol's earnings history, for pages that are open to the internet:
+        the last four reported quarters plus the next scheduled one. Unlike `getMarketEarnings`, this
+        route requires no premium entitlement — a session or a `market:read` personal access token is
+        enough. It never returns earnings call transcript text; `hasTranscript` says only whether a
+        transcript exists, and `getMarketEarningsTranscript` remains premium-only. Cached for
+        `MARKET_TTL_RECENT_EARNINGS_SECONDS` (default 3600). On limited FMP plans, unsupported symbols
+        return `402 Payment Required`.
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RecentEarningsResponse'
+        '400':
+          description: Missing or empty symbol
+        '401':
+          description: Unauthorized
+        '402':
+          description: Paid FMP plan required for this symbol
+        '404':
+          description: Not Found or provider missing data
+        '502':
+          description: Bad Gateway for FMP provider
+        '503':
+          description: FMP provider unavailable or misconfigured
+
   /v1/market/earnings/{symbol}/transcript:
     parameters:
       - name: symbol
@@ -14316,6 +14357,76 @@ components:
             the two is non-zero, and both zero means this row carries no comparable result rather
             than a beat.
       required: [symbol, date, hasTranscript, beatStreak, missStreak]
+    RecentEarningsResponse:
+      type: object
+      properties:
+        symbol: { type: string }
+        quarters:
+          type: array
+          description: >-
+            The most recently reported quarters, newest first, at most four of them. A quarter counts
+            as reported when it carries both an EPS actual and an EPS estimate. An empty array means
+            the provider returned no such quarter for this symbol — a newly listed company, or a
+            symbol it does not cover. That is a real answer, not an error, and not a statement that
+            the company has never reported.
+          items:
+            $ref: '#/components/schemas/RecentEarningsQuarter'
+        nextScheduled:
+          nullable: true
+          description: >-
+            The next quarter the provider lists but has not reported yet, or null when it lists none.
+            Never one of `quarters`, so it does not displace a reported quarter.
+          allOf:
+            - $ref: '#/components/schemas/RecentEarningsQuarter'
+      required: [symbol, quarters]
+    RecentEarningsQuarter:
+      type: object
+      properties:
+        date: { type: string, format: date }
+        epsEstimated: { type: number, format: double, nullable: true }
+        epsActual:
+          type: number
+          format: double
+          nullable: true
+          description: Null when `status` is `scheduled`.
+        surprisePercent:
+          type: number
+          format: double
+          nullable: true
+          description: >-
+            How far the actual came in above (positive) or below (negative) the estimate, in percent.
+            Null when either side is missing or the estimate is zero.
+        hasTranscript:
+          type: boolean
+          description: >-
+            Whether the provider lists an earnings call transcript for this quarter. An availability
+            flag only — the transcript text is never included in this response, and fetching it needs
+            the premium `getMarketEarningsTranscript` route.
+        status:
+          type: string
+          enum: [reported, scheduled]
+          description: >-
+            `reported` when both an EPS actual and an EPS estimate are present, so the quarter has a
+            comparable result; `scheduled` when the provider lists the quarter but no result for it
+            yet.
+        beatStreak:
+          type: integer
+          minimum: 0
+          description: >-
+            The beat run ending at THIS row: consecutive reported quarters, this one included, where
+            EPS came in at or above the estimate. At most one of `beatStreak` and `missStreak` is
+            non-zero. Both zero means this row has no comparable result — the normal state of a
+            `scheduled` row. Both zero does NOT mean the quarter missed; a miss is `missStreak >= 1`.
+            Counted over the symbol's whole earnings history rather than only the rows returned here,
+            so the numbers match what `getMarketEarnings` reports for the same quarters.
+        missStreak:
+          type: integer
+          minimum: 0
+          description: >-
+            The miss run ending at THIS row: consecutive reported quarters, this one included, where
+            EPS came in below the estimate. Same invariant as `beatStreak` — at most one of the two is
+            non-zero, and both zero means this row carries no comparable result rather than a beat.
+      required: [date, hasTranscript, status, beatStreak, missStreak]
     EarningsTranscriptResponse:
       type: object
       properties:
