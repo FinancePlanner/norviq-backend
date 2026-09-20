@@ -1,74 +1,65 @@
-disabled_rules: # rule identifiers to exclude from running
-  - colon
-  - comma
-  - control_statement
-  - identifier_name #rule for checking variable conditions (Upper case , lower case , underscore )
-  - force_cast
+# SwiftLint configuration — server baseline for Vapor / Swift 6.
+# SwiftFormat handles layout; SwiftLint handles structural and concurrency safety.
+
+included:
+  - Sources
+  - Tests
+
+excluded:
+  - .build
+  - "**/.build"
+  - .swiftpm
+  - .worktrees
+
+disabled_rules:
+  - trailing_whitespace
+  - trailing_newline
+  - opening_brace
+  - line_length
+  - identifier_name
+  - todo
+  - cyclomatic_complexity
+  - function_body_length
+  - type_body_length
+  - file_length
+  - large_tuple
+  - nesting
   - shorthand_operator
 
-cyclomatic_complexity:
-  warning: 25 # two nested ifs are acceptable
-  error: 50 # six nested ifs shows warning, 6 causes compile error
+opt_in_rules:
+  - force_unwrapping
+  - empty_count
+  - empty_string
+  - explicit_init
+  - first_where
+  - last_where
+  - sorted_first_last
+  - contains_over_first_not_nil
+  - unused_import
+  - vertical_whitespace_closing_braces
+  - vertical_whitespace_opening_braces
+  - redundant_nil_coalescing
+  - shorthand_optional_binding
+  - unowned_variable_capture
+  - weak_delegate
+  - yoda_condition
 
-opt_in_rules: # some rules are only opt-in
-  # - empty_count
-  # Find all the available rules by running:
-  # swiftlint rules
+force_unwrapping:
+  severity: warning
 
-#included: # paths to include during linting. `--path` is ignored if present.
-#  - Source
+empty_count:
+  severity: warning
 
-excluded: # paths to ignore during linting. Takes precedence over `included`.
-  - Carthage
-  - Pods
-  - AppFolder\ App/Class/*
-  # - AppFolder\ App/ViewController/* //Enabled for this
+function_parameter_count:
+  warning: 10
+  error: 15
 
-analyzer_rules: # Rules run by `swiftlint analyze` (experimental)
-  - explicit_self
-  - unused_declaration
-
-# configurable rules can be customised from this configuration file
-# binary rules can set their severity level
-# force_cast: warning # implicitly
-force_try:
-  severity: warning # explicitly
-
-# rules that have both warning and error levels, can set just the warning level
-# implicitly
-
-line_length: 200
-# they can set both implicitly with an array
-
-type_body_length:
-  - 300 # warning
-  - 1000 # error
-# or they can set both explicitly
-
-file_length:
-  warning: 500
-  error: 2500
-
-function_body_length:
-  - 200 #warning
-  - 300 #error
-
-# naming rules can set warnings/errors for min_length and max_length
-# additionally they can set excluded names
+trailing_comma:
+  mandatory_comma: true
 
 type_name:
-  min_length: 4 # only warning
-  max_length: # warning and error
-    warning: 40
-    error: 50
-  excluded: iPhone # excluded via string
-  allowed_symbols: ["_"] # these are allowed in type names
-identifier_name:
-  min_length: # only min_length
-    error: 4 # only error
-  excluded: # excluded via string array
-    - id
-    - URL
-    - GlobalAPIKey
+  allowed_symbols: ["_"]
+  min_length: 2
+  max_length: 60
 
-reporter: "xcode" # reporter type (xcode, json, csv, checkstyle, junit, html, emoji, sonarqube, markdown)
+reporter: "xcode"

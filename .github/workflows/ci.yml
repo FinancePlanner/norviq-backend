@@ -29,12 +29,23 @@ on:
 
 jobs:
   lint:
-    name: SwiftFormat Lint
+    name: SwiftFormat + SwiftLint
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
       - name: SwiftFormat
         run: swiftformat --lint . --reporter github-actions-log
+      - name: Install SwiftLint
+        run: |
+          set -euo pipefail
+          if ! command -v swiftlint &> /dev/null; then
+            curl -fsSL -o /tmp/swiftlint.zip \
+              "https://github.com/realm/SwiftLint/releases/download/0.65.1/portable_swiftlint.zip"
+            unzip -o /tmp/swiftlint.zip -d /tmp/swiftlint
+            echo "/tmp/swiftlint" >> $GITHUB_PATH
+          fi
+      - name: SwiftLint
+        run: swiftlint lint --reporter github-actions-logging
 
   test:
     name: Run Tests
