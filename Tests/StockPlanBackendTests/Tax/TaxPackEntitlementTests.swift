@@ -118,6 +118,51 @@ struct TaxPackEntitlementTests {
         }
     }
 
+    @Test("A refunded pack revokes that year and never grants Pro", arguments: ["CANCELLATION", "REFUND"])
+    func refundRevokesPackWithoutGrantingPro(eventType: String) async throws {
+        try await withFreeApp { app in
+            let user = try await registerUser(app: app)
+            let service = TaxPackEntitlementService()
+
+            for year in [2024, 2025] {
+                let buy = try webhookEvent(id: "evt-buy-\(year)", type: "NON_RENEWING_PURCHASE", userId: user.userId, productId: "norviq_tax_pack_\(year)")
+                try await app.billingService.process(event: buy, rawPayload: "{}", on: app.db)
+            }
+
+            // RevenueCat reports a store refund of a non-subscription purchase
+            // as CANCELLATION on that product; REFUND is its manual variant.
+            let refund = try webhookEvent(id: "evt-refund", type: eventType, userId: user.userId, productId: "norviq_tax_pack_2025")
+            try await app.billingService.process(event: refund, rawPayload: "{}", on: app.db)
+
+            #expect(try await service.hasEntitlement(userId: user.userId, taxYear: 2025, on: app.db) == false)
+            #expect(try await service.hasEntitlement(userId: user.userId, taxYear: 2024, on: app.db))
+
+            let entitlement = try await Entitlement.query(on: app.db).filter(\.$userId == user.userId).first()
+            #expect(entitlement == nil || entitlement?.level == "free")
+            let subscriptions = try await Subscription.query(on: app.db).filter(\.$userId == user.userId).count()
+            #expect(subscriptions == 0)
+        }
+    }
+
+    @Test("Refunding a pack leaves an existing Pro subscription alone")
+    func packRefundKeepsProSubscription() async throws {
+        try await withFreeApp { app in
+            let user = try await registerUser(app: app)
+
+            let subscribe = try webhookEvent(id: "evt-sub", type: "INITIAL_PURCHASE", userId: user.userId, productId: "pro_yearly")
+            try await app.billingService.process(event: subscribe, rawPayload: "{}", on: app.db)
+            let buy = try webhookEvent(id: "evt-buy", type: "NON_RENEWING_PURCHASE", userId: user.userId, productId: "norviq_tax_pack_2025")
+            try await app.billingService.process(event: buy, rawPayload: "{}", on: app.db)
+            let refund = try webhookEvent(id: "evt-refund", type: "CANCELLATION", userId: user.userId, productId: "norviq_tax_pack_2025")
+            try await app.billingService.process(event: refund, rawPayload: "{}", on: app.db)
+
+            let entitlement = try await Entitlement.query(on: app.db).filter(\.$userId == user.userId).first()
+            #expect(entitlement?.level == "pro")
+            let subscription = try await Subscription.query(on: app.db).filter(\.$userId == user.userId).first()
+            #expect(subscription?.status == "active")
+        }
+    }
+
     @Test("A free user with a pack for 2025 can preview and generate that year's pack, and nothing else")
     func entitlementOpensOnlyThePack() async throws {
         try await withFreeApp { app in
