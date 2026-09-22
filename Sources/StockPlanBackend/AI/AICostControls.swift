@@ -4,6 +4,19 @@ import Vapor
 /// Central knobs for Norviq-paid in-app AI spend (chat, insights, tips).
 /// MCP / BYO-LLM traffic is out of scope — users pay their own model host.
 enum AICostControls {
+    /// The month a turn is counted against, always in UTC.
+    ///
+    /// `ai_usage_monthly.month_start` is a `date` column and the row is found
+    /// by an equality filter on it. A local-midnight value is stored as the UTC
+    /// date it truncates to, so east of UTC the filter never matches the row it
+    /// wrote, the lookup falls through to a fresh row, and the second turn of
+    /// the month violates the `user_id + month_start` unique constraint.
+    static func usageMonthStart(for date: Date = Date()) -> Date {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+        return calendar.date(from: calendar.dateComponents([.year, .month], from: date))!
+    }
+
     /// Global kill switch. Default on. Set `AI_ENABLED=false` (or 0/off/no) to
     /// fail closed on all LLM-backed in-app routes and tip generation.
     static var isEnabled: Bool {

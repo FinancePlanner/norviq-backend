@@ -231,8 +231,7 @@ struct AIAssistantController: RouteCollection {
     }
 
     private func monthStart() -> Date {
-        let calendar = Calendar(identifier: .gregorian)
-        return calendar.date(from: calendar.dateComponents([.year, .month], from: Date()))!
+        AICostControls.usageMonthStart()
     }
 
     private func timestamp(_ date: Date?) -> String {
