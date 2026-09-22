@@ -19,6 +19,10 @@ let package = Package(
     dependencies: [
         // 💧 A server-side Swift web framework.
         .package(url: "https://github.com/vapor/vapor.git", from: "4.115.0"),
+        // Multipart parser. Vapor already pulls this in, but only a direct
+        // dependency can `import MultipartKit`. Repeated `file` parts are not
+        // arrays to `FormDataDecoder`, so image uploads parse the parts themselves.
+        .package(url: "https://github.com/vapor/multipart-kit.git", from: "4.7.1"),
         // 🗄 An ORM for SQL and NoSQL databases.
         .package(url: "https://github.com/vapor/fluent.git", from: "4.9.0"),
         // 🧩 FluentSQL helpers for SQL-backed Fluent migrations.
@@ -59,6 +63,7 @@ let package = Package(
                 .product(name: "FluentPostgresDriver", package: "fluent-postgres-driver"),
                 .product(name: "JWT", package: "jwt"),
                 .product(name: "Vapor", package: "vapor"),
+                .product(name: "MultipartKit", package: "multipart-kit"),
                 .product(name: "NIOCore", package: "swift-nio"),
                 .product(name: "NIOPosix", package: "swift-nio"),
                 .product(name: "OpenAPIRuntime", package: "swift-openapi-runtime"),

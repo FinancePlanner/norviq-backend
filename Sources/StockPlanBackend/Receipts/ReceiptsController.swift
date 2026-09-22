@@ -26,7 +26,9 @@ struct ReceiptsController: RouteCollection {
         writeScoped.post("ocr", use: ocr)
         // Batch scan spends one vision call per image, so it is first-party
         // only — same reasoning as the spreadsheet and screenshot imports.
-        writeScoped.grouped(FirstPartyOnlyMiddleware()).post("scan", use: scanBatch)
+        // Three photos at 8 MB each outrun the app-wide 10 MB body cap.
+        writeScoped.grouped(FirstPartyOnlyMiddleware())
+            .on(.POST, "scan", body: .collect(maxSize: "26mb"), use: scanBatch)
     }
 
     @Sendable
@@ -139,35 +141,34 @@ struct ReceiptsController: RouteCollection {
         3
     }
 
-    private struct BatchImageUpload: Content {
-        var file: [File]?
-        var image: [File]?
-    }
-
     private func readImageUploads(_ req: Request) async throws -> [(data: Data, contentType: String)] {
         guard req.headers.contentType?.type.lowercased() == "multipart" else {
             throw Abort(.unsupportedMediaType, reason: "Upload receipt photos as multipart/form-data.")
         }
-
-        let upload = try req.content.decode(BatchImageUpload.self)
-        let parts = (upload.file ?? []) + (upload.image ?? [])
-        guard !parts.isEmpty else {
+        guard let boundary = req.headers.contentType?.parameters["boundary"] else {
+            throw Abort(.badRequest, reason: "Upload receipt photos as multipart/form-data.")
+        }
+        let maxBytes = maxImagesPerBatch * maxImageBytes + 64 * 1024
+        guard let buffer = try await req.body.collect(max: maxBytes).get() else {
             throw Abort(.badRequest, reason: "Missing image field in multipart body.")
         }
-        guard parts.count <= maxImagesPerBatch else {
+        let form = try MultipartFormParser.parse(buffer: buffer, boundary: boundary)
+        guard !form.files.isEmpty else {
+            throw Abort(.badRequest, reason: "Missing image field in multipart body.")
+        }
+        guard form.files.count <= maxImagesPerBatch else {
             throw Abort(.badRequest, reason: "Scan at most \(maxImagesPerBatch) receipts at a time.")
         }
 
         var images: [(data: Data, contentType: String)] = []
-        images.reserveCapacity(parts.count)
-        for part in parts {
-            var buffer = part.data
-            guard buffer.readableBytes <= maxImageBytes else {
+        images.reserveCapacity(form.files.count)
+        for part in form.files {
+            var partBody = part.body
+            guard partBody.readableBytes <= maxImageBytes else {
                 throw Abort(.payloadTooLarge, reason: "Each receipt image must be 8 MB or smaller.")
             }
-            let contentType = part.contentType?.serialize() ?? "application/octet-stream"
-            let data = buffer.readData(length: buffer.readableBytes) ?? Data()
-            images.append((data, contentType))
+            let data = partBody.readData(length: partBody.readableBytes) ?? Data()
+            images.append((data, part.contentType))
         }
         return images
     }
