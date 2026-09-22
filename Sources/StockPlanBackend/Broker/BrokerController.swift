@@ -29,7 +29,8 @@ struct BrokerController: RouteCollection {
             .grouped(FirstPartyOnlyMiddleware())
             .grouped(RateLimitMiddleware(limit: 10, interval: 60, keyPrefix: "ratelimit:portfolio-screenshot"))
             .group("import", "screenshot") { shot in
-                shot.post(use: importScreenshotPreview)
+                // Three screenshots at 8 MB each outrun the app-wide 10 MB body cap.
+                shot.on(.POST, body: .collect(maxSize: "26mb"), use: importScreenshotPreview)
                 shot.post("commit", use: importScreenshotCommit)
             }
         write.post("ibkr", "connect", "start", use: startIBKRConnect)
@@ -242,42 +243,17 @@ struct BrokerController: RouteCollection {
         8 * 1024 * 1024
     }
 
-    private struct ScreenshotMultipartUpload: Content {
-        var provider: String?
-        var file: [File]?
-        var image: [File]?
-        var files: [File]?
-    }
-
     private func readScreenshotUpload(
         _ req: Request
     ) async throws -> (provider: String, images: [ScreenshotPortfolioImportService.Image]) {
-        guard req.headers.contentType?.type.lowercased() == "multipart" else {
-            throw Abort(.unsupportedMediaType, reason: "Upload screenshots as multipart/form-data.")
-        }
-
-        let upload = try req.content.decode(ScreenshotMultipartUpload.self)
-        let provider = try requireProvider(req, multipartValue: upload.provider)
-        let parts = (upload.file ?? []) + (upload.image ?? []) + (upload.files ?? [])
-
-        guard !parts.isEmpty else {
-            throw Abort(.badRequest, reason: "Missing image field in multipart body.")
-        }
-        guard parts.count <= ScreenshotPortfolioImportService.maxImages else {
-            throw Abort(
-                .badRequest,
-                reason: "Upload at most \(ScreenshotPortfolioImportService.maxImages) screenshots at a time."
-            )
-        }
+        let form = try await readImageForm(req, maxImages: ScreenshotPortfolioImportService.maxImages, maxImageBytes: maxScreenshotImageBytes)
+        let provider = try requireProvider(req, multipartValue: form.fields["provider"])
 
         var images: [ScreenshotPortfolioImportService.Image] = []
-        images.reserveCapacity(parts.count)
-        for part in parts {
-            var buffer = part.data
-            guard buffer.readableBytes <= maxScreenshotImageBytes else {
-                throw Abort(.payloadTooLarge, reason: "Each screenshot must be 8 MB or smaller.")
-            }
-            let contentType = part.contentType?.serialize() ?? "application/octet-stream"
+        images.reserveCapacity(form.files.count)
+        for part in form.files {
+            var buffer = part.body
+            let contentType = part.contentType
             guard contentType.lowercased().hasPrefix("image/") || contentType == "application/octet-stream" else {
                 throw Abort(.badRequest, reason: "Screenshots must be images.")
             }
@@ -285,6 +261,31 @@ struct BrokerController: RouteCollection {
             images.append(.init(data: data, contentType: contentType))
         }
         return (provider: provider, images: images)
+    }
+
+    /// Reads repeated `file` parts. `FormDataDecoder` does not treat those as an array.
+    private func readImageForm(_ req: Request, maxImages: Int, maxImageBytes: Int) async throws -> ParsedMultipartForm {
+        guard req.headers.contentType?.type.lowercased() == "multipart" else {
+            throw Abort(.unsupportedMediaType, reason: "Upload screenshots as multipart/form-data.")
+        }
+        guard let boundary = req.headers.contentType?.parameters["boundary"] else {
+            throw Abort(.badRequest, reason: "Upload screenshots as multipart/form-data.")
+        }
+        let maxBytes = maxImages * maxImageBytes + 64 * 1024
+        guard let buffer = try await req.body.collect(max: maxBytes).get() else {
+            throw Abort(.badRequest, reason: "Missing image field in multipart body.")
+        }
+        let form = try MultipartFormParser.parse(buffer: buffer, boundary: boundary)
+        guard !form.files.isEmpty else {
+            throw Abort(.badRequest, reason: "Missing image field in multipart body.")
+        }
+        guard form.files.count <= maxImages else {
+            throw Abort(.badRequest, reason: "Upload at most \(maxImages) screenshots at a time.")
+        }
+        for part in form.files where part.body.readableBytes > maxImageBytes {
+            throw Abort(.payloadTooLarge, reason: "Each screenshot must be 8 MB or smaller.")
+        }
+        return form
     }
 
     private struct CsvMultipartUpload: Content {
