@@ -257,8 +257,7 @@ enum AIAssistantTurnCoordinator {
     static func consumeAssistantTurn(userId: UUID, req: Request) async throws {
         try AICostControls.requireEnabled(reason: "The assistant is temporarily unavailable.")
         let billing = try await req.application.billingContextService.context(userId: userId, on: req.db)
-        let calendar = Calendar(identifier: .gregorian)
-        let month = calendar.date(from: calendar.dateComponents([.year, .month], from: Date()))!
+        let month = AICostControls.usageMonthStart()
         let freeLimit = AICostControls.freeMonthlyLimit
         try await req.db.transaction { database in
             let usage = try await AIAssistantUsage.query(on: database).filter(\.$userId == userId)

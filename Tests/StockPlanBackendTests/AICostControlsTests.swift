@@ -92,4 +92,23 @@ struct AICostControlsTests {
     func bucketsAreDistinct() {
         #expect(AICostControls.viewSummaryBucket != AIDailyCap.defaultBucket)
     }
+
+    @Test("The usage month is the UTC month, not the machine's local month")
+    func usageMonthStartIsUTC() throws {
+        let formatter = ISO8601DateFormatter()
+        // Already September in any zone east of UTC, still August in UTC.
+        let instant = try #require(formatter.date(from: "2026-08-31T23:30:00Z"))
+
+        #expect(AICostControls.usageMonthStart(for: instant)
+            == formatter.date(from: "2026-08-01T00:00:00Z")!)
+    }
+
+    @Test("Two instants in one UTC month share a usage month, across a local day boundary")
+    func usageMonthStartIsStableWithinAMonth() throws {
+        let formatter = ISO8601DateFormatter()
+        let early = try #require(formatter.date(from: "2026-09-01T00:30:00Z"))
+        let late = try #require(formatter.date(from: "2026-09-30T23:30:00Z"))
+
+        #expect(AICostControls.usageMonthStart(for: early) == AICostControls.usageMonthStart(for: late))
+    }
 }
