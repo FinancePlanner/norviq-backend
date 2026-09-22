@@ -34,6 +34,13 @@ struct AIAssistantController: RouteCollection {
         write.delete("tips", ":id", use: dismissTip)
         write.post("actions", ":id", "cancel", use: cancelAction)
 
+        let memoRead = protected.grouped(ScopeRequirementMiddleware(.assistantRead)).grouped("ai", "memos")
+        let memoWrite = protected.grouped(ScopeRequirementMiddleware(.assistantWrite)).grouped("ai", "memos")
+        memoRead.get(use: listMemos)
+        memoRead.get(":id", use: getMemo)
+        memoWrite.post(":id", "bookmark", use: bookmarkMemo)
+        memoWrite.delete(":id", use: deleteMemo)
+
         // Confirming a pending action executes whatever write the assistant
         // proposed, which may touch any domain. Reachable by a token holding only
         // assistant:write, that is a scope-bypass with the same shape as token
@@ -238,7 +245,7 @@ struct AIAssistantController: RouteCollection {
         formatter.dateFormat = "yyyy-MM"; return formatter.string(from: date)
     }
 
-    private func json(_ value: some Encodable, status: HTTPStatus = .ok) throws -> Response {
+    func json(_ value: some Encodable, status: HTTPStatus = .ok) throws -> Response {
         let response = Response(status: status); try response.content.encode(value, as: .json); return response
     }
 }

@@ -24,6 +24,7 @@ enum AIAssistantTurnCoordinator {
         let text: String
         let pendingAction: AIPendingAction?
         let assistantMessage: AIAssistantMessage
+        var memo: PositionMemoCard?
     }
 
     static let maxMessageCharacters = 12000
@@ -37,6 +38,12 @@ enum AIAssistantTurnCoordinator {
         let conversationId = try conversation.requireID()
         guard !content.isEmpty, content.count <= maxMessageCharacters else {
             throw Abort(.badRequest, reason: "Message must contain 1 to 12,000 characters.")
+        }
+        let memoAsk = PositionMemoAsk.parse(content)
+        if memoAsk != nil {
+            // Statements behind a memo are a Pro feature. Check before the
+            // quota spend so a free user is not charged a turn for a refusal.
+            try await req.usageCounterService.requirePremium(.aiInsights, userId: userId, on: req.db)
         }
         // Resolved before the quota check on purpose: a user paying for their
         // own inference must not also spend a Norviq turn from the free-tier
@@ -53,14 +60,27 @@ enum AIAssistantTurnCoordinator {
         )
         try await userMessage.create(on: req.db)
 
-        let result = try await runTurn(
-            resolved: resolved,
-            userId: userId,
-            conversation: conversation,
-            content: content,
-            mode: confirmationMode(for: req),
-            req: req
-        )
+        let result: (text: String, pendingAction: AIPendingAction?, memo: PositionMemoCard?)
+        if let memoAsk {
+            let card = try await PositionMemoService.generate(
+                ask: memoAsk,
+                userId: userId,
+                conversationId: conversationId,
+                client: resolved.client,
+                on: req
+            )
+            result = ("Memo on \(card.symbol) is ready.", nil, card)
+        } else {
+            let turn = try await runTurn(
+                resolved: resolved,
+                userId: userId,
+                conversation: conversation,
+                content: content,
+                mode: confirmationMode(for: req),
+                req: req
+            )
+            result = (turn.text, turn.pendingAction, nil)
+        }
         let assistantMessage = try AIAssistantMessage(
             conversationId: conversationId,
             userId: userId,
@@ -72,7 +92,12 @@ enum AIAssistantTurnCoordinator {
             try await assistantMessage.create(on: database)
             try await conversation.save(on: database)
         }
-        return Outcome(text: result.text, pendingAction: result.pendingAction, assistantMessage: assistantMessage)
+        return Outcome(
+            text: result.text,
+            pendingAction: result.pendingAction,
+            assistantMessage: assistantMessage,
+            memo: result.memo
+        )
     }
 
     /// How this caller must prove the user consented to a destructive action.

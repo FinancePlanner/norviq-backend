@@ -389,7 +389,8 @@ extension AIAssistantController {
                                         createdAt: ISO8601DateFormatter().string(from: action.createdAt ?? Date()))
         }
         let response = AIAssistantTurnResponse(kind: actionDTO == nil ? .message : .confirmationRequired,
-                                               conversationId: id.uuidString, message: messageDTO, pendingAction: actionDTO)
+                                               conversationId: id.uuidString, message: messageDTO, pendingAction: actionDTO,
+                                               memo: outcome.memo)
         let http = Response(status: .ok); try http.content.encode(response, as: .json); return http
     }
 

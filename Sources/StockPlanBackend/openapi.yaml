@@ -5852,6 +5852,112 @@ paths:
         '503':
           description: AI assistant is not configured
 
+  /v1/ai/memos:
+    get:
+      operationId: listPositionMemos
+      tags: [AI]
+      summary: List this user's position memos
+      description: Newest first, at most 50. The evidence pack is only on the detail read.
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: query
+          name: bookmarked
+          required: false
+          schema:
+            type: boolean
+        - in: query
+          name: conversationId
+          required: false
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Memo summaries
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/PositionMemoListItem'
+        '403':
+          description: AI insights require Pro
+
+  /v1/ai/memos/{id}:
+    get:
+      operationId: getPositionMemo
+      tags: [AI]
+      summary: Read one position memo
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Memo with the server-computed mark, sections, and sources
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PositionMemoDetail'
+        '403':
+          description: AI insights require Pro
+        '404':
+          description: No memo with this id for this user
+    delete:
+      operationId: deletePositionMemo
+      tags: [AI]
+      summary: Delete a position memo
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '204':
+          description: Deleted
+        '404':
+          description: No memo with this id for this user
+
+  /v1/ai/memos/{id}/bookmark:
+    post:
+      operationId: bookmarkPositionMemo
+      tags: [AI]
+      summary: Save or unsave a position memo
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PositionMemoBookmarkRequest'
+      responses:
+        '200':
+          description: Updated memo card
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PositionMemoCard'
+        '404':
+          description: No memo with this id for this user
+
   /v1/ai/assistant/preferences:
     get:
       operationId: getAIAssistantPreferences
@@ -15328,7 +15434,190 @@ components:
           allOf:
             - $ref: '#/components/schemas/AIPendingActionResponse'
           nullable: true
+        memo:
+          allOf:
+            - $ref: '#/components/schemas/PositionMemoCard'
+          nullable: true
+          description: Present when the turn wrote a position memo. The message text is then a one-line pointer to it.
       required: [kind, conversationId, message]
+
+    PositionMemoCard:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        symbol:
+          type: string
+        title:
+          type: string
+        verdict:
+          type: string
+        bookmarked:
+          type: boolean
+      required: [id, symbol, title, verdict, bookmarked]
+
+    PositionMemoListItem:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        askedSymbol:
+          type: string
+        primarySymbol:
+          type: string
+        title:
+          type: string
+        verdict:
+          type: string
+        bookmarked:
+          type: boolean
+        createdAt:
+          type: string
+          format: date-time
+      required: [id, askedSymbol, primarySymbol, title, verdict, bookmarked, createdAt]
+
+    PositionMemoMark:
+      type: object
+      description: Computed by the server from the evidence pack. The writer never produces these figures.
+      properties:
+        cost:
+          type: number
+          format: double
+          nullable: true
+        costCurrency:
+          type: string
+          nullable: true
+        costSource:
+          type: string
+          enum: [stated, lots, none]
+        liveSymbol:
+          type: string
+          nullable: true
+        livePrice:
+          type: number
+          format: double
+          nullable: true
+        liveCurrency:
+          type: string
+          nullable: true
+        primarySymbol:
+          type: string
+          nullable: true
+        primaryPrice:
+          type: number
+          format: double
+          nullable: true
+        primaryCurrency:
+          type: string
+          nullable: true
+        fxPair:
+          type: string
+          nullable: true
+        fxRate:
+          type: number
+          format: double
+          nullable: true
+        fxDate:
+          type: string
+          nullable: true
+        priceInCostCurrency:
+          type: number
+          format: double
+          nullable: true
+        drawdownPercent:
+          type: number
+          format: double
+          nullable: true
+        statedPercent:
+          type: number
+          format: double
+          nullable: true
+        priceImpliedByStatedPercent:
+          type: number
+          format: double
+          nullable: true
+        breakevenPercent:
+          type: number
+          format: double
+          nullable: true
+        shares:
+          type: number
+          format: double
+          nullable: true
+        lotAveragePrice:
+          type: number
+          format: double
+          nullable: true
+      required: [costSource]
+
+    PositionMemoSection:
+      type: object
+      properties:
+        heading:
+          type: string
+        paragraphs:
+          type: array
+          items:
+            type: string
+      required: [heading, paragraphs]
+
+    PositionMemoSource:
+      type: object
+      properties:
+        label:
+          type: string
+        symbol:
+          type: string
+          nullable: true
+        asOf:
+          type: string
+          nullable: true
+        url:
+          type: string
+          nullable: true
+      required: [label]
+
+    PositionMemoDetail:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        askedSymbol:
+          type: string
+        primarySymbol:
+          type: string
+        title:
+          type: string
+        mark:
+          $ref: '#/components/schemas/PositionMemoMark'
+        sections:
+          type: array
+          items:
+            $ref: '#/components/schemas/PositionMemoSection'
+        verdict:
+          type: string
+        sources:
+          type: array
+          items:
+            $ref: '#/components/schemas/PositionMemoSource'
+        footer:
+          type: string
+        bookmarked:
+          type: boolean
+        createdAt:
+          type: string
+          format: date-time
+      required: [id, askedSymbol, primarySymbol, title, mark, sections, verdict, sources, footer, bookmarked, createdAt]
+
+    PositionMemoBookmarkRequest:
+      type: object
+      properties:
+        bookmarked:
+          type: boolean
+      required: [bookmarked]
 
     AIConfirmedActionResponse:
       type: object

@@ -31,6 +31,14 @@ extension AIAssistantController {
                     data: ["message": abort.reason, "code": "user_credential_rejected"],
                     to: writer
                 )
+            } catch let upgrade as BillingUpgradeRequiredError {
+                // A /dd memo on a free plan. Say why, instead of the generic
+                // failure, so the client can point at the upgrade.
+                try await AIChatController.writeFrame(
+                    event: "error",
+                    data: ["message": upgrade.reason, "code": "upgrade_required"],
+                    to: writer
+                )
             } catch {
                 req.logger.error("ai_assistant.stream_failed error=\(String(reflecting: error).prefix(300))")
                 try await AIChatController.writeFrame(
