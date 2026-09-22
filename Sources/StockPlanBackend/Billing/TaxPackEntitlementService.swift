@@ -50,6 +50,14 @@ struct TaxPackEntitlementService: Sendable {
         return entitlement
     }
 
+    /// A refunded pack closes its year again. Other years stay granted.
+    func revoke(userId: UUID, taxYear: Int, on db: any Database) async throws {
+        try await TaxPackEntitlement.query(on: db)
+            .filter(\.$userId == userId)
+            .filter(\.$taxYear == taxYear)
+            .delete()
+    }
+
     func hasEntitlement(userId: UUID, taxYear: Int, on db: any Database) async throws -> Bool {
         try await TaxPackEntitlement.query(on: db)
             .filter(\.$userId == userId)

@@ -134,21 +134,19 @@ struct DefaultBillingService: BillingService {
             return
         }
 
+        // Every event on a filing pack product stays on the pack path. A store
+        // refund of a pack arrives as CANCELLATION, and letting it fall through
+        // to the subscription cases below would grant Pro for a refunded pack.
+        if let taxYear = TaxPackEntitlementService.taxYear(fromProductId: event.productId) {
+            try await processTaxPackEvent(event, taxYear: taxYear, userId: userId, provider: provider, on: db)
+            return
+        }
+
         switch event.type {
         case "NON_RENEWING_PURCHASE":
             // Consumables never touch the subscription or the Pro entitlement.
-            // The only one we sell is the per-year filing pack.
-            guard let taxYear = TaxPackEntitlementService.taxYear(fromProductId: event.productId) else {
-                return
-            }
-            try await TaxPackEntitlementService().grant(
-                userId: userId,
-                taxYear: taxYear,
-                source: normalizedStore(for: event) ?? provider,
-                productId: event.productId ?? TaxPackEntitlementService.productId(taxYear: taxYear),
-                providerEventId: event.id,
-                on: db
-            )
+            // Filing packs are handled above; nothing else is sold this way.
+            return
 
         case "INITIAL_PURCHASE", "RENEWAL", "UNCANCELLATION":
             let update = try await upsertSubscription(
@@ -249,6 +247,31 @@ struct DefaultBillingService: BillingService {
             )
             try await upsertEntitlement(userId: userId, level: level, subscriptionId: update.subscription.id, on: db)
 
+        default:
+            return
+        }
+    }
+
+    private func processTaxPackEvent(
+        _ event: RevenueCatWebhookEvent,
+        taxYear: Int,
+        userId: UUID,
+        provider: String,
+        on db: any Database
+    ) async throws {
+        let service = TaxPackEntitlementService()
+        switch event.type {
+        case "NON_RENEWING_PURCHASE":
+            try await service.grant(
+                userId: userId,
+                taxYear: taxYear,
+                source: normalizedStore(for: event) ?? provider,
+                productId: event.productId ?? TaxPackEntitlementService.productId(taxYear: taxYear),
+                providerEventId: event.id,
+                on: db
+            )
+        case "CANCELLATION", "REFUND":
+            try await service.revoke(userId: userId, taxYear: taxYear, on: db)
         default:
             return
         }
