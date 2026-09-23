@@ -5824,7 +5824,7 @@ paths:
       operationId: streamAIAssistantTurn
       tags: [AI]
       summary: Stream and persist an assistant turn
-      description: Emits Server-Sent Events named started, turn, error, and done. The turn event contains an AIAssistantTurnResponse after the assistant message and any pending action have been persisted.
+      description: 'Emits Server-Sent Events named started, tool, turn, error, and done, in that order. Zero or more tool events precede turn; each carries data {"label": string}, a human progress phrase such as "Reading your expenses…", the same shape POST /v1/ai/chat sends. The turn event contains an AIAssistantTurnResponse after the assistant message and any pending action have been persisted.'
       security:
         - bearerAuth: []
       parameters:
