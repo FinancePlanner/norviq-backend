@@ -67,7 +67,7 @@ struct NewsTickerMappingTests {
 @Suite("News ticker service", .serialized)
 struct NewsTickerServiceTests {
     private func withApp(_ test: (Application) async throws -> Void) async throws {
-        try await DatabaseTestLock.withLock {
+        try await DatabaseTestLock.withSharedAccess {
             let app = try await Application.make(.testing)
             do {
                 try await configure(app)
