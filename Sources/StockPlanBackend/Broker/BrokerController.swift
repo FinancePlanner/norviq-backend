@@ -157,6 +157,7 @@ struct BrokerController: RouteCollection {
             provider: upload.provider,
             portfolioListId: req.query[String.self, at: "portfolioListId"],
             userId: session.userId,
+            confirmMergeExisting: req.query[Bool.self, at: "confirmMergeExisting"] ?? false,
             on: req
         )
         await req.reconcileBadges(userId: session.userId, on: req.db)
@@ -222,6 +223,7 @@ struct BrokerController: RouteCollection {
             provider: provider,
             portfolioListId: payload.portfolioListId ?? req.query[String.self, at: "portfolioListId"],
             userId: session.userId,
+            confirmMergeExisting: payload.confirmMergeExisting,
             on: req
         )
         await req.reconcileBadges(userId: session.userId, on: req.db)

@@ -1,4 +1,5 @@
 import Fluent
+import FluentSQL
 import Foundation
 import Vapor
 
@@ -272,6 +273,26 @@ struct DefaultUsageCounterService: UsageCounterService {
                 try await existing.save(on: db)
             }
             return existing
+        }
+
+        // Two requests for the same user can both read "no counter yet" and
+        // both insert one; `user_id` is unique, so the loser would fail with a
+        // duplicate key. DO NOTHING makes the insert safe to lose, and the row
+        // is read back either way.
+        if let sql = db as? any SQLDatabase {
+            try await sql.raw("""
+            INSERT INTO usage_counters (
+                id, user_id, period_start, holding_count, watchlist_item_count,
+                csv_import_count, target_alert_count, report_generation_count,
+                created_at, updated_at
+            )
+            VALUES (\(bind: UUID()), \(bind: userId), \(bind: periodStart), 0, 0, 0, 0, 0, now(), now())
+            ON CONFLICT (user_id) DO NOTHING
+            """).run()
+
+            if let row = try await UsageCounter.query(on: db).filter(\.$userId == userId).first() {
+                return row
+            }
         }
 
         let created = UsageCounter(userId: userId, periodStart: periodStart)

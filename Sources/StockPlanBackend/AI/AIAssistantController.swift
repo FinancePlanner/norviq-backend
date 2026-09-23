@@ -221,12 +221,12 @@ struct AIAssistantController: RouteCollection {
         let billing = try await req.application.billingContextService.context(userId: userId, on: req.db)
         let start = monthStart()
         try await req.db.transaction { transaction in
-            let row = try await AIAssistantUsage.query(on: transaction).filter(\.$userId == userId)
-                .filter(\.$monthStart == start).first() ?? AIAssistantUsage(userId: userId, monthStart: start)
-            guard billing.isPro || row.requestCount < 5 else {
+            let used = try await AIAssistantUsage.incrementRequestCount(
+                userId: userId, month: start, on: transaction
+            )
+            guard billing.isPro || used <= 5 else {
                 throw Abort(.paymentRequired, reason: "The free AI preview includes 5 requests per month.")
             }
-            row.requestCount += 1; try await row.save(on: transaction)
         }
     }
 

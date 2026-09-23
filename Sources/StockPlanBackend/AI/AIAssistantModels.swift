@@ -1,5 +1,7 @@
 import Fluent
+import FluentSQL
 import Foundation
+import Vapor
 
 final class AIConversation: Model, @unchecked Sendable {
     static let schema = "ai_conversations"
@@ -56,6 +58,44 @@ final class AIAssistantUsage: Model, @unchecked Sendable {
     init() {}
     init(userId: UUID, monthStart: Date) {
         self.userId = userId; self.monthStart = monthStart; requestCount = 0
+    }
+}
+
+extension AIAssistantUsage {
+    /// Adds one to this month's counter and returns the new total.
+    ///
+    /// Reading the row and then saving it is two statements, so two turns that
+    /// overlap both see "no row yet" and both insert one; the second violates
+    /// `user_id + month_start`. One upsert cannot interleave with itself: the
+    /// loser of the race takes the DO UPDATE branch instead of failing.
+    static func incrementRequestCount(
+        userId: UUID,
+        month: Date,
+        on database: any Database
+    ) async throws -> Int {
+        guard let sql = database as? any SQLDatabase else {
+            throw Abort(.internalServerError, reason: "AI usage requires a SQL database.")
+        }
+
+        let formatter = DateFormatter()
+        formatter.calendar = Calendar(identifier: .gregorian)
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = TimeZone(secondsFromGMT: 0)
+        formatter.dateFormat = "yyyy-MM-dd"
+        let monthStart = formatter.string(from: month)
+
+        let row = try await sql.raw("""
+        INSERT INTO ai_usage_monthly (id, user_id, month_start, request_count, created_at, updated_at)
+        VALUES (\(bind: UUID()), \(bind: userId), \(bind: monthStart)::date, 1, now(), now())
+        ON CONFLICT (user_id, month_start)
+        DO UPDATE SET request_count = ai_usage_monthly.request_count + 1, updated_at = now()
+        RETURNING request_count
+        """).first()
+
+        guard let count = try row?.decode(column: "request_count", as: Int.self) else {
+            throw Abort(.internalServerError, reason: "AI usage counter did not return a count.")
+        }
+        return count
     }
 }
 
