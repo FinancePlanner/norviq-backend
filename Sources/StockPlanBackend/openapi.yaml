@@ -16150,6 +16150,15 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/CsvImportPreviewItem'
+        confirmMergeExisting:
+          type: boolean
+          default: false
+          description: >-
+            Permission to absorb same-symbol holdings this import did not
+            create, such as one the user added by hand. Absent or false, a
+            commit that would collide is refused with 409 rather than leaving
+            two rows for one symbol. The preview reports the collisions as
+            `existingPositionKind`.
       required: [provider, items]
     WatchlistCsvImportPreviewItem:
       type: object

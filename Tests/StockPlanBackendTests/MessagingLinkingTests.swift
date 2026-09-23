@@ -345,6 +345,35 @@ struct MessagingLinkingTests {
         }
     }
 
+    @Test("Turns arriving together all land on one monthly usage row")
+    func concurrentTurnsShareOneUsageRow() async throws {
+        try await withApp { app in
+            let user = try await registerUser(app: app)
+            try await Entitlement(userId: user.userId, level: "pro").save(on: app.db)
+
+            // Aimed at the counter itself rather than through the messaging
+            // layer, which serialises updates per chat and would hide the race.
+            // The counter is read and written in separate statements, so turns
+            // that overlap can both miss the row and both insert it; one then
+            // violates `user_id + month_start`.
+            try await withThrowingTaskGroup(of: Void.self) { group in
+                for _ in 0 ..< 8 {
+                    group.addTask {
+                        try await AIAssistantTurnCoordinator.consumeAssistantTurn(
+                            userId: user.userId,
+                            req: backgroundRequest(app)
+                        )
+                    }
+                }
+                try await group.waitForAll()
+            }
+
+            let rows = try await AIAssistantUsage.query(on: app.db).all()
+            #expect(rows.count == 1)
+            #expect(rows.first?.requestCount == 8)
+        }
+    }
+
     // MARK: - /clear
 
     @Test("/clear starts a new thread without deleting the old one")

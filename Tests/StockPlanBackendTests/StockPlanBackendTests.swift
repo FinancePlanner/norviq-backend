@@ -3142,6 +3142,83 @@ struct StockPlanBackendTests {
         }
     }
 
+    @Test("A CSV import refuses to duplicate a holding the user added by hand")
+    func importRefusesToDuplicateManualHolding() async throws {
+        try await withApp { app in
+            let (token, userId) = try await registerTestUser(app: app)
+            try await grantPremium(userId: userId, on: app)
+            try await seedInstrument(symbol: "AMD", on: app)
+
+            // The holding the user typed in themselves.
+            try await app.testing().test(.POST, "v1/stocks", beforeRequest: { req in
+                req.headers.bearerAuthorization = .init(token: token)
+                try req.content.encode(
+                    StockRequest(symbol: "AMD", shares: 5, buyPrice: 100.5, buyDate: "2026-01-02", notes: nil)
+                )
+            }, afterResponse: { res async throws in
+                #expect(res.status == .created, "status \(res.status) body \(res.body.string)")
+            })
+
+            let csv = """
+            symbol,shares,buy_price,buy_date
+            AMD,9,120.25,2026-02-03
+            """
+
+            try await app.testing().test(.POST, "v1/brokers/import/csv/commit?provider=ibkr", beforeRequest: { req in
+                req.headers.bearerAuthorization = .init(token: token)
+                req.headers.replaceOrAdd(name: .contentType, value: "text/csv")
+                req.body = ByteBufferAllocator().buffer(string: csv)
+            }, afterResponse: { res async throws in
+                #expect(res.status == .conflict, "status \(res.status) body \(res.body.string)")
+                #expect(res.body.string.contains("AMD"))
+            })
+
+            let stocks = try await Stock.query(on: app.db).filter(\.$symbol == "AMD").all()
+            #expect(stocks.count == 1)
+            #expect(stocks.first?.shares == 5)
+        }
+    }
+
+    @Test("A confirmed CSV import absorbs the hand-added holding instead of duplicating it")
+    func confirmedImportAbsorbsManualHolding() async throws {
+        try await withApp { app in
+            let (token, userId) = try await registerTestUser(app: app)
+            try await grantPremium(userId: userId, on: app)
+            try await seedInstrument(symbol: "AMD", on: app)
+
+            try await app.testing().test(.POST, "v1/stocks", beforeRequest: { req in
+                req.headers.bearerAuthorization = .init(token: token)
+                try req.content.encode(
+                    StockRequest(symbol: "AMD", shares: 5, buyPrice: 100.5, buyDate: "2026-01-02", notes: nil)
+                )
+            }, afterResponse: { res async throws in
+                #expect(res.status == .created, "status \(res.status) body \(res.body.string)")
+            })
+
+            let csv = """
+            symbol,shares,buy_price,buy_date
+            AMD,9,120.25,2026-02-03
+            """
+
+            try await app.testing().test(
+                .POST,
+                "v1/brokers/import/csv/commit?provider=ibkr&confirmMergeExisting=true",
+                beforeRequest: { req in
+                    req.headers.bearerAuthorization = .init(token: token)
+                    req.headers.replaceOrAdd(name: .contentType, value: "text/csv")
+                    req.body = ByteBufferAllocator().buffer(string: csv)
+                },
+                afterResponse: { res async throws in
+                    #expect(res.status == .ok, "status \(res.status) body \(res.body.string)")
+                }
+            )
+
+            let stocks = try await Stock.query(on: app.db).filter(\.$symbol == "AMD").all()
+            #expect(stocks.count == 1)
+            #expect(stocks.first?.shares == 9)
+        }
+    }
+
     @Test("Importing stocks from CSV (commit)")
     func importStocksFromCsvCommit() async throws {
         try await withApp { app in

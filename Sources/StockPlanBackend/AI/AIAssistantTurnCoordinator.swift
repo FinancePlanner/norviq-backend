@@ -260,15 +260,18 @@ enum AIAssistantTurnCoordinator {
         let month = AICostControls.usageMonthStart()
         let freeLimit = AICostControls.freeMonthlyLimit
         try await req.db.transaction { database in
-            let usage = try await AIAssistantUsage.query(on: database).filter(\.$userId == userId)
-                .filter(\.$monthStart == month).first() ?? AIAssistantUsage(userId: userId, monthStart: month)
-            guard billing.isPro || usage.requestCount < freeLimit else {
+            // Counted first, then checked: the throw rolls the increment back,
+            // so a refused turn costs nothing and a granted one cannot be
+            // double-counted by a turn running alongside it.
+            let used = try await AIAssistantUsage.incrementRequestCount(
+                userId: userId, month: month, on: database
+            )
+            guard billing.isPro || used <= freeLimit else {
                 throw Abort(
                     .paymentRequired,
                     reason: "The free AI preview includes \(freeLimit) requests per month."
                 )
             }
-            usage.requestCount += 1; try await usage.save(on: database)
         }
     }
 }

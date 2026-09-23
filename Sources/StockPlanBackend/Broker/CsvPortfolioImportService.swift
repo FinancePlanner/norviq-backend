@@ -96,6 +96,7 @@ struct CsvPortfolioImportService {
         provider: String,
         portfolioListId rawPortfolioListId: String?,
         userId: UUID,
+        confirmMergeExisting: Bool = false,
         on req: Request
     ) async throws -> CsvImportCommitResponse {
         let base = try CsvImportService().preview(csv: csv, provider: provider)
@@ -105,6 +106,7 @@ struct CsvPortfolioImportService {
             provider: provider,
             portfolioListId: rawPortfolioListId,
             userId: userId,
+            confirmMergeExisting: confirmMergeExisting,
             on: req
         )
     }
@@ -120,6 +122,7 @@ struct CsvPortfolioImportService {
         provider: String,
         portfolioListId rawPortfolioListId: String?,
         userId: UUID,
+        confirmMergeExisting: Bool = false,
         on req: Request
     ) async throws -> CsvImportCommitResponse {
         let preview = try await preview(
@@ -138,6 +141,26 @@ struct CsvPortfolioImportService {
             userId: userId,
             on: req.db
         )
+
+        // An import replaces only the rows it owns. Any same-symbol holding the
+        // user added by hand, or imported from another broker, would survive
+        // and sit beside the new one. Absorbing it is destructive, so it needs
+        // saying out loud rather than happening quietly.
+        let collidingSymbols = try await foreignHoldingSymbols(
+            symbols: Set(groupedItems.keys),
+            provider: provider,
+            portfolioListId: targetListId,
+            userId: userId,
+            on: req.db
+        )
+        if !collidingSymbols.isEmpty, !confirmMergeExisting {
+            throw Abort(
+                .conflict,
+                reason: "These holdings already exist and were not created by this import: "
+                    + collidingSymbols.sorted().joined(separator: ", ")
+                    + ". Confirm the import to replace them."
+            )
+        }
 
         var errors = preview.errors
         var resolvedImports: [(symbol: String, rows: [CsvImportPreviewItem], instrument: Instrument)] = []
@@ -183,6 +206,7 @@ struct CsvPortfolioImportService {
                         provider: provider,
                         portfolioListId: targetListId,
                         userId: userId,
+                        absorbForeignHoldings: collidingSymbols.contains(importItem.symbol),
                         db: tx
                     )
                 }
@@ -246,6 +270,46 @@ private extension CsvPortfolioImportService {
         return nil
     }
 
+    /// Symbols in `symbols` that already have a holding in this list which this
+    /// import will not replace on its own.
+    ///
+    /// "Its own" means the account keyed by provider + list: re-importing the
+    /// same broker into the same list overwrites its previous rows and is not a
+    /// collision. A holding typed in by hand (no source account) or imported
+    /// from a different broker is, because nothing would remove it.
+    func foreignHoldingSymbols(
+        symbols: Set<String>,
+        provider: String,
+        portfolioListId: UUID,
+        userId: UUID,
+        on db: any Database
+    ) async throws -> Set<String> {
+        guard !symbols.isEmpty else { return [] }
+
+        let ownAccountId = try await resolveImportAccount(
+            provider: provider,
+            portfolioListId: portfolioListId.uuidString,
+            userId: userId,
+            createIfMissing: false,
+            on: db
+        )?.id
+
+        let existing = try await Stock.query(on: db)
+            .filter(\.$userId == userId)
+            .filter(\.$portfolioListId == portfolioListId)
+            .filter(\.$symbol ~~ Array(symbols))
+            .all()
+
+        return Set(
+            existing
+                .filter { stock in
+                    guard let ownAccountId, let stockAccountId = stock.sourceAccountId else { return true }
+                    return stockAccountId != ownAccountId
+                }
+                .map(\.symbol)
+        )
+    }
+
     func importSymbolRows(
         _ rows: [CsvImportPreviewItem],
         symbol: String,
@@ -253,6 +317,7 @@ private extension CsvPortfolioImportService {
         provider: String,
         portfolioListId: UUID,
         userId: UUID,
+        absorbForeignHoldings: Bool = false,
         db: any Database
     ) async throws -> ImportResult {
         let sourceAccount = try await requireImportAccount(
@@ -271,6 +336,19 @@ private extension CsvPortfolioImportService {
 
         for stock in existingImportedStocks {
             try await stock.delete(on: db)
+        }
+
+        // The caller has confirmed: a hand-added or other-broker holding for
+        // this symbol is folded into the imported one rather than duplicated.
+        if absorbForeignHoldings {
+            let foreignStocks = try await Stock.query(on: db)
+                .filter(\.$userId == userId)
+                .filter(\.$portfolioListId == portfolioListId)
+                .filter(\.$symbol == symbol)
+                .all()
+            for stock in foreignStocks {
+                try await stock.delete(on: db)
+            }
         }
 
         let existingLots = try await Lot.query(on: db)
