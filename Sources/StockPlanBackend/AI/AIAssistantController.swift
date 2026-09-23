@@ -93,7 +93,9 @@ struct AIAssistantController: RouteCollection {
             try AIMessageResponse(id: message.requireID().uuidString, conversationId: rowID.uuidString,
                                   role: AIAssistantRole(rawValue: message.role) ?? .assistant,
                                   content: req.userPIIEncryptionService.decryptString(message.contentEncrypted),
-                                  createdAt: timestamp(message.createdAt))
+                                  createdAt: timestamp(message.createdAt),
+                                  origin: message.origin.flatMap(AIMessageOrigin.init(rawValue:)),
+                                  sourceLabel: message.sourceLabel)
         }
         return try json(AIConversationResponse(id: rowID.uuidString,
                                                title: req.userPIIEncryptionService.decryptString(row.titleEncrypted), messages: values,

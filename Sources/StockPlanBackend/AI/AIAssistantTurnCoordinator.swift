@@ -25,6 +25,9 @@ enum AIAssistantTurnCoordinator {
         let pendingAction: AIPendingAction?
         let assistantMessage: AIAssistantMessage
         var memo: PositionMemoCard?
+        /// Set when the turn proposes a standing task; `pendingAction` is
+        /// then its `create_watch` action.
+        var watchProposal: AIWatchProposalResponse?
     }
 
     static let maxMessageCharacters = 12000
@@ -45,6 +48,11 @@ enum AIAssistantTurnCoordinator {
             throw Abort(.badRequest, reason: "Message must contain 1 to 12,000 characters.")
         }
         let memoAsk = PositionMemoAsk.parse(content)
+        if memoAsk == nil, let intent = AIWatchIntentClassifier.classify(content) {
+            return try await proposeWatch(
+                intent: intent, userId: userId, conversation: conversation, content: content, req: req
+            )
+        }
         if memoAsk != nil {
             // Statements behind a memo are a Pro feature. Check before the
             // quota spend so a free user is not charged a turn for a refusal.
@@ -92,7 +100,8 @@ enum AIAssistantTurnCoordinator {
             conversationId: conversationId,
             userId: userId,
             role: AIAssistantRole.assistant.rawValue,
-            contentEncrypted: req.userPIIEncryptionService.encryptString(result.text)
+            contentEncrypted: req.userPIIEncryptionService.encryptString(result.text),
+            origin: AIMessageOrigin.reply.rawValue
         )
         conversation.expiresAt = Date().addingTimeInterval(30 * 86400)
         try await req.db.transaction { database in
@@ -105,6 +114,75 @@ enum AIAssistantTurnCoordinator {
             assistantMessage: assistantMessage,
             memo: result.memo
         )
+    }
+
+    /// Answers a standing-task request with a Confirm / Not now card instead
+    /// of a model turn. No model call is made, so no turn is spent; each run
+    /// of the task spends one later.
+    private static func proposeWatch(
+        intent: AIWatchIntentClassifier.Intent,
+        userId: UUID,
+        conversation: AIConversation,
+        content: String,
+        req: Request
+    ) async throws -> Outcome {
+        let conversationId = try conversation.requireID()
+        try AICostControls.requireEnabled(reason: "The assistant is temporarily unavailable.")
+        let userMessage = try AIAssistantMessage(
+            conversationId: conversationId,
+            userId: userId,
+            role: AIAssistantRole.user.rawValue,
+            contentEncrypted: req.userPIIEncryptionService.encryptString(content)
+        )
+        try await userMessage.create(on: req.db)
+        let proposal = try await AIAssistantProactive.proposeWatch(
+            intent: intent, userId: userId, conversationId: conversationId, req: req
+        )
+        let text = AIAssistantProactive.proposalText(intent)
+        let assistantMessage = try AIAssistantMessage(
+            conversationId: conversationId,
+            userId: userId,
+            role: AIAssistantRole.assistant.rawValue,
+            contentEncrypted: req.userPIIEncryptionService.encryptString(text),
+            origin: AIMessageOrigin.reply.rawValue
+        )
+        conversation.expiresAt = Date().addingTimeInterval(30 * 86400)
+        try await req.db.transaction { database in
+            try await assistantMessage.create(on: database)
+            try await conversation.save(on: database)
+        }
+        return Outcome(
+            text: text,
+            pendingAction: proposal.action,
+            assistantMessage: assistantMessage,
+            memo: nil,
+            watchProposal: proposal.arguments.proposal
+        )
+    }
+
+    /// One unattended, read-only turn for a standing task. The prompt is not
+    /// written into the thread; the caller appends the answer as a proactive
+    /// message. Spends a turn from the user's allowance like any other turn.
+    static func runProactive(
+        userId: UUID,
+        conversation: AIConversation,
+        prompt: String,
+        req: Request
+    ) async throws -> String {
+        let resolved = try await AIAssistantClientResolver.resolve(userId: userId, on: req)
+        if !resolved.usesOwnKey {
+            try await consumeAssistantTurn(userId: userId, req: req)
+        }
+        return try await runTurn(
+            resolved: resolved,
+            userId: userId,
+            conversation: conversation,
+            content: prompt,
+            mode: .deferred(requiring: .everyWrite),
+            transientPrompt: prompt,
+            readOnly: true,
+            req: req
+        ).text
     }
 
     /// How this caller must prove the user consented to a destructive action.
@@ -174,12 +252,18 @@ enum AIAssistantTurnCoordinator {
         // Execute.
         let executed: AIConfirmedActionExecutor.Result
         do {
-            executed = try await AIConfirmedActionExecutor().execute(
-                toolName: claim.action.toolName,
-                arguments: arguments,
-                userId: userId,
-                on: req
-            )
+            if claim.action.toolName == AIAssistantProactive.createWatchToolName {
+                executed = try await AIAssistantProactive.createWatch(
+                    from: claim.action, arguments: argumentsText, userId: userId, req: req
+                )
+            } else {
+                executed = try await AIConfirmedActionExecutor().execute(
+                    toolName: claim.action.toolName,
+                    arguments: arguments,
+                    userId: userId,
+                    on: req
+                )
+            }
         } catch {
             // Settle as failed, then surface the original reason — the caller
             // renders it as a sentence to the user.
@@ -215,6 +299,8 @@ enum AIAssistantTurnCoordinator {
         content: String,
         mode: ActionConfirmationMode = .deferred(requiring: .destructiveOnly),
         onEvent: EventSink? = nil,
+        transientPrompt: String? = nil,
+        readOnly: Bool = false,
         req: Request
     ) async throws -> AIAssistantTurnService.Result {
         // The kill switch normally runs inside consumeAssistantTurn, which a
@@ -232,6 +318,8 @@ enum AIAssistantTurnCoordinator {
                     userMessage: content,
                     mode: mode,
                     onEvent: onEvent,
+                    transientPrompt: transientPrompt,
+                    readOnly: readOnly,
                     req: req
                 )
             if let credential = resolved.credential {
@@ -264,6 +352,8 @@ enum AIAssistantTurnCoordinator {
                         userMessage: content,
                         mode: mode,
                         onEvent: onEvent,
+                        transientPrompt: transientPrompt,
+                        readOnly: readOnly,
                         req: req
                     )
             }

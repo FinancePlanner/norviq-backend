@@ -11,6 +11,11 @@ struct OpenAPIDocsTests {
         #expect(body.contains("/health:"))
         #expect(body.contains("operationId: health"))
         #expect(body.contains("HealthResponse:"))
+        // Muse Stage C: proactive messages and standing-task proposals.
+        #expect(body.contains("AIMessageOrigin:"))
+        #expect(body.contains("sourceLabel:"))
+        #expect(body.contains("AIWatchProposalResponse:"))
+        #expect(body.contains("watchProposal:"))
         #expect(body.contains("APIErrorEnvelope:"))
         #expect(body.contains("requestId:"))
         #expect(body.contains("/v1/market/details:"))

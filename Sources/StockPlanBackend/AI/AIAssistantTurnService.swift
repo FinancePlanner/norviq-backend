@@ -44,6 +44,8 @@ struct AIAssistantTurnService {
         userMessage _: String,
         mode: ActionConfirmationMode = .deferred(requiring: .destructiveOnly),
         onEvent: AIAssistantTurnCoordinator.EventSink? = nil,
+        transientPrompt: String? = nil,
+        readOnly: Bool = false,
         req: Request
     ) async throws -> Result {
         let historyRows = try await AIAssistantMessage.query(on: req.db)
@@ -61,9 +63,17 @@ struct AIAssistantTurnService {
             )
         })
 
+        // A proactive run (standing task) asks its question without writing it
+        // into the thread, so the transcript shows only the answer.
+        if let transientPrompt {
+            messages.append(OpenAIMessage(role: "user", content: transientPrompt))
+        }
+
         let context = AIToolContext(userId: userId)
         let conversationId = try conversation.requireID()
-        let tools = AIChatToolRegistry.toolDefinitions(mode: mode)
+        // Read-only turns run with nobody watching, so they get no write tools
+        // and any write the model invents anyway is refused below.
+        let tools = readOnly ? AIReadToolRegistry.toolDefinitions() : AIChatToolRegistry.toolDefinitions(mode: mode)
         var inlineWrites = 0
 
         for round in 0 ..< maxToolRounds {
@@ -113,6 +123,15 @@ struct AIAssistantTurnService {
                     try await messages.append(OpenAIMessage(
                         role: "tool",
                         content: readToolOutput(call: call, context: context, req: req),
+                        toolCallId: call.id,
+                        name: name
+                    ))
+                    continue
+                }
+                if readOnly {
+                    messages.append(OpenAIMessage(
+                        role: "tool",
+                        content: #"{"error":"changes are not available in a scheduled check"}"#,
                         toolCallId: call.id,
                         name: name
                     ))
@@ -397,7 +416,8 @@ extension AIAssistantController {
         let assistantMessage = outcome.assistantMessage
         let messageDTO = try AIMessageResponse(id: assistantMessage.requireID().uuidString,
                                                conversationId: id.uuidString, role: .assistant, content: outcome.text,
-                                               createdAt: ISO8601DateFormatter().string(from: assistantMessage.createdAt ?? Date()))
+                                               createdAt: ISO8601DateFormatter().string(from: assistantMessage.createdAt ?? Date()),
+                                               origin: .reply)
         let actionDTO: AIPendingActionResponse? = try outcome.pendingAction.map { action in
             try AIPendingActionResponse(id: action.requireID().uuidString, conversationId: id.uuidString,
                                         toolName: action.toolName,
@@ -408,7 +428,7 @@ extension AIAssistantController {
         }
         return AIAssistantTurnResponse(kind: actionDTO == nil ? .message : .confirmationRequired,
                                        conversationId: id.uuidString, message: messageDTO, pendingAction: actionDTO,
-                                       memo: outcome.memo)
+                                       memo: outcome.memo, watchProposal: outcome.watchProposal)
     }
 
     @Sendable func confirmAction(req: Request) async throws -> Response {
