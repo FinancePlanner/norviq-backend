@@ -6,6 +6,10 @@ extension AIAssistantController {
     /// Streams lifecycle events while the existing turn implementation performs
     /// generation, persistence, and pending-action creation. The JSON chat route
     /// remains available for generated clients and backwards compatibility.
+    ///
+    /// Frame order: `started`, zero or more `tool`, then `turn` or `error`, then
+    /// `done`. A `tool` frame is byte-identical to the one `POST /v1/ai/chat`
+    /// sends (`AIChatController.write`): `event: tool` / `data: {"label":"…"}`.
     @Sendable
     func streamChat(req: Request) async throws -> Response {
         let response = Response(status: .ok)
@@ -15,8 +19,11 @@ extension AIAssistantController {
         response.body = .init(managedAsyncStream: { writer in
             try await AIChatController.writeFrame(event: "started", encodedData: "{}", to: writer)
             do {
-                let generated = try await chat(req: req)
-                let turn = try generated.content.decode(AIAssistantTurnResponse.self)
+                let turn = try await turnResponse(req: req, onEvent: { event in
+                    // Progress is best effort: a dropped frame must not fail
+                    // a turn that is already being persisted.
+                    try? await AIChatController.write(event, to: writer)
+                })
                 let payload = try JSONEncoder().encode(turn)
                 let encoded = String(decoding: payload, as: UTF8.self)
                 try await AIChatController.writeFrame(event: "turn", encodedData: encoded, to: writer)

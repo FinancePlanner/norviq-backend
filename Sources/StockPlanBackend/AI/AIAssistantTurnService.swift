@@ -34,11 +34,16 @@ struct AIAssistantTurnService {
     /// The mode is decided by the caller, not sniffed from the request here, so
     /// both branches are testable without HTTP. See
     /// `AIAssistantTurnCoordinator.confirmationMode(for:)`.
+    ///
+    /// `onEvent` receives a `.toolActivity` label before each tool the turn
+    /// actually runs, so a streaming caller can say what the assistant is doing.
+    /// Proposals and unknown tools emit nothing: they do no work.
     func generate(
         userId: UUID,
         conversation: AIConversation,
         userMessage _: String,
         mode: ActionConfirmationMode = .deferred(requiring: .destructiveOnly),
+        onEvent: AIAssistantTurnCoordinator.EventSink? = nil,
         req: Request
     ) async throws -> Result {
         let historyRows = try await AIAssistantMessage.query(on: req.db)
@@ -104,6 +109,7 @@ struct AIAssistantTurnService {
             for call in calls {
                 let name = call.function.name
                 if AIReadToolRegistry.contains(name) {
+                    await onEvent?(.toolActivity(AIChatEvent.activityLabel(for: name)))
                     try await messages.append(OpenAIMessage(
                         role: "tool",
                         content: readToolOutput(call: call, context: context, req: req),
@@ -156,6 +162,7 @@ struct AIAssistantTurnService {
                         }
                         inlineWrites += 1
                     }
+                    await onEvent?(.toolActivity(AIChatEvent.activityLabel(for: name)))
                     let output = try await ActionCatalog.execute(
                         name: name,
                         arguments: arguments,
@@ -362,6 +369,16 @@ extension AIAssistantController {
     struct ChatPayload: Content { let content: String }
 
     @Sendable func chat(req: Request) async throws -> Response {
+        let response = try await turnResponse(req: req)
+        let http = Response(status: .ok); try http.content.encode(response, as: .json); return http
+    }
+
+    /// Runs and persists one turn, returning the DTO both the JSON route and
+    /// the SSE route (`streamChat`) send. `onEvent` forwards tool activity.
+    func turnResponse(
+        req: Request,
+        onEvent: AIAssistantTurnCoordinator.EventSink? = nil
+    ) async throws -> AIAssistantTurnResponse {
         let userId = try req.auth.require(SessionToken.self).userId
         guard let id = req.parameters.get("id", as: UUID.self),
               let conversation = try await AIConversation.query(on: req.db)
@@ -373,6 +390,7 @@ extension AIAssistantController {
             userId: userId,
             conversation: conversation,
             content: AssistantAddress.strip(content),
+            onEvent: onEvent,
             req: req
         )
 
@@ -388,10 +406,9 @@ extension AIAssistantController {
                                         status: .pending, expiresAt: ISO8601DateFormatter().string(from: action.expiresAt),
                                         createdAt: ISO8601DateFormatter().string(from: action.createdAt ?? Date()))
         }
-        let response = AIAssistantTurnResponse(kind: actionDTO == nil ? .message : .confirmationRequired,
-                                               conversationId: id.uuidString, message: messageDTO, pendingAction: actionDTO,
-                                               memo: outcome.memo)
-        let http = Response(status: .ok); try http.content.encode(response, as: .json); return http
+        return AIAssistantTurnResponse(kind: actionDTO == nil ? .message : .confirmationRequired,
+                                       conversationId: id.uuidString, message: messageDTO, pendingAction: actionDTO,
+                                       memo: outcome.memo)
     }
 
     @Sendable func confirmAction(req: Request) async throws -> Response {

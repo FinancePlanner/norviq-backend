@@ -166,6 +166,51 @@ struct AIChatTests {
         }
     }
 
+    @Test("Persistent assistant stream emits tool frames before the turn")
+    func persistentAssistantStreamEmitsToolFrames() async throws {
+        try await withApp { app in
+            let user = try await registerUser(app: app)
+            try await grantPro(app: app, userId: user.userId)
+            let conversation = try AIConversation(
+                userId: user.userId,
+                titleEncrypted: app.userPIIEncryptionService.encryptString("Test"),
+                expiresAt: Date().addingTimeInterval(3600)
+            )
+            try await conversation.create(on: app.db)
+            app.openAIChatClient = ScriptedChatClient(
+                toolName: "list_expenses",
+                finalText: "Your expense records are currently empty."
+            )
+
+            try await app.testing().test(
+                .POST,
+                "v1/ai/assistant/conversations/\(conversation.requireID())/stream",
+                beforeRequest: { req in
+                    req.headers.bearerAuthorization = .init(token: user.token)
+                    try req.content.encode(["content": "Show my expenses"])
+                },
+                afterResponse: { res async in
+                    #expect(res.status == .ok)
+                    let body = res.body.string
+                    // Byte-identical to the frame `POST /v1/ai/chat` sends.
+                    let toolFrame = "event: tool\ndata: {\"label\":\"Reading your expenses…\"}\n\n"
+                    #expect(body.contains(toolFrame))
+                    let events = body.split(separator: "\n")
+                        .filter { $0.hasPrefix("event: ") }
+                        .map { String($0.dropFirst("event: ".count)) }
+                    #expect(events == ["started", "tool", "turn", "done"])
+                    #expect(body.contains("Your expense records are currently empty."))
+                }
+            )
+        }
+    }
+
+    @Test("Tool activity labels are shared between chat surfaces")
+    func toolActivityLabels() {
+        #expect(AIChatEvent.activityLabel(for: "list_expenses") == "Reading your expenses…")
+        #expect(AIChatEvent.activityLabel(for: "no_such_tool") == "Working…")
+    }
+
     @Test("Shared registry advertises trusted macro and complete finance reads")
     func sharedRegistryDefinitions() {
         let names = Set(AIReadToolRegistry.toolDefinitions().map(\.function.name))

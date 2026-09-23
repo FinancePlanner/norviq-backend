@@ -19,63 +19,10 @@ enum AIChatEvent: Sendable {
     case toolActivity(String)
     /// The final assistant message (Markdown).
     case message(String)
-}
 
-struct DefaultAIChatService: AIChatService {
-    let client: any OpenAIChatClient
-    var maxToolRounds: Int = 6
-
-    func stream(
-        history: [OpenAIMessage],
-        userId: UUID,
-        onEvent: @Sendable (AIChatEvent) async -> Void,
-        on req: Request
-    ) async throws {
-        let context = AIToolContext(userId: userId)
-        let tools = AIChatToolRegistry.toolDefinitions()
-
-        var messages: [OpenAIMessage] = [OpenAIMessage(role: "system", content: AIChatPrompt.system)]
-        messages.append(contentsOf: history)
-
-        for _ in 0 ..< maxToolRounds {
-            let message = try await client.chat(
-                messages: messages, tools: tools, responseFormat: nil, on: req
-            )
-
-            if let toolCalls = message.toolCalls, !toolCalls.isEmpty {
-                messages.append(message)
-                for call in toolCalls {
-                    await onEvent(.toolActivity(activityLabel(for: call.function.name)))
-                    let result: String
-                    do {
-                        result = try await AIChatToolRegistry.execute(
-                            name: call.function.name, arguments: call.function.arguments,
-                            context: context, on: req
-                        )
-                    } catch is CancellationError {
-                        throw CancellationError()
-                    } catch {
-                        req.logger.warning("ai_chat_tool_failed tool=\(call.function.name) error=\(error)")
-                        result = #"{"error":"The requested data is temporarily unavailable. Say so clearly and do not invent a replacement."}"#
-                    }
-                    messages.append(OpenAIMessage(
-                        role: "tool", content: result, toolCallId: call.id, name: call.function.name
-                    ))
-                }
-                continue
-            }
-
-            await onEvent(.message(message.content ?? ""))
-            return
-        }
-
-        // Tool budget exhausted — force a final tool-free answer.
-        messages.append(OpenAIMessage(role: "user", content: "Please give your final answer now without calling any more tools."))
-        let final = try await client.chat(messages: messages, tools: [], responseFormat: nil, on: req)
-        await onEvent(.message(final.content ?? ""))
-    }
-
-    private func activityLabel(for tool: String) -> String {
+    /// Human progress label for a tool call, shared by `POST /v1/ai/chat` and
+    /// the persistent assistant stream so both surfaces say the same thing.
+    static func activityLabel(for tool: String) -> String {
         switch tool {
         case "add_expense": "Adding expense…"
         case "update_expense": "Updating expense…"
@@ -106,6 +53,61 @@ struct DefaultAIChatService: AIChatService {
         case "get_crypto_portfolio": "Reading your crypto…"
         default: "Working…"
         }
+    }
+}
+
+struct DefaultAIChatService: AIChatService {
+    let client: any OpenAIChatClient
+    var maxToolRounds: Int = 6
+
+    func stream(
+        history: [OpenAIMessage],
+        userId: UUID,
+        onEvent: @Sendable (AIChatEvent) async -> Void,
+        on req: Request
+    ) async throws {
+        let context = AIToolContext(userId: userId)
+        let tools = AIChatToolRegistry.toolDefinitions()
+
+        var messages: [OpenAIMessage] = [OpenAIMessage(role: "system", content: AIChatPrompt.system)]
+        messages.append(contentsOf: history)
+
+        for _ in 0 ..< maxToolRounds {
+            let message = try await client.chat(
+                messages: messages, tools: tools, responseFormat: nil, on: req
+            )
+
+            if let toolCalls = message.toolCalls, !toolCalls.isEmpty {
+                messages.append(message)
+                for call in toolCalls {
+                    await onEvent(.toolActivity(AIChatEvent.activityLabel(for: call.function.name)))
+                    let result: String
+                    do {
+                        result = try await AIChatToolRegistry.execute(
+                            name: call.function.name, arguments: call.function.arguments,
+                            context: context, on: req
+                        )
+                    } catch is CancellationError {
+                        throw CancellationError()
+                    } catch {
+                        req.logger.warning("ai_chat_tool_failed tool=\(call.function.name) error=\(error)")
+                        result = #"{"error":"The requested data is temporarily unavailable. Say so clearly and do not invent a replacement."}"#
+                    }
+                    messages.append(OpenAIMessage(
+                        role: "tool", content: result, toolCallId: call.id, name: call.function.name
+                    ))
+                }
+                continue
+            }
+
+            await onEvent(.message(message.content ?? ""))
+            return
+        }
+
+        // Tool budget exhausted — force a final tool-free answer.
+        messages.append(OpenAIMessage(role: "user", content: "Please give your final answer now without calling any more tools."))
+        let final = try await client.chat(messages: messages, tools: [], responseFormat: nil, on: req)
+        await onEvent(.message(final.content ?? ""))
     }
 }
 

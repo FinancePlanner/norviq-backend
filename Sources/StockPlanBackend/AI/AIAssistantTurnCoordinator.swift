@@ -29,10 +29,15 @@ enum AIAssistantTurnCoordinator {
 
     static let maxMessageCharacters = 12000
 
+    /// Progress callback for streaming callers. Only `.toolActivity` is sent;
+    /// the final text is the `Outcome`, never an event.
+    typealias EventSink = @Sendable (AIChatEvent) async -> Void
+
     static func run(
         userId: UUID,
         conversation: AIConversation,
         content: String,
+        onEvent: EventSink? = nil,
         req: Request
     ) async throws -> Outcome {
         let conversationId = try conversation.requireID()
@@ -62,6 +67,7 @@ enum AIAssistantTurnCoordinator {
 
         let result: (text: String, pendingAction: AIPendingAction?, memo: PositionMemoCard?)
         if let memoAsk {
+            await onEvent?(.toolActivity("Writing the memo…"))
             let card = try await PositionMemoService.generate(
                 ask: memoAsk,
                 userId: userId,
@@ -77,6 +83,7 @@ enum AIAssistantTurnCoordinator {
                 conversation: conversation,
                 content: content,
                 mode: confirmationMode(for: req),
+                onEvent: onEvent,
                 req: req
             )
             result = (turn.text, turn.pendingAction, nil)
@@ -207,6 +214,7 @@ enum AIAssistantTurnCoordinator {
         conversation: AIConversation,
         content: String,
         mode: ActionConfirmationMode = .deferred(requiring: .destructiveOnly),
+        onEvent: EventSink? = nil,
         req: Request
     ) async throws -> AIAssistantTurnService.Result {
         // The kill switch normally runs inside consumeAssistantTurn, which a
@@ -218,7 +226,14 @@ enum AIAssistantTurnCoordinator {
 
         do {
             let result = try await AIAssistantTurnService(client: resolved.client)
-                .generate(userId: userId, conversation: conversation, userMessage: content, mode: mode, req: req)
+                .generate(
+                    userId: userId,
+                    conversation: conversation,
+                    userMessage: content,
+                    mode: mode,
+                    onEvent: onEvent,
+                    req: req
+                )
             if let credential = resolved.credential {
                 await AIAssistantClientResolver.recordSuccess(credential, on: req)
             }
@@ -243,7 +258,14 @@ enum AIAssistantTurnCoordinator {
                 // also moving a free user onto the paid chain.
                 let routed = await AIPlanRouting.client(for: userId, on: req)
                 return try await AIAssistantTurnService(client: routed.client)
-                    .generate(userId: userId, conversation: conversation, userMessage: content, mode: mode, req: req)
+                    .generate(
+                        userId: userId,
+                        conversation: conversation,
+                        userMessage: content,
+                        mode: mode,
+                        onEvent: onEvent,
+                        req: req
+                    )
             }
             // 424 reads exactly right: your upstream dependency failed, not ours.
             throw Abort(.failedDependency, reason: failure.userFacingMessage)
