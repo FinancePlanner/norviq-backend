@@ -176,6 +176,42 @@ struct PortfolioShareRouteTests {
         }
     }
 
+    @Test("Revoke clears every active link for the scope, not just the newest")
+    func revokeClearsDuplicates() async throws {
+        try await withApp { app in
+            let auth = try await register(app, "k")
+            let first = try await createLink(app, auth)
+            // A lost race between two clients can leave a second active row.
+            try await PortfolioShareLink(userId: auth.userId, portfolioListId: nil, slug: "pduplicate0000000000000").save(on: app.db)
+            try await app.testing().test(.DELETE, "v1/portfolio/share-links/all", headers: bearer(auth)) { res async in
+                #expect(res.status == .noContent)
+            }
+            for slug in [first.slug, "pduplicate0000000000000"] {
+                try await app.testing().test(.GET, "v1/public/portfolio-shares/\(slug)") { res async in
+                    #expect(res.status == .notFound, "\(slug) still live")
+                }
+            }
+        }
+    }
+
+    @Test("Listing returns every active link across scopes so any client can revoke it")
+    func listAcrossScopes() async throws {
+        try await withApp { app in
+            let auth = try await register(app, "l")
+            let listId = try await ensureDefaultPortfolioListId(userId: auth.userId, on: app.db)
+            let all = try await createLink(app, auth)
+            let one = try await createLink(app, auth, scope: listId.uuidString)
+            let other = try await register(app, "m")
+            _ = try await createLink(app, other)
+            try await app.testing().test(.GET, "v1/portfolio/share-links", headers: bearer(auth)) { res async throws in
+                #expect(res.status == .ok)
+                let links = try res.content.decode([PortfolioShareLinkResponse].self)
+                #expect(Set(links.map(\.slug)) == [all.slug, one.slug])
+                #expect(Set(links.map(\.scope)) == ["all", listId.uuidString])
+            }
+        }
+    }
+
     @Test("Requires auth")
     func requiresAuth() async throws {
         try await withApp { app in

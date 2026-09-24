@@ -58,6 +58,17 @@ struct PublicPortfolioShareBuilderTests {
         #expect(out.holdings == [PortfolioShareHolding(symbol: "CASH", weightPercent: 100, unrealizedPnlPercent: nil, dayChangePercent: nil)])
     }
 
+    @Test("YTD change is converted from a fraction to percentage points")
+    func ytdIsPercent() {
+        let ytd = PortfolioChange(percent: 0.081, absolute: 810, fromDate: "2026-01-01", toDate: "2026-09-24", basis: "ytd")
+        let out = PublicPortfolioShareBuilder.build(
+            valuation: valuation([holding("AAPL", value: 100)]),
+            changes: PortfolioChanges(ytd: ytd),
+            asOf: "2026-09-24"
+        )
+        #expect(out.totals.ytdPercent == 8.1)
+    }
+
     @Test("Encoded JSON never contains money keys")
     func noMoneyKeys() throws {
         let out = PublicPortfolioShareBuilder.build(valuation: valuation([holding("AAPL", value: 123_456.78)]), changes: nil, asOf: "2026-09-24")

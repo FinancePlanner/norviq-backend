@@ -5,8 +5,8 @@ import Vapor
 
 /// Owner-managed public links to a percent-only view of a portfolio.
 ///
-/// Scope is a path segment rather than a query parameter — a portfolio UUID,
-/// or `all` for every actual portfolio the caller owns — so GET, POST and
+/// Scope is a path segment rather than a query parameter Ã¢ÂÂ a portfolio UUID,
+/// or `all` for every actual portfolio the caller owns Ã¢ÂÂ so GET, POST and
 /// DELETE are encoded identically by every client.
 struct PortfolioShareController: RouteCollection {
     static let allScope = "all"
@@ -15,13 +15,15 @@ struct PortfolioShareController: RouteCollection {
         let protected = routes.grouped(ScopedBearerAuthenticator(), SessionToken.guardMiddleware())
         let read = protected.grouped(ScopeRequirementMiddleware(.portfolioRead)).grouped("portfolio", "share-links")
         let write = protected.grouped(ScopeRequirementMiddleware(.portfolioWrite)).grouped("portfolio", "share-links")
+        read.get(use: list)
         read.get(":scope", use: status)
         write.post(":scope", use: create)
         write.delete(":scope", use: revoke)
 
-        // Unauthenticated, so the limiter keys by IP. Each hit prices the
-        // portfolio against live quotes, which is upstream provider budget.
-        routes.grouped(RateLimitMiddleware(limit: 30, interval: 60, keyPrefix: "ratelimit:public-share"))
+        // Unauthenticated, so this keys by peer address, which, behind the
+        // web app, is the web pod, not the visitor. It is a pod-wide ceiling on
+        // quote fan-out; per-visitor limiting lives on the web /p/ route.
+        routes.grouped(RateLimitMiddleware(limit: 600, interval: 60, keyPrefix: "ratelimit:public-share"))
             .grouped("public", "portfolio-shares")
             .get(":slug", use: publicShare)
     }
@@ -70,6 +72,19 @@ struct PortfolioShareController: RouteCollection {
         return response
     }
 
+    /// Every active link the caller owns, across scopes, so a client showing
+    /// one scope can still surface — and revoke — a link made from another.
+    @Sendable
+    func list(req: Request) async throws -> [PortfolioShareLinkResponse] {
+        let session = try req.auth.require(SessionToken.self)
+        return try await PortfolioShareLink.query(on: req.db)
+            .filter(\.$userId == session.userId)
+            .filter(\.$revokedAt == nil)
+            .sort(\.$createdAt, .descending)
+            .all()
+            .map { makeResponse($0, scope: $0.portfolioListId?.uuidString ?? Self.allScope) }
+    }
+
     @Sendable
     func status(req: Request) async throws -> PortfolioShareLinkStatusResponse {
         let owner = try await resolveOwnerScope(req)
@@ -95,10 +110,11 @@ struct PortfolioShareController: RouteCollection {
     @Sendable
     func revoke(req: Request) async throws -> HTTPStatus {
         let owner = try await resolveOwnerScope(req)
-        if let link = try await activeLink(owner, on: req.db) {
-            link.revokedAt = Date()
-            try await link.save(on: req.db)
-        }
+        // Every active row, not just the newest: two clients racing on create
+        // can leave duplicates, and "stop sharing" must mean all of them.
+        try await activeLinksQuery(owner, on: req.db)
+            .set(\.$revokedAt, to: Date())
+            .update()
         return .noContent
     }
 
@@ -126,7 +142,7 @@ struct PortfolioShareController: RouteCollection {
         return OwnerScope(userId: session.userId, listId: filter.portfolioId, scope: scope)
     }
 
-    private func activeLink(_ owner: OwnerScope, on db: any Database) async throws -> PortfolioShareLink? {
+    private func activeLinksQuery(_ owner: OwnerScope, on db: any Database) -> QueryBuilder<PortfolioShareLink> {
         let query = PortfolioShareLink.query(on: db)
             .filter(\.$userId == owner.userId)
             .filter(\.$revokedAt == nil)
@@ -135,7 +151,11 @@ struct PortfolioShareController: RouteCollection {
         } else {
             query.filter(\.$portfolioListId == nil)
         }
-        return try await query.sort(\.$createdAt, .descending).first()
+        return query
+    }
+
+    private func activeLink(_ owner: OwnerScope, on db: any Database) async throws -> PortfolioShareLink? {
+        try await activeLinksQuery(owner, on: db).sort(\.$createdAt, .descending).first()
     }
 
     private func makeResponse(_ link: PortfolioShareLink, scope: String) -> PortfolioShareLinkResponse {
@@ -147,7 +167,7 @@ struct PortfolioShareController: RouteCollection {
         )
     }
 
-    /// The web host that renders /p/{slug} — not the API host.
+    /// The web host that renders /p/{slug} Ã¢ÂÂ not the API host.
     static func baseURL() -> String {
         let raw = Environment.get("SHARE_PORTFOLIO_BASE_URL")?.trimmingCharacters(in: .whitespaces) ?? ""
         let base = raw.isEmpty ? "https://norviq.org" : raw

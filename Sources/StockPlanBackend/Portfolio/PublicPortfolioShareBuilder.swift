@@ -11,7 +11,9 @@ enum PublicPortfolioShareBuilder {
         let totals = PortfolioShareTotals(
             unrealizedPnlPercent: valuation.unrealizedPnlPercent.map(round2),
             dayChangePercent: valuation.dayChangePercent.map(round2),
-            ytdPercent: changes?.ytd.map { round2($0.percent) }
+            // PortfolioChange.percent is a fraction (-0.004 is -0.4%); every other
+            // figure here is already in percentage points.
+            ytdPercent: changes?.ytd.map { round2($0.percent * 100) }
         )
         guard valuation.totalValue > 0 else {
             return PublicPortfolioShareResponse(asOf: asOf, totals: totals, holdings: [], otherWeightPercent: nil)
