@@ -110,6 +110,72 @@ struct PortfolioShareRouteTests {
         }
     }
 
+    private func seedHolding(_ app: Application, _ auth: AuthResponse, symbol: String, shares: Double, price: Double) async throws {
+        let listId = try await ensureDefaultPortfolioListId(userId: auth.userId, on: app.db)
+        try await Stock(userId: auth.userId, portfolioListId: listId, symbol: symbol, shares: shares, buyPrice: price, buyDate: Date())
+            .save(on: app.db)
+    }
+
+    private func createLink(_ app: Application, _ auth: AuthResponse, scope: String = "all") async throws -> PortfolioShareLinkResponse {
+        var link: PortfolioShareLinkResponse?
+        try await app.testing().test(.POST, "v1/portfolio/share-links/\(scope)", headers: bearer(auth)) { res async throws in
+            link = try res.content.decode(PortfolioShareLinkResponse.self)
+        }
+        return try #require(link)
+    }
+
+    @Test("Public share is unauthenticated, percent-only and cacheable")
+    func publicShare() async throws {
+        try await withApp { app in
+            let auth = try await register(app, "f")
+            try await seedHolding(app, auth, symbol: "AAPL", shares: 3, price: 200)
+            try await seedHolding(app, auth, symbol: "MSFT", shares: 1, price: 200)
+            let link = try await createLink(app, auth)
+            try await app.testing().test(.GET, "v1/public/portfolio-shares/\(link.slug)") { res async throws in
+                #expect(res.status == .ok)
+                #expect(res.headers.first(name: .cacheControl) == "public, max-age=60")
+                let body = res.body.string
+                #expect(!body.contains("600") && !body.contains("200") && !body.contains("share_f"))
+                let dto = try res.content.decode(PublicPortfolioShareResponse.self)
+                #expect(dto.holdings.map(\.symbol) == ["AAPL", "MSFT"])
+                #expect(dto.holdings.map(\.weightPercent) == [75, 25])
+            }
+        }
+    }
+
+    @Test("Revoked and unknown slugs 404")
+    func revokedAndUnknown() async throws {
+        try await withApp { app in
+            let auth = try await register(app, "g")
+            let link = try await createLink(app, auth)
+            try await app.testing().test(.DELETE, "v1/portfolio/share-links/all", headers: bearer(auth)) { _ async in }
+            for slug in [link.slug, "pdoesnotexist0000000000"] {
+                try await app.testing().test(.GET, "v1/public/portfolio-shares/\(slug)") { res async in
+                    #expect(res.status == .notFound)
+                }
+            }
+        }
+    }
+
+    @Test("A link to a portfolio its creator no longer owns 404s")
+    func lostOwnership() async throws {
+        try await withApp { app in
+            let auth = try await register(app, "h")
+            let listId = try await ensureDefaultPortfolioListId(userId: auth.userId, on: app.db)
+            let link = try await createLink(app, auth, scope: listId.uuidString)
+            // Re-point the link at someone else's portfolio: the public read
+            // must re-check ownership rather than trust the stored row.
+            let stranger = try await register(app, "i")
+            try await seedHolding(app, stranger, symbol: "NVDA", shares: 1, price: 100)
+            let row = try #require(try await PortfolioShareLink.query(on: app.db).filter(\.$slug == link.slug).first())
+            row.portfolioListId = try await ensureDefaultPortfolioListId(userId: stranger.userId, on: app.db)
+            try await row.save(on: app.db)
+            try await app.testing().test(.GET, "v1/public/portfolio-shares/\(link.slug)") { res async in
+                #expect(res.status == .notFound)
+            }
+        }
+    }
+
     @Test("Requires auth")
     func requiresAuth() async throws {
         try await withApp { app in

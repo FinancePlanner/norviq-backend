@@ -18,6 +18,56 @@ struct PortfolioShareController: RouteCollection {
         read.get(":scope", use: status)
         write.post(":scope", use: create)
         write.delete(":scope", use: revoke)
+
+        // Unauthenticated, so the limiter keys by IP. Each hit prices the
+        // portfolio against live quotes, which is upstream provider budget.
+        routes.grouped(RateLimitMiddleware(limit: 30, interval: 60, keyPrefix: "ratelimit:public-share"))
+            .grouped("public", "portfolio-shares")
+            .get(":slug", use: publicShare)
+    }
+
+    @Sendable
+    func publicShare(req: Request) async throws -> Response {
+        guard let slug = req.parameters.get("slug"),
+              let link = try await PortfolioShareLink.query(on: req.db)
+              .filter(\.$slug == slug)
+              .filter(\.$revokedAt == nil)
+              .first()
+        else {
+            throw Abort(.notFound)
+        }
+
+        // Re-resolved on every read with the owner check, so a portfolio that
+        // was deleted or changed hands stops being visible through an old link.
+        let filter: ResolvedPortfolioFilter
+        do {
+            filter = try await PortfolioFilterResolver.resolve(
+                requestedId: link.portfolioListId?.uuidString,
+                userId: link.userId,
+                ownerOnly: true,
+                on: req
+            )
+        } catch let abort as any AbortError where abort.status == .notFound || abort.status == .forbidden {
+            throw Abort(.notFound)
+        }
+
+        let valuation = try await PortfolioFilterResolver.loadValuation(filter, on: req)
+        let snapshots = try await PortfolioValueSnapshot.query(on: req.db)
+            .filter(\.$userId == filter.dataOwnerUserId)
+            .filter(\.$portfolioListId ~~ filter.portfolioIds)
+            .sort(\.$capturedOn)
+            .all()
+        let days = PortfolioPerformanceBuilder.days(from: snapshots, listIds: filter.portfolioIds)
+        let changes = PortfolioPerformanceBuilder.changes(from: days, asOf: valuation.asOf)
+
+        let dto = PublicPortfolioShareBuilder.build(
+            valuation: valuation,
+            changes: changes,
+            asOf: PortfolioPerformanceBuilder.formatDay(valuation.asOf)
+        )
+        let response = try await dto.encodeResponse(for: req)
+        response.headers.replaceOrAdd(name: .cacheControl, value: "public, max-age=60")
+        return response
     }
 
     @Sendable
