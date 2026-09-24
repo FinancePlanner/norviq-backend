@@ -13,13 +13,6 @@ struct PortfolioController: RouteCollection {
         let range: String?
     }
 
-    private struct ResolvedPortfolioFilter {
-        let portfolioId: UUID?
-        let portfolioIds: [UUID]
-        let dataOwnerUserId: UUID
-        let baseCurrency: String
-    }
-
     func boot(routes: any RoutesBuilder) throws {
         let protected = routes.grouped(ScopedBearerAuthenticator(), SessionToken.guardMiddleware())
 
@@ -509,37 +502,10 @@ struct PortfolioController: RouteCollection {
         userId: UUID,
         req: Request
     ) async throws -> ResolvedPortfolioFilter {
-        let requested = query.portfolioId ?? query.portfolioListId
-        guard let requested else {
-            var actualPortfolioIds = try await PortfolioList.query(on: req.db)
-                .filter(\.$userId == userId)
-                .filter(\.$mode == PortfolioMode.actual.rawValue)
-                .filter(\.$archivedAt == nil)
-                .all()
-                .compactMap(\.id)
-            if actualPortfolioIds.isEmpty {
-                actualPortfolioIds = try await [ensureDefaultPortfolioListId(userId: userId, on: req.db)]
-            }
-            return ResolvedPortfolioFilter(
-                portfolioId: nil,
-                portfolioIds: actualPortfolioIds,
-                dataOwnerUserId: userId,
-                baseCurrency: "USD"
-            )
-        }
-        guard let portfolioId = UUID(uuidString: requested) else {
-            throw Abort(.badRequest, reason: "Invalid portfolio ID.")
-        }
-        let context = try await req.portfolioAccessService.require(
-            portfolioId: portfolioId,
+        try await PortfolioFilterResolver.resolve(
+            requestedId: query.portfolioId ?? query.portfolioListId,
             userId: userId,
-            on: req.db
-        )
-        return ResolvedPortfolioFilter(
-            portfolioId: portfolioId,
-            portfolioIds: [portfolioId],
-            dataOwnerUserId: context.portfolio.userId,
-            baseCurrency: context.portfolio.baseCurrency
+            on: req
         )
     }
 
