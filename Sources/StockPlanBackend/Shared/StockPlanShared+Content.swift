@@ -160,6 +160,11 @@ extension UpdatePasswordRequest: @retroactive Content {}
 extension DeleteUserProfileRequest: @retroactive Content {}
 extension DeleteUserProfileResponse: @retroactive Content {}
 
+// MARK: - Onboarding
+
+extension OnboardingStateDTO: @retroactive Content {}
+extension OnboardingPatchRequest: @retroactive Content {}
+
 // MARK: - News & Earnings
 
 extension NewsItemResponse: @retroactive Content {}

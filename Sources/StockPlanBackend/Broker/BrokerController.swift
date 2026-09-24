@@ -161,6 +161,9 @@ struct BrokerController: RouteCollection {
             on: req
         )
         await req.reconcileBadges(userId: session.userId, on: req.db)
+        if (response.inserted + response.updated).contains(where: \.category.countsTowardAddHolding) {
+            await req.latchOnboarding(.holding, userId: session.userId, on: req.db)
+        }
         return response
     }
 
@@ -227,6 +230,9 @@ struct BrokerController: RouteCollection {
             on: req
         )
         await req.reconcileBadges(userId: session.userId, on: req.db)
+        if (response.inserted + response.updated).contains(where: \.category.countsTowardAddHolding) {
+            await req.latchOnboarding(.holding, userId: session.userId, on: req.db)
+        }
         req.logger.info(
             "portfolio_screenshot_commit inserted=\(response.inserted.count) updated=\(response.updated.count) errors=\(response.errors.count)"
         )

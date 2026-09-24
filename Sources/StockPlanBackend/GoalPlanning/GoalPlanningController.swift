@@ -124,6 +124,7 @@ struct GoalPlanningController: RouteCollection {
                 allocations: storedAllocations, on: database
             )
         }
+        await req.latchOnboarding(.goal, userId: userId, on: req.db)
         return try await service.goalDTO(goal, on: req.db)
     }
 
