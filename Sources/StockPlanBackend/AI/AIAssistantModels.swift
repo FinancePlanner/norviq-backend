@@ -24,12 +24,43 @@ final class AIAssistantMessage: Model, @unchecked Sendable {
     @Field(key: "user_id") var userId: UUID
     @Field(key: "role") var role: String
     @Field(key: "content_encrypted") var contentEncrypted: Data
+    /// `AIMessageOrigin` raw value; nil on rows written before Stage C and on
+    /// user messages. Readers treat nil as `reply`.
+    @OptionalField(key: "origin") var origin: String?
+    @OptionalField(key: "source_label") var sourceLabel: String?
     @Timestamp(key: "created_at", on: .create) var createdAt: Date?
     init() {}
-    init(conversationId: UUID, userId: UUID, role: String, contentEncrypted: Data) {
+    init(
+        conversationId: UUID,
+        userId: UUID,
+        role: String,
+        contentEncrypted: Data,
+        origin: String? = nil,
+        sourceLabel: String? = nil
+    ) {
         $conversation.id = conversationId; self.userId = userId
         self.role = role; self.contentEncrypted = contentEncrypted
+        self.origin = origin; self.sourceLabel = sourceLabel
     }
+}
+
+/// A standing task. See `AIAssistantWatchJob` for how it runs.
+final class AIAssistantWatch: Model, @unchecked Sendable {
+    static let schema = "assistant_watches"
+    @ID(key: .id) var id: UUID?
+    @Field(key: "user_id") var userId: UUID
+    @Field(key: "conversation_id") var conversationId: UUID
+    @Field(key: "title_encrypted") var titleEncrypted: Data
+    @Field(key: "spec_encrypted") var specEncrypted: Data
+    @OptionalField(key: "condition_encrypted") var conditionEncrypted: Data?
+    @Field(key: "schedule_human") var scheduleHuman: String
+    @Field(key: "interval_minutes") var intervalMinutes: Int
+    @Field(key: "next_run_at") var nextRunAt: Date
+    @OptionalField(key: "last_run_at") var lastRunAt: Date?
+    @Field(key: "enabled") var enabled: Bool
+    @Timestamp(key: "created_at", on: .create) var createdAt: Date?
+    @Timestamp(key: "updated_at", on: .update) var updatedAt: Date?
+    init() {}
 }
 
 final class AIAssistantPreference: Model, @unchecked Sendable {

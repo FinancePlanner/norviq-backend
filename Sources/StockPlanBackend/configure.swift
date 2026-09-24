@@ -438,6 +438,9 @@ public func configure(_ app: Application) async throws {
     // clients delete on cancel, this guarantees it when they can't.
     app.lifecycle.use(ExpenseImportRetentionJob())
     app.lifecycle.use(AIDailyTipJob())
+    app.lifecycle.use(AIAssistantWatchJob(
+        intervalSeconds: Environment.get("AI_WATCH_POLL_SECONDS").flatMap(Int64.init) ?? 300
+    ))
     app.lifecycle.use(AdvancedReportWorker(
         gotenbergBaseURL: Environment.get("GOTENBERG_BASE_URL") ?? "http://gotenberg:3000",
         intervalSeconds: Environment.get("ADVANCED_REPORT_WORKER_INTERVAL_SECONDS").flatMap(Int64.init) ?? 10

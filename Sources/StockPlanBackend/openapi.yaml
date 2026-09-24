@@ -6082,6 +6082,10 @@ paths:
       operationId: confirmAIPendingAction
       tags: [AI]
       summary: Confirm and transactionally execute a pending assistant action
+      description: >-
+        For a `create_watch` action this creates the standing task (`resultId` is the watch id),
+        appends a proactive "Standing task" message to the conversation, and returns that text as
+        `message`.
       security:
         - bearerAuth: []
       parameters:
@@ -15316,7 +15320,40 @@ components:
         createdAt:
           type: string
           format: date-time
+        origin:
+          $ref: '#/components/schemas/AIMessageOrigin'
+        sourceLabel:
+          type: string
+          nullable: true
+          description: Caption shown above a proactive bubble, e.g. "Standing task" or "Daily tip".
       required: [id, conversationId, role, content, createdAt]
+
+    AIMessageOrigin:
+      type: string
+      enum: [reply, proactive]
+      description: >-
+        Why an assistant message exists. Absent on user messages and on rows written before
+        standing tasks existed; clients treat absent as `reply`. `proactive` messages were posted
+        by the server (a standing task, a daily tip) and carry `sourceLabel`.
+
+    AIWatchProposalResponse:
+      type: object
+      description: >-
+        A standing task the assistant offers to create. Travels with a pending action whose
+        `toolName` is `create_watch`; confirm or cancel it with the pending-action routes.
+      properties:
+        title:
+          type: string
+        scheduleHuman:
+          type: string
+          description: Human schedule, e.g. "Every day at 8:00" or "Every hour".
+        intervalMinutes:
+          type: integer
+          minimum: 60
+        spec:
+          type: string
+          description: What the assistant checks on each run (the user's request).
+      required: [title, scheduleHuman, intervalMinutes, spec]
 
     AIConversationResponse:
       type: object
@@ -15439,6 +15476,13 @@ components:
             - $ref: '#/components/schemas/PositionMemoCard'
           nullable: true
           description: Present when the turn wrote a position memo. The message text is then a one-line pointer to it.
+        watchProposal:
+          allOf:
+            - $ref: '#/components/schemas/AIWatchProposalResponse'
+          nullable: true
+          description: >-
+            Present when the turn proposes a standing task. `kind` is then `confirmation_required`
+            and `pendingAction.toolName` is `create_watch`.
       required: [kind, conversationId, message]
 
     PositionMemoCard:

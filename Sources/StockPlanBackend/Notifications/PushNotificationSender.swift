@@ -61,9 +61,55 @@ protocol PushNotificationSending: Sendable {
         devices: [PushDevice],
         req: Request
     ) async -> TargetPushSendSummary
+
+    func sendAssistantMessage(
+        message: AssistantPushMessage,
+        devices: [PushDevice],
+        req: Request
+    ) async -> TargetPushSendSummary
+}
+
+/// A message the assistant posted into a thread on its own (a standing task,
+/// a daily tip). The push deep-links to that thread.
+struct AssistantPushMessage: Sendable {
+    let conversationId: UUID
+    let messageId: UUID
+    /// Caption of the proactive message, e.g. "Standing task".
+    let sourceLabel: String
+    let title: String
+    let body: String
+
+    static let category = "assistant_message"
+
+    var deepLink: String {
+        "financeplan://assistant/conversations/\(conversationId.uuidString)"
+    }
+}
+
+extension PushNotificationSending {
+    /// Default for senders written before assistant pushes existed (test
+    /// doubles): deliver nothing. Both production senders implement it.
+    func sendAssistantMessage(
+        message _: AssistantPushMessage,
+        devices: [PushDevice],
+        req _: Request
+    ) async -> TargetPushSendSummary {
+        .init(delivered: 0, failed: devices.count)
+    }
 }
 
 struct NoopPushNotificationSender: PushNotificationSending {
+    func sendAssistantMessage(
+        message: AssistantPushMessage,
+        devices: [PushDevice],
+        req: Request
+    ) async -> TargetPushSendSummary {
+        req.logger.debug(
+            "push.notifications disabled assistant_message conversation=\(message.conversationId) devices=\(devices.count)"
+        )
+        return .init(delivered: 0, failed: devices.count)
+    }
+
     func sendAutomationAlert(
         message: AutomationPushMessage,
         devices: [PushDevice],
@@ -199,7 +245,62 @@ struct APNSPushNotificationSender: PushNotificationSending {
         let data: [String: String]
     }
 
+    struct AssistantMessagePayload: Codable {
+        let schemaVersion: Int
+        let type: String
+        let conversationId: String
+        let messageId: String
+        let sourceLabel: String
+        let deepLink: String
+    }
+
     let topic: String
+
+    func sendAssistantMessage(
+        message: AssistantPushMessage,
+        devices: [PushDevice],
+        req: Request
+    ) async -> TargetPushSendSummary {
+        guard devices.isEmpty == false else { return .init(delivered: 0, failed: 0) }
+        let payload = AssistantMessagePayload(
+            schemaVersion: 1,
+            type: AssistantPushMessage.category,
+            conversationId: message.conversationId.uuidString,
+            messageId: message.messageId.uuidString,
+            sourceLabel: message.sourceLabel,
+            deepLink: message.deepLink
+        )
+        let notification = APNSAlertNotification(
+            alert: .init(title: .raw(message.title), body: .raw(message.body)),
+            expiration: .immediately,
+            priority: .immediately,
+            topic: topic,
+            payload: payload,
+            // One notification group per thread.
+            threadID: "assistant-\(message.conversationId.uuidString)",
+            category: AssistantPushMessage.category
+        )
+        var delivered = 0
+        var failed = 0
+        for device in devices {
+            do {
+                _ = try await client(for: device, req: req).sendAlertNotification(
+                    notification,
+                    deviceToken: device.deviceToken
+                )
+                delivered += 1
+            } catch {
+                failed += 1
+                req.logger.warning(
+                    "push.notifications send failed assistant_message error_type=\(String(reflecting: type(of: error)))"
+                )
+                if isInvalidTokenError(error) {
+                    try? await req.pushDeviceService.deactivate(deviceToken: device.deviceToken, on: req.db)
+                }
+            }
+        }
+        return .init(delivered: delivered, failed: failed)
+    }
 
     func sendAutomationAlert(
         message: AutomationPushMessage,

@@ -213,6 +213,15 @@ final class AIDailyTipJob: LifecycleHandler, @unchecked Sendable {
         tip.isDismissed = false
         tip.expiresAt = now.addingTimeInterval(7 * 86400)
         try await tip.create(on: app.db)
+
+        // Also say it in the thread (contract "Proactive messages"), so the
+        // tip reaches users who never open the tips list. Best effort: the tip
+        // itself is already stored.
+        do {
+            try await AIAssistantProactive.deliverDailyTip(title: title, body: body, userId: userId, app: app)
+        } catch {
+            app.logger.warning("ai_assistant.daily_tip_append_failed user_id=\(userId) error=\(error)")
+        }
     }
 
     private func normalizedJSON(_ value: String) -> String {
