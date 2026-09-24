@@ -222,6 +222,11 @@ struct BudgetController: RouteCollection {
             request: payload,
             on: req.db
         )
+        // Latched here and not in the service: the service also runs for the
+        // automatic month rollover, which is not the user setting a budget.
+        if created.netSalary > 0 {
+            await req.latchOnboarding(.budget, userId: session.userId, on: req.db)
+        }
         let res = Response(status: .created)
         try res.content.encode(created)
         return res
@@ -234,12 +239,16 @@ struct BudgetController: RouteCollection {
         let snapshotId = try requireUUIDParameter(req, name: "snapshotId")
         let payload = try req.content.decode(BudgetSnapshotPayload.self).asRequest()
 
-        return try await req.expensesService.updateSnapshot(
+        let updated = try await req.expensesService.updateSnapshot(
             userId: session.userId,
             snapshotId: snapshotId,
             request: payload,
             on: req.db
         )
+        if updated.netSalary > 0 {
+            await req.latchOnboarding(.budget, userId: session.userId, on: req.db)
+        }
+        return updated
     }
 
     @Sendable

@@ -253,6 +253,7 @@ struct StockServiceImpl: StockService {
         )
 
         await req.reconcileBadges(userId: userId, on: db)
+        await req.latchOnboarding(.holding, userId: userId, on: db)
 
         return try StockResponse(from: stock)
     }
@@ -308,6 +309,7 @@ struct StockServiceImpl: StockService {
                 on: db
             )
             await req.reconcileBadges(userId: userId, on: db)
+            await req.latchOnboarding(.holding, userId: userId, on: db)
         }
 
         return BulkStockResponse(created: created, failed: failed, results: results)
