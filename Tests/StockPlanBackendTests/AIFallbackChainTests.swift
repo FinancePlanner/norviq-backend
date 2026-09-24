@@ -283,6 +283,29 @@ extension AIEnvironmentSuites {
             }
         }
 
+        /// OpenRouter answers 404 when a `:free` slug loses its last free
+        /// endpoint ("This model is unavailable for free" / no endpoints). That
+        /// is exactly when the next free rung must get its turn, so a 404 must
+        /// never be treated as a caller error that stops the chain.
+        @Test("A 404 from a free model that lost its endpoints demotes to the next free rung")
+        func notFoundDemotesToNextFreeRung() async throws {
+            try await withRequest { req in
+                let ultra = CallCounter()
+                let superRung = CallCounter()
+                let client = FallbackChatClient(rungs: [
+                    .init(tier: tier("free-ultra", model: "nvidia/nemotron-3-ultra-550b-a55b:free"),
+                          client: CountingChatClient(behaviour: .upstream(status: 404), counter: ultra)),
+                    .init(tier: tier("free-super", model: "nvidia/nemotron-3-super-120b-a12b:free"),
+                          client: CountingChatClient(behaviour: .succeeding(marker: "super"), counter: superRung)),
+                ])
+
+                let message = try await client.chat(messages: [], tools: [], responseFormat: nil, on: req)
+                #expect(message.content == "super")
+                #expect(ultra.count == 1)
+                #expect(superRung.count == 1)
+            }
+        }
+
         @Test("A JSON request skips tiers that cannot honour response_format")
         func jsonRequestSkipsIncapableTier() async throws {
             try await withRequest { req in
