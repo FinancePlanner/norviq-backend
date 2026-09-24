@@ -161,7 +161,7 @@ struct BrokerController: RouteCollection {
             on: req
         )
         await req.reconcileBadges(userId: session.userId, on: req.db)
-        if !response.inserted.isEmpty || !response.updated.isEmpty {
+        if (response.inserted + response.updated).contains(where: \.category.countsTowardAddHolding) {
             await req.latchOnboarding(.holding, userId: session.userId, on: req.db)
         }
         return response
@@ -230,7 +230,7 @@ struct BrokerController: RouteCollection {
             on: req
         )
         await req.reconcileBadges(userId: session.userId, on: req.db)
-        if !response.inserted.isEmpty || !response.updated.isEmpty {
+        if (response.inserted + response.updated).contains(where: \.category.countsTowardAddHolding) {
             await req.latchOnboarding(.holding, userId: session.userId, on: req.db)
         }
         req.logger.info(

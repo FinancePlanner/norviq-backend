@@ -51,11 +51,15 @@ struct OnboardingLatchTests {
         return try #require(state)
     }
 
-    private func addStock(_ app: Application, _ token: String, symbol: String = "AAPL") async throws -> HTTPStatus {
+    private func addStock(
+        _ app: Application, _ token: String, symbol: String = "AAPL", category: AssetCategory = .stock
+    ) async throws -> HTTPStatus {
         var status: HTTPStatus = .internalServerError
         try await app.testing().test(.POST, "v1/stocks", beforeRequest: { req in
             req.headers.bearerAuthorization = .init(token: token)
-            try req.content.encode(StockRequest(symbol: symbol, shares: 1, buyPrice: 100, buyDate: "2026-01-01", notes: nil))
+            try req.content.encode(StockRequest(
+                symbol: symbol, shares: 1, buyPrice: 100, buyDate: "2026-01-01", notes: nil, category: category
+            ))
         }, afterResponse: { res async in
             status = res.status
         })
@@ -82,6 +86,44 @@ struct OnboardingLatchTests {
 
             _ = try await addStock(app, auth.token, symbol: "MSFT")
             #expect(try await state(app, auth.token).firstHoldingAt == first.firstHoldingAt)
+        }
+    }
+
+    @Test("A crypto holding does not latch add_holding; an ETF does")
+    func cryptoDoesNotLatchHolding() async throws {
+        try await withApp { app in
+            let auth = try await registerUser(on: app, identifier: "crypto")
+            #expect(try await addStock(app, auth.token, symbol: "BTC", category: .crypto) == .created)
+            #expect(try await state(app, auth.token).addHoldingCompleted == false)
+
+            #expect(try await addStock(app, auth.token, symbol: "VWCE", category: .etf) == .created)
+            #expect(try await state(app, auth.token).addHoldingCompleted)
+        }
+    }
+
+    @Test("A bulk import latches add_holding only when something non-crypto was created")
+    func bulkCryptoOnlyDoesNotLatch() async throws {
+        try await withApp { app in
+            let auth = try await registerUser(on: app, identifier: "bulkcrypto")
+            func bulk(_ stocks: [StockRequest]) async throws {
+                try await app.testing().test(.POST, "v1/stocks/bulk", beforeRequest: { req in
+                    req.headers.bearerAuthorization = .init(token: auth.token)
+                    try req.content.encode(BulkStockRequest(stocks: stocks))
+                }, afterResponse: { res async in
+                    #expect(res.status == .ok)
+                })
+            }
+            try await bulk([
+                StockRequest(symbol: "BTC", shares: 1, buyPrice: 100, buyDate: "2026-01-01", notes: nil, category: .crypto),
+                StockRequest(symbol: "ETH", shares: 1, buyPrice: 100, buyDate: "2026-01-01", notes: nil, category: .crypto),
+            ])
+            #expect(try await state(app, auth.token).addHoldingCompleted == false)
+
+            try await bulk([
+                StockRequest(symbol: "SOL", shares: 1, buyPrice: 100, buyDate: "2026-01-01", notes: nil, category: .crypto),
+                StockRequest(symbol: "AAPL", shares: 1, buyPrice: 100, buyDate: "2026-01-01", notes: nil),
+            ])
+            #expect(try await state(app, auth.token).addHoldingCompleted)
         }
     }
 

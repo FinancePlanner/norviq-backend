@@ -166,4 +166,31 @@ struct OnboardingTests {
             #expect(untouched.guidedStartDismissedAt == nil)
         }
     }
+
+    @Test("Backfill does not count crypto toward add_holding")
+    func backfillExcludesCrypto() async throws {
+        try await withApp { app in
+            let cryptoOnly = try await registerUser(on: app, identifier: "cryptoonly")
+            let mixed = try await registerUser(on: app, identifier: "mixed")
+            for (user, holdings) in [
+                (cryptoOnly, [("BTC", AssetCategory.crypto)]),
+                (mixed, [("ETH", AssetCategory.crypto), ("AAPL", AssetCategory.stock)]),
+            ] {
+                let list = PortfolioList(userId: user.userId, name: "Backfill", isDefault: false)
+                try await list.save(on: app.db)
+                for (symbol, category) in holdings {
+                    try await Stock(
+                        userId: user.userId, portfolioListId: list.requireID(), symbol: symbol,
+                        shares: 1, buyPrice: 100, buyDate: Date(), category: category
+                    ).save(on: app.db)
+                }
+            }
+
+            let sql = try #require(app.db as? any SQLDatabase)
+            try await OnboardingBackfill.run(on: sql)
+
+            #expect(try await getState(app, token: cryptoOnly.token).addHoldingCompleted == false)
+            #expect(try await getState(app, token: mixed.token).addHoldingCompleted)
+        }
+    }
 }

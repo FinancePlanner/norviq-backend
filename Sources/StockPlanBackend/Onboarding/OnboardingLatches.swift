@@ -1,6 +1,7 @@
 import Fluent
 import FluentSQL
 import Foundation
+import StockPlanShared
 import Vapor
 
 /// A guided-start latch and the column it stamps.
@@ -8,6 +9,15 @@ enum OnboardingLatch: String, CaseIterable, Sendable {
     case holding = "first_holding_at"
     case budget = "first_budget_at"
     case goal = "first_goal_at"
+}
+
+extension AssetCategory {
+    /// Crypto does not count toward `add_holding`: the step teaches the
+    /// portfolio of stocks and funds the rest of the app builds on.
+    /// Contract: norviq-shared/docs/guided-start.md.
+    var countsTowardAddHolding: Bool {
+        self != .crypto
+    }
 }
 
 enum OnboardingLatches {
