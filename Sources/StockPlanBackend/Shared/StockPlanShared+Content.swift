@@ -59,6 +59,9 @@ extension DashboardAllocationDTO: @retroactive Content {}
 // MARK: - Portfolio
 
 extension PortfolioSummaryResponse: @retroactive Content {}
+extension PortfolioShareLinkResponse: @retroactive Content {}
+extension PortfolioShareLinkStatusResponse: @retroactive Content {}
+extension PublicPortfolioShareResponse: @retroactive Content {}
 extension PortfolioPerformanceResponse: @retroactive Content {}
 extension PortfolioDividendsResponse: @retroactive Content {}
 extension PortfolioSectorHoldingContribution: @retroactive Content {}

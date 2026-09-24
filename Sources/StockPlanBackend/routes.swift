@@ -83,6 +83,7 @@ func routes(_ app: Application) throws {
     let macroRateLimit = RateLimitMiddleware(limit: 80, interval: 60, keyPrefix: "ratelimit:macro")
     try api.grouped(macroRateLimit).register(collection: MacroController())
     try api.register(collection: PortfolioController())
+    try api.register(collection: PortfolioShareController())
     // Simulating prices every leg, so one request fans out to as many upstream
     // quote lookups as the simulation has positions. Without a limiter an
     // authenticated caller could turn a single endpoint into sustained provider
