@@ -556,6 +556,49 @@ paths:
         '401':
           description: Missing or invalid bearer token, or the authenticated user could not be resolved.
 
+  /v1/onboarding:
+    get:
+      operationId: getOnboardingState
+      tags: [Onboarding]
+      summary: Funnel position, guided-start progress and dismissal for the current user
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OnboardingStateDTO'
+        '401':
+          description: Unauthorized
+    patch:
+      operationId: updateOnboardingState
+      tags: [Onboarding]
+      summary: Record funnel position, finish the funnel, or dismiss the guided-start card
+      description: >-
+        Only funnelStep, funnelCompleted (true only) and guidedStartDismissed are accepted.
+        Guided-start progress is set by the server when the user performs the real action.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/OnboardingPatchRequest'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OnboardingStateDTO'
+        '400':
+          description: A server-owned field was sent, funnelCompleted was false, or the step is unknown
+        '401':
+          description: Unauthorized
+
   /v1/users/{id}:
     get:
       operationId: getUserProfileByID
@@ -11455,6 +11498,27 @@ components:
           description: >-
             Percentage of a shared item the account owner keeps. Null means no
             household default has been set; clients fall back to 100.
+
+    OnboardingStateDTO:
+      type: object
+      required: [addHoldingCompleted, setBudgetCompleted, setGoalCompleted]
+      properties:
+        funnelStep: { type: string, nullable: true, enum: [questionnaire, paywall, welcome, import, budget, done] }
+        funnelCompletedAt: { type: string, format: date-time, nullable: true }
+        addHoldingCompleted: { type: boolean }
+        firstHoldingAt: { type: string, format: date-time, nullable: true }
+        setBudgetCompleted: { type: boolean }
+        firstBudgetAt: { type: string, format: date-time, nullable: true }
+        setGoalCompleted: { type: boolean }
+        firstGoalAt: { type: string, format: date-time, nullable: true }
+        guidedStartDismissedAt: { type: string, format: date-time, nullable: true }
+    OnboardingPatchRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        funnelStep: { type: string, enum: [questionnaire, paywall, welcome, import, budget, done] }
+        funnelCompleted: { type: boolean, enum: [true] }
+        guidedStartDismissed: { type: boolean }
 
     BudgetPlanItemRequest:
       type: object

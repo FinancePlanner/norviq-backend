@@ -424,7 +424,9 @@ func registerMigrations(_ app: Application) {
     app.migrations.add(CreatePlanningScenarios())
     app.migrations.add(CreateNewsTickerTables())
     app.migrations.add(CreatePositionMemo())
+    app.migrations.add(CreatePortfolioShareLinks())
     app.migrations.add(CreateAssistantWatches())
+    app.migrations.add(CreateOnboardingState())
 }
 
 func envBool(_ key: String, default defaultValue: Bool) -> Bool {
