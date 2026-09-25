@@ -19,25 +19,20 @@ enum PublicPortfolioShareBuilder {
             return PublicPortfolioShareResponse(asOf: asOf, totals: totals, holdings: [], otherWeightPercent: nil)
         }
 
-        var all = valuation.holdings.map { holding in
-            PortfolioShareHolding(
-                symbol: holding.symbol,
-                weightPercent: holding.marketValue / valuation.totalValue * 100,
-                unrealizedPnlPercent: holding.unrealizedPnlPercent.map(round2),
-                dayChangePercent: holding.dayChangePercent.map(round2)
-            )
-        }
-        if valuation.cashBalance > 0 {
-            all.append(PortfolioShareHolding(
-                symbol: "CASH",
-                weightPercent: valuation.cashBalance / valuation.totalValue * 100,
-                unrealizedPnlPercent: nil,
-                dayChangePercent: nil
-            ))
-        }
-        all.sort { $0.weightPercent > $1.weightPercent }
+        let stocks = valuation.holdings
+            .map { holding in
+                PortfolioShareHolding(
+                    symbol: holding.symbol,
+                    weightPercent: holding.marketValue / valuation.totalValue * 100,
+                    unrealizedPnlPercent: holding.unrealizedPnlPercent.map(round2),
+                    dayChangePercent: holding.dayChangePercent.map(round2)
+                )
+            }
+            .sorted { $0.weightPercent > $1.weightPercent }
 
-        let shown = all.prefix(maxHoldings).map { item in
+        // Up to `maxHoldings` stocks are listed before anything folds into
+        // Other; cash is its own row after them and never takes a stock slot.
+        var shown = stocks.prefix(maxHoldings).map { item in
             PortfolioShareHolding(
                 symbol: item.symbol,
                 weightPercent: round1(item.weightPercent),
@@ -45,11 +40,19 @@ enum PublicPortfolioShareBuilder {
                 dayChangePercent: item.dayChangePercent
             )
         }
-        let rest = all.dropFirst(maxHoldings).reduce(0) { $0 + $1.weightPercent }
+        if valuation.cashBalance > 0 {
+            shown.append(PortfolioShareHolding(
+                symbol: "CASH",
+                weightPercent: round1(valuation.cashBalance / valuation.totalValue * 100),
+                unrealizedPnlPercent: nil,
+                dayChangePercent: nil
+            ))
+        }
+        let rest = stocks.dropFirst(maxHoldings).reduce(0) { $0 + $1.weightPercent }
         return PublicPortfolioShareResponse(
             asOf: asOf,
             totals: totals,
-            holdings: Array(shown),
+            holdings: shown,
             otherWeightPercent: rest > 0 ? round1(rest) : nil
         )
     }
