@@ -45,6 +45,17 @@ struct PublicPortfolioShareBuilderTests {
         #expect(abs(sum - 100) < 0.2)
     }
 
+    @Test("Cash never takes one of the 12 stock rows")
+    func cashDoesNotTakeAStockSlot() throws {
+        let stocks = (0 ..< 13).map { holding("S\($0)", value: Double(100 - $0)) }
+        let out = PublicPortfolioShareBuilder.build(valuation: valuation(stocks, cash: 500), changes: nil, asOf: "2026-09-24")
+        #expect(out.holdings.filter { $0.symbol != "CASH" }.count == 12)
+        #expect(out.holdings.last?.symbol == "CASH")
+        let other = try #require(out.otherWeightPercent)
+        let sum = out.holdings.reduce(0) { $0 + $1.weightPercent } + other
+        #expect(abs(sum - 100) < 0.2)
+    }
+
     @Test("Empty portfolio yields no holdings and no NaN")
     func empty() {
         let out = PublicPortfolioShareBuilder.build(valuation: valuation([]), changes: nil, asOf: "2026-09-24")
