@@ -1,6 +1,7 @@
 import Fluent
 import FluentSQL
 import Foundation
+import NIOPosix
 import Redis
 @testable import StockPlanBackend
 import Testing
@@ -9,14 +10,39 @@ import VaporTesting
 @Suite("Ops hardening", .serialized)
 struct OpsHardeningTests {
     private func withApp(_ test: (Application) async throws -> Void) async throws {
-        let app = try await Application.make(.testing)
+        // One event loop: every `app.db` call lands on the same connection pool,
+        // the worst case for contention and the one CI hits by chance.
+        let loops = MultiThreadedEventLoopGroup(numberOfThreads: 1)
+        do {
+            try await runApp(on: loops, test)
+        } catch {
+            try? await loops.shutdownGracefully()
+            throw error
+        }
+        try await loops.shutdownGracefully()
+    }
+
+    private func runApp(on loops: MultiThreadedEventLoopGroup, _ test: (Application) async throws -> Void) async throws {
+        let app = try await Application.make(.testing, .shared(loops))
         do {
             if let url = Environment.get("REDIS_URL"), !url.isEmpty {
                 // configure() leaves Redis off under .testing; the TTL test needs a real one,
                 // and RedisKit only builds its pools for configurations present at boot.
                 app.redis.configuration = try RedisConfiguration(url: url)
             }
-            try await configure(app)
+            // The leader test needs two connections alive at once — the holder and
+            // the challenger. Testing defaults to one per event loop, so with both
+            // tasks on the same loop the challenger just waited for the holder's
+            // connection, then took the freshly released lock and "won". Scoped
+            // to configure() so other suites keep their small pools.
+            setenv("DATABASE_MAX_CONNECTIONS_PER_EVENT_LOOP", "2", 1)
+            do {
+                try await configure(app)
+            } catch {
+                unsetenv("DATABASE_MAX_CONNECTIONS_PER_EVENT_LOOP")
+                throw error
+            }
+            unsetenv("DATABASE_MAX_CONNECTIONS_PER_EVENT_LOOP")
             try await app.autoMigrate()
             // RedisKit builds its pools in didBoot; nothing in these tests sends a
             // request, so boot explicitly before touching app.redis.
@@ -33,15 +59,23 @@ struct OpsHardeningTests {
     func jobLockRefusesConcurrentLeader() async throws {
         try await withApp { app in
             let name = "ops-hardening-\(UUID().uuidString)"
+            // The challenger goes only once the holder is provably inside its
+            // body — i.e. holds the lock — rather than after a guessed delay that
+            // a slow runner can overshoot before the holder has even connected.
+            let (holding, holdingSignal) = AsyncStream<Void>.makeStream()
             let results = await withTaskGroup(of: (String, Bool).self, returning: [String: Bool].self) { group in
                 group.addTask {
                     let ran = await JobLock.runAsLeader(app, name: name) {
+                        holdingSignal.yield()
                         try? await Task.sleep(for: .milliseconds(600))
                     }
+                    holdingSignal.finish()
                     return ("first", ran)
                 }
                 group.addTask {
-                    try? await Task.sleep(for: .milliseconds(150))
+                    for await _ in holding {
+                        break
+                    }
                     let ran = await JobLock.runAsLeader(app, name: name) {}
                     return ("second", ran)
                 }
