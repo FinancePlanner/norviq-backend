@@ -83,7 +83,8 @@ struct SocialController: RouteCollection {
     @Sendable
     func friends(req: Request) async throws -> SocialFriendsListResponse {
         let userId = try req.auth.require(SessionToken.self).userId
-        let ids = try await SocialService.friendIds(of: userId, on: req.db)
+        let hidden = try await SocialService.blockedEitherWay(for: userId, on: req.db)
+        let ids = try await SocialService.friendIds(of: userId, on: req.db).subtracting(hidden)
         let summaries = try await SocialService.summaries(for: Array(ids), viewer: userId, on: req.db)
         let friends = summaries.values.sorted { $0.username < $1.username }
         return SocialFriendsListResponse(friends: friends, nextCursor: nil)
@@ -306,6 +307,9 @@ struct SocialController: RouteCollection {
             note: (note?.isEmpty ?? true) ? nil : note
         ).save(on: req.db)
         req.logger.notice("social.report filed target_type=\(body.targetType.rawValue) reason=\(body.reason.rawValue)")
+        await SocialModeration.notifyNewReport(
+            targetType: body.targetType, targetId: targetId, reason: body.reason, on: req
+        )
         return .accepted
     }
 
@@ -403,11 +407,17 @@ struct SocialController: RouteCollection {
     }
 }
 
-/// Every social route except `/config` 404s until `SOCIAL_ENABLED` is on.
+/// Every social route except `/config` 404s until `SOCIAL_ENABLED` is on,
+/// and 403s for a user a moderator suspended.
 struct SocialEnabledMiddleware: AsyncMiddleware {
     func respond(to request: Request, chainingTo next: any AsyncResponder) async throws -> Response {
         guard SocialConfiguration.fromEnvironment().enabled else {
             throw Abort(.notFound)
+        }
+        if let userId = request.auth.get(SessionToken.self)?.userId,
+           try await SocialService.isSuspended(userId, on: request.db)
+        {
+            throw Abort(.forbidden, reason: "Your access to friends features has been suspended.")
         }
         return try await next.respond(to: request)
     }

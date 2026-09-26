@@ -87,6 +87,7 @@ func routes(_ app: Application) throws {
     // Friends graph, invites, privacy and discovery. Rate limits sit inside the
     // controller, after the authenticator, so they key per user.
     try api.register(collection: SocialController())
+    try api.register(collection: SocialModerationController())
     // Simulating prices every leg, so one request fans out to as many upstream
     // quote lookups as the simulation has positions. Without a limiter an
     // authenticated caller could turn a single endpoint into sustained provider

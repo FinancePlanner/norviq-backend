@@ -19,14 +19,31 @@ enum SocialService {
             .first() != nil
     }
 
-    /// People the viewer blocked plus people who blocked the viewer.
+    /// Everyone the viewer must not see: people they blocked, people who
+    /// blocked them, and users a moderator suspended from social.
     static func blockedEitherWay(for viewer: UUID, on db: any Database) async throws -> Set<UUID> {
         let rows = try await SocialBlock.query(on: db)
             .group(.or) { group in
                 group.filter(\.$blockerId == viewer).filter(\.$blockedId == viewer)
             }
             .all()
-        return Set(rows.map { $0.blockerId == viewer ? $0.blockedId : $0.blockerId })
+        var hidden = Set(rows.map { $0.blockerId == viewer ? $0.blockedId : $0.blockerId })
+        let suspended = try await suspendedUserIds(on: db)
+        hidden.formUnion(suspended)
+        hidden.remove(viewer)
+        return hidden
+    }
+
+    static func suspendedUserIds(on db: any Database) async throws -> Set<UUID> {
+        let rows = try await SocialSettingsRecord.query(on: db).filter(\.$suspendedAt != nil).all()
+        return Set(rows.map(\.userId))
+    }
+
+    static func isSuspended(_ userId: UUID, on db: any Database) async throws -> Bool {
+        try await SocialSettingsRecord.query(on: db)
+            .filter(\.$userId == userId)
+            .filter(\.$suspendedAt != nil)
+            .first() != nil
     }
 
     static func isBlockedEitherWay(_ a: UUID, _ b: UUID, on db: any Database) async throws -> Bool {

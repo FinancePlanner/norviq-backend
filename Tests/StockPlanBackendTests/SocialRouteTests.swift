@@ -246,6 +246,37 @@ struct SocialRouteTests {
         }
     }
 
+    @Test("Moderators resolve reports; a suspended user disappears and is locked out")
+    func moderation() async throws {
+        try await withApp { app in
+            setenv("SOCIAL_MODERATOR_EMAILS", "soc+mod1@example.com", 1)
+            let mod = try await register(app, "mod1")
+            let a = try await register(app, "mod2")
+            let b = try await register(app, "mod3")
+            #expect(try await status(app, .GET, "v1/admin/social/reports", as: a) == .forbidden)
+
+            _ = try await status(app, .POST, "v1/social/friend-requests", as: a,
+                                 body: SocialSendFriendRequestBody(userId: b.userId))
+            let body = SocialReportBody(targetType: .user, targetId: b.userId.uuidString, reason: .harassment, note: nil)
+            #expect(try await status(app, .POST, "v1/social/reports", as: a, body: body) == .accepted)
+
+            let queue = try await get(app, "v1/admin/social/reports", as: mod, SocialModerationReportsResponse.self)
+            #expect(queue.reports.count == 1)
+            #expect(queue.reports.first?.targetUsername == "soc_mod3")
+            let reportId = try #require(queue.reports.first?.id)
+
+            #expect(try await status(app, .POST, "v1/admin/social/reports/\(reportId)/resolve", as: mod,
+                                     body: SocialModerationResolveBody(action: .suspendUser, note: "abuse")) == .noContent)
+            #expect(try await get(app, "v1/admin/social/reports", as: mod, SocialModerationReportsResponse.self).reports.isEmpty)
+            #expect(try await status(app, .GET, "v1/social/friends", as: b) == .forbidden)
+            #expect(try await status(app, .GET, "v1/social/users/\(b.userId)", as: a) == .notFound)
+            #expect(try await get(app, "v1/social/friend-requests", as: a, SocialFriendRequestsResponse.self).outgoing.isEmpty)
+
+            #expect(try await status(app, .DELETE, "v1/admin/social/users/\(b.userId)/suspend", as: mod) == .noContent)
+            #expect(try await status(app, .GET, "v1/social/friends", as: b) == .ok)
+        }
+    }
+
     @Test("Reports are accepted for review")
     func report() async throws {
         try await withApp { app in

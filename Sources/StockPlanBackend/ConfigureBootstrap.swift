@@ -428,6 +428,7 @@ func registerMigrations(_ app: Application) {
     app.migrations.add(CreateAssistantWatches())
     app.migrations.add(CreateOnboardingState())
     app.migrations.add(CreateSocialTables())
+    app.migrations.add(AddSocialModeration())
 }
 
 func envBool(_ key: String, default defaultValue: Bool) -> Bool {
