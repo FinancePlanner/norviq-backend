@@ -77,7 +77,30 @@ struct SocialController: RouteCollection {
         try await Self.requireVisible(target, viewer: viewer, on: req.db)
         let summary = try await SocialService.summary(of: target, viewer: viewer, on: req.db)
         let user = try await User.find(target, on: req.db)
-        return SocialProfileDTO(user: summary, streakDays: nil, xpLevel: nil, badgeCount: nil, joinedAt: user?.createdAt)
+        // Stats follow the owner's privacy settings; people always see their own.
+        let settings = try await SocialService.settings(for: [target], on: req.db)[target] ?? .default
+        let isSelf = target == viewer
+        var streakDays: Int?
+        var xpLevel: Int?
+        if SocialConfiguration.fromEnvironment().leaderboards {
+            let now = Date()
+            if isSelf || settings.showStreaks {
+                let days = try await XPService.checkInDays(for: [target], on: req.db)[target] ?? []
+                let today = GamificationCalendar.dayNumber(GamificationCalendar.localDate(now, in: GamificationCalendar.timeZone(from: req))) ?? 0
+                streakDays = XPService.currentStreak(days: days, today: today)
+            }
+            if isSelf || settings.showXP {
+                let xp = try await XPService.summary(for: target, now: now, timeZone: GamificationCalendar.utc, on: req.db)
+                xpLevel = xp.level
+            }
+        }
+        return SocialProfileDTO(
+            user: summary,
+            streakDays: streakDays,
+            xpLevel: xpLevel,
+            badgeCount: nil,
+            joinedAt: user?.createdAt
+        )
     }
 
     @Sendable
