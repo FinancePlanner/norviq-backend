@@ -67,6 +67,25 @@ protocol PushNotificationSending: Sendable {
         devices: [PushDevice],
         req: Request
     ) async -> TargetPushSendSummary
+
+    func sendSocialEvent(
+        message: SocialPushMessage,
+        devices: [PushDevice],
+        req: Request
+    ) async -> TargetPushSendSummary
+}
+
+/// A friend request, or a request that was accepted. The app routes both
+/// `type`s to its Friends tab.
+struct SocialPushMessage: Sendable {
+    enum Kind: String, Sendable {
+        case friendRequest = "friend_request"
+        case friendAccepted = "friend_accepted"
+    }
+
+    let kind: Kind
+    let title: String
+    let body: String
 }
 
 /// A message the assistant posted into a thread on its own (a standing task,
@@ -91,6 +110,15 @@ extension PushNotificationSending {
     /// doubles): deliver nothing. Both production senders implement it.
     func sendAssistantMessage(
         message _: AssistantPushMessage,
+        devices: [PushDevice],
+        req _: Request
+    ) async -> TargetPushSendSummary {
+        .init(delivered: 0, failed: devices.count)
+    }
+
+    /// Same reasoning as `sendAssistantMessage`: test doubles deliver nothing.
+    func sendSocialEvent(
+        message _: SocialPushMessage,
         devices: [PushDevice],
         req _: Request
     ) async -> TargetPushSendSummary {
@@ -243,6 +271,48 @@ struct APNSPushNotificationSender: PushNotificationSending {
         let eventId: String
         let deepLink: String?
         let data: [String: String]
+    }
+
+    struct SocialEventPayload: Codable {
+        let schemaVersion: Int
+        let type: String
+    }
+
+    func sendSocialEvent(
+        message: SocialPushMessage,
+        devices: [PushDevice],
+        req: Request
+    ) async -> TargetPushSendSummary {
+        guard devices.isEmpty == false else { return .init(delivered: 0, failed: 0) }
+        let notification = APNSAlertNotification(
+            alert: .init(title: .raw(message.title), body: .raw(message.body)),
+            expiration: .immediately,
+            priority: .immediately,
+            topic: topic,
+            payload: SocialEventPayload(schemaVersion: 1, type: message.kind.rawValue),
+            threadID: "social",
+            category: message.kind.rawValue
+        )
+        var delivered = 0
+        var failed = 0
+        for device in devices {
+            do {
+                _ = try await client(for: device, req: req).sendAlertNotification(
+                    notification,
+                    deviceToken: device.deviceToken
+                )
+                delivered += 1
+            } catch {
+                failed += 1
+                req.logger.warning(
+                    "push.notifications send failed social_event error_type=\(String(reflecting: type(of: error)))"
+                )
+                if isInvalidTokenError(error) {
+                    try? await req.pushDeviceService.deactivate(deviceToken: device.deviceToken, on: req.db)
+                }
+            }
+        }
+        return .init(delivered: delivered, failed: failed)
     }
 
     struct AssistantMessagePayload: Codable {
