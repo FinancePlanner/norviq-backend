@@ -97,13 +97,3 @@ jobs:
           REDIS_URL: redis://redis:6379
           LOG_LEVEL: error
         run: swift test
-
-      # TEMPORARY (drop before merge): the build dies with a bare
-      # "error: fatalError". After a failed build, a serial verbose rebuild
-      # reruns only the job that died and names it, here at the end of the log.
-      - name: Diagnose build (temporary)
-        if: failure()
-        run: |
-          swift build --build-tests -j 1 -v 2>&1 \
-            | grep -v -E "warning:|^ *[0-9]+ \||^ *\||DeprecatedDeclaration|^$" \
-            | cut -c1-600 | tail -120

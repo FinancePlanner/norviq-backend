@@ -1,5 +1,6 @@
 import Fluent
 import Foundation
+import StockPlanShared
 import Vapor
 
 /// Friends-only leaderboards. Ranked: the caller and their friends, minus

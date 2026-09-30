@@ -173,18 +173,14 @@ enum XPService {
     // MARK: - XP
 
     static func summary(for userId: UUID, now: Date, timeZone: TimeZone, on db: any Database) async throws -> XPSummaryDTO {
-        let week = GamificationCalendar.period(.week, containing: now, in: timeZone)
-        let rows = try await GamificationXPEvent.query(on: db)
+        let total = try await GamificationXPEvent.query(on: db)
             .filter(\.$userId == userId)
-            .all()
-        var total = 0
-        var weekXP = 0
-        for row in rows {
-            total += row.points
-            if let createdAt = row.createdAt, createdAt >= week.start {
-                weekXP += row.points
-            }
-        }
+            .sum(\.$points) ?? 0
+        let week = GamificationCalendar.period(.week, containing: now, in: timeZone)
+        let weekXP = try await GamificationXPEvent.query(on: db)
+            .filter(\.$userId == userId)
+            .filter(\.$createdAt >= week.start)
+            .sum(\.$points) ?? 0
         return XPSummaryDTO(
             total: total,
             level: XPLevel.level(for: total),
