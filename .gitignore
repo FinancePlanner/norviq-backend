@@ -27,3 +27,6 @@ vapor.pid
 /*.swiftdeps
 /*.swiftmodule
 __pycache__/
+
+# Local secret-pushing helpers. They embed live keys; never commit them.
+update_env_secrets.py
