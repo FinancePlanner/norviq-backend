@@ -87,6 +87,16 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-swift-test-
 
+      # TEMPORARY (drop before merge): the build dies with a bare
+      # "error: fatalError". A serial verbose build names the job that dies.
+      - name: Diagnose build (temporary)
+        continue-on-error: true
+        run: |
+          set -o pipefail
+          swift build --build-tests -j 1 -v 2>&1 \
+            | grep -v -E "warning:|^ *[0-9]+ \||^ *\||DeprecatedDeclaration|^$" \
+            | cut -c1-400 | tail -150
+
       - name: Run tests
         env:
           DATABASE_HOST: postgres
