@@ -6,6 +6,11 @@ import Vapor
 /// blocks either way, suspended users and anyone who opted out. Values are
 /// percentages or counts; no amount of money is ever read into a response.
 enum LeaderboardService {
+    struct Ranked {
+        let user: SocialUserSummaryDTO
+        let value: Double
+    }
+
     static func leaderboard(
         metric: LeaderboardMetricDTO,
         period: LeaderboardPeriodDTO,
@@ -37,11 +42,14 @@ enum LeaderboardService {
         }
 
         let summaries = try await SocialService.summaries(for: Array(values.keys), viewer: viewer, on: db)
-        let ranked: [(user: SocialUserSummaryDTO, value: Double)] = values
-            .compactMap { entry in summaries[entry.key].map { (user: $0, value: entry.value) } }
-            .sorted { lhs, rhs in
-                lhs.value == rhs.value ? lhs.user.username < rhs.user.username : lhs.value > rhs.value
-            }
+        var ranked: [Ranked] = []
+        for (userId, value) in values {
+            guard let user = summaries[userId] else { continue }
+            ranked.append(Ranked(user: user, value: value))
+        }
+        ranked.sort { lhs, rhs in
+            lhs.value == rhs.value ? lhs.user.username < rhs.user.username : lhs.value > rhs.value
+        }
 
         var entries: [LeaderboardEntryDTO] = []
         for (index, item) in ranked.enumerated() {
@@ -112,7 +120,7 @@ enum LeaderboardReturns {
             guard let id = list.id else { continue }
             listIdsByUser[list.userId, default: []].append(id)
         }
-        let allListIds = listIdsByUser.values.flatMap(\.self)
+        let allListIds = listIdsByUser.values.reduce(into: [UUID]()) { $0.append(contentsOf: $1) }
         guard !allListIds.isEmpty else { return [:] }
 
         // A week of slack finds the last recorded day on or before the start.

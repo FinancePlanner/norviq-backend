@@ -127,13 +127,29 @@ enum XPService {
             .filter(\.$dedupeKey == dedupeKey)
             .first()
         guard existing == nil else { return 0 }
+        let saved = try await insertIgnoringDuplicate(
+            GamificationXPEvent(userId: userId, type: kind, points: points, dedupeKey: dedupeKey),
+            on: db
+        )
+        // Not saved: a concurrent request paid this key first.
+        return saved ? points : 0
+    }
+
+    /// Saves `model`. Returns false instead of throwing when a unique
+    /// constraint rejects it, which means a concurrent request won the race.
+    static func insertIgnoringDuplicate(_ model: some Model, on db: any Database) async throws -> Bool {
         do {
-            try await GamificationXPEvent(userId: userId, type: kind, points: points, dedupeKey: dedupeKey).save(on: db)
-            return points
-        } catch let error as any DatabaseError where error.isConstraintFailure {
-            // A concurrent request paid this key first.
-            return 0
+            try await model.save(on: db)
+            return true
+        } catch {
+            guard isConstraintFailure(error) else { throw error }
+            return false
         }
+    }
+
+    static func isConstraintFailure(_ error: any Error) -> Bool {
+        guard let databaseError = error as? any DatabaseError else { return false }
+        return databaseError.isConstraintFailure
     }
 
     /// For hooks in other features. Never fails the request that triggered it,
@@ -157,14 +173,18 @@ enum XPService {
     // MARK: - XP
 
     static func summary(for userId: UUID, now: Date, timeZone: TimeZone, on db: any Database) async throws -> XPSummaryDTO {
-        let total = try await GamificationXPEvent.query(on: db)
-            .filter(\.$userId == userId)
-            .sum(\.$points) ?? 0
         let week = GamificationCalendar.period(.week, containing: now, in: timeZone)
-        let weekXP = try await GamificationXPEvent.query(on: db)
+        let rows = try await GamificationXPEvent.query(on: db)
             .filter(\.$userId == userId)
-            .filter(\.$createdAt >= week.start)
-            .sum(\.$points) ?? 0
+            .all()
+        var total = 0
+        var weekXP = 0
+        for row in rows {
+            total += row.points
+            if let createdAt = row.createdAt, createdAt >= week.start {
+                weekXP += row.points
+            }
+        }
         return XPSummaryDTO(
             total: total,
             level: XPLevel.level(for: total),
@@ -209,23 +229,58 @@ enum XPService {
         return result
     }
 
+    /// What a social profile shows: the check-in streak when the owner
+    /// shares streaks and the XP level when they share XP. People always see
+    /// their own. Both nil while leaderboards are switched off.
+    static func profileStats(
+        of target: UUID,
+        viewer: UUID,
+        timeZone: TimeZone,
+        on db: any Database
+    ) async throws -> ProfileStats {
+        guard SocialConfiguration.fromEnvironment().leaderboards else { return ProfileStats(streakDays: nil, xpLevel: nil) }
+        let settings = try await SocialService.settings(for: [target], on: db)[target] ?? SocialPrivacySettingsDTO.default
+        let isSelf = target == viewer
+        let now = Date()
+        var stats = ProfileStats(streakDays: nil, xpLevel: nil)
+        if isSelf || settings.showStreaks {
+            let streak = try await currentStreak(for: target, now: now, timeZone: timeZone, on: db)
+            stats = ProfileStats(streakDays: streak, xpLevel: stats.xpLevel)
+        }
+        if isSelf || settings.showXP {
+            let xp = try await summary(for: target, now: now, timeZone: GamificationCalendar.utc, on: db)
+            stats = ProfileStats(streakDays: stats.streakDays, xpLevel: xp.level)
+        }
+        return stats
+    }
+
+    struct ProfileStats: Sendable {
+        let streakDays: Int?
+        let xpLevel: Int?
+    }
+
     // MARK: - Check-in streaks
+
+    static func currentStreak(for userId: UUID, now: Date, timeZone: TimeZone, on db: any Database) async throws -> Int {
+        let days = try await checkInDays(for: [userId], on: db)[userId] ?? []
+        let today = GamificationCalendar.dayNumber(GamificationCalendar.localDate(now, in: timeZone)) ?? 0
+        return currentStreak(days: days, today: today)
+    }
 
     /// Checks the user in for their local day. Idempotent: a second call the
     /// same day awards nothing and reports `alreadyCheckedIn`.
     static func checkIn(userId: UUID, now: Date, timeZone: TimeZone, on db: any Database) async throws -> CheckInResponseDTO {
         let localDate = GamificationCalendar.localDate(now, in: timeZone)
-        var alreadyCheckedIn = try await GamificationCheckIn.query(on: db)
+        let existing = try await GamificationCheckIn.query(on: db)
             .filter(\.$userId == userId)
             .filter(\.$localDate == localDate)
-            .first() != nil
-        if !alreadyCheckedIn {
-            do {
-                try await GamificationCheckIn(userId: userId, localDate: localDate, timeZone: timeZone.identifier).save(on: db)
-            } catch let error as any DatabaseError where error.isConstraintFailure {
-                alreadyCheckedIn = true
-            }
+            .first()
+        var inserted = false
+        if existing == nil {
+            let checkIn = GamificationCheckIn(userId: userId, localDate: localDate, timeZone: timeZone.identifier)
+            inserted = try await insertIgnoringDuplicate(checkIn, on: db)
         }
+        let alreadyCheckedIn = !inserted
 
         let days = try await checkInDays(for: [userId], on: db)[userId] ?? []
         let today = GamificationCalendar.dayNumber(localDate) ?? 0
@@ -322,12 +377,9 @@ enum XPService {
             record.bestMonths = max(record.bestMonths, months)
             try await record.save(on: db)
         } else {
-            do {
-                try await GamificationBudgetStreak(userId: userId, months: months).save(on: db)
-            } catch let error as any DatabaseError where error.isConstraintFailure {
-                // A concurrent report created the row; its award covers this one.
-                return months
-            }
+            let inserted = try await insertIgnoringDuplicate(GamificationBudgetStreak(userId: userId, months: months), on: db)
+            // Not inserted: a concurrent report created the row; its award covers this one.
+            guard inserted else { return months }
         }
         if months > previousBest {
             try await award(
