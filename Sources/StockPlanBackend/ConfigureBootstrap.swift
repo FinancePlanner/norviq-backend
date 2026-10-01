@@ -430,6 +430,7 @@ func registerMigrations(_ app: Application) {
     app.migrations.add(CreateSocialTables())
     app.migrations.add(AddSocialModeration())
     app.migrations.add(CreateGamificationTables())
+    app.migrations.add(CreateCommunityBoardsTables())
 }
 
 func envBool(_ key: String, default defaultValue: Bool) -> Bool {

@@ -387,3 +387,25 @@ extension UpdateNewsTickerSettingsRequest: @retroactive Content {}
 extension NewsTickerFeed: @retroactive Content {}
 extension NewsTickerFeedsResponse: @retroactive Content {}
 extension AddNewsTickerFeedRequest: @retroactive Content {}
+
+// MARK: - Community boards
+
+extension BoardSummary: @retroactive Content {}
+extension BoardListResponse: @retroactive Content {}
+extension CreateBoardRequest: @retroactive Content {}
+extension UpdateBoardRequest: @retroactive Content {}
+extension BoardPostSummary: @retroactive Content {}
+extension BoardPostPage: @retroactive Content {}
+extension BoardPostDetail: @retroactive Content {}
+extension CreateBoardPostRequest: @retroactive Content {}
+extension BoardComment: @retroactive Content {}
+extension CreateBoardCommentRequest: @retroactive Content {}
+extension BoardVoteResponse: @retroactive Content {}
+extension BoardReportRequest: @retroactive Content {}
+extension UserBlockRequest: @retroactive Content {}
+extension CommunityViewerStatus: @retroactive Content {}
+extension UserSanction: @retroactive Content {}
+extension CreateSanctionRequest: @retroactive Content {}
+extension UserSanctionListResponse: @retroactive Content {}
+extension BoardReportItem: @retroactive Content {}
+extension BoardReportListResponse: @retroactive Content {}

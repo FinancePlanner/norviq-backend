@@ -21,6 +21,16 @@ struct APIErrorEnvelope: Content, Equatable {
     }
 }
 
+/// An `Abort` whose envelope carries a specific `code` instead of the one
+/// derived from the status, for errors a client must tell apart (a muted user
+/// and a missing username are both 403s).
+struct CodedAbort: AbortError {
+    let status: HTTPResponseStatus
+    let code: String
+    let reason: String
+    var details: [String: String]?
+}
+
 struct APIErrorMiddleware: AsyncMiddleware {
     func respond(to request: Request, chainingTo next: any AsyncResponder) async throws -> Response {
         do {
@@ -38,9 +48,11 @@ struct APIErrorMiddleware: AsyncMiddleware {
         let requestId = request.headers.first(name: "X-Request-ID")
             ?? request.logger[metadataKey: "request_id"]?.description
 
+        let coded = error as? CodedAbort
         let envelope = APIErrorEnvelope(
-            code: code(for: error, status: status),
+            code: coded?.code ?? code(for: error, status: status),
             reason: reason,
+            details: coded?.details,
             requestId: requestId
         )
         let response = Response(status: status)
