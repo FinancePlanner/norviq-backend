@@ -215,6 +215,7 @@ extension MarketHeatmapDTO: @retroactive Content {}
 
 extension CryptoAssetResponse: @retroactive Content {}
 extension CryptoQuoteResponse: @retroactive Content {}
+extension CryptoMarketsResponse: @retroactive Content {}
 extension CryptoQuoteShortResponse: @retroactive Content {}
 extension CryptoHistoricalLightPoint: @retroactive Content {}
 extension CryptoHistoricalFullPoint: @retroactive Content {}

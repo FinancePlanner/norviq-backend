@@ -42,3 +42,21 @@ struct DisabledCryptoDataProvider: CryptoDataProvider {
         throw Abort(.serviceUnavailable, reason: "Crypto market data is not configured.")
     }
 }
+
+/// Picks the crypto data source. Mock data is only ever served in development
+/// and testing; any other environment without FMP gets the disabled provider,
+/// so production fails loudly (503) instead of showing fake prices.
+func makeCryptoDataProvider(
+    fmp: (any CryptoDataProvider)?,
+    environment: Environment
+) -> any CryptoDataProvider {
+    if let fmp {
+        return fmp
+    }
+    switch environment {
+    case .development, .testing:
+        return MockCryptoDataProvider()
+    default:
+        return DisabledCryptoDataProvider()
+    }
+}

@@ -318,6 +318,7 @@ struct OpenAPIDocsTests {
             "/v1/dashboard:",
             "/v1/dashboard/insights:",
             "/v1/crypto/portfolio:",
+            "/v1/crypto/markets:",
             "/v1/portfolio/simulations:",
             "/v1/portfolio/simulations/{simulationId}:",
         ]
