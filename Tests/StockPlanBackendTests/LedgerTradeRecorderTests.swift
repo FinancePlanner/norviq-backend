@@ -71,12 +71,20 @@ struct LedgerTradeRecorderTests {
             #expect(try await cash(userId: userId, listId: row.portfolioListId, on: app.db) == 300)
             let account = try await ManualAccountResolver.findOrCreate(userId: userId, portfolioId: row.portfolioListId, on: app.db)
             let sells = try await Transaction.query(on: app.db).filter(\.$accountId == account.requireID()).all()
-            // The instrument may not resolve in the test environment; when it does, the row must be a manual sell.
-            for sell in sells {
-                #expect(sell.externalId?.hasPrefix("manual:") == true)
-                #expect(sell.type == "sell")
-                #expect(sell.quantity == 2)
+            func utcDay(_ iso: String) -> Date {
+                var calendar = Calendar(identifier: .gregorian)
+                calendar.timeZone = TimeZone(secondsFromGMT: 0) ?? .gmt
+                let p = iso.split(separator: "-").compactMap { Int($0) }
+                return calendar.date(from: DateComponents(year: p[0], month: p[1], day: p[2]))!
             }
+            #expect(sells.count == 1)
+            let first = try #require(sells.first)
+            #expect(first.externalId?.hasPrefix("manual:") == true)
+            #expect(first.type == "sell")
+            #expect(first.quantity == 2)
+            #expect(first.price == 150)
+            #expect(first.currency == account.baseCurrency)
+            #expect(first.tradeDate == utcDay("2026-04-10"))
 
             try await app.testing().test(.POST, "v1/stocks/id/\(created.id)/sell", beforeRequest: { req in
                 req.headers.bearerAuthorization = .init(token: token)
@@ -87,6 +95,12 @@ struct LedgerTradeRecorderTests {
             })
             #expect(try await Stock.query(on: app.db).filter(\.$userId == userId).count() == 0)
             #expect(try await cash(userId: userId, listId: row.portfolioListId, on: app.db) == 600)
+            let all = try await Transaction.query(on: app.db).filter(\.$accountId == account.requireID()).sort(\.$tradeDate, .ascending).all()
+            #expect(all.count == 2)
+            let last = try #require(all.last)
+            #expect(last.quantity == 3)
+            #expect(last.price == 100)
+            #expect(last.tradeDate == utcDay("2026-04-11"))
         }
     }
 
