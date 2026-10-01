@@ -420,63 +420,25 @@ struct StockServiceImpl: StockService {
         }()
 
         return try await db.transaction { transactionDB in
-            // 1. Update/Delete Stock
-            if payload.sharesToSell == stock.shares {
-                _ = try await repo.delete(id: id, userId: userId, on: transactionDB)
-                stock.shares = 0
-            } else {
-                stock.shares -= payload.sharesToSell
-                try await stock.save(on: transactionDB)
-            }
-
-            // 2. Find or create a default manual account for cash proceeds.
-            let account = try await ManualAccountResolver.findOrCreate(
-                userId: userId,
-                portfolioId: stock.portfolioListId,
-                on: transactionDB
-            )
-
-            // 3. Update CashBalance
-            let currency = account.baseCurrency
-            if let existingCash = try await CashBalance.query(on: transactionDB)
-                .filter(\.$accountId == account.id!)
-                .filter(\.$currency == currency)
-                .first()
-            {
-                existingCash.balance += proceeds
-                existingCash.asOf = Date()
-                try await existingCash.save(on: transactionDB)
-            } else {
-                let newCash = CashBalance(
-                    accountId: account.id!,
-                    currency: currency,
-                    balance: proceeds,
-                    asOf: Date()
-                )
-                try await newCash.save(on: transactionDB)
-            }
-
-            // 4. Record the disposal as a Transaction.
-            //
-            // Without this the sale existed only as a shares decrement and a cash
-            // credit, so a manually recorded sell never reached realized P&L or the
-            // tax filing pack — only broker-imported sales did. This save is not
-            // caught: it belongs to the same unit of work as the share and cash
-            // changes above, so if it fails the whole sale rolls back rather than
-            // leaving the three out of step.
-            if let accountId = account.id, let instrumentId = sellInstrumentId {
-                let record = Transaction(
-                    accountId: accountId,
-                    instrumentId: instrumentId,
-                    externalId: TransactionService.manualExternalIDPrefix + UUID().uuidString.lowercased(),
-                    type: TransactionType.sell.rawValue,
+            // Shares, cash and the Transaction row move together through the
+            // one ledger write path; see LedgerTradeRecorder.
+            let results = try await LedgerTradeRecorder().record(
+                [LedgerTrade(
+                    symbol: stock.symbol,
+                    side: .sell,
                     quantity: payload.sharesToSell,
                     price: payload.sellPrice,
-                    currency: currency,
-                    tradeDate: tradeDate
-                )
-                try await record.save(on: transactionDB)
-            }
+                    tradeDate: tradeDate,
+                    instrumentId: sellInstrumentId,
+                    externalId: TransactionService.manualExternalIDPrefix + UUID().uuidString.lowercased(),
+                    stockId: id
+                )],
+                userId: userId,
+                portfolioId: stock.portfolioListId,
+                sourceProvider: nil,
+                on: transactionDB
+            )
+            stock.shares = results.first?.remainingShares ?? 0
 
             // 5. Record Activity
             try? await req.userActivityService.recordActivity(
