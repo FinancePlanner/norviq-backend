@@ -292,7 +292,12 @@ struct GamificationRouteTests {
             // A baseline the day before the week starts, and today's value.
             let week = GamificationCalendar.period(.week, containing: Date(), in: GamificationCalendar.utc)
             let baseline = PortfolioSnapshotValuator.addDays(PortfolioSnapshotValuator.startOfDay(week.start), days: -1)
-            let today = PortfolioSnapshotValuator.startOfDay(Date())
+            // On a Monday "today" is the week start itself, which would leave
+            // nothing after the baseline to measure; use the next day then.
+            let today = max(
+                PortfolioSnapshotValuator.startOfDay(Date()),
+                PortfolioSnapshotValuator.addDays(PortfolioSnapshotValuator.startOfDay(week.start), days: 1)
+            )
             for (user, gain) in [(a.userId, 10.0), (b.userId, 5.0)] {
                 let listId = try await ensureDefaultPortfolioListId(userId: user, on: app.db)
                 for (day, value) in [(baseline, 100.0), (today, 100.0 + gain)] {
