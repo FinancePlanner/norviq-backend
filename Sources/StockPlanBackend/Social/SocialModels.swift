@@ -65,6 +65,10 @@ final class SocialReport: Model, @unchecked Sendable {
     @Field(key: "reason") var reason: String
     @OptionalField(key: "note") var note: String?
     @Field(key: "status") var status: String
+    @OptionalField(key: "resolution") var resolution: String?
+    @OptionalField(key: "resolution_note") var resolutionNote: String?
+    @OptionalField(key: "resolved_by") var resolvedBy: UUID?
+    @OptionalField(key: "resolved_at") var resolvedAt: Date?
     @Timestamp(key: "created_at", on: .create) var createdAt: Date?
 
     init() {}
@@ -96,6 +100,9 @@ final class SocialSettingsRecord: Model, @unchecked Sendable {
     @Field(key: "leaderboard_opt_in") var leaderboardOptIn: Bool
     /// HMAC of the normalized account email under the current contact pepper.
     @OptionalField(key: "email_hash") var emailHash: String?
+    /// Set by a moderator. A suspended user can't use social and is hidden
+    /// from everyone else, the same way a block hides someone.
+    @OptionalField(key: "suspended_at") var suspendedAt: Date?
     @Timestamp(key: "created_at", on: .create) var createdAt: Date?
     @Timestamp(key: "updated_at", on: .update) var updatedAt: Date?
 

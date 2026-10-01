@@ -9,6 +9,8 @@ struct SocialConfiguration: Sendable {
     let enabled: Bool
     let contactsDiscovery: Bool
     let xImport: Bool
+    /// XP, check-ins and friends leaderboards (Phase 3).
+    let leaderboards: Bool
     let contactPepper: String?
     let inviteBaseURL: String
 
@@ -26,6 +28,7 @@ struct SocialConfiguration: Sendable {
             contactsDiscovery: enabled && usablePepper != nil && envBool("SOCIAL_CONTACTS_ENABLED", default: true),
             xImport: enabled && XOAuthProviderClient.Config.fromEnvironment() != nil
                 && envBool("SOCIAL_X_IMPORT_ENABLED", default: false),
+            leaderboards: enabled && envBool("SOCIAL_LEADERBOARDS_ENABLED", default: true),
             contactPepper: usablePepper,
             inviteBaseURL: (inviteBase?.isEmpty ?? true) ? "https://norviq.org" : inviteBase ?? "https://norviq.org"
         )
@@ -36,7 +39,7 @@ struct SocialConfiguration: Sendable {
             enabled: enabled,
             contactsDiscovery: contactsDiscovery,
             xImport: xImport,
-            leaderboards: false,
+            leaderboards: leaderboards,
             messaging: false,
             contactHashVersion: contactsDiscovery ? Self.contactHashVersion : nil,
             contactPepper: contactsDiscovery ? contactPepper : nil

@@ -106,6 +106,14 @@ struct DefaultBadgeService: BadgeService {
             for badge in newlyEarned {
                 do {
                     try await badge.save(on: db)
+                    await XPService.awardBestEffort(
+                        .badgeEarned,
+                        points: XPRules.badge(badge.tier),
+                        to: userId,
+                        dedupeKey: "badge_earned:\(badge.badgeType.rawValue):\(badge.tier.rawValue)",
+                        on: db,
+                        logger: req.logger
+                    )
                 } catch {
                     let reflected = String(reflecting: error)
                     if reflected.contains("user_badges_user_id_badge_type_tier")

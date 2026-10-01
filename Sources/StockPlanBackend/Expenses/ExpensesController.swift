@@ -220,6 +220,16 @@ struct ExpensesController: RouteCollection {
             request: payload,
             on: req.db
         )
+        // One small XP award per UTC day for logging spending, however many
+        // expenses are added, so there is nothing to farm.
+        await XPService.awardBestEffort(
+            .expenseLogged,
+            points: XPRules.expenseLogged,
+            to: session.userId,
+            dedupeKey: "expense_logged:\(GamificationCalendar.localDate(Date(), in: GamificationCalendar.utc))",
+            on: req.db,
+            logger: req.logger
+        )
 
         let res = Response(status: .created)
         try res.content.encode(created)
