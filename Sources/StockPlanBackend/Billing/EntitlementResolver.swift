@@ -134,6 +134,8 @@ enum BillingFeature: String {
     case aiInsights = "ai_insights"
     /// Connecting external AI clients via MCP (personal access tokens, OAuth) — Pro/trial only.
     case mcpAccess = "mcp_access"
+    /// Following a pilot (politician or 13F fund) with a simulated book. Count limit enforced in PilotFollowService.
+    case pilotFollows = "pilot_follows"
     /// Advanced portfolio scenarios and stress tests — Pro/trial only.
     case scenarioPlanning = "scenario_planning"
     /// Tax projections, harvesting scenarios, workpapers, and alerts — Pro/trial only.
@@ -221,7 +223,7 @@ struct BillingPlanLimits {
         case .brokerSync, .expensePlanner, .reports, .statistics, .marketFundamentals,
              .advancedResearch, .peerComparison, .earningsText,
              .householdPartner, .recurringTemplates, .yearOverview, .smartSuggestions,
-             .crypto, .aiInsights, .mcpAccess, .scenarioPlanning, .taxOptimization, .receiptScan, .bankSync,
+             .crypto, .aiInsights, .mcpAccess, .pilotFollows, .scenarioPlanning, .taxOptimization, .receiptScan, .bankSync,
              .spreadsheetImport, .screenshotImport,
              .advancedPortfolios, .jointPortfolios, .advancedReportTemplates,
              .advancedReportSchedules, .advancedReportRuns,
@@ -348,7 +350,7 @@ struct DefaultUsageCounterService: UsageCounterService {
         case .brokerSync, .portfolioLists, .valuationCases, .expensePlanner, .reports,
              .statistics, .marketFundamentals, .advancedResearch, .peerComparison, .earningsText,
              .householdPartner, .recurringTemplates, .yearOverview, .smartSuggestions,
-             .crypto, .aiInsights, .mcpAccess, .scenarioPlanning, .taxOptimization, .receiptScan, .bankSync,
+             .crypto, .aiInsights, .mcpAccess, .pilotFollows, .scenarioPlanning, .taxOptimization, .receiptScan, .bankSync,
              .spreadsheetImport, .screenshotImport,
              .advancedPortfolios, .jointPortfolios, .advancedReportTemplates,
              .advancedReportSchedules, .advancedReportRuns,
@@ -372,7 +374,7 @@ struct DefaultUsageCounterService: UsageCounterService {
         case .brokerSync, .portfolioLists, .valuationCases, .expensePlanner, .reports,
              .statistics, .marketFundamentals, .advancedResearch, .peerComparison, .earningsText,
              .householdPartner, .recurringTemplates, .yearOverview, .smartSuggestions,
-             .crypto, .aiInsights, .mcpAccess, .scenarioPlanning, .taxOptimization, .receiptScan, .bankSync,
+             .crypto, .aiInsights, .mcpAccess, .pilotFollows, .scenarioPlanning, .taxOptimization, .receiptScan, .bankSync,
              .spreadsheetImport, .screenshotImport,
              .advancedPortfolios, .jointPortfolios, .advancedReportTemplates,
              .advancedReportSchedules, .advancedReportRuns,
