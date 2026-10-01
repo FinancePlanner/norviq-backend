@@ -8,6 +8,10 @@ typealias PilotQuoteFetcher = @Sendable (_ symbol: String) async throws -> Doubl
 typealias PilotInstrumentResolver = @Sendable (_ symbol: String) async -> UUID?
 typealias PilotWatchlistLimit = @Sendable (_ userId: UUID, _ currentCount: Int, _ db: any Database) async throws -> Void
 
+enum PilotMirrorError: Error, Equatable {
+    case quotesUnavailable
+}
+
 /// Applies a pilot's book version to one follow.
 ///
 /// Prices are live quotes taken now, when Norviq applies the book. They are
@@ -56,9 +60,21 @@ struct PilotMirrorService: Sendable {
         // reach the network, and a failure inside db.transaction poisons it.
         var prices: [String: Double] = [:]
         for symbol in Set(version.weights.keys).union(holdings.keys) {
-            if let price = try? await quote(symbol), price > 0 {
-                prices[symbol] = price
+            do {
+                let price = try await quote(symbol)
+                if price > 0, price.isFinite {
+                    prices[symbol] = price
+                }
+            } catch is CancellationError {
+                throw CancellationError()
+            } catch {
+                continue
             }
+        }
+        // A total quote outage must not consume the book version: throw before
+        // claiming so applied_version stays put and the job retries.
+        if prices.isEmpty, !version.weights.isEmpty || !holdings.isEmpty {
+            throw PilotMirrorError.quotesUnavailable
         }
         let plan = PilotRebalancePlanner.plan(weights: version.weights, holdings: holdings, cash: cash, prices: prices)
         var instruments: [String: UUID] = [:]

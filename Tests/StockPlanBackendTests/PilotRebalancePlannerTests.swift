@@ -40,4 +40,16 @@ struct PilotRebalancePlannerTests {
         let spent = plan.orders.filter { $0.side == .buy }.reduce(0.0) { $0 + $1.quantity * $1.price }
         #expect(spent <= 100 + 1e-6)
     }
+
+    @Test("sell-to-zero passes the held quantity unrounded")
+    func sellToZeroUnrounded() {
+        let plan = PilotRebalancePlanner.plan(weights: ["MSFT": 1.0], holdings: ["AAPL": 1.0000006], cash: 0, prices: ["AAPL": 100, "MSFT": 100])
+        #expect(plan.orders.first == PilotOrder(symbol: "AAPL", side: .sell, quantity: 1.0000006, price: 100))
+    }
+
+    @Test("a dust holding of a dropped symbol is still sold out")
+    func dustSoldOut() {
+        let plan = PilotRebalancePlanner.plan(weights: ["MSFT": 1.0], holdings: ["AAPL": 0.01], cash: 1000, prices: ["AAPL": 100, "MSFT": 100])
+        #expect(plan.orders.contains(PilotOrder(symbol: "AAPL", side: .sell, quantity: 0.01, price: 100)))
+    }
 }

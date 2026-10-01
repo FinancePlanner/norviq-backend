@@ -99,7 +99,7 @@ struct PilotMirrorServiceTests {
             let svc = service(prices: ["AAPL": 100])
             #expect(try await svc.apply(follow: follow, pilot: pilot, version: v1, previous: nil, now: now, on: app.db))
             let stale = try #require(try await PilotFollow.find(follow.requireID(), on: app.db))
-            stale.appliedVersion = 0 // simulate a second pod holding a stale copy
+            // This second call is the stale pod: claim reads the DB, so it must lose.
             #expect(try await svc.apply(follow: stale, pilot: pilot, version: v1, previous: nil, now: now, on: app.db) == false)
             let stock = try #require(try await Stock.query(on: app.db).filter(\.$portfolioListId == follow.portfolioListId!).first())
             #expect(stock.shares == 100)
@@ -117,6 +117,44 @@ struct PilotMirrorServiceTests {
             let events = try await PilotFollowEvent.query(on: app.db).filter(\.$followId == follow.requireID()).all()
             #expect(events.contains { $0.kind == "skipped_unpriced" && $0.symbol == "ZZZZ" })
             #expect(events.contains { $0.kind == "buy" && $0.symbol == "AAPL" })
+            let stock = try #require(try await Stock.query(on: app.db).filter(\.$portfolioListId == follow.portfolioListId!).first())
+            #expect(stock.shares == 5)
+            let account = try await ManualAccountResolver.findOrCreate(userId: userId, portfolioId: follow.portfolioListId!, on: app.db)
+            let cash = try await CashBalance.query(on: app.db).filter(\.$accountId == account.requireID()).all().reduce(0.0) { $0 + $1.balance }
+            #expect(abs(cash - 500) < 1e-6)
+        }
+    }
+
+    @Test("a total quote outage throws before claiming; a later run applies")
+    func quoteOutageDoesNotConsumeVersion() async throws {
+        try await withApp { app in
+            let userId = try await makeUser(on: app.db)
+            let pilot = try await makePilot(on: app.db)
+            let follow = try await portfolioFollow(userId: userId, pilot: pilot, cash: 10000, on: app.db)
+            let v1 = try await version(pilot, 1, ["AAPL": 1.0], on: app.db)
+            await #expect(throws: PilotMirrorError.quotesUnavailable) {
+                _ = try await service(prices: [:]).apply(follow: follow, pilot: pilot, version: v1, previous: nil, now: now, on: app.db)
+            }
+            #expect(try await PilotFollow.find(follow.requireID(), on: app.db)?.appliedVersion == 0)
+            #expect(try await Stock.query(on: app.db).filter(\.$portfolioListId == follow.portfolioListId!).count() == 0)
+            #expect(try await PilotFollowEvent.query(on: app.db).filter(\.$followId == follow.requireID()).count() == 0)
+            let applied = try await service(prices: ["AAPL": 100]).apply(follow: follow, pilot: pilot, version: v1, previous: nil, now: now, on: app.db)
+            #expect(applied)
+            #expect(try await PilotFollow.find(follow.requireID(), on: app.db)?.appliedVersion == 1)
+        }
+    }
+
+    @Test("a position with sub-micro-share precision is sold out exactly")
+    func sellsOutUnroundedHolding() async throws {
+        try await withApp { app in
+            let userId = try await makeUser(on: app.db)
+            let pilot = try await makePilot(on: app.db)
+            let follow = try await portfolioFollow(userId: userId, pilot: pilot, cash: 0, on: app.db)
+            try await Stock(userId: userId, portfolioListId: follow.portfolioListId!, symbol: "AAPL", shares: 1.0000006, buyPrice: 100, buyDate: now).create(on: app.db)
+            let v1 = try await version(pilot, 1, ["MSFT": 1.0], on: app.db)
+            let applied = try await service(prices: ["AAPL": 100, "MSFT": 100]).apply(follow: follow, pilot: pilot, version: v1, previous: nil, now: now, on: app.db)
+            #expect(applied)
+            #expect(try await Stock.query(on: app.db).filter(\.$portfolioListId == follow.portfolioListId!).filter(\.$symbol == "AAPL").count() == 0)
         }
     }
 

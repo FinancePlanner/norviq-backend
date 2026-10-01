@@ -38,11 +38,14 @@ enum PilotRebalancePlanner {
             let current = holdings[symbol] ?? 0
             let target = (weights[symbol] ?? 0) * value / price
             let delta = target - current
-            guard abs(delta) * price >= threshold else { continue }
+            // A dropped symbol (target zero) is always sold out, whatever its size.
+            let soldOut = target == 0 && current > 0
+            guard soldOut || abs(delta) * price >= threshold else { continue }
             if delta < 0 {
-                // Selling everything when the target is zero avoids dust positions.
-                let quantity = target == 0 ? current : -delta
-                sells.append(PilotOrder(symbol: symbol, side: .sell, quantity: round6(quantity), price: price))
+                // Sell-to-zero passes the held quantity unrounded so the ledger
+                // closes the position exactly; partial sells never exceed it.
+                let quantity = soldOut ? current : min(round6(-delta), current)
+                sells.append(PilotOrder(symbol: symbol, side: .sell, quantity: quantity, price: price))
             } else {
                 buys.append(PilotOrder(symbol: symbol, side: .buy, quantity: delta, price: price))
             }
