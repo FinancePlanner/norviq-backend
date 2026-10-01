@@ -90,6 +90,10 @@ func routes(_ app: Application) throws {
     try api.register(collection: SocialModerationController())
     // XP, check-ins and friends leaderboards; also behind SOCIAL_ENABLED.
     try api.register(collection: GamificationController())
+    // User-created topic boards and their admin moderation. Rate limits sit
+    // inside the controllers, after the authenticator, so they key per user.
+    try api.register(collection: BoardsController())
+    try api.register(collection: CommunityAdminController())
     // Simulating prices every leg, so one request fans out to as many upstream
     // quote lookups as the simulation has positions. Without a limiter an
     // authenticated caller could turn a single endpoint into sustained provider

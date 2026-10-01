@@ -27,7 +27,7 @@ struct InsightsController: RouteCollection {
         insights.get("sentiment", "trending", use: trendingSentiment)
         insights.get("sentiment", "history", ":symbol", use: sentimentHistory)
         // Admin-only: force an immediate Hermes pull instead of waiting for the
-        // scheduled poller. Gated by the INSIGHTS_ADMIN_EMAILS allowlist.
+        // scheduled poller. Gated by the AdminGuard operator allowlist.
         insights.post("sync", use: syncNow)
         insights.post("sentiment", "sync", use: sentimentSyncNow)
         insights.post("sentiment", "seed-index", use: seedIndexNow)
@@ -202,24 +202,9 @@ struct InsightsController: RouteCollection {
     /// Bounded so one request cannot fan out across the whole universe.
     static let maxBatchSymbols = 100
 
-    /// Fail-closed admin gate: denies everyone unless the caller's email is in
-    /// the comma-separated INSIGHTS_ADMIN_EMAILS env allowlist.
+    /// Fail-closed admin gate; see `AdminGuard` for where the allowlist comes from.
     private func requireInsightsAdmin(_ req: Request) async throws {
-        let session = try req.auth.require(SessionToken.self)
-        let admins = Set(
-            (Environment.get("INSIGHTS_ADMIN_EMAILS") ?? "")
-                .split(separator: ",")
-                .map { $0.trimmingCharacters(in: .whitespaces).lowercased() }
-                .filter { !$0.isEmpty }
-        )
-        guard !admins.isEmpty else {
-            throw Abort(.forbidden, reason: "Insights admin sync is disabled (INSIGHTS_ADMIN_EMAILS is not set).")
-        }
-        guard let user = try await User.find(session.userId, on: req.db),
-              admins.contains(user.email.lowercased())
-        else {
-            throw Abort(.forbidden, reason: "Admin access required.")
-        }
+        try await AdminGuard.requireAdmin(req)
     }
 
     private func validatedSymbol(_ raw: String?) throws -> String {

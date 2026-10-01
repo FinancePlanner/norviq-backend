@@ -4,8 +4,8 @@ import Vapor
 
 /// Review queue for social reports (App Review Guideline 1.2): every report
 /// pings the team's Discord, and moderators resolve reports and suspend users
-/// through `/v1/admin/social`. Moderators are the emails listed in
-/// `SOCIAL_MODERATOR_EMAILS`; with none configured the admin routes stay shut.
+/// through `/v1/admin/social`. Moderators are the operator allowlist in
+/// `AdminGuard`; with none configured the admin routes stay shut.
 enum SocialModeration {
     static func notifyNewReport(
         targetType: SocialReportTargetType,
@@ -29,15 +29,6 @@ enum SocialModeration {
         } catch {
             req.logger.warning("social.report notify failed error=\(String(reflecting: type(of: error)))")
         }
-    }
-
-    static func moderatorEmails() -> Set<String> {
-        Set(
-            (Environment.get("SOCIAL_MODERATOR_EMAILS") ?? "")
-                .split(separator: ",")
-                .map { $0.trimmingCharacters(in: .whitespaces).lowercased() }
-                .filter { !$0.isEmpty }
-        )
     }
 }
 
@@ -185,20 +176,11 @@ struct SocialModerationController: RouteCollection {
     }
 }
 
-/// Fail-closed: denies everyone unless the caller's email is listed in
-/// `SOCIAL_MODERATOR_EMAILS`.
+/// Fail-closed: denies everyone unless the caller is on the `AdminGuard`
+/// allowlist.
 struct SocialModeratorMiddleware: AsyncMiddleware {
     func respond(to request: Request, chainingTo next: any AsyncResponder) async throws -> Response {
-        let moderators = SocialModeration.moderatorEmails()
-        guard !moderators.isEmpty else {
-            throw Abort(.forbidden, reason: "Social moderation is disabled (SOCIAL_MODERATOR_EMAILS is not set).")
-        }
-        let userId = try request.auth.require(SessionToken.self).userId
-        guard let user = try await User.find(userId, on: request.db),
-              moderators.contains(user.email.lowercased())
-        else {
-            throw Abort(.forbidden, reason: "Moderator access required.")
-        }
+        try await AdminGuard.requireAdmin(request)
         return try await next.respond(to: request)
     }
 }
