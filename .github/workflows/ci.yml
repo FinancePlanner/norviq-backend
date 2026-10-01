@@ -96,4 +96,18 @@ jobs:
           DATABASE_PASSWORD: stockplan_password
           REDIS_URL: redis://redis:6379
           LOG_LEVEL: error
-        run: swift test
+        shell: bash
+        # TEMPORARY (drop before merge): tee the output so the failure step
+        # below can find the failing tests; the log tail is all Postgres.
+        run: |
+          set -o pipefail
+          swift test 2>&1 | tee /tmp/swift-test.log
+
+      - name: Print test failures (temporary)
+        if: failure()
+        shell: bash
+        run: |
+          grep -E "✘|recorded an issue|error:|failed after|Fatal error|Test Suite .* failed" /tmp/swift-test.log \
+            | grep -v "warning:" | head -40 > /tmp/failures.txt || true
+          cat /tmp/failures.txt
+          while IFS= read -r line; do echo "::error title=swift-test::${line:0:400}"; done < /tmp/failures.txt
