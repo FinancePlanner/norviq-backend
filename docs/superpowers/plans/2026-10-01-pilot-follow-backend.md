@@ -27,7 +27,8 @@
 - Feature flag: `envBool("PILOTS_ENABLED", default: false)`. When off, the controller returns 404 and the jobs are not registered.
 - Shared package: additive changes only. Develop against it with `STOCKPLAN_SHARED_PATH`, and tag it only in Task 13.
 - Work in the worktree `norviq-backend-pilots` (branch `feat/pilot-follow`). Shared changes go in a new worktree `norviq-shared-pilots` (branch `feat/pilot-dtos`). Never touch `norviq-backend` (`feat/boards`) or `norviq-shared` (`feat/boards-dtos`); both have uncommitted work in progress.
-- Test command: `LOG_LEVEL=warning STOCKPLAN_SHARED_PATH=../norviq-shared-pilots swift test --filter <Suite>`, run from `norviq-backend-pilots/`. This needs the test Postgres from `docker-compose.dev.yml`; see `README.md`.
+- **Data sources are free-only (decided 2026-10-01).** FMP is on the free tier: only `/stable/senate-latest` and `/stable/house-latest`, `page=0`, `limit` ≤ 25, with roughly 250 requests a day across the whole app. Fetch each chamber at most once per ingestion run. 13F comes from SEC EDGAR, which needs a `User-Agent` (env `SEC_EDGAR_USER_AGENT`, default `Norviq ops@norviq.org`) and allows ≤ 10 requests/s. Map CUSIPs through OpenFIGI without a key: ≤ 10 jobs per request, ≤ 25 requests/min, with results cached in `cusip_symbols`.
+- Test command: `$TEST_ENV swift test --filter <Suite>`, run from `norviq-backend-pilots/`, where `TEST_ENV="LOG_LEVEL=warning STOCKPLAN_SHARED_PATH=../norviq-shared-pilots TEST_DATABASE_USERNAME=stockplan_user TEST_DATABASE_PASSWORD=stockplan_password TEST_DATABASE_NAME=stockplan_dev"`. Before running, Postgres and Redis must be up: `docker compose up -d db redis` in this worktree. Use `env $TEST_ENV swift test …` in a shell, or prefix the vars inline.
 
 ## Review Focus
 
@@ -50,7 +51,9 @@
 | `Sources/StockPlanBackend/Models/PilotModels.swift` | Fluent models + enums |
 | `Sources/StockPlanBackend/Pilots/PilotDisclosureSource.swift` | Protocol + `PilotDisclosureInput` |
 | `Sources/StockPlanBackend/Pilots/FMPCongressPilotSource.swift` | Congress source |
-| `Sources/StockPlanBackend/Pilots/FMP13FPilotSource.swift` | 13F source + `FMP13FHolding` |
+| `Sources/StockPlanBackend/Pilots/EDGAR13FParser.swift` | Parse EDGAR submissions, index and info table |
+| `Sources/StockPlanBackend/Pilots/CusipSymbolResolver.swift` | OpenFIGI CUSIP→ticker + `cusip_symbols` cache |
+| `Sources/StockPlanBackend/Pilots/SECEdgar13FPilotSource.swift` | 13F source |
 | `Sources/StockPlanBackend/Pilots/PilotBookBuilder.swift` | Pure weight math |
 | `Sources/StockPlanBackend/Pilots/PilotIngestionService.swift` | Upsert disclosures, write versions |
 | `Sources/StockPlanBackend/Portfolio/LedgerTradeRecorder.swift` | One write path for stocks + cash + transactions |
@@ -60,7 +63,7 @@
 | `Sources/StockPlanBackend/Pilots/PilotJobs.swift` | Ingestion + mirror jobs |
 | `Sources/StockPlanBackend/Pilots/PilotController.swift` | Routes |
 | Modify `Stocks/StockService.swift:384-494` | `sell` delegates to the recorder |
-| Modify `Market/FMPMarketDataProvider.swift` | By-name congress + 13F extract endpoints |
+| Modify `Market/CongressTrades.swift` | `FMPCongressTrade.senateID` |
 | Modify `Billing/EntitlementResolver.swift:103` | `BillingFeature.pilotFollows` |
 | Modify `ConfigureBootstrap.swift:430`, `configure.swift:~470`, `routes.swift:~108`, `openapi.yaml` | Registration |
 | Tests in `Tests/StockPlanBackendTests/Pilot*.swift`, `LedgerTradeRecorderTests.swift` | |
@@ -68,6 +71,8 @@
 ---
 
 ### Task 1: Gate — confirm FMP data shapes and the 13F plan tier
+
+> **Done 2026-10-01 (controller).** FMP is on the free tier: by-name, by-symbol and 13F are restricted, and only the latest feeds work (page 0, ≤ 25 rows, `senateID` = bioguide). Saved `Fixtures/pilots/{house,senate}-latest.json`. The user chose free-only sources, so Tasks 5, 6, 10 and 11 are amended accordingly.
 
 There is no product code in this task. It decides whether Task 6's 13F source is viable, and it records real payloads as test fixtures.
 
@@ -566,11 +571,20 @@ struct CreatePilotTables: AsyncMigration {
             UNIQUE (follow_id, captured_on)
         )
         """).run()
+        // CUSIP → ticker, resolved through OpenFIGI. EDGAR 13F filings carry
+        // CUSIPs only. symbol NULL = looked up, no listed ticker; not retried.
+        try await sql.raw("""
+        CREATE TABLE IF NOT EXISTS cusip_symbols (
+            cusip TEXT PRIMARY KEY,
+            symbol TEXT,
+            resolved_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        )
+        """).run()
     }
 
     func revert(on database: any Database) async throws {
         guard let sql = database as? any SQLDatabase else { return }
-        for table in ["pilot_follow_snapshots", "pilot_follow_events", "pilot_follows", "pilot_book_versions", "pilot_disclosures", "pilots"] {
+        for table in ["cusip_symbols", "pilot_follow_snapshots", "pilot_follow_events", "pilot_follows", "pilot_book_versions", "pilot_disclosures", "pilots"] {
             try await sql.raw("DROP TABLE IF EXISTS \(unsafeRaw: table)").run()
         }
     }
@@ -1035,29 +1049,35 @@ git commit -m "feat(pilots): estimate pilot target weights from disclosures"
 
 ---
 
-### Task 5: Source protocol + congress source
+### Task 5: Source protocol + congress source (FMP free "latest" feed)
+
+> Amended 2026-10-01 after Task 1. Norviq's FMP plan is the free tier. The by-name and by-symbol congress endpoints are restricted. Only `/stable/senate-latest` and `/stable/house-latest` work, with `page=0` and `limit` ≤ 25. Rows carry `senateID`, a bioguide ID (e.g. `H001082`). Politician books are therefore built only from trades Norviq has seen since launch.
 
 **Files:**
 - Create: `Sources/StockPlanBackend/Pilots/PilotDisclosureSource.swift`
 - Create: `Sources/StockPlanBackend/Pilots/FMPCongressPilotSource.swift`
-- Modify: `Sources/StockPlanBackend/Market/FMPMarketDataProvider.swift`: protocol (`:106-109`), default extension (`:175`), and live impl (`:905`)
+- Modify: `Sources/StockPlanBackend/Market/CongressTrades.swift`: add `var senateID: String? = nil` as the **last** property of `FMPCongressTrade`. Being last with a default keeps every existing memberwise call compiling.
+- Commit: `Tests/StockPlanBackendTests/Fixtures/pilots/{house,senate}-latest.json`. These were recorded in Task 1 and already exist, uncommitted, in the worktree.
 - Test: `Tests/StockPlanBackendTests/FMPCongressPilotSourceTests.swift`
 
 **Interfaces:**
-- Consumes: `FMPCongressTrade` and `CongressTrades.amountBounds(from:)` (`Market/CongressTrades.swift:108`), plus the enums from Task 3.
+- Consumes:
+  - `FMPCongressTrade` and `CongressTrades.amountBounds(from:)` (`Market/CongressTrades.swift:108`)
+  - The existing `FMPMarketDataProvider.latestSenateTrades(limit:on:)` and `latestHouseTrades(limit:on:)`, wired in Task 11.
+  - The enums from Task 3.
 - Produces:
 
 ```swift
-struct PilotSourceIdentity: Sendable { let kind: PilotKind; let chamber: String?; let aliases: [String]; let cik: String? }
+struct PilotSourceIdentity: Sendable { let kind: PilotKind; let chamber: String?; let bioguideId: String?; let aliases: [String]; let cik: String?; init(_ pilot: Pilot) }
 struct PilotDisclosureInput: Sendable, Equatable { sourceKey, symbol, side, instrument, transactionDate, disclosureDate, amountMin, amountMax, shares, marketValue, period }
 protocol PilotDisclosureSource: Sendable { func disclosures(for pilot: PilotSourceIdentity) async throws -> [PilotDisclosureInput] }
-struct FMPCongressPilotSource: PilotDisclosureSource { init(fetch: @escaping @Sendable (_ chamber: String, _ name: String) async throws -> [FMPCongressTrade]) }
-// FMPMarketDataProvider gains:
-func senateTradesByName(name: String, on req: Request) async throws -> [FMPCongressTrade]
-func houseTradesByName(name: String, on req: Request) async throws -> [FMPCongressTrade]
+struct FMPCongressPilotSource: PilotDisclosureSource {
+    static let feedLimit = 25
+    init(ttl: TimeInterval = 600, now: @escaping @Sendable () -> Date = Date.init, fetch: @escaping @Sendable (_ chamber: String) async throws -> [FMPCongressTrade])
+}
 ```
 
-- [ ] **Step 1: Write the failing tests.** They use the Task 1 fixtures plus hand-built rows for the edge cases.
+- [ ] **Step 1: Write the failing tests.**
 
 ```swift
 import Foundation
@@ -1066,69 +1086,104 @@ import Testing
 
 @Suite("FMPCongressPilotSource")
 struct FMPCongressPilotSourceTests {
-    private func row(first: String = "Nancy", last: String = "Pelosi", symbol: String? = "NVDA", type: String = "Purchase", amount: String = "$1,000,001 - $5,000,000", assetType: String? = "Stock", description: String? = nil, date: String = "2026-06-20") -> FMPCongressTrade {
-        FMPCongressTrade(symbol: symbol, disclosureDate: "2026-07-01", transactionDate: date, firstName: first, lastName: last, office: nil, district: "CA11", state: "CA", party: "Democrat", owner: "Spouse", assetDescription: description, assetType: assetType, type: type, amount: amount, link: "https://example.test/\(symbol ?? "x")")
+    private func row(first: String = "Nancy", last: String = "Pelosi", id: String? = "P000197", symbol: String? = "NVDA", type: String = "Purchase", amount: String = "$1,000,001 - $5,000,000", assetType: String? = "Stock", description: String? = nil) -> FMPCongressTrade {
+        FMPCongressTrade(symbol: symbol, disclosureDate: "2026-07-01", transactionDate: "2026-06-20", firstName: first, lastName: last, office: nil, district: "CA11", state: "CA", party: "Democrat", owner: "Spouse", assetDescription: description, assetType: assetType, type: type, amount: amount, link: "https://example.test/\(symbol ?? "x")", senateID: id)
     }
 
-    private let pelosi = PilotSourceIdentity(kind: .politician, chamber: "house", aliases: ["Nancy Pelosi"], cik: nil)
+    private let pelosi = PilotSourceIdentity(kind: .politician, chamber: "house", bioguideId: "P000197", aliases: ["Nancy Pelosi"], cik: nil)
 
-    @Test("maps purchase, partial sale and full sale")
+    private func source(_ rows: [FMPCongressTrade]) -> FMPCongressPilotSource {
+        FMPCongressPilotSource { _ in rows }
+    }
+
+    @Test("maps purchase, partial sale and full sale; drops exchanges")
     func sides() async throws {
-        let source = FMPCongressPilotSource { _, _ in [
+        let out = try await source([
             row(type: "Purchase"),
             row(symbol: "AAPL", type: "Sale (Partial)"),
             row(symbol: "MSFT", type: "Sale (Full)"),
             row(symbol: "KO", type: "Exchange"),
-        ] }
-        let out = try await source.disclosures(for: pelosi)
+        ]).disclosures(for: pelosi)
         #expect(out.map(\.symbol) == ["NVDA", "AAPL", "MSFT"])
         #expect(out.map(\.side) == [.buy, .sell, .sellFull])
         #expect(out[0].amountMin == 1_000_001)
         #expect(out[0].amountMax == 5_000_000)
     }
 
-    @Test("options: calls and puts are detected from the asset description")
-    func options() async throws {
-        let source = FMPCongressPilotSource { _, _ in [
+    @Test("options: calls and puts detected; bonds and funds dropped")
+    func instruments() async throws {
+        let out = try await source([
             row(assetType: "Stock Option", description: "NVIDIA Corp - Call options; strike $120"),
             row(symbol: "SPY", assetType: "Stock Option", description: "SPDR S&P 500 Put"),
-        ] }
-        let out = try await source.disclosures(for: pelosi)
-        #expect(out.map(\.instrument) == [.call, .put])
+            row(symbol: "T 4 1/2", assetType: "Corporate Bond"),
+            row(symbol: "VFIAX", assetType: "Mutual Fund"),
+            row(symbol: "QQQ", assetType: "ETF"),
+        ]).disclosures(for: pelosi)
+        #expect(out.map(\.symbol) == ["NVDA", "SPY", "QQQ"])
+        #expect(out.map(\.instrument) == [.call, .put, .stock])
     }
 
-    @Test("rows for other politicians and rows without a symbol are dropped")
-    func filtering() async throws {
-        let source = FMPCongressPilotSource { _, _ in [
-            row(first: "Paul", last: "Pelosi"),
+    @Test("matches by bioguide id; falls back to exact alias when the id is missing")
+    func matching() async throws {
+        let out = try await source([
+            row(first: "Paul", last: "Pelosi", id: "X000001", symbol: "AAA"),
+            row(first: "Nancy", last: "Pelosi", id: nil, symbol: "BBB"),
+            row(first: "N.", last: "Pelosi", id: "P000197", symbol: "CCC"),
             row(symbol: nil),
-            row(symbol: "AAPL"),
-        ] }
-        let out = try await source.disclosures(for: pelosi)
-        #expect(out.map(\.symbol) == ["AAPL"])
+        ]).disclosures(for: pelosi)
+        #expect(out.map(\.symbol) == ["BBB", "CCC"])
+    }
+
+    @Test("the feed is fetched once per chamber within the TTL, across pilots")
+    func memoized() async throws {
+        let calls = Counter()
+        let src = FMPCongressPilotSource { chamber in
+            await calls.increment(chamber)
+            return []
+        }
+        let other = PilotSourceIdentity(kind: .politician, chamber: "house", bioguideId: "H001082", aliases: ["Kevin Hern"], cik: nil)
+        _ = try await src.disclosures(for: pelosi)
+        _ = try await src.disclosures(for: other)
+        #expect(await calls.counts == ["house": 1])
     }
 
     @Test("source key is stable across calls and distinct per row")
     func sourceKey() async throws {
-        let source = FMPCongressPilotSource { _, _ in [row(), row(symbol: "AAPL")] }
-        let a = try await source.disclosures(for: pelosi)
-        let b = try await source.disclosures(for: pelosi)
+        let src = source([row(), row(symbol: "AAPL")])
+        let a = try await src.disclosures(for: pelosi)
+        let b = try await src.disclosures(for: pelosi)
         #expect(a.map(\.sourceKey) == b.map(\.sourceKey))
         #expect(Set(a.map(\.sourceKey)).count == 2)
     }
 
-    @Test("decodes the recorded FMP fixture")
-    func fixture() throws {
-        let url = URL(fileURLWithPath: #filePath).deletingLastPathComponent().appendingPathComponent("Fixtures/pilots/house-by-name.json")
-        let rows = try JSONDecoder().decode([FMPCongressTrade].self, from: Data(contentsOf: url))
-        #expect(!rows.isEmpty)
+    @Test("decodes the recorded FMP fixtures, senateID included")
+    func fixtures() throws {
+        let dir = URL(fileURLWithPath: #filePath).deletingLastPathComponent().appendingPathComponent("Fixtures/pilots")
+        for name in ["house-latest.json", "senate-latest.json"] {
+            let rows = try JSONDecoder().decode([FMPCongressTrade].self, from: Data(contentsOf: dir.appendingPathComponent(name)))
+            #expect(rows.count == 25)
+            #expect(rows.allSatisfy { $0.senateID?.isEmpty == false })
+        }
     }
+}
+
+private actor Counter {
+    var counts: [String: Int] = [:]
+    func increment(_ key: String) { counts[key, default: 0] += 1 }
 }
 ```
 
-- [ ] **Step 2: Run the tests and confirm they fail.** Run `swift test --filter FMPCongressPilotSourceTests`. Expected: compile failure. If `FMPCongressTrade` has no memberwise init visible, add one by hand. It is a `struct` with only `let`s, so the synthesized internal init is visible under `@testable`.
+- [ ] **Step 2: Run the tests and confirm they fail.** Run `$TEST_ENV swift test --filter FMPCongressPilotSourceTests`. Expected: compile failure.
 
-- [ ] **Step 3: Write `PilotDisclosureSource.swift`.**
+- [ ] **Step 3: Add the bioguide ID to the wire model.** In `Market/CongressTrades.swift`, append the following to `FMPCongressTrade` after `let link: String?`:
+
+```swift
+    /// Bioguide ID of the member (e.g. `P000197`). FMP names it `senateID` on
+    /// both chambers' feeds. The only stable identity the feed carries.
+    var senateID: String? = nil
+```
+
+- [ ] **Step 4: Write `PilotDisclosureSource.swift`.**
 
 ```swift
 import Foundation
@@ -1139,19 +1194,22 @@ struct PilotSourceIdentity: Sendable {
     let kind: PilotKind
     /// `senate` or `house`; nil for funds.
     let chamber: String?
-    /// Exact "First Last" spellings the feed uses for this person.
+    /// Bioguide ID, e.g. `P000197`. The primary match for congress rows.
+    let bioguideId: String?
+    /// Exact "First Last" spellings, used only when a row has no bioguide ID.
     let aliases: [String]
     let cik: String?
 
-    init(kind: PilotKind, chamber: String?, aliases: [String], cik: String?) {
+    init(kind: PilotKind, chamber: String?, bioguideId: String?, aliases: [String], cik: String?) {
         self.kind = kind
         self.chamber = chamber
+        self.bioguideId = bioguideId
         self.aliases = aliases
         self.cik = cik
     }
 
     init(_ pilot: Pilot) {
-        self.init(kind: pilot.pilotKind, chamber: pilot.chamber, aliases: pilot.nameAliases, cik: pilot.cik)
+        self.init(kind: pilot.pilotKind, chamber: pilot.chamber, bioguideId: pilot.bioguideId, aliases: pilot.nameAliases, cik: pilot.cik)
     }
 }
 
@@ -1178,42 +1236,50 @@ protocol PilotDisclosureSource: Sendable {
 }
 ```
 
-- [ ] **Step 4: Write `FMPCongressPilotSource.swift`.**
+- [ ] **Step 5: Write `FMPCongressPilotSource.swift`.**
 
 ```swift
 import Crypto
 import Foundation
 
-/// Congressional disclosures from FMP's `*-trades-by-name` endpoints.
+/// Congressional disclosures from FMP's free "latest" feeds.
 ///
-/// The by-name search is fuzzy (a search for "Pelosi" also returns relatives
-/// filing separately), so rows are kept only when "First Last" matches one of
-/// the pilot's aliases exactly, ignoring case.
+/// The free plan returns only the newest 25 rows per chamber (page 0), so
+/// there is no history to search. Each ingestion run reads the feed once per
+/// chamber and hands each pilot its own rows. The memo keeps 15 pilots from
+/// costing 15 requests against a 250-request daily budget.
 struct FMPCongressPilotSource: PilotDisclosureSource {
-    typealias Fetch = @Sendable (_ chamber: String, _ name: String) async throws -> [FMPCongressTrade]
+    typealias Fetch = @Sendable (_ chamber: String) async throws -> [FMPCongressTrade]
+
+    static let feedLimit = 25
 
     private let fetch: Fetch
+    private let memo: FeedMemo
 
-    init(fetch: @escaping Fetch) {
+    init(ttl: TimeInterval = 600, now: @escaping @Sendable () -> Date = Date.init, fetch: @escaping Fetch) {
         self.fetch = fetch
+        self.memo = FeedMemo(ttl: ttl, now: now)
     }
 
     func disclosures(for pilot: PilotSourceIdentity) async throws -> [PilotDisclosureInput] {
         guard let chamber = pilot.chamber else { return [] }
-        let wanted = Set(pilot.aliases.map(Self.normalizedName))
+        let rows = try await memo.rows(chamber: chamber, fetch: fetch)
+        let aliases = Set(pilot.aliases.map(Self.normalizedName))
         var seen = Set<String>()
         var out: [PilotDisclosureInput] = []
-        for alias in pilot.aliases {
-            let lastName = alias.split(separator: " ").last.map(String.init) ?? alias
-            for wire in try await fetch(chamber, lastName) {
-                let name = Self.normalizedName("\(wire.firstName ?? "") \(wire.lastName ?? "")")
-                guard wanted.contains(name), let input = Self.input(from: wire, chamber: chamber) else { continue }
-                if seen.insert(input.sourceKey).inserted {
-                    out.append(input)
-                }
-            }
+        for wire in rows where Self.matches(wire, bioguideId: pilot.bioguideId, aliases: aliases) {
+            guard let input = Self.input(from: wire, chamber: chamber), seen.insert(input.sourceKey).inserted else { continue }
+            out.append(input)
         }
         return out
+    }
+
+    /// Bioguide ID when the row has one; otherwise an exact "First Last" alias.
+    static func matches(_ wire: FMPCongressTrade, bioguideId: String?, aliases: Set<String>) -> Bool {
+        if let id = wire.senateID?.trimmingCharacters(in: .whitespaces), !id.isEmpty {
+            return id.caseInsensitiveCompare(bioguideId ?? "") == .orderedSame
+        }
+        return aliases.contains(normalizedName("\(wire.firstName ?? "") \(wire.lastName ?? "")"))
     }
 
     static func input(from wire: FMPCongressTrade, chamber: String) -> PilotDisclosureInput? {
@@ -1222,7 +1288,7 @@ struct FMPCongressPilotSource: PilotDisclosureSource {
               let instrument = instrument(assetType: wire.assetType, description: wire.assetDescription)
         else { return nil }
         let bounds = CongressTrades.amountBounds(from: wire.amount)
-        let keyMaterial = [chamber, wire.firstName ?? "", wire.lastName ?? "", wire.owner ?? "", symbol,
+        let keyMaterial = [chamber, wire.senateID ?? "", wire.firstName ?? "", wire.lastName ?? "", wire.owner ?? "", symbol,
                            wire.transactionDate ?? "", wire.type ?? "", wire.amount ?? "", wire.link ?? ""]
             .joined(separator: "|")
         let key = SHA256.hash(data: Data(keyMaterial.utf8)).map { String(format: "%02x", $0) }.joined()
@@ -1250,15 +1316,15 @@ struct FMPCongressPilotSource: PilotDisclosureSource {
         return nil
     }
 
-    /// Stocks and ETFs pass through, and options become call or put. Anything
-    /// else (bonds, crypto, funds) is dropped. A missing asset type is treated
-    /// as stock, because the feed omits it for plain equity rows.
+    /// Stocks and ETFs pass through; options become call or put. Bonds,
+    /// mutual funds and anything else are dropped. A missing asset type is
+    /// treated as stock, because the feed omits it for plain equity rows.
     static func instrument(assetType: String?, description: String?) -> PilotInstrumentKind? {
         let type = assetType?.lowercased() ?? ""
         if type.contains("option") {
             return (description?.lowercased().contains("put") ?? false) ? .put : .call
         }
-        if type.isEmpty || type.contains("stock") || type.contains("etf") || type.contains("equity") {
+        if type.isEmpty || type == "stock" || type.contains("etf") || type.contains("equity") || type.contains("common") {
             return .stock
         }
         return nil
@@ -1268,218 +1334,463 @@ struct FMPCongressPilotSource: PilotDisclosureSource {
         raw.lowercased().split(whereSeparator: \.isWhitespace).joined(separator: " ")
     }
 }
-```
 
-- [ ] **Step 5: Add the by-name endpoints to FMP.**
-  - **Protocol:** in `FMPMarketDataProvider.swift` (around `:109`), add:
+/// Per-chamber cache of the feed for one ingestion run.
+private actor FeedMemo {
+    private let ttl: TimeInterval
+    private let now: @Sendable () -> Date
+    private var cache: [String: (at: Date, rows: [FMPCongressTrade])] = [:]
 
-```swift
-    func senateTradesByName(name: String, on req: Request) async throws -> [FMPCongressTrade]
-    func houseTradesByName(name: String, on req: Request) async throws -> [FMPCongressTrade]
-```
-  - **Default extension:** next to the `latestHouseTrades` default at `:175`, add:
-
-```swift
-    func senateTradesByName(name _: String, on _: Request) async throws -> [FMPCongressTrade] {
-        throw Abort(.serviceUnavailable, reason: "Congressional trades are not supported by this provider.")
+    init(ttl: TimeInterval, now: @escaping @Sendable () -> Date) {
+        self.ttl = ttl
+        self.now = now
     }
 
-    func houseTradesByName(name _: String, on _: Request) async throws -> [FMPCongressTrade] {
-        throw Abort(.serviceUnavailable, reason: "Congressional trades are not supported by this provider.")
+    func rows(chamber: String, fetch: FMPCongressPilotSource.Fetch) async throws -> [FMPCongressTrade] {
+        if let hit = cache[chamber], now().timeIntervalSince(hit.at) < ttl {
+            return hit.rows
+        }
+        let rows = try await fetch(chamber)
+        cache[chamber] = (now(), rows)
+        return rows
     }
-```
-  - **Live implementation:** after `latestHouseTrades` (`:905`), add:
-
-```swift
-    func senateTradesByName(name: String, on req: Request) async throws -> [FMPCongressTrade] {
-        try await fetchJSON(path: "/stable/senate-trades-by-name", query: [("name", name)], on: req)
-    }
-
-    func houseTradesByName(name: String, on req: Request) async throws -> [FMPCongressTrade] {
-        try await fetchJSON(path: "/stable/house-trades-by-name", query: [("name", name)], on: req)
-    }
+}
 ```
 
-- [ ] **Step 6: Run the tests and confirm they pass.** Run `swift test --filter FMPCongressPilotSourceTests`. Expected: 5 passed.
+- [ ] **Step 6: Run the tests and confirm they pass.** Run `$TEST_ENV swift test --filter FMPCongressPilotSourceTests` and `$TEST_ENV swift test --filter Congress`. The second covers the existing congress tests, which must still compile and pass with the new property. Expected: all pass.
 
 - [ ] **Step 7: Commit**
 
 ```bash
-git add Sources/StockPlanBackend/Pilots/PilotDisclosureSource.swift Sources/StockPlanBackend/Pilots/FMPCongressPilotSource.swift Sources/StockPlanBackend/Market/FMPMarketDataProvider.swift Tests/StockPlanBackendTests/FMPCongressPilotSourceTests.swift
-git commit -m "feat(pilots): congressional disclosure source over FMP by-name endpoints"
+git add Sources/StockPlanBackend/Pilots/PilotDisclosureSource.swift Sources/StockPlanBackend/Pilots/FMPCongressPilotSource.swift Sources/StockPlanBackend/Market/CongressTrades.swift Tests/StockPlanBackendTests/FMPCongressPilotSourceTests.swift Tests/StockPlanBackendTests/Fixtures/pilots/house-latest.json Tests/StockPlanBackendTests/Fixtures/pilots/senate-latest.json
+git commit -m "feat(pilots): congressional disclosure source over FMP latest feeds"
 ```
 
 ---
 
-### Task 6: 13F source
+### Task 6: 13F source over SEC EDGAR + OpenFIGI
 
-Skip this task if Task 1 found the plan tier too low.
+> Amended 2026-10-01 after Task 1. FMP's 13F endpoint is restricted on the free plan. EDGAR is free, needs no key and requires a `User-Agent`. EDGAR reports CUSIPs, not tickers, so tickers are resolved through OpenFIGI's free mapping API and cached in `cusip_symbols` (created in Task 3).
 
 **Files:**
-- Create: `Sources/StockPlanBackend/Pilots/FMP13FPilotSource.swift`
-- Modify: `Sources/StockPlanBackend/Market/FMPMarketDataProvider.swift` (protocol, default, live)
-- Test: `Tests/StockPlanBackendTests/FMP13FPilotSourceTests.swift`
+- Create: `Sources/StockPlanBackend/Pilots/EDGAR13FParser.swift`: pure parsing of submissions JSON, the filing index and the info-table XML.
+- Create: `Sources/StockPlanBackend/Pilots/CusipSymbolResolver.swift`: OpenFIGI calls and the `cusip_symbols` cache.
+- Create: `Sources/StockPlanBackend/Pilots/SECEdgar13FPilotSource.swift`
+- Create fixtures: `Tests/StockPlanBackendTests/Fixtures/pilots/edgar/{submissions.json,index.json,infotable.xml,openfigi.json}`
+- Test: `Tests/StockPlanBackendTests/SECEdgar13FPilotSourceTests.swift`
 
 **Interfaces:**
-- Consumes: `PilotDisclosureSource`, `PilotSourceIdentity` and `PilotDisclosureInput` (Task 5).
+- Consumes: `PilotDisclosureSource`, `PilotSourceIdentity` and `PilotDisclosureInput` (Task 5), plus the `cusip_symbols` table (Task 3).
 - Produces:
 
 ```swift
-struct FMP13FHolding: Codable, Sendable { symbol: String?; securityCusip: String?; shares: Double?; value: Double?; putCallShare: String? }
-struct FMP13FPilotSource: PilotDisclosureSource {
-    init(now: @escaping @Sendable () -> Date = Date.init, fetch: @escaping @Sendable (_ cik: String, _ year: Int, _ quarter: Int) async throws -> [FMP13FHolding])
+struct EDGARFilingRef: Sendable, Equatable { let accession: String; let reportDate: String; var period: String { get } }  // "2026-06-30" → "2026Q2"
+struct EDGAR13FHolding: Sendable, Equatable { let cusip: String; let value: Double; let shares: Double }
+enum EDGAR13FParser {
+    static func latest13F(submissions: Data) throws -> EDGARFilingRef?
+    static func infoTableName(index: Data) throws -> String?
+    static func holdings(infoTable: Data) throws -> [EDGAR13FHolding]   // SH only, no puts/calls, summed per CUSIP
 }
-// FMPMarketDataProvider gains:
-func institutionalHoldings(cik: String, year: Int, quarter: Int, on req: Request) async throws -> [FMP13FHolding]
+typealias CusipResolve = @Sendable (_ cusips: [String]) async throws -> [String: String]
+struct CusipSymbolResolver: Sendable {
+    static let batchSize = 10
+    init(post: @escaping @Sendable (_ body: Data) async throws -> Data, pause: @escaping @Sendable () async -> Void)
+    func resolve(_ cusips: [String], on db: any Database) async throws -> [String: String]
+}
+struct SECEdgar13FPilotSource: PilotDisclosureSource {
+    init(get: @escaping @Sendable (_ url: String) async throws -> Data, resolve: @escaping CusipResolve)
+}
 ```
 
-- [ ] **Step 1: Write the failing tests.**
+- [ ] **Step 1: Record the fixtures from EDGAR (Berkshire, CIK 0001067983) and OpenFIGI.** The project's context-mode hook blocks curl output to stdout, so always write with `-o`.
+
+```bash
+D=Tests/StockPlanBackendTests/Fixtures/pilots/edgar; mkdir -p $D
+UA="Norviq ops@norviq.org"
+curl -s -A "$UA" -o /tmp/sub.json https://data.sec.gov/submissions/CIK0001067983.json
+# Trim to the shape the parser reads: the first 40 recent filings.
+jq '{cik, name, filings: {recent: (.filings.recent | {form: .form[0:40], accessionNumber: .accessionNumber[0:40], reportDate: .reportDate[0:40], filingDate: .filingDate[0:40]})}}' /tmp/sub.json > $D/submissions.json
+ACC=$(jq -r '.filings.recent as $r | [range(0; $r.form|length)] | map(select($r.form[.]=="13F-HR")) | .[0] | $r.accessionNumber[.]' $D/submissions.json)
+ACCN=${ACC//-/}
+curl -s -A "$UA" -o $D/index.json "https://www.sec.gov/Archives/edgar/data/1067983/$ACCN/index.json"
+INFO=$(jq -r '.directory.item[].name | select(endswith(".xml") and . != "primary_doc.xml")' $D/index.json | head -1)
+curl -s -A "$UA" -o $D/infotable.xml "https://www.sec.gov/Archives/edgar/data/1067983/$ACCN/$INFO"
+curl -s -o $D/openfigi.json -H 'Content-Type: application/json' -X POST https://api.openfigi.com/v3/mapping \
+  -d '[{"idType":"ID_CUSIP","idValue":"037833100","exchCode":"US"},{"idType":"ID_CUSIP","idValue":"191216100","exchCode":"US"},{"idType":"ID_CUSIP","idValue":"000000000","exchCode":"US"}]'
+echo "$ACC $INFO"; grep -c "<.*infoTable>" $D/infotable.xml; head -c 300 $D/openfigi.json
+```
+Expected:
+- An accession and an `.xml` name are printed.
+- The info table has at least 20 entries.
+- `openfigi.json` is a 3-element array: tickers `AAPL` and `KO`, then an element with `"warning"` (or `"error"`).
+- If the XML uses a namespace prefix (`<ns1:infoTable>`), the parser handles that (see Step 3).
+
+- [ ] **Step 2: Write the failing tests.**
 
 ```swift
+import Fluent
 import Foundation
 @testable import StockPlanBackend
 import Testing
+import Vapor
 
-@Suite("FMP13FPilotSource")
-struct FMP13FPilotSourceTests {
-    private let berkshire = PilotSourceIdentity(kind: .fund, chamber: nil, aliases: [], cik: "0001067983")
-    // 2026-10-01: Q3 is not filed yet, Q2 is.
-    private let now: @Sendable () -> Date = { Date(timeIntervalSince1970: 1_790_812_800) }
+@Suite("SECEdgar13FPilotSource", .serialized)
+struct SECEdgar13FPilotSourceTests {
+    private let dir = URL(fileURLWithPath: #filePath).deletingLastPathComponent().appendingPathComponent("Fixtures/pilots/edgar")
+    private func fixture(_ name: String) throws -> Data { try Data(contentsOf: dir.appendingPathComponent(name)) }
 
-    @Test("uses the most recent quarter that has data; skips options rows")
-    func latestQuarter() async throws {
-        let source = FMP13FPilotSource(now: now) { _, year, quarter in
-            guard year == 2026, quarter == 2 else { return [] }
-            return [
-                FMP13FHolding(symbol: "AAPL", securityCusip: "037833100", shares: 300, value: 60_000, putCallShare: nil),
-                FMP13FHolding(symbol: "KO", securityCusip: "191216100", shares: 400, value: 20_000, putCallShare: ""),
-                FMP13FHolding(symbol: "SPY", securityCusip: "78462F103", shares: 10, value: 5_000, putCallShare: "Put"),
-                FMP13FHolding(symbol: nil, securityCusip: "000000000", shares: 1, value: 1, putCallShare: nil),
-            ]
+    // withApp: copy verbatim from PilotSchemaTests (Task 3).
+
+    @Test("finds the latest 13F-HR and its period")
+    func latestFiling() throws {
+        let ref = try #require(try EDGAR13FParser.latest13F(submissions: fixture("submissions.json")))
+        #expect(ref.accession.count == 20)
+        #expect(ref.period.range(of: #"^\d{4}Q[1-4]$"#, options: .regularExpression) != nil)
+    }
+
+    @Test("period from report date")
+    func period() {
+        #expect(EDGARFilingRef(accession: "x", reportDate: "2026-06-30").period == "2026Q2")
+        #expect(EDGARFilingRef(accession: "x", reportDate: "2025-12-31").period == "2025Q4")
+    }
+
+    @Test("picks the information table, not primary_doc.xml")
+    func infoTable() throws {
+        let name = try #require(try EDGAR13FParser.infoTableName(index: fixture("index.json")))
+        #expect(name.hasSuffix(".xml"))
+        #expect(name != "primary_doc.xml")
+    }
+
+    @Test("parses the real info table: positive values, unique CUSIPs")
+    func realHoldings() throws {
+        let rows = try EDGAR13FParser.holdings(infoTable: fixture("infotable.xml"))
+        #expect(rows.count >= 20)
+        #expect(Set(rows.map(\.cusip)).count == rows.count)
+        #expect(rows.allSatisfy { $0.value > 0 && $0.shares > 0 && $0.cusip.count == 9 })
+    }
+
+    @Test("skips options and principal-amount rows; sums split rows; strips namespace prefixes")
+    func filtering() throws {
+        let xml = """
+        <?xml version="1.0"?>
+        <ns1:informationTable xmlns:ns1="http://www.sec.gov/edgar/document/thirteenf/informationtable">
+          <ns1:infoTable><ns1:cusip>037833100</ns1:cusip><ns1:value>600</ns1:value><ns1:shrsOrPrnAmt><ns1:sshPrnamt>3</ns1:sshPrnamt><ns1:sshPrnamtType>SH</ns1:sshPrnamtType></ns1:shrsOrPrnAmt></ns1:infoTable>
+          <ns1:infoTable><ns1:cusip>037833100</ns1:cusip><ns1:value>400</ns1:value><ns1:shrsOrPrnAmt><ns1:sshPrnamt>2</ns1:sshPrnamt><ns1:sshPrnamtType>SH</ns1:sshPrnamtType></ns1:shrsOrPrnAmt></ns1:infoTable>
+          <ns1:infoTable><ns1:cusip>78462F103</ns1:cusip><ns1:value>50</ns1:value><ns1:shrsOrPrnAmt><ns1:sshPrnamt>1</ns1:sshPrnamt><ns1:sshPrnamtType>SH</ns1:sshPrnamtType></ns1:shrsOrPrnAmt><ns1:putCall>Put</ns1:putCall></ns1:infoTable>
+          <ns1:infoTable><ns1:cusip>912828ZZ1</ns1:cusip><ns1:value>70</ns1:value><ns1:shrsOrPrnAmt><ns1:sshPrnamt>70</ns1:sshPrnamt><ns1:sshPrnamtType>PRN</ns1:sshPrnamtType></ns1:shrsOrPrnAmt></ns1:infoTable>
+        </ns1:informationTable>
+        """
+        let rows = try EDGAR13FParser.holdings(infoTable: Data(xml.utf8))
+        #expect(rows == [EDGAR13FHolding(cusip: "037833100", value: 1_000, shares: 5)])
+    }
+
+    @Test("source: maps holdings through the resolver; unresolved CUSIPs dropped")
+    func source() async throws {
+        let src = SECEdgar13FPilotSource(
+            get: { url in
+                if url.contains("submissions") { return try fixture("submissions.json") }
+                if url.hasSuffix("index.json") { return try fixture("index.json") }
+                return try fixture("infotable.xml")
+            },
+            resolve: { cusips in Dictionary(uniqueKeysWithValues: cusips.prefix(3).map { ($0, "T\($0.prefix(3))") }) }
+        )
+        let out = try await src.disclosures(for: PilotSourceIdentity(kind: .fund, chamber: nil, bioguideId: nil, aliases: [], cik: "0001067983"))
+        #expect(out.count == 3)
+        #expect(out.allSatisfy { $0.side == .hold && $0.instrument == .stock && $0.marketValue ?? 0 > 0 })
+        #expect(out.allSatisfy { $0.sourceKey.hasPrefix(out[0].period! + "|") })
+    }
+
+    @Test("resolver: batches of 10, caches hits and misses, never asks twice")
+    func resolver() async throws {
+        try await withApp { app in
+            let posts = PostLog()
+            let figi = try fixture("openfigi.json")
+            let resolver = CusipSymbolResolver(
+                post: { body in
+                    await posts.record(body)
+                    return figi
+                },
+                pause: {}
+            )
+            let cusips = ["037833100", "191216100", "000000000"]
+            let first = try await resolver.resolve(cusips, on: app.db)
+            #expect(first == ["037833100": "AAPL", "191216100": "KO"])
+            let second = try await resolver.resolve(cusips, on: app.db)
+            #expect(second == first)
+            #expect(await posts.count == 1)
         }
-        let out = try await source.disclosures(for: berkshire)
-        #expect(out.map(\.symbol) == ["AAPL", "KO"])
-        #expect(out.allSatisfy { $0.side == .hold && $0.period == "2026Q2" })
-        #expect(out.first?.marketValue == 60_000)
-        #expect(out.first?.sourceKey == "2026Q2|037833100")
     }
+}
 
-    @Test("decodes the recorded FMP fixture")
-    func fixture() throws {
-        let url = URL(fileURLWithPath: #filePath).deletingLastPathComponent().appendingPathComponent("Fixtures/pilots/13f-extract.json")
-        let rows = try JSONDecoder().decode([FMP13FHolding].self, from: Data(contentsOf: url))
-        #expect(rows.contains { $0.symbol != nil && $0.value != nil })
-    }
+private actor PostLog {
+    var count = 0
+    func record(_: Data) { count += 1 }
 }
 ```
 
-- [ ] **Step 2: Run the tests and confirm they fail.** Run `swift test --filter FMP13FPilotSourceTests`. Expected: compile failure.
+- [ ] **Step 3: Run the tests and confirm they fail.** Run `$TEST_ENV swift test --filter SECEdgar13FPilotSourceTests`. Expected: compile failure.
 
-- [ ] **Step 3: Implement.** If the Task 1 fixture uses different field names, change the `CodingKeys` to match.
+- [ ] **Step 4: Write `EDGAR13FParser.swift`.**
 
 ```swift
 import Foundation
+#if canImport(FoundationXML)
+import FoundationXML
+#endif
 
-/// One row of FMP `/stable/institutional-ownership/extract`.
-struct FMP13FHolding: Codable, Sendable {
-    let symbol: String?
-    let securityCusip: String?
-    let shares: Double?
-    let value: Double?
-    let putCallShare: String?
+struct EDGARFilingRef: Sendable, Equatable {
+    let accession: String
+    /// `yyyy-MM-dd`, the quarter end the filing reports.
+    let reportDate: String
+
+    /// `2026-06-30` → `2026Q2`.
+    var period: String {
+        let parts = reportDate.split(separator: "-")
+        guard parts.count >= 2, let month = Int(parts[1]) else { return reportDate }
+        return "\(parts[0])Q\((month - 1) / 3 + 1)"
+    }
 }
 
-/// A fund's 13F holdings from FMP. Each fetch returns the latest filed
-/// quarter. Filings land up to 45 days after quarter end, so it walks back
-/// from the last closed quarter until one has data (at most 3 tries).
-struct FMP13FPilotSource: PilotDisclosureSource {
-    typealias Fetch = @Sendable (_ cik: String, _ year: Int, _ quarter: Int) async throws -> [FMP13FHolding]
+struct EDGAR13FHolding: Sendable, Equatable {
+    let cusip: String
+    /// US dollars (EDGAR reports whole dollars since 2023-01-03).
+    let value: Double
+    let shares: Double
+}
 
-    private let now: @Sendable () -> Date
-    private let fetch: Fetch
-
-    init(now: @escaping @Sendable () -> Date = Date.init, fetch: @escaping Fetch) {
-        self.now = now
-        self.fetch = fetch
-    }
-
-    func disclosures(for pilot: PilotSourceIdentity) async throws -> [PilotDisclosureInput] {
-        guard let cik = pilot.cik else { return [] }
-        for (year, quarter) in Self.recentClosedQuarters(before: now(), count: 3) {
-            let rows = try await fetch(cik, year, quarter)
-            let period = "\(year)Q\(quarter)"
-            let inputs = rows.compactMap { Self.input(from: $0, period: period) }
-            if !inputs.isEmpty { return inputs }
+/// Pure parsing of the three EDGAR documents a 13F lookup needs.
+enum EDGAR13FParser {
+    private struct Submissions: Decodable {
+        struct Filings: Decodable { let recent: Recent }
+        struct Recent: Decodable {
+            let form: [String]
+            let accessionNumber: [String]
+            let reportDate: [String]
         }
-        return []
+        let filings: Filings
     }
 
-    static func input(from row: FMP13FHolding, period: String) -> PilotDisclosureInput? {
-        guard let symbol = row.symbol?.trimmingCharacters(in: .whitespacesAndNewlines).uppercased(), !symbol.isEmpty,
-              (row.putCallShare ?? "").trimmingCharacters(in: .whitespaces).isEmpty,
-              let value = row.value, value > 0
-        else { return nil }
-        return PilotDisclosureInput(
-            sourceKey: "\(period)|\(row.securityCusip ?? symbol)",
-            symbol: symbol,
-            side: .hold,
-            instrument: .stock,
-            transactionDate: nil,
-            disclosureDate: nil,
-            amountMin: nil,
-            amountMax: nil,
-            shares: row.shares,
-            marketValue: value,
-            period: period
-        )
+    private struct Index: Decodable {
+        struct Directory: Decodable { let item: [Item] }
+        struct Item: Decodable { let name: String }
+        let directory: Directory
     }
 
-    /// The `count` most recent quarters that have ended before `date`, newest first.
-    static func recentClosedQuarters(before date: Date, count: Int) -> [(Int, Int)] {
-        var calendar = Calendar(identifier: .gregorian)
-        calendar.timeZone = TimeZone(identifier: "UTC")!
-        var year = calendar.component(.year, from: date)
-        var quarter = (calendar.component(.month, from: date) - 1) / 3 + 1
-        var out: [(Int, Int)] = []
-        for _ in 0 ..< count {
-            quarter -= 1
-            if quarter == 0 { quarter = 4; year -= 1 }
-            out.append((year, quarter))
+    /// The newest original 13F-HR. Amendments (13F-HR/A) are ignored in v1:
+    /// many restate only part of a filing, and reading one as the whole book
+    /// would empty positions the fund still holds.
+    static func latest13F(submissions: Data) throws -> EDGARFilingRef? {
+        let recent = try JSONDecoder().decode(Submissions.self, from: submissions).filings.recent
+        for i in recent.form.indices where recent.form[i] == "13F-HR" {
+            guard i < recent.accessionNumber.count, i < recent.reportDate.count else { continue }
+            return EDGARFilingRef(accession: recent.accessionNumber[i], reportDate: recent.reportDate[i])
+        }
+        return nil
+    }
+
+    static func infoTableName(index: Data) throws -> String? {
+        try JSONDecoder().decode(Index.self, from: index).directory.item
+            .map(\.name)
+            .first { $0.lowercased().hasSuffix(".xml") && $0.lowercased() != "primary_doc.xml" }
+    }
+
+    /// Share positions only: rows with `putCall` (options) or a `PRN`
+    /// (principal amount, i.e. debt) type are skipped. Funds often split one
+    /// security across several rows by manager; those are summed per CUSIP.
+    static func holdings(infoTable: Data) throws -> [EDGAR13FHolding] {
+        let delegate = InfoTableDelegate()
+        let parser = XMLParser(data: infoTable)
+        parser.delegate = delegate
+        guard parser.parse() else {
+            throw Abort(.badGateway, reason: "EDGAR information table did not parse: \(parser.parserError.map(String.init(describing:)) ?? "unknown")")
+        }
+        var totals: [String: (value: Double, shares: Double)] = [:]
+        var order: [String] = []
+        for row in delegate.rows where row.putCall == nil && row.type == "SH" {
+            guard let value = Double(row.value), let shares = Double(row.shares), value > 0, shares > 0 else { continue }
+            if totals[row.cusip] == nil { order.append(row.cusip) }
+            totals[row.cusip, default: (0, 0)].value += value
+            totals[row.cusip, default: (0, 0)].shares += shares
+        }
+        return order.map { EDGAR13FHolding(cusip: $0, value: totals[$0]!.value, shares: totals[$0]!.shares) }
+    }
+}
+
+private final class InfoTableDelegate: NSObject, XMLParserDelegate {
+    struct Row {
+        var cusip = ""
+        var value = ""
+        var shares = ""
+        var type = ""
+        var putCall: String?
+    }
+
+    private(set) var rows: [Row] = []
+    private var current: Row?
+    private var text = ""
+
+    /// `ns1:infoTable` → `infoTable`. EDGAR files use both prefixed and bare names.
+    private func local(_ name: String) -> String {
+        name.split(separator: ":").last.map(String.init) ?? name
+    }
+
+    func parser(_: XMLParser, didStartElement elementName: String, namespaceURI _: String?, qualifiedName _: String?, attributes _: [String: String] = [:]) {
+        if local(elementName) == "infoTable" { current = Row() }
+        text = ""
+    }
+
+    func parser(_: XMLParser, foundCharacters string: String) {
+        text += string
+    }
+
+    func parser(_: XMLParser, didEndElement elementName: String, namespaceURI _: String?, qualifiedName _: String?) {
+        let value = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        switch local(elementName) {
+        case "cusip": current?.cusip = value.uppercased()
+        case "value": current?.value = value
+        case "sshPrnamt": current?.shares = value
+        case "sshPrnamtType": current?.type = value.uppercased()
+        case "putCall": current?.putCall = value.isEmpty ? nil : value
+        case "infoTable":
+            if let row = current { rows.append(row) }
+            current = nil
+        default: break
+        }
+        text = ""
+    }
+}
+```
+(`Abort` needs `import Vapor` at the top of the file. Add it.)
+
+- [ ] **Step 5: Write `CusipSymbolResolver.swift`.**
+
+```swift
+import Fluent
+import Foundation
+import SQLKit
+
+/// CUSIP → US ticker through OpenFIGI's free mapping API, cached forever in
+/// `cusip_symbols`. A CUSIP OpenFIGI cannot map is cached as NULL, so it is
+/// not asked again. Unauthenticated OpenFIGI allows 10 jobs per request and
+/// 25 requests a minute, so `pause` runs between batches (2.5 s in production).
+struct CusipSymbolResolver: Sendable {
+    static let batchSize = 10
+
+    private let post: @Sendable (_ body: Data) async throws -> Data
+    private let pause: @Sendable () async -> Void
+
+    init(post: @escaping @Sendable (_ body: Data) async throws -> Data, pause: @escaping @Sendable () async -> Void) {
+        self.post = post
+        self.pause = pause
+    }
+
+    private struct Job: Encodable {
+        let idType = "ID_CUSIP"
+        let idValue: String
+        let exchCode = "US"
+    }
+
+    private struct Result: Decodable {
+        struct Match: Decodable { let ticker: String? }
+        let data: [Match]?
+    }
+
+    func resolve(_ cusips: [String], on db: any Database) async throws -> [String: String] {
+        guard let sql = db as? any SQLDatabase else { return [:] }
+        let wanted = Array(Set(cusips)).sorted()
+        guard !wanted.isEmpty else { return [:] }
+
+        struct Cached: Decodable { let cusip: String; let symbol: String? }
+        let cached = try await sql.raw("SELECT cusip, symbol FROM cusip_symbols WHERE cusip = ANY(\(bind: wanted))").all(decoding: Cached.self)
+        var out: [String: String] = [:]
+        var known = Set<String>()
+        for row in cached {
+            known.insert(row.cusip)
+            if let symbol = row.symbol { out[row.cusip] = symbol }
+        }
+
+        let missing = wanted.filter { !known.contains($0) }
+        for (index, start) in stride(from: 0, to: missing.count, by: Self.batchSize).enumerated() {
+            if index > 0 { await pause() }
+            let batch = Array(missing[start ..< min(start + Self.batchSize, missing.count)])
+            let response = try await post(try JSONEncoder().encode(batch.map { Job(idValue: $0) }))
+            let results = try JSONDecoder().decode([Result].self, from: response)
+            for (cusip, result) in zip(batch, results) {
+                let ticker = result.data?.compactMap(\.ticker).first?.uppercased()
+                if let ticker { out[cusip] = ticker }
+                try await sql.raw("""
+                INSERT INTO cusip_symbols (cusip, symbol) VALUES (\(bind: cusip), \(bind: ticker))
+                ON CONFLICT (cusip) DO NOTHING
+                """).run()
+            }
         }
         return out
     }
 }
 ```
 
-FMP provider additions:
-- Protocol:
+- [ ] **Step 6: Write `SECEdgar13FPilotSource.swift`.**
+
 ```swift
-    func institutionalHoldings(cik: String, year: Int, quarter: Int, on req: Request) async throws -> [FMP13FHolding]
-```
-- Default:
-```swift
-    func institutionalHoldings(cik _: String, year _: Int, quarter _: Int, on _: Request) async throws -> [FMP13FHolding] {
-        throw Abort(.serviceUnavailable, reason: "13F holdings are not supported by this provider.")
+import Foundation
+
+/// A fund's latest 13F holdings from SEC EDGAR. Free, no key. EDGAR requires a
+/// descriptive User-Agent and at most 10 requests a second; the caller's `get`
+/// sets the header. One lookup is three requests.
+struct SECEdgar13FPilotSource: PilotDisclosureSource {
+    typealias Get = @Sendable (_ url: String) async throws -> Data
+
+    private let get: Get
+    private let resolve: CusipResolve
+
+    init(get: @escaping Get, resolve: @escaping CusipResolve) {
+        self.get = get
+        self.resolve = resolve
     }
-```
-- Live:
-```swift
-    func institutionalHoldings(cik: String, year: Int, quarter: Int, on req: Request) async throws -> [FMP13FHolding] {
-        try await fetchJSON(
-            path: "/stable/institutional-ownership/extract",
-            query: [("cik", cik), ("year", String(year)), ("quarter", String(quarter))],
-            on: req
-        )
+
+    func disclosures(for pilot: PilotSourceIdentity) async throws -> [PilotDisclosureInput] {
+        guard let rawCik = pilot.cik, let cikNumber = Int(rawCik) else { return [] }
+        let padded = String(format: "%010d", cikNumber)
+        guard let filing = try EDGAR13FParser.latest13F(submissions: try await get("https://data.sec.gov/submissions/CIK\(padded).json")) else {
+            return []
+        }
+        let folder = "https://www.sec.gov/Archives/edgar/data/\(cikNumber)/\(filing.accession.replacingOccurrences(of: "-", with: ""))"
+        guard let table = try EDGAR13FParser.infoTableName(index: try await get("\(folder)/index.json")) else { return [] }
+        let holdings = try EDGAR13FParser.holdings(infoTable: try await get("\(folder)/\(table)"))
+        let symbols = try await resolve(holdings.map(\.cusip))
+        let period = filing.period
+        return holdings.compactMap { holding in
+            guard let symbol = symbols[holding.cusip] else { return nil }
+            return PilotDisclosureInput(
+                sourceKey: "\(period)|\(holding.cusip)",
+                symbol: symbol,
+                side: .hold,
+                instrument: .stock,
+                transactionDate: nil,
+                disclosureDate: nil,
+                amountMin: nil,
+                amountMax: nil,
+                shares: holding.shares,
+                marketValue: holding.value,
+                period: period
+            )
+        }
     }
+}
+```
+`CusipResolve` is declared in `CusipSymbolResolver.swift`:
+
+```swift
+typealias CusipResolve = @Sendable (_ cusips: [String]) async throws -> [String: String]
 ```
 
-- [ ] **Step 4: Run the tests and confirm they pass.** Run `swift test --filter FMP13FPilotSourceTests`. Expected: 2 passed.
+- [ ] **Step 7: Run the tests and confirm they pass.** Run `$TEST_ENV swift test --filter SECEdgar13FPilotSourceTests`. Expected: 7 passed. If `realHoldings` fails because the fixture uses a different element casing, fix the parser's `local(_:)` matching, not the test.
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 8: Commit**
 
 ```bash
-git add Sources/StockPlanBackend/Pilots/FMP13FPilotSource.swift Sources/StockPlanBackend/Market/FMPMarketDataProvider.swift Tests/StockPlanBackendTests/FMP13FPilotSourceTests.swift
-git commit -m "feat(pilots): 13F holdings source over FMP institutional extract"
+git add Sources/StockPlanBackend/Pilots/EDGAR13FParser.swift Sources/StockPlanBackend/Pilots/CusipSymbolResolver.swift Sources/StockPlanBackend/Pilots/SECEdgar13FPilotSource.swift Tests/StockPlanBackendTests/SECEdgar13FPilotSourceTests.swift Tests/StockPlanBackendTests/Fixtures/pilots/edgar
+git commit -m "feat(pilots): 13F holdings from SEC EDGAR with OpenFIGI ticker mapping"
 ```
 
 ---
@@ -2748,47 +3059,66 @@ struct PilotIngestionService: Sendable {
 }
 ```
 
-- [ ] **Step 4: Write `SeedPilots.swift`.** This is the curated v1 list. Before committing, verify each politician's spelling as FMP files it: run the Task 1 curl with `?name=<last name>` and match `firstName`/`lastName`. Verify each CIK on `https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&CIK=<cik>`. Correct any value that doesn't match. If Task 6 was skipped, set funds to `active = false`.
+- [ ] **Step 4: Write `SeedPilots.swift`.** This is the curated v1 list. Politicians are matched by bioguide ID, the `senateID` field on FMP rows. Before committing, run both checks below and correct any row that doesn't match.
+
+**Check the bioguide IDs** against the official legislator list:
+
+```bash
+curl -s -o /tmp/leg-current.yaml https://raw.githubusercontent.com/unitedstates/congress-legislators/main/legislators-current.yaml
+curl -s -o /tmp/leg-hist.yaml https://raw.githubusercontent.com/unitedstates/congress-legislators/main/legislators-historical.yaml
+for id in P000197 C001120 G000583 K000389 M001157 G000596 H001082 G000599 M001217 W000797 T000278 M001190 C001047 W000802 S001217; do
+  printf "%s " $id; grep -h -A4 "bioguide: $id" /tmp/leg-current.yaml /tmp/leg-hist.yaml | grep -m1 "official_full" || echo MISSING
+done
+```
+
+**Check the CIKs** on `https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&CIK=<cik>&type=13F-HR`. Each must list 13F-HR filings under the expected name. Use `curl -s -A "Norviq ops@norviq.org" -o /tmp/cik.html …` and grep the company name.
 
 ```swift
 import Fluent
 import FluentSQL
 
-/// The curated v1 pilots. Aliases are the exact "First Last" the FMP feed
-/// uses; FMP has no stable politician ID, so these are maintained by hand.
+/// The curated v1 pilots. Politicians are matched by bioguide ID (FMP's
+/// `senateID`); aliases are a fallback for rows that arrive without one.
+/// Funds are 13F filers small enough to map through unauthenticated OpenFIGI.
 struct SeedPilots: AsyncMigration {
     private struct Row {
         let kind, slug, name: String
-        let chamber, cik: String?
+        let chamber, bioguide, cik: String?
         let aliases: [String]
     }
 
+    private static func politician(_ slug: String, _ name: String, _ chamber: String, _ bioguide: String, _ aliases: [String]) -> Row {
+        Row(kind: "politician", slug: slug, name: name, chamber: chamber, bioguide: bioguide, cik: nil, aliases: aliases)
+    }
+
+    private static func fund(_ slug: String, _ name: String, _ cik: String) -> Row {
+        Row(kind: "fund", slug: slug, name: name, chamber: nil, bioguide: nil, cik: cik, aliases: [])
+    }
+
     private static let rows: [Row] = [
-        Row(kind: "politician", slug: "nancy-pelosi", name: "Nancy Pelosi", chamber: "house", cik: nil, aliases: ["Nancy Pelosi"]),
-        Row(kind: "politician", slug: "dan-crenshaw", name: "Dan Crenshaw", chamber: "house", cik: nil, aliases: ["Daniel Crenshaw", "Dan Crenshaw"]),
-        Row(kind: "politician", slug: "josh-gottheimer", name: "Josh Gottheimer", chamber: "house", cik: nil, aliases: ["Josh Gottheimer", "Joshua Gottheimer"]),
-        Row(kind: "politician", slug: "ro-khanna", name: "Ro Khanna", chamber: "house", cik: nil, aliases: ["Ro Khanna", "Rohit Khanna"]),
-        Row(kind: "politician", slug: "michael-mccaul", name: "Michael McCaul", chamber: "house", cik: nil, aliases: ["Michael McCaul", "Michael T. McCaul"]),
-        Row(kind: "politician", slug: "marjorie-taylor-greene", name: "Marjorie Taylor Greene", chamber: "house", cik: nil, aliases: ["Marjorie Taylor Greene", "Marjorie Greene"]),
-        Row(kind: "politician", slug: "kevin-hern", name: "Kevin Hern", chamber: "house", cik: nil, aliases: ["Kevin Hern"]),
-        Row(kind: "politician", slug: "daniel-goldman", name: "Daniel Goldman", chamber: "house", cik: nil, aliases: ["Daniel Goldman", "Dan Goldman"]),
-        Row(kind: "politician", slug: "jared-moskowitz", name: "Jared Moskowitz", chamber: "house", cik: nil, aliases: ["Jared Moskowitz"]),
-        Row(kind: "politician", slug: "debbie-wasserman-schultz", name: "Debbie Wasserman Schultz", chamber: "house", cik: nil, aliases: ["Debbie Wasserman Schultz"]),
-        Row(kind: "politician", slug: "tommy-tuberville", name: "Tommy Tuberville", chamber: "senate", cik: nil, aliases: ["Tommy Tuberville", "Thomas Tuberville"]),
-        Row(kind: "politician", slug: "markwayne-mullin", name: "Markwayne Mullin", chamber: "senate", cik: nil, aliases: ["Markwayne Mullin"]),
-        Row(kind: "politician", slug: "shelley-moore-capito", name: "Shelley Moore Capito", chamber: "senate", cik: nil, aliases: ["Shelley Moore Capito", "Shelley Capito"]),
-        Row(kind: "politician", slug: "sheldon-whitehouse", name: "Sheldon Whitehouse", chamber: "senate", cik: nil, aliases: ["Sheldon Whitehouse"]),
-        Row(kind: "politician", slug: "rick-scott", name: "Rick Scott", chamber: "senate", cik: nil, aliases: ["Rick Scott", "Richard Scott"]),
-        Row(kind: "fund", slug: "berkshire-hathaway", name: "Berkshire Hathaway", chamber: nil, cik: "0001067983", aliases: []),
-        Row(kind: "fund", slug: "pershing-square", name: "Pershing Square", chamber: nil, cik: "0001336528", aliases: []),
-        Row(kind: "fund", slug: "scion-asset-management", name: "Scion Asset Management", chamber: nil, cik: "0001649339", aliases: []),
-        Row(kind: "fund", slug: "bridgewater", name: "Bridgewater Associates", chamber: nil, cik: "0001350694", aliases: []),
-        Row(kind: "fund", slug: "renaissance-technologies", name: "Renaissance Technologies", chamber: nil, cik: "0001037389", aliases: []),
-        Row(kind: "fund", slug: "appaloosa", name: "Appaloosa Management", chamber: nil, cik: "0001656456", aliases: []),
-        Row(kind: "fund", slug: "duquesne-family-office", name: "Duquesne Family Office", chamber: nil, cik: "0001536411", aliases: []),
-        Row(kind: "fund", slug: "third-point", name: "Third Point", chamber: nil, cik: "0001040273", aliases: []),
-        Row(kind: "fund", slug: "baupost", name: "Baupost Group", chamber: nil, cik: "0001061768", aliases: []),
-        Row(kind: "fund", slug: "himalaya-capital", name: "Himalaya Capital", chamber: nil, cik: "0001709323", aliases: []),
+        politician("nancy-pelosi", "Nancy Pelosi", "house", "P000197", ["Nancy Pelosi"]),
+        politician("dan-crenshaw", "Dan Crenshaw", "house", "C001120", ["Daniel Crenshaw", "Dan Crenshaw"]),
+        politician("josh-gottheimer", "Josh Gottheimer", "house", "G000583", ["Josh Gottheimer", "Joshua Gottheimer"]),
+        politician("ro-khanna", "Ro Khanna", "house", "K000389", ["Ro Khanna", "Rohit Khanna"]),
+        politician("michael-mccaul", "Michael McCaul", "house", "M001157", ["Michael McCaul", "Michael T. McCaul"]),
+        politician("marjorie-taylor-greene", "Marjorie Taylor Greene", "house", "G000596", ["Marjorie Taylor Greene", "Marjorie Greene"]),
+        politician("kevin-hern", "Kevin Hern", "house", "H001082", ["Kevin Hern"]),
+        politician("daniel-goldman", "Daniel Goldman", "house", "G000599", ["Daniel Goldman", "Dan Goldman"]),
+        politician("jared-moskowitz", "Jared Moskowitz", "house", "M001217", ["Jared Moskowitz"]),
+        politician("debbie-wasserman-schultz", "Debbie Wasserman Schultz", "house", "W000797", ["Debbie Wasserman Schultz"]),
+        politician("tommy-tuberville", "Tommy Tuberville", "senate", "T000278", ["Tommy Tuberville", "Thomas Tuberville"]),
+        politician("markwayne-mullin", "Markwayne Mullin", "senate", "M001190", ["Markwayne Mullin"]),
+        politician("shelley-moore-capito", "Shelley Moore Capito", "senate", "C001047", ["Shelley Moore Capito", "Shelley Capito"]),
+        politician("sheldon-whitehouse", "Sheldon Whitehouse", "senate", "W000802", ["Sheldon Whitehouse"]),
+        politician("rick-scott", "Rick Scott", "senate", "S001217", ["Rick Scott", "Richard Scott"]),
+        fund("berkshire-hathaway", "Berkshire Hathaway", "0001067983"),
+        fund("pershing-square", "Pershing Square", "0001336528"),
+        fund("scion-asset-management", "Scion Asset Management", "0001649339"),
+        fund("appaloosa", "Appaloosa Management", "0001656456"),
+        fund("duquesne-family-office", "Duquesne Family Office", "0001536411"),
+        fund("third-point", "Third Point", "0001040273"),
+        fund("baupost", "Baupost Group", "0001061768"),
+        fund("himalaya-capital", "Himalaya Capital", "0001709323"),
     ]
 
     func prepare(on database: any Database) async throws {
@@ -2796,8 +3126,8 @@ struct SeedPilots: AsyncMigration {
         for row in Self.rows {
             let aliases = String(data: try JSONEncoder().encode(row.aliases), encoding: .utf8) ?? "[]"
             try await sql.raw("""
-            INSERT INTO pilots (kind, slug, display_name, chamber, cik, name_aliases)
-            VALUES (\(bind: row.kind), \(bind: row.slug), \(bind: row.name), \(bind: row.chamber), \(bind: row.cik), \(bind: aliases)::jsonb)
+            INSERT INTO pilots (kind, slug, display_name, chamber, bioguide_id, cik, name_aliases)
+            VALUES (\(bind: row.kind), \(bind: row.slug), \(bind: row.name), \(bind: row.chamber), \(bind: row.bioguide), \(bind: row.cik), \(bind: aliases)::jsonb)
             ON CONFLICT (slug) DO NOTHING
             """).run()
         }
@@ -2841,7 +3171,7 @@ git commit -m "feat(pilots): ingest disclosures into versioned books; seed curat
 - Produces:
 
 ```swift
-final class PilotIngestionJob: LifecycleHandler { init(intervalSeconds: Int64 = 21_600); func runOnceAsLeader(_ app: Application, service: PilotIngestionService) async }
+final class PilotIngestionJob: LifecycleHandler { static let fundRefreshSeconds: TimeInterval; init(intervalSeconds: Int64 = 3_600); func runOnceAsLeader(_ app: Application, service: PilotIngestionService) async }
 final class PilotMirrorJob: LifecycleHandler { init(intervalSeconds: Int64 = 3_600); func runOnceAsLeader(_ app: Application, mirror: PilotMirrorService, now: Date) async }
 enum PilotWiring { static func ingestion(_ app: Application) -> PilotIngestionService?; static func mirror(_ app: Application) -> PilotMirrorService }
 ```
@@ -2874,6 +3204,24 @@ enum PilotWiring { static func ingestion(_ app: Application) -> PilotIngestionSe
         }
     }
 
+    @Test("ingestion job reads a fund at most once a day; politicians every run")
+    func fundCadence() async throws {
+        try await withApp { app in
+            let fund = Pilot(kind: .fund, slug: "f-\(UUID().uuidString.prefix(6))", displayName: "Fund", cik: "0000000001")
+            fund.lastIngestedAt = Date().addingTimeInterval(-3_600)
+            try await fund.create(on: app.db)
+            let politician = try await makePilot(on: app.db)
+            let calls = CallLog()
+            let stub = CountingSource(log: calls)
+            await PilotIngestionJob().runOnceAsLeader(app, service: PilotIngestionService(politicians: stub, funds: stub))
+            let seen = await calls.slugsSeen
+            // Seeded pilots are active too; assert on this test's fund by CIK.
+            #expect(seen.contains("politician"))
+            #expect(!seen.contains("0000000001"))
+            _ = politician
+        }
+    }
+
     @Test("paused follows are not mirrored")
     func pausedSkipped() async throws {
         try await withApp { app in
@@ -2890,6 +3238,22 @@ enum PilotWiring { static func ingestion(_ app: Application) -> PilotIngestionSe
     }
 ```
 
+Helpers for `fundCadence` (same file, file scope):
+
+```swift
+private actor CallLog {
+    var slugsSeen: [String] = []
+    func record(_ kind: String) { slugsSeen.append(kind) }
+}
+
+private struct CountingSource: PilotDisclosureSource {
+    let log: CallLog
+    func disclosures(for pilot: PilotSourceIdentity) async throws -> [PilotDisclosureInput] {
+        await log.record(pilot.cik ?? pilot.kind.rawValue)
+        return []
+    }
+}
+```
 - [ ] **Step 2: Run the tests and confirm they fail.** Run `swift test --filter PilotJobsTests`. Expected: compile failure.
 
 - [ ] **Step 3: Implement `PilotJobs.swift`.** This copies the scheduling shape of `Portfolio/PortfolioSnapshotJob.swift:19-55`.
@@ -2906,17 +3270,44 @@ enum PilotWiring {
         Request(application: app, on: app.eventLoopGroup.next())
     }
 
+    /// Free sources only: FMP's latest congress feeds (page 0, 25 rows) and
+    /// SEC EDGAR 13F filings with OpenFIGI CUSIP mapping.
     static func ingestion(_ app: Application) -> PilotIngestionService? {
         guard let fmp = app.marketDataService.fmpProvider else { return nil }
-        let congress = FMPCongressPilotSource { chamber, name in
+        let congress = FMPCongressPilotSource { chamber in
             let req = request(app)
             return chamber == "senate"
-                ? try await fmp.senateTradesByName(name: name, on: req)
-                : try await fmp.houseTradesByName(name: name, on: req)
+                ? try await fmp.latestSenateTrades(limit: FMPCongressPilotSource.feedLimit, on: req)
+                : try await fmp.latestHouseTrades(limit: FMPCongressPilotSource.feedLimit, on: req)
         }
-        let funds = FMP13FPilotSource { cik, year, quarter in
-            try await fmp.institutionalHoldings(cik: cik, year: year, quarter: quarter, on: request(app))
-        }
+        let userAgent = Environment.get("SEC_EDGAR_USER_AGENT") ?? "Norviq ops@norviq.org"
+        let resolver = CusipSymbolResolver(
+            post: { body in
+                let response = try await app.client.post("https://api.openfigi.com/v3/mapping") { req in
+                    req.headers.replaceOrAdd(name: .contentType, value: "application/json")
+                    req.body = ByteBuffer(data: body)
+                    req.timeout = .seconds(30)
+                }
+                guard response.status == .ok, let buffer = response.body else {
+                    throw Abort(.badGateway, reason: "OpenFIGI returned \(response.status.code)")
+                }
+                return Data(buffer: buffer)
+            },
+            pause: { try? await Task.sleep(nanoseconds: 2_500_000_000) }
+        )
+        let funds = SECEdgar13FPilotSource(
+            get: { url in
+                let response = try await app.client.get(URI(string: url)) { req in
+                    req.headers.replaceOrAdd(name: .userAgent, value: userAgent)
+                    req.timeout = .seconds(30)
+                }
+                guard response.status == .ok, let buffer = response.body else {
+                    throw Abort(.badGateway, reason: "EDGAR returned \(response.status.code) for \(url)")
+                }
+                return Data(buffer: buffer)
+            },
+            resolve: { cusips in try await resolver.resolve(cusips, on: app.db) }
+        )
         return PilotIngestionService(politicians: congress, funds: funds)
     }
 
@@ -2933,14 +3324,16 @@ enum PilotWiring {
     }
 }
 
-/// Pulls disclosures for every active pilot. Congress filings trickle in
-/// daily, and 13F quarterly; one 6-hour tick covers both, because unchanged
-/// data writes nothing.
+/// Pulls disclosures for every active pilot. Hourly, because the free congress
+/// feed shows only the newest 25 rows per chamber and older rows scroll off.
+/// Funds file quarterly, so each fund is read at most once a day.
 final class PilotIngestionJob: LifecycleHandler, @unchecked Sendable {
     private let intervalSeconds: Int64
     private let state = BackgroundJobState()
 
-    init(intervalSeconds: Int64 = 21_600) {
+    static let fundRefreshSeconds: TimeInterval = 86_400
+
+    init(intervalSeconds: Int64 = 3_600) {
         self.intervalSeconds = max(900, intervalSeconds)
     }
 
@@ -2965,9 +3358,14 @@ final class PilotIngestionJob: LifecycleHandler, @unchecked Sendable {
     func runOnceAsLeader(_ app: Application, service: PilotIngestionService) async {
         do {
             let pilots = try await Pilot.query(on: app.db).filter(\.$active == true).all()
+            let now = Date()
             for pilot in pilots where !Task.isCancelled {
+                if pilot.pilotKind == .fund, let last = pilot.lastIngestedAt,
+                   now.timeIntervalSince(last) < Self.fundRefreshSeconds {
+                    continue
+                }
                 do {
-                    let outcome = try await service.ingest(pilot: pilot, now: Date(), on: app.db)
+                    let outcome = try await service.ingest(pilot: pilot, now: now, on: app.db)
                     if case let .newVersion(v) = outcome {
                         app.logger.info("pilot_ingestion new_version", metadata: ["pilot": .string(pilot.slug), "version": .stringConvertible(v)])
                     }
@@ -3062,7 +3460,7 @@ final class PilotMirrorJob: LifecycleHandler, @unchecked Sendable {
     // funds. Off unless PILOTS_ENABLED; the controller 404s too.
     if envBool("PILOTS_ENABLED", default: false) {
         app.lifecycle.use(PilotIngestionJob(
-            intervalSeconds: Environment.get("PILOT_INGESTION_INTERVAL_SECONDS").flatMap(Int64.init) ?? 21_600
+            intervalSeconds: Environment.get("PILOT_INGESTION_INTERVAL_SECONDS").flatMap(Int64.init) ?? 3_600
         ))
         app.lifecycle.use(PilotMirrorJob(
             intervalSeconds: Environment.get("PILOT_MIRROR_INTERVAL_SECONDS").flatMap(Int64.init) ?? 3_600
