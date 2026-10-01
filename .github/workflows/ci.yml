@@ -103,11 +103,31 @@ jobs:
           set -o pipefail
           swift test 2>&1 | tee /tmp/swift-test.log
 
-      - name: Print test failures (temporary)
+      - name: Collect test failures (temporary)
         if: failure()
         shell: bash
         run: |
-          grep -E "✘|recorded an issue|error:|failed after|Fatal error|Test Suite .* failed" /tmp/swift-test.log \
-            | grep -v "warning:" | head -40 > /tmp/failures.txt || true
-          cat /tmp/failures.txt
-          while IFS= read -r line; do echo "::error title=swift-test::${line:0:400}"; done < /tmp/failures.txt
+          grep -nE "✘|recorded an issue|failed after|Fatal error|error: |Expectation failed" /tmp/swift-test.log \
+            | grep -v "warning:" | head -80 > failures.txt || true
+          echo "--- last 60 lines of swift test output ---" >> failures.txt
+          tail -60 /tmp/swift-test.log >> failures.txt
+
+      - name: Upload test failures (temporary)
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: swift-test-failures
+          path: failures.txt
+
+  # TEMPORARY (drop before merge): the test job's log ends in thousands of
+  # lines of service-container output, so its failures are printed here.
+  test-failures:
+    name: Test failures (temporary)
+    needs: test
+    if: failure()
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: swift-test-failures
+      - run: cat failures.txt
