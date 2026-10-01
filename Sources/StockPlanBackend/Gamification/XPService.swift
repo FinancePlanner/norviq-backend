@@ -173,14 +173,18 @@ enum XPService {
     // MARK: - XP
 
     static func summary(for userId: UUID, now: Date, timeZone: TimeZone, on db: any Database) async throws -> XPSummaryDTO {
+        // Summed in Swift: `points` is a bigint and Postgres returns
+        // SUM(bigint) as numeric, which Fluent cannot decode into Int.
         let total = try await GamificationXPEvent.query(on: db)
             .filter(\.$userId == userId)
-            .sum(\.$points) ?? 0
+            .all(\.$points)
+            .reduce(0, +)
         let week = GamificationCalendar.period(.week, containing: now, in: timeZone)
         let weekXP = try await GamificationXPEvent.query(on: db)
             .filter(\.$userId == userId)
             .filter(\.$createdAt >= week.start)
-            .sum(\.$points) ?? 0
+            .all(\.$points)
+            .reduce(0, +)
         return XPSummaryDTO(
             total: total,
             level: XPLevel.level(for: total),
