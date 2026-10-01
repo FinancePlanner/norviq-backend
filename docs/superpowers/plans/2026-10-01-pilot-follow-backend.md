@@ -482,7 +482,7 @@ struct CreatePilotTables: AsyncMigration {
             chamber TEXT,
             bioguide_id TEXT,
             cik TEXT,
-            name_aliases JSONB NOT NULL DEFAULT '[]',
+            name_aliases TEXT[] NOT NULL DEFAULT '{}',
             active BOOLEAN NOT NULL DEFAULT TRUE,
             last_ingested_at TIMESTAMPTZ,
             created_at TIMESTAMPTZ DEFAULT NOW(),
@@ -3124,10 +3124,10 @@ struct SeedPilots: AsyncMigration {
     func prepare(on database: any Database) async throws {
         guard let sql = database as? any SQLDatabase else { return }
         for row in Self.rows {
-            let aliases = String(data: try JSONEncoder().encode(row.aliases), encoding: .utf8) ?? "[]"
+            // name_aliases is TEXT[] (Task 3): Fluent stores [String] as a Postgres array.
             try await sql.raw("""
             INSERT INTO pilots (kind, slug, display_name, chamber, bioguide_id, cik, name_aliases)
-            VALUES (\(bind: row.kind), \(bind: row.slug), \(bind: row.name), \(bind: row.chamber), \(bind: row.bioguide), \(bind: row.cik), \(bind: aliases)::jsonb)
+            VALUES (\(bind: row.kind), \(bind: row.slug), \(bind: row.name), \(bind: row.chamber), \(bind: row.bioguide), \(bind: row.cik), \(bind: row.aliases))
             ON CONFLICT (slug) DO NOTHING
             """).run()
         }
