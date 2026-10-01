@@ -24,10 +24,16 @@ struct FMPCongressPilotSource: PilotDisclosureSource {
         guard let chamber = pilot.chamber else { return [] }
         let rows = try await memo.rows(chamber: chamber, fetch: fetch)
         let aliases = Set(pilot.aliases.map(Self.normalizedName))
-        var seen = Set<String>()
+        // Ordinals are assigned over the whole chamber feed, in feed order,
+        // before filtering, so they do not depend on which pilot asks.
+        var occurrences: [String: Int] = [:]
         var out: [PilotDisclosureInput] = []
-        for wire in rows where Self.matches(wire, bioguideId: pilot.bioguideId, aliases: aliases) {
-            guard let input = Self.input(from: wire, chamber: chamber), seen.insert(input.sourceKey).inserted else { continue }
+        for wire in rows {
+            let material = Self.keyMaterial(wire, chamber: chamber)
+            let ordinal = occurrences[material, default: 0]
+            occurrences[material] = ordinal + 1
+            guard Self.matches(wire, bioguideId: pilot.bioguideId, aliases: aliases),
+                  let input = Self.input(from: wire, chamber: chamber, ordinal: ordinal) else { continue }
             out.append(input)
         }
         return out
@@ -41,15 +47,25 @@ struct FMPCongressPilotSource: PilotDisclosureSource {
         return aliases.contains(normalizedName("\(wire.firstName ?? "") \(wire.lastName ?? "")"))
     }
 
-    static func input(from wire: FMPCongressTrade, chamber: String) -> PilotDisclosureInput? {
+    static func keyMaterial(_ wire: FMPCongressTrade, chamber: String) -> String {
+        let symbol = (wire.symbol ?? "").trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
+        var parts: [String] = [chamber, wire.senateID ?? "", wire.firstName ?? "", wire.lastName ?? "", wire.owner ?? ""]
+        parts += [symbol, wire.transactionDate ?? "", wire.type ?? "", wire.amount ?? "", wire.link ?? ""]
+        parts += [wire.assetType ?? "", wire.assetDescription ?? "", wire.disclosureDate ?? ""]
+        return parts.joined(separator: "|")
+    }
+
+    static func input(from wire: FMPCongressTrade, chamber: String, ordinal: Int = 0) -> PilotDisclosureInput? {
         guard let symbol = wire.symbol?.trimmingCharacters(in: .whitespacesAndNewlines).uppercased(), !symbol.isEmpty,
               let side = side(from: wire.type),
               let instrument = instrument(assetType: wire.assetType, description: wire.assetDescription)
         else { return nil }
         let bounds = CongressTrades.amountBounds(from: wire.amount)
-        let keyMaterial = [chamber, wire.senateID ?? "", wire.firstName ?? "", wire.lastName ?? "", wire.owner ?? "", symbol,
-                           wire.transactionDate ?? "", wire.type ?? "", wire.amount ?? "", wire.link ?? ""]
-            .joined(separator: "|")
+        // The first occurrence keeps the bare material; repeats get "|#n".
+        var keyMaterial = Self.keyMaterial(wire, chamber: chamber)
+        if ordinal > 0 {
+            keyMaterial += "|#\(ordinal)"
+        }
         let key = SHA256.hash(data: Data(keyMaterial.utf8)).map { String(format: "%02x", $0) }.joined()
         return PilotDisclosureInput(
             sourceKey: key,
@@ -79,13 +95,22 @@ struct FMPCongressPilotSource: PilotDisclosureSource {
         return nil
     }
 
-    /// Stocks and ETFs pass through; options become call or put. Bonds,
-    /// mutual funds and anything else are dropped. A missing asset type is
-    /// treated as stock, because the feed omits it for plain equity rows.
+    /// Stocks and ETFs pass through; options become call or put only when the
+    /// description says so as a whole word ("Call options", "... Put"). An
+    /// option whose description names neither is dropped, never guessed.
+    /// Bonds, mutual funds and anything else are dropped. A missing asset type
+    /// is treated as stock, because the feed omits it for plain equity rows.
     static func instrument(assetType: String?, description: String?) -> PilotInstrumentKind? {
         let type = assetType?.lowercased() ?? ""
         if type.contains("option") {
-            return (description?.lowercased().contains("put") ?? false) ? .put : .call
+            let text = description ?? ""
+            if text.range(of: #"\bputs?\b"#, options: [.regularExpression, .caseInsensitive]) != nil {
+                return .put
+            }
+            if text.range(of: #"\bcalls?\b"#, options: [.regularExpression, .caseInsensitive]) != nil {
+                return .call
+            }
+            return nil
         }
         if type.isEmpty || type == "stock" || type.contains("etf") || type.contains("equity") || type.contains("common") {
             return .stock
@@ -98,23 +123,33 @@ struct FMPCongressPilotSource: PilotDisclosureSource {
     }
 }
 
-/// Per-chamber cache of the feed for one ingestion run.
+/// Per-chamber cache of the feed for one ingestion run. Concurrent callers
+/// share one in-flight fetch; a failed fetch is evicted so the next call retries.
 private actor FeedMemo {
     private let ttl: TimeInterval
     private let now: @Sendable () -> Date
-    private var cache: [String: (at: Date, rows: [FMPCongressTrade])] = [:]
+    private var cache: [String: (at: Date, task: Task<[FMPCongressTrade], Error>)] = [:]
 
     init(ttl: TimeInterval, now: @escaping @Sendable () -> Date) {
         self.ttl = ttl
         self.now = now
     }
 
-    func rows(chamber: String, fetch: FMPCongressPilotSource.Fetch) async throws -> [FMPCongressTrade] {
+    func rows(chamber: String, fetch: @escaping FMPCongressPilotSource.Fetch) async throws -> [FMPCongressTrade] {
+        let entry: (at: Date, task: Task<[FMPCongressTrade], Error>)
         if let hit = cache[chamber], now().timeIntervalSince(hit.at) < ttl {
-            return hit.rows
+            entry = hit
+        } else {
+            entry = (now(), Task { try await fetch(chamber) })
+            cache[chamber] = entry
         }
-        let rows = try await fetch(chamber)
-        cache[chamber] = (now(), rows)
-        return rows
+        do {
+            return try await entry.task.value
+        } catch {
+            if let cur = cache[chamber], cur.at == entry.at {
+                cache[chamber] = nil
+            }
+            throw error
+        }
     }
 }
