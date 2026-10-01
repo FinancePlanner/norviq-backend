@@ -1372,9 +1372,9 @@ extension DefaultExpensesService {
         @Sendable func isCurrentMonth(_ snapshot: BudgetSnapshot) -> Bool {
             calendar.isDate(snapshot.monthStart, equalTo: currentMonth, toGranularity: .month)
         }
-        // month_start is a DATE column; comparing it in SQL against a bound
-        // timestamp casts at the session time zone, so filter in Swift like
-        // findSnapshot does. A user has one row per month, so this stays small.
+        /// month_start is a DATE column; comparing it in SQL against a bound
+        /// timestamp casts at the session time zone, so filter in Swift like
+        /// findSnapshot does. A user has one row per month, so this stays small.
         @Sendable func latestPastSnapshot(in snapshots: [BudgetSnapshot]) -> BudgetSnapshot? {
             snapshots
                 .filter { $0.monthStart < currentMonth }
