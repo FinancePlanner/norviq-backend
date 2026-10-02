@@ -21,6 +21,9 @@ struct CryptoMarketsLiveSmokeTests {
     @Test("a live refresh produces a usable snapshot")
     func liveRefresh() async throws {
         let env = ProcessInfo.processInfo.environment
+        // Mirror configure(): the app decodes with a global snake_case-rewriting
+        // decoder, and this test once passed only because it skipped that.
+        ContentConfiguration.global.use(decoder: JSONDecoder.backendAPI, for: .json)
         let app = try await Application.make(.testing)
         do {
             let fmpKey = env["FMP_API_KEY"].flatMap { $0.isEmpty ? nil : $0 }
