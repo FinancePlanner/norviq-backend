@@ -183,13 +183,23 @@ struct PortfolioManagementController: RouteCollection {
         guard context.portfolio.isDefault == false else {
             throw Abort(.badRequest, reason: "The default portfolio cannot be deleted.")
         }
-        let connectedAccounts = try await Account.query(on: req.db)
-            .filter(\.$portfolioId == context.portfolio.requireID())
-            .count()
-        guard connectedAccounts == 0 else {
-            throw Abort(.conflict, reason: "Move connected accounts to another portfolio before deleting this portfolio.")
+        let portfolioId = try context.portfolio.requireID()
+        try await req.db.transaction { tx in
+            // A stopped follow's pilot account is not a connected account: it
+            // goes with the portfolio. While a follow exists it still blocks.
+            let followed = try await PilotFollowGuard.isFollowed(portfolioListId: portfolioId, on: tx)
+            var connected = Account.query(on: tx).filter(\.$portfolioId == portfolioId)
+            if !followed {
+                connected = connected.filter(\.$broker != PilotAccountResolver.broker)
+            }
+            guard try await connected.count() == 0 else {
+                throw Abort(.conflict, reason: "Move connected accounts to another portfolio before deleting this portfolio.")
+            }
+            if !followed {
+                try await PilotPortfolioLeftovers.remove(portfolioListId: portfolioId, on: tx)
+            }
+            try await context.portfolio.delete(on: tx)
         }
-        try await context.portfolio.delete(on: req.db)
         return .noContent
     }
 

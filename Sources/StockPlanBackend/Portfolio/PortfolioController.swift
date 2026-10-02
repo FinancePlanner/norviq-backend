@@ -453,6 +453,17 @@ struct PortfolioController: RouteCollection {
             }
             // Its simulated holdings would be merged into the real default below.
             try await PilotFollowGuard.ensureNotFollowed(portfolioListId: listId, on: tx)
+            // Real accounts block, as on DELETE /v1/portfolios/{id} (this used to
+            // surface as a 500 from the accounts foreign key). A stopped follow's
+            // pilot account and simulated stocks go with the list instead.
+            let connected = try await Account.query(on: tx)
+                .filter(\.$portfolioId == listId)
+                .filter(\.$broker != PilotAccountResolver.broker)
+                .count()
+            guard connected == 0 else {
+                throw Abort(.conflict, reason: "Move connected accounts to another portfolio before deleting this portfolio.")
+            }
+            try await PilotPortfolioLeftovers.remove(portfolioListId: listId, on: tx)
 
             guard let defaultListId = try await resolvePortfolioListId(
                 requestedId: nil,
