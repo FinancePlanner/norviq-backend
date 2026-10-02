@@ -436,6 +436,7 @@ func registerMigrations(_ app: Application) {
     app.migrations.add(SeedPilots())
     app.migrations.add(CreateBoardNotifications())
     app.migrations.add(AddPilotFollowTargetIndexes())
+    app.migrations.add(AddSocialFacebookImport())
 }
 
 func envBool(_ key: String, default defaultValue: Bool) -> Bool {

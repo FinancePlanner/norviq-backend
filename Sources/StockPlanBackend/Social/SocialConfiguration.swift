@@ -9,6 +9,9 @@ struct SocialConfiguration: Sendable {
     let enabled: Bool
     let contactsDiscovery: Bool
     let xImport: Bool
+    /// Only needs `FACEBOOK_APP_ID`: iOS Limited Login works without the app
+    /// secret. The web flow additionally needs `FACEBOOK_APP_SECRET`.
+    let facebookImport: Bool
     /// XP, check-ins and friends leaderboards (Phase 3).
     let leaderboards: Bool
     let contactPepper: String?
@@ -28,6 +31,8 @@ struct SocialConfiguration: Sendable {
             contactsDiscovery: enabled && usablePepper != nil && envBool("SOCIAL_CONTACTS_ENABLED", default: true),
             xImport: enabled && XOAuthProviderClient.Config.fromEnvironment() != nil
                 && envBool("SOCIAL_X_IMPORT_ENABLED", default: false),
+            facebookImport: enabled && !FacebookImportConfig.fromEnvironment().appIDs.isEmpty
+                && envBool("SOCIAL_FACEBOOK_IMPORT_ENABLED", default: false),
             leaderboards: enabled && envBool("SOCIAL_LEADERBOARDS_ENABLED", default: true),
             contactPepper: usablePepper,
             inviteBaseURL: (inviteBase?.isEmpty ?? true) ? "https://norviq.org" : inviteBase ?? "https://norviq.org"
@@ -39,6 +44,7 @@ struct SocialConfiguration: Sendable {
             enabled: enabled,
             contactsDiscovery: contactsDiscovery,
             xImport: xImport,
+            facebookImport: facebookImport,
             leaderboards: leaderboards,
             messaging: false,
             contactHashVersion: contactsDiscovery ? Self.contactHashVersion : nil,

@@ -76,6 +76,7 @@ struct SocialPrivacySettingsDTO: Content, Equatable {
     var searchVisibility: SocialSearchVisibility
     var discoverableByContacts: Bool
     var discoverableByX: Bool
+    var discoverableByFacebook: Bool
     var showReturnPercent: Bool
     var showStreaks: Bool
     var showXP: Bool
@@ -86,11 +87,36 @@ struct SocialPrivacySettingsDTO: Content, Equatable {
         searchVisibility: .everyone,
         discoverableByContacts: true,
         discoverableByX: true,
+        discoverableByFacebook: true,
         showReturnPercent: false,
         showStreaks: true,
         showXP: true,
         leaderboardOptIn: true
     )
+}
+
+extension SocialPrivacySettingsDTO {
+    /// Apps released before Facebook import don't send
+    /// `discoverableByFacebook`; `PUT /privacy` keeps the stored value then
+    /// (see `SocialController.updatePrivacy`).
+    init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        try self.init(
+            searchVisibility: container.decode(SocialSearchVisibility.self, forKey: .searchVisibility),
+            discoverableByContacts: container.decode(Bool.self, forKey: .discoverableByContacts),
+            discoverableByX: container.decode(Bool.self, forKey: .discoverableByX),
+            discoverableByFacebook: container.decodeIfPresent(Bool.self, forKey: .discoverableByFacebook) ?? true,
+            showReturnPercent: container.decode(Bool.self, forKey: .showReturnPercent),
+            showStreaks: container.decode(Bool.self, forKey: .showStreaks),
+            showXP: container.decode(Bool.self, forKey: .showXP),
+            leaderboardOptIn: container.decode(Bool.self, forKey: .leaderboardOptIn)
+        )
+    }
+}
+
+/// Only used to tell whether a `PUT /privacy` body carried the field at all.
+struct SocialFacebookPrivacyProbe: Decodable {
+    let discoverableByFacebook: Bool?
 }
 
 struct SocialBlockedUsersResponse: Content, Equatable {
@@ -123,6 +149,7 @@ struct SocialConfigDTO: Content, Equatable {
     let enabled: Bool
     let contactsDiscovery: Bool
     let xImport: Bool
+    let facebookImport: Bool
     let leaderboards: Bool
     let messaging: Bool
     /// Present when contact matching is on. The pepper is not a secret: it
@@ -163,4 +190,19 @@ struct SocialXImportMatch: Content, Equatable {
 struct SocialXImportMatchesResponse: Content, Equatable {
     let matches: [SocialXImportMatch]
     let totalFollowingScanned: Int
+}
+
+struct SocialFacebookLimitedLoginBody: Content {
+    let idToken: String
+    let nonce: String
+}
+
+struct SocialFacebookMatch: Content, Equatable {
+    let user: SocialUserSummaryDTO
+}
+
+struct SocialFacebookMatchesResponse: Content, Equatable {
+    let matches: [SocialFacebookMatch]
+    /// How many friend ids Facebook shared, matched or not.
+    let friendsGranted: Int
 }

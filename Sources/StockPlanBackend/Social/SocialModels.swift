@@ -94,6 +94,7 @@ final class SocialSettingsRecord: Model, @unchecked Sendable {
     @Field(key: "search_visibility") var searchVisibility: String
     @Field(key: "discoverable_by_contacts") var discoverableByContacts: Bool
     @Field(key: "discoverable_by_x") var discoverableByX: Bool
+    @Field(key: "discoverable_by_facebook") var discoverableByFacebook: Bool
     @Field(key: "show_return_percent") var showReturnPercent: Bool
     @Field(key: "show_streaks") var showStreaks: Bool
     @Field(key: "show_xp") var showXP: Bool
@@ -117,6 +118,7 @@ final class SocialSettingsRecord: Model, @unchecked Sendable {
         searchVisibility = settings.searchVisibility.rawValue
         discoverableByContacts = settings.discoverableByContacts
         discoverableByX = settings.discoverableByX
+        discoverableByFacebook = settings.discoverableByFacebook
         showReturnPercent = settings.showReturnPercent
         showStreaks = settings.showStreaks
         showXP = settings.showXP
@@ -128,6 +130,7 @@ final class SocialSettingsRecord: Model, @unchecked Sendable {
             searchVisibility: SocialSearchVisibility(rawValue: searchVisibility) ?? .everyone,
             discoverableByContacts: discoverableByContacts,
             discoverableByX: discoverableByX,
+            discoverableByFacebook: discoverableByFacebook,
             showReturnPercent: showReturnPercent,
             showStreaks: showStreaks,
             showXP: showXP,
