@@ -326,4 +326,49 @@ struct OpenAPIDocsTests {
             #expect(body.contains(path), "Missing OpenAPI path \(path)")
         }
     }
+
+    /// The text of one path item: from its key to the next top-level path.
+    private func pathBlock(_ body: String, _ path: String) -> String {
+        guard let start = body.range(of: "\n  \(path):\n") else { return "" }
+        let rest = body[start.upperBound...]
+        let end = rest.range(of: "\n  /")?.lowerBound ?? rest.range(of: "\ncomponents:")?.lowerBound ?? rest.endIndex
+        return String(rest[..<end])
+    }
+
+    @Test("Pilot follow guards are documented: 409 on guarded writers, 403 scope on follow creation, 422 on account moves")
+    func pilotGuardsAreDocumented() throws {
+        let body = try BundledOpenAPISpec.yamlString()
+        let managed = "$ref: '#/components/responses/PilotManagedPortfolio'"
+        #expect(body.contains("    PilotManagedPortfolio:"))
+        #expect(body.contains("managed by a pilot follow"))
+        let guarded: [(path: String, operations: Int)] = [
+            ("/v1/stocks", 1),
+            ("/v1/stocks/bulk", 1),
+            ("/v1/stocks/id/{stockId}", 2),
+            ("/v1/stocks/id/{stockId}/sell", 1),
+            ("/v1/transactions", 1),
+            ("/v1/transactions/{transactionId}", 2),
+            ("/v1/portfolios/{portfolioId}/cash", 1),
+            ("/v1/portfolios/{portfolioId}/cash/{cashId}", 2),
+            ("/v1/portfolio/lists/{portfolioListId}", 1),
+            ("/v1/brokers/import/csv/commit", 1),
+            ("/v1/brokers/import/screenshot/commit", 1),
+            ("/v1/brokers/ibkr/connect/start", 1),
+            ("/v1/brokers/ibkr/connect/credentials", 1),
+        ]
+        for (path, operations) in guarded {
+            let block = pathBlock(body, path)
+            #expect(!block.isEmpty, "Missing OpenAPI path \(path)")
+            #expect(block.components(separatedBy: managed).count - 1 == operations, "\(path) documents the pilot 409 on \(block.components(separatedBy: managed).count - 1) of \(operations) operations")
+        }
+
+        let follows = pathBlock(body, "/v1/pilot-follows")
+        #expect(follows.contains("insufficient_scope"))
+        #expect(follows.contains("holdings:write"))
+        #expect(follows.contains("watchlist:write"))
+
+        let accounts = pathBlock(body, "/v1/portfolios/{portfolioId}/accounts/{accountId}")
+        #expect(accounts.contains("'422':"))
+        #expect(accounts.contains("Simulated accounts can't be reassigned."))
+    }
 }
