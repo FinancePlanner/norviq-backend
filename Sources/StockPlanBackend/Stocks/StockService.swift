@@ -212,6 +212,7 @@ struct StockServiceImpl: StockService {
         ) else {
             throw Abort(.internalServerError, reason: "Failed to resolve portfolio list.")
         }
+        try await PilotFollowGuard.ensureNotFollowed(portfolioListId: targetListId, on: db)
         let existing = try await Stock.query(on: db)
             .filter(\.$userId == userId)
             .filter(\.$portfolioListId == targetListId)
@@ -295,6 +296,13 @@ struct StockServiceImpl: StockService {
     func bulkCreate(payloads: [StockRequest], userId: UUID, on db: any Database) async throws
         -> BulkStockResponse
     {
+        // Every target list is checked before any row is written. A payload whose
+        // list does not resolve is left to the repository, which reports it per item.
+        for payload in payloads {
+            if let listId = try? await resolvePortfolioListId(requestedId: payload.portfolioListId, userId: userId, on: db) {
+                try await PilotFollowGuard.ensureNotFollowed(portfolioListId: listId, on: db)
+            }
+        }
         let results = try await repo.bulkCreate(payloads: payloads, userId: userId, on: db)
         let created = results.count(where: { $0.stock != nil })
         let failed = results.count(where: { $0.error != nil })
@@ -323,6 +331,13 @@ struct StockServiceImpl: StockService {
         -> StockResponse
     {
         _ = try validateSymbol(payload.symbol)
+        // Both ends of an edit: the list the holding is in and the one it may move to.
+        if let current = try await repo.find(id: id, userId: userId, on: db) {
+            try await PilotFollowGuard.ensureNotFollowed(portfolioListId: current.portfolioListId, on: db)
+            if let target = try? await resolvePortfolioListId(requestedId: payload.portfolioListId, userId: userId, on: db) {
+                try await PilotFollowGuard.ensureNotFollowed(portfolioListId: target, on: db)
+            }
+        }
         guard let stock = try await repo.update(id: id, payload: payload, userId: userId, on: db)
         else {
             throw StockServiceError.notFound
@@ -366,6 +381,9 @@ struct StockServiceImpl: StockService {
     }
 
     func delete(id: UUID, userId: UUID, on db: any Database) async throws {
+        if let current = try await repo.find(id: id, userId: userId, on: db) {
+            try await PilotFollowGuard.ensureNotFollowed(portfolioListId: current.portfolioListId, on: db)
+        }
         let deleted = try await repo.delete(id: id, userId: userId, on: db)
         guard deleted else {
             throw StockServiceError.notFound
@@ -385,6 +403,7 @@ struct StockServiceImpl: StockService {
         guard let stock = try await repo.find(id: id, userId: userId, on: db) else {
             throw StockServiceError.notFound
         }
+        try await PilotFollowGuard.ensureNotFollowed(portfolioListId: stock.portfolioListId, on: db)
 
         let tradeDate = try parseISODateOnly(payload.sellDate, field: "sellDate")
 
@@ -436,6 +455,9 @@ struct StockServiceImpl: StockService {
                 userId: userId,
                 portfolioId: stock.portfolioListId,
                 sourceProvider: nil,
+                // A once-followed portfolio keeps its pilot account; everything
+                // else takes the manual path exactly as before.
+                account: { try await PortfolioAccountResolver.forManualEdit(userId: $0, portfolioId: $1, on: $2) },
                 on: transactionDB
             )
             stock.shares = results.first?.remainingShares ?? 0

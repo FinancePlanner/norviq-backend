@@ -114,7 +114,8 @@ struct TransactionService {
             userId: userId,
             on: db
         )
-        let account = try await ManualAccountResolver.findOrCreate(
+        try await PilotFollowGuard.ensureNotFollowed(portfolioListId: portfolioListId, on: db)
+        let account = try await PortfolioAccountResolver.forManualEdit(
             userId: userId,
             portfolioId: portfolioListId,
             on: db
@@ -199,6 +200,9 @@ struct TransactionService {
         }
         guard model.externalId?.hasPrefix(Self.manualExternalIDPrefix) == true else {
             throw Abort(.forbidden, reason: "Imported transactions are read-only. Edit them at the source instead.")
+        }
+        if let portfolioId = account.portfolioId {
+            try await PilotFollowGuard.ensureNotFollowed(portfolioListId: portfolioId, on: db)
         }
         return model
     }

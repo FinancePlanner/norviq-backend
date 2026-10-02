@@ -7,7 +7,7 @@ import Vapor
 
 @Suite("PilotController", .serialized)
 struct PilotControllerTests {
-    private func withApp(_ test: (Application) async throws -> Void) async throws {
+    func withApp(_ test: (Application) async throws -> Void) async throws {
         try await DatabaseTestLock.withSharedAccess {
             let app = try await Application.make(.testing)
             do {
@@ -24,7 +24,7 @@ struct PilotControllerTests {
         }
     }
 
-    private func registerTestUser(app: Application) async throws -> (token: String, userId: UUID) {
+    func registerTestUser(app: Application) async throws -> (token: String, userId: UUID) {
         let suffix = UUID().uuidString.replacingOccurrences(of: "-", with: "").lowercased().prefix(12)
         let request = StockPlanBackend.AuthRegisterRequest(
             username: "pilot_\(suffix)",
