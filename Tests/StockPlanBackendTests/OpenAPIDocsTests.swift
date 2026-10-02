@@ -351,8 +351,9 @@ struct OpenAPIDocsTests {
             ("/v1/portfolios/{portfolioId}/cash", 1),
             ("/v1/portfolios/{portfolioId}/cash/{cashId}", 2),
             ("/v1/portfolio/lists/{portfolioListId}", 1),
-            ("/v1/brokers/import/csv/commit", 1),
-            ("/v1/brokers/import/screenshot/commit", 1),
+            // The import commits document their 409 inline: it has two causes (see below).
+            ("/v1/brokers/import/csv/commit", 0),
+            ("/v1/brokers/import/screenshot/commit", 0),
             ("/v1/brokers/ibkr/connect/start", 1),
             ("/v1/brokers/ibkr/connect/credentials", 1),
         ]
@@ -370,5 +371,17 @@ struct OpenAPIDocsTests {
         let accounts = pathBlock(body, "/v1/portfolios/{portfolioId}/accounts/{accountId}")
         #expect(accounts.contains("'422':"))
         #expect(accounts.contains("Simulated accounts can't be reassigned."))
+
+        // The CSV commit 409 has two causes; the provider lookup has a 404 and the reserved-name 400.
+        let csvCommit = pathBlock(body, "/v1/brokers/import/csv/commit")
+        #expect(csvCommit.contains("These holdings already exist"))
+        #expect(csvCommit.contains("managed by a pilot follow"))
+        let screenshotCommit = pathBlock(body, "/v1/brokers/import/screenshot/commit")
+        #expect(screenshotCommit.contains("These holdings already exist"))
+        #expect(screenshotCommit.contains("managed by a pilot follow"))
+        let provider = pathBlock(body, "/v1/brokers/{provider}")
+        #expect(provider.contains("'404':"))
+        #expect(provider.contains("'400':"))
+        #expect(provider.contains("reserved"))
     }
 }

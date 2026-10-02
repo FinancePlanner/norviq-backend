@@ -7354,6 +7354,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/BrokerConnectionResponse'
+        '400':
+          description: Invalid provider, or `pilot`, which is reserved for simulated pilot-follow accounts ("\"pilot\" is reserved.").
+        '401':
+          description: Unauthorized
+        '404':
+          description: No connection for this provider ("Broker not found.").
   /v1/brokers/holdings:
     get:
       operationId: listBrokerHoldings
@@ -7441,7 +7447,16 @@ paths:
               schema:
                 $ref: '#/components/schemas/CsvImportCommitResponse'
         '409':
-          $ref: '#/components/responses/PilotManagedPortfolio'
+          description: >
+            Two conflicts share this status. "This portfolio is managed by a pilot follow. Stop
+            following to edit it." when the target portfolio has a pilot follow (nothing is
+            written). "These holdings already exist and were not created by this import: …" when
+            hand-added or other-broker holdings of the same symbols exist; retry with
+            `confirmMergeExisting=true` to replace them.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIErrorEnvelope'
   /v1/brokers/import/screenshot:
     post:
       operationId: importBrokersScreenshotPreview
@@ -7512,7 +7527,16 @@ paths:
               schema:
                 $ref: '#/components/schemas/CsvImportCommitResponse'
         '409':
-          $ref: '#/components/responses/PilotManagedPortfolio'
+          description: >
+            Two conflicts share this status. "This portfolio is managed by a pilot follow. Stop
+            following to edit it." when the target portfolio has a pilot follow (nothing is
+            written). "These holdings already exist and were not created by this import: …" when
+            hand-added or other-broker holdings of the same symbols exist; resend with
+            `confirmMergeExisting: true` to replace them.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIErrorEnvelope'
   /v1/brokers/ibkr/connect/start:
     post:
       operationId: startIbkrConnect
