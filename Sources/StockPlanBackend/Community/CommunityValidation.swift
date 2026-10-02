@@ -17,7 +17,7 @@ enum CommunityValidation {
         "admin", "api", "new", "create", "edit", "settings", "submit", "search",
         "norviq", "official", "support", "help", "mod", "mods", "moderator", "staff",
         // Static web routes under /boards/.
-        "guidelines", "block", "report",
+        "guidelines", "block", "report", "activity",
     ]
 
     static func slug(_ raw: String) throws -> String {

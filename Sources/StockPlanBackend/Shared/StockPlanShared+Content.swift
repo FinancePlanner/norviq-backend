@@ -420,3 +420,8 @@ extension PilotFollowUpdateRequest: @retroactive Content {}
 extension PilotFollowResponse: @retroactive Content {}
 extension PilotFollowEventResponse: @retroactive Content {}
 extension PilotFollowSnapshotResponse: @retroactive Content {}
+extension BoardNotification: @retroactive Content {}
+extension BoardNotificationPage: @retroactive Content {}
+extension BoardUnreadCount: @retroactive Content {}
+extension MarkBoardNotificationsReadRequest: @retroactive Content {}
+extension BoardNotificationSettings: @retroactive Content {}
