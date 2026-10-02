@@ -1460,7 +1460,11 @@ extension DefaultTaxService {
         excludingTransactionId: UUID?,
         on db: any Database
     ) async throws -> Bool {
-        let accounts = try await Account.query(on: db).filter(\.$userId == userId).all()
+        // A pilot follow's buys are simulated: they replace nothing for wash-sale purposes.
+        let accounts = try await Account.query(on: db)
+            .filter(\.$userId == userId)
+            .filter(\.$broker != PilotAccountResolver.broker)
+            .all()
         let accountIDs = accounts.compactMap(\.id)
         guard !accountIDs.isEmpty, let instrumentID = instrument.id else { return false }
         var matchingIDs = [instrumentID]
