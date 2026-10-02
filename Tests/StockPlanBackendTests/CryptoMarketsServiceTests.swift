@@ -201,6 +201,23 @@ struct CryptoMarketsServiceTests {
         }
     }
 
+    /// configure() installs `JSONDecoder.backendAPI` globally, which rewrites
+    /// snake_case keys before CodingKeys lookup. Decoding CoinGecko with it
+    /// turned every `current_price` into nil and staging into "no coins".
+    @Test("the provider decodes CoinGecko independently of the app's global decoder")
+    func providerIgnoresGlobalDecoder() throws {
+        let url = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .appendingPathComponent("Fixtures/coingecko-coins-markets.json")
+        let data = try Data(contentsOf: url)
+
+        let viaBackendDecoder = try JSONDecoder.backendAPI.decode([CoinGeckoMarketItem].self, from: data)
+        #expect(viaBackendDecoder.compactMap(\.marketCoin).isEmpty, "documents the trap the provider must avoid")
+
+        let items = try CoinGeckoV3CryptoMarketsProvider.decode([CoinGeckoMarketItem].self, from: ByteBuffer(data: data))
+        #expect(items.compactMap(\.marketCoin).count == items.count)
+    }
+
     @Test("CoinGecko fixture decodes into market coins")
     func coinGeckoFixtureDecodes() throws {
         let url = URL(fileURLWithPath: #filePath)
