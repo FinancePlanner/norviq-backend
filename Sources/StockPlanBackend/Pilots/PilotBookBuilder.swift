@@ -35,9 +35,12 @@ enum PilotBookBuilder {
 
     static func politicianBook(_ entries: [PilotBookEntry], asOf: Date, lookbackMonths: Int = 24) -> PilotBook {
         let cutoff = cutoffDate(asOf: asOf, months: lookbackMonths)
-        let ordered = entries
-            .filter { ($0.transactionDate ?? "") >= cutoff }
-            .sorted { ($0.transactionDate ?? "") < ($1.transactionDate ?? "") }
+        // Same-day rows keep their input order: Swift's sort is not guaranteed
+        // stable, and a buy and a full sale on one day must not swap.
+        let ordered = entries.enumerated()
+            .filter { ($0.element.transactionDate ?? "") >= cutoff }
+            .sorted { ($0.element.transactionDate ?? "", $0.offset) < ($1.element.transactionDate ?? "", $1.offset) }
+            .map(\.element)
 
         var exposure: [String: Double] = [:]
         var skippedPuts = 0

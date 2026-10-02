@@ -53,10 +53,13 @@ struct PilotIngestionService: Sendable {
             let latest = try await PilotBookVersion.query(on: tx).filter(\.$pilotId == pilotId).sort(\.$version, .descending).first()
             var outcome = PilotIngestOutcome.unchanged
             if inserted > 0 || latest == nil {
-                let entries = try await PilotDisclosureRecord.query(on: tx).filter(\.$pilotId == pilotId).all().compactMap { record -> PilotBookEntry? in
-                    guard let side = PilotTradeSide(rawValue: record.side), let instrument = PilotInstrumentKind(rawValue: record.instrument) else { return nil }
-                    return PilotBookEntry(symbol: record.symbol, side: side, instrument: instrument, transactionDate: record.transactionDate, amountMin: record.amountMin, amountMax: record.amountMax, marketValue: record.marketValue, period: record.period)
-                }
+                // Discovery order (then id) is the replay order for same-day rows.
+                let entries = try await PilotDisclosureRecord.query(on: tx).filter(\.$pilotId == pilotId)
+                    .sort(\.$discoveredAt).sort(\.$id)
+                    .all().compactMap { record -> PilotBookEntry? in
+                        guard let side = PilotTradeSide(rawValue: record.side), let instrument = PilotInstrumentKind(rawValue: record.instrument) else { return nil }
+                        return PilotBookEntry(symbol: record.symbol, side: side, instrument: instrument, transactionDate: record.transactionDate, amountMin: record.amountMin, amountMax: record.amountMax, marketValue: record.marketValue, period: record.period)
+                    }
                 let book = kind == .politician
                     ? PilotBookBuilder.politicianBook(entries, asOf: now)
                     : PilotBookBuilder.fundBook(entries)

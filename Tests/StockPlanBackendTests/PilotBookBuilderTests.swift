@@ -19,6 +19,24 @@ struct PilotBookBuilderTests {
         #expect(PilotBookBuilder.estimatedValue(min: nil, max: nil) == nil)
     }
 
+    @Test("same-day trades apply in input order: buy then sellFull leaves nothing; sellFull then buy keeps the buy")
+    func sameDayInputOrder() {
+        // The builder sorts by (transactionDate, input index), so same-day rows
+        // keep the order the caller gave them (ingestion: discovered_at, id).
+        let buyThenSell = PilotBookBuilder.politicianBook([
+            trade("MSFT", .buy, 1000, 1000, date: "2026-05-01"),
+            trade("AAPL", .buy, 1000, 1000, date: "2026-06-01"),
+            trade("AAPL", .sellFull, 1000, 1000, date: "2026-06-01"),
+        ], asOf: asOf)
+        #expect(buyThenSell.weights == ["MSFT": 1.0])
+        let sellThenBuy = PilotBookBuilder.politicianBook([
+            trade("AAPL", .sellFull, 1000, 1000, date: "2026-06-01"),
+            trade("AAPL", .buy, 1000, 1000, date: "2026-06-01"),
+            trade("MSFT", .buy, 1000, 1000, date: "2026-05-01"),
+        ], asOf: asOf)
+        #expect(sellThenBuy.weights == ["AAPL": 0.5, "MSFT": 0.5])
+    }
+
     @Test("buys accumulate into normalized weights")
     func buysAccumulate() {
         let book = PilotBookBuilder.politicianBook([

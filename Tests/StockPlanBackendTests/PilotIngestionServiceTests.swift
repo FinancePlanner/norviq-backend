@@ -58,6 +58,22 @@ struct PilotIngestionServiceTests {
         }
     }
 
+    @Test("stored disclosures replay in discovered_at order, not storage order")
+    func replaysInDiscoveryOrder() async throws {
+        try await withApp { app in
+            let pilot = try await makePilot(on: app.db)
+            let pilotId = try pilot.requireID()
+            // Stored first but discovered later: the same-day full sale must
+            // apply after the buy, so AAPL ends at zero.
+            try await PilotDisclosureRecord(pilotId: pilotId, sourceKey: "s", symbol: "AAPL", side: .sellFull, instrument: .stock, transactionDate: "2026-06-01", amountMin: 1000, amountMax: 1000, discoveredAt: now).create(on: app.db)
+            try await PilotDisclosureRecord(pilotId: pilotId, sourceKey: "b", symbol: "AAPL", side: .buy, instrument: .stock, transactionDate: "2026-06-01", amountMin: 1000, amountMax: 1000, discoveredAt: now.addingTimeInterval(-86400)).create(on: app.db)
+            let outcome = try await PilotIngestionService(politicians: StubSource(rows: [buy("m", "MSFT", 1000)]), funds: nil).ingest(pilot: pilot, now: now, on: app.db)
+            #expect(outcome == .newVersion(1))
+            let v1 = try #require(try await PilotBookVersion.query(on: app.db).filter(\.$pilotId == pilotId).first())
+            #expect(v1.weights == ["MSFT": 1.0])
+        }
+    }
+
     @Test("a new disclosure writes the next version")
     func newVersion() async throws {
         try await withApp { app in
