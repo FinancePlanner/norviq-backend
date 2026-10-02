@@ -19,6 +19,9 @@ enum PilotMirrorError: Error, Equatable {
 /// later, and pretending the follower bought on the original date would
 /// overstate what copying the pilot returns.
 struct PilotMirrorService: Sendable {
+    /// The largest share of the target book that may go unpriced in one apply.
+    static let maxUnpricedWeight = 0.10
+
     private let quote: PilotQuoteFetcher
     private let instrument: PilotInstrumentResolver
     private let watchlistLimit: PilotWatchlistLimit
@@ -77,6 +80,16 @@ struct PilotMirrorService: Sendable {
             throw PilotMirrorError.quotesUnavailable
         }
         let plan = PilotRebalancePlanner.plan(weights: version.weights, holdings: holdings, cash: cash, prices: prices)
+        // A partial outage must not consume the version either: the unpriced
+        // share of the book would sit in idle cash until the pilot's next
+        // disclosure, which can be a quarter away. Above the threshold, retry.
+        let unpricedWeight = plan.unpriced.reduce(0.0) { sum, symbol in
+            let weight = version.weights[symbol] ?? 0
+            return weight > 0 ? sum + weight : sum
+        }
+        if unpricedWeight > Self.maxUnpricedWeight {
+            throw PilotMirrorError.quotesUnavailable
+        }
         var instruments: [String: UUID] = [:]
         for order in plan.orders {
             if let id = await instrument(order.symbol) {

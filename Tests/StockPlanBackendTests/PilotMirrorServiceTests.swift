@@ -106,22 +106,44 @@ struct PilotMirrorServiceTests {
         }
     }
 
-    @Test("an unpriced target is skipped with an event; priced symbols still trade")
+    @Test("a small unpriced target is skipped with an event; priced symbols still trade")
     func unpricedSymbolLeftAlone() async throws {
+        try await withApp { app in
+            let userId = try await makeUser(on: app.db)
+            let pilot = try await makePilot(on: app.db)
+            let follow = try await portfolioFollow(userId: userId, pilot: pilot, cash: 2000, on: app.db)
+            let v1 = try await version(pilot, 1, ["AAPL": 0.95, "ZZZZ": 0.05], on: app.db)
+            let applied = try await service(prices: ["AAPL": 100]).apply(follow: follow, pilot: pilot, version: v1, previous: nil, now: now, on: app.db)
+            #expect(applied)
+            let events = try await PilotFollowEvent.query(on: app.db).filter(\.$followId == follow.requireID()).all()
+            #expect(events.contains { $0.kind == "skipped_unpriced" && $0.symbol == "ZZZZ" })
+            #expect(events.contains { $0.kind == "buy" && $0.symbol == "AAPL" })
+            let stock = try #require(try await Stock.query(on: app.db).filter(\.$portfolioListId == follow.portfolioListId!).first())
+            #expect(stock.shares == 19)
+            let account = try await PilotAccountResolver.findOrCreate(userId: userId, portfolioId: follow.portfolioListId!, on: app.db)
+            let cash = try await CashBalance.query(on: app.db).filter(\.$accountId == account.requireID()).all().reduce(0.0) { $0 + $1.balance }
+            #expect(abs(cash - 100) < 1e-6)
+            #expect(try await PilotFollow.find(follow.requireID(), on: app.db)?.appliedVersion == 1)
+        }
+    }
+
+    @Test("more than 10% of the book unpriced throws before claiming; nothing is written")
+    func largelyUnpricedDoesNotConsumeVersion() async throws {
         try await withApp { app in
             let userId = try await makeUser(on: app.db)
             let pilot = try await makePilot(on: app.db)
             let follow = try await portfolioFollow(userId: userId, pilot: pilot, cash: 1000, on: app.db)
             let v1 = try await version(pilot, 1, ["AAPL": 0.5, "ZZZZ": 0.5], on: app.db)
-            _ = try await service(prices: ["AAPL": 100]).apply(follow: follow, pilot: pilot, version: v1, previous: nil, now: now, on: app.db)
-            let events = try await PilotFollowEvent.query(on: app.db).filter(\.$followId == follow.requireID()).all()
-            #expect(events.contains { $0.kind == "skipped_unpriced" && $0.symbol == "ZZZZ" })
-            #expect(events.contains { $0.kind == "buy" && $0.symbol == "AAPL" })
-            let stock = try #require(try await Stock.query(on: app.db).filter(\.$portfolioListId == follow.portfolioListId!).first())
-            #expect(stock.shares == 5)
+            await #expect(throws: PilotMirrorError.quotesUnavailable) {
+                _ = try await service(prices: ["AAPL": 100]).apply(follow: follow, pilot: pilot, version: v1, previous: nil, now: now, on: app.db)
+            }
+            #expect(try await PilotFollow.find(follow.requireID(), on: app.db)?.appliedVersion == 0)
+            #expect(try await Stock.query(on: app.db).filter(\.$portfolioListId == follow.portfolioListId!).count() == 0)
+            #expect(try await PilotFollowEvent.query(on: app.db).filter(\.$followId == follow.requireID()).count() == 0)
             let account = try await PilotAccountResolver.findOrCreate(userId: userId, portfolioId: follow.portfolioListId!, on: app.db)
+            #expect(try await Transaction.query(on: app.db).filter(\.$accountId == account.requireID()).count() == 0)
             let cash = try await CashBalance.query(on: app.db).filter(\.$accountId == account.requireID()).all().reduce(0.0) { $0 + $1.balance }
-            #expect(abs(cash - 500) < 1e-6)
+            #expect(cash == 1000)
         }
     }
 
