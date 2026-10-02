@@ -17,12 +17,23 @@ struct ScopeRequirementMiddleware: AsyncMiddleware {
     }
 
     func respond(to request: Request, chainingTo next: any AsyncResponder) async throws -> Response {
+        try check(request)
+        return try await next.respond(to: request)
+    }
+
+    /// The same check for a handler whose required scope depends on the body
+    /// (e.g. what a pilot follow writes into). Same 403 and reason as the
+    /// middleware; first-party sessions pass.
+    static func require(_ scope: APIScope, on request: Request) throws {
+        try ScopeRequirementMiddleware(scope).check(request)
+    }
+
+    private func check(_ request: Request) throws {
         if let context = request.auth.get(ScopeContext.self),
            context.scopes.isDisjoint(with: accepted)
         {
             throw Abort(.forbidden, reason: "insufficient_scope: \(requirementDescription) required")
         }
-        return try await next.respond(to: request)
     }
 
     private var requirementDescription: String {

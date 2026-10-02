@@ -77,6 +77,12 @@ struct PilotController: RouteCollection {
         try requireEnabled()
         let session = try req.auth.require(SessionToken.self)
         let payload = try req.content.decode(PilotFollowCreateRequest.self)
+        // portfolio:write (the route) covers creating the follow; a token also
+        // needs write access to what the follow fills.
+        switch payload.targetKind {
+        case .portfolio: try ScopeRequirementMiddleware.require(.holdingsWrite, on: req)
+        case .watchlist: try ScopeRequirementMiddleware.require(.watchlistWrite, on: req)
+        }
         let entitlement = try await req.entitlementResolver.resolve(userId: session.userId, on: req.db)
         let follow = try await PilotFollowService(mirror: PilotWiring.mirror(req.application))
             .create(payload, userId: session.userId, entitlement: entitlement, now: Date(), on: req.db)
