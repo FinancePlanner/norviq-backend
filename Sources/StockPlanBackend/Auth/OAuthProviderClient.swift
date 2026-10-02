@@ -619,7 +619,7 @@ private struct GoogleIDTokenClaims: JWTPayload {
     }
 }
 
-private enum StringOrArray: Codable {
+enum StringOrArray: Codable, Sendable {
     case string(String)
     case array([String])
 
@@ -652,7 +652,7 @@ private enum StringOrArray: Codable {
     }
 }
 
-private func oauthValidateStandardTimes(exp: Int, iat: Int?, providerLabel: String) throws {
+func oauthValidateStandardTimes(exp: Int, iat: Int?, providerLabel: String) throws {
     let now = Date()
     let skew: TimeInterval = 300
     let expDate = Date(timeIntervalSince1970: TimeInterval(exp))
@@ -668,7 +668,7 @@ private func oauthValidateStandardTimes(exp: Int, iat: Int?, providerLabel: Stri
     }
 }
 
-private func oauthVerifyIDToken<Claims: JWTPayload>(
+func oauthVerifyIDToken<Claims: JWTPayload>(
     _ token: String,
     using keys: JWTKeyCollection,
     allowedAlgorithms: Set<String>,
@@ -712,7 +712,7 @@ private func oauthValidateJWTHeader(
     }
 }
 
-private func oauthParseJWTHeader(_ token: String) throws -> [String: Any] {
+func oauthParseJWTHeader(_ token: String) throws -> [String: Any] {
     let segments = token.split(separator: ".")
     guard segments.count == 3 else {
         throw Abort(.unauthorized, reason: "Invalid JWT format")

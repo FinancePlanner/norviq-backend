@@ -233,9 +233,9 @@ enum XFollowingImport {
         return try JSONDecoder().decode(T.self, from: Data(buffer: body))
     }
 
-    // MARK: - OAuth helpers (same rules as sign-in)
+    // MARK: - OAuth helpers (same rules as sign-in; Facebook import reuses them)
 
-    private static func normalizedRedirectURI(_ raw: String) throws -> String {
+    static func normalizedRedirectURI(_ raw: String) throws -> String {
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         guard let components = URLComponents(string: trimmed),
               let scheme = components.scheme, !scheme.isEmpty,
@@ -248,7 +248,7 @@ enum XFollowingImport {
 
     /// Mirrors `AuthService.validateRedirectURI`: the same
     /// `OAUTH_ALLOWED_REDIRECT_URIS` allowlist, required in production.
-    private static func validatedRedirectURI(_ raw: String, app: Application) throws -> String {
+    static func validatedRedirectURI(_ raw: String, app: Application) throws -> String {
         let redirectURI = try normalizedRedirectURI(raw)
         let allowlist = Set(
             (Environment.get("OAUTH_ALLOWED_REDIRECT_URIS") ?? "")
@@ -272,7 +272,7 @@ enum XFollowingImport {
         Data(SHA256.hash(data: Data(verifier.utf8))).socialBase64URL
     }
 
-    private static func randomURLSafeString(length: Int) -> String {
+    static func randomURLSafeString(length: Int) -> String {
         let bytes = (0 ..< max(length, 32)).map { _ in UInt8.random(in: 0 ... 255) }
         return String(Data(bytes).socialBase64URL.prefix(length))
     }

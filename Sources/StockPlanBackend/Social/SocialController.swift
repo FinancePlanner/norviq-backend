@@ -44,6 +44,10 @@ struct SocialController: RouteCollection {
         discovery.post("contacts", "match", use: matchContacts)
         discovery.post("x", "start", use: XFollowingImport.start)
         discovery.post("x", "exchange", use: XFollowingImport.exchange)
+        discovery.post("facebook", "limited", use: FacebookFriendsImport.limited)
+        discovery.post("facebook", "start", use: FacebookFriendsImport.start)
+        discovery.post("facebook", "exchange", use: FacebookFriendsImport.exchange)
+        discovery.delete("facebook", use: FacebookFriendsImport.disconnect)
     }
 
     // MARK: - Config
@@ -240,12 +244,15 @@ struct SocialController: RouteCollection {
     @Sendable
     func updatePrivacy(req: Request) async throws -> SocialPrivacySettingsDTO {
         let userId = try req.auth.require(SessionToken.self).userId
-        let settings = try req.content.decode(SocialPrivacySettingsDTO.self)
+        var settings = try req.content.decode(SocialPrivacySettingsDTO.self)
         let record = try await SocialService.ensureSettings(
             for: userId,
             config: SocialConfiguration.fromEnvironment(),
             on: req.db
         )
+        if try req.content.decode(SocialFacebookPrivacyProbe.self).discoverableByFacebook == nil {
+            settings.discoverableByFacebook = record.discoverableByFacebook
+        }
         record.apply(settings)
         try await record.save(on: req.db)
         return record.dto
