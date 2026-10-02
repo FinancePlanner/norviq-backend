@@ -387,3 +387,10 @@ extension UpdateNewsTickerSettingsRequest: @retroactive Content {}
 extension NewsTickerFeed: @retroactive Content {}
 extension NewsTickerFeedsResponse: @retroactive Content {}
 extension AddNewsTickerFeedRequest: @retroactive Content {}
+extension PilotSummary: @retroactive Content {}
+extension PilotDetail: @retroactive Content {}
+extension PilotFollowCreateRequest: @retroactive Content {}
+extension PilotFollowUpdateRequest: @retroactive Content {}
+extension PilotFollowResponse: @retroactive Content {}
+extension PilotFollowEventResponse: @retroactive Content {}
+extension PilotFollowSnapshotResponse: @retroactive Content {}

@@ -105,6 +105,10 @@ func routes(_ app: Application) throws {
     let brokerRateLimit = RateLimitMiddleware(limit: 30, interval: 60, keyPrefix: "ratelimit:broker")
     try api.grouped(brokerRateLimit, IdempotencyMiddleware(keyPrefix: "idempotency:broker"))
         .register(collection: BrokerController())
+    // Pilot follows write simulated trades; rate limit and dedupe retried POSTs.
+    let pilotRateLimit = RateLimitMiddleware(limit: 30, interval: 60, keyPrefix: "ratelimit:pilots")
+    try api.grouped(pilotRateLimit, IdempotencyMiddleware(keyPrefix: "idempotency:pilots"))
+        .register(collection: PilotController())
     try api.register(collection: StatisticsController())
     try api.register(collection: NewsController())
     try api.register(collection: DashboardController())
