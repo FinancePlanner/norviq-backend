@@ -102,6 +102,18 @@ struct PilotJobsTests {
         }
     }
 
+    @Test("without FMP, ingestion is still wired (funds run); the congress source yields nothing")
+    func ingestionWithoutFMP() async throws {
+        try await withApp { app in
+            let service: PilotIngestionService? = PilotWiring.ingestion(app)
+            #expect(service != nil)
+            let congress = PilotWiring.congressSource(app, fmp: nil)
+            let identity = PilotSourceIdentity(kind: .politician, chamber: "house", bioguideId: "P000197", aliases: ["Nancy Pelosi"], cik: nil)
+            let rows = try await congress.disclosures(for: identity)
+            #expect(rows.isEmpty)
+        }
+    }
+
     @Test("ingestion job reads a fund at most once a day; politicians every run")
     func fundCadence() async throws {
         try await withApp { app in

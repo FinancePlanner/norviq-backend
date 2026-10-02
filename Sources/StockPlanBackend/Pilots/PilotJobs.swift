@@ -10,15 +10,11 @@ enum PilotWiring {
     }
 
     /// Free sources only: FMP's latest congress feeds (page 0, 25 rows) and
-    /// SEC EDGAR 13F filings with OpenFIGI CUSIP mapping.
-    static func ingestion(_ app: Application) -> PilotIngestionService? {
-        guard let fmp = app.marketDataService.fmpProvider else { return nil }
-        let congress = FMPCongressPilotSource { chamber in
-            let req = request(app)
-            return chamber == "senate"
-                ? try await fmp.latestSenateTrades(limit: FMPCongressPilotSource.feedLimit, on: req)
-                : try await fmp.latestHouseTrades(limit: FMPCongressPilotSource.feedLimit, on: req)
-        }
+    /// SEC EDGAR 13F filings with OpenFIGI CUSIP mapping. Funds need no FMP
+    /// key, so a missing key disables congress ingestion only. Called once per
+    /// ingestion run, which is what keeps the warning to one per run.
+    static func ingestion(_ app: Application) -> PilotIngestionService {
+        let congress = congressSource(app, fmp: app.marketDataService.fmpProvider)
         let userAgent = Environment.get("SEC_EDGAR_USER_AGENT") ?? "Norviq ops@norviq.org"
         let resolver = CusipSymbolResolver(
             post: { body in
@@ -50,6 +46,19 @@ enum PilotWiring {
         return PilotIngestionService(politicians: congress, funds: funds)
     }
 
+    static func congressSource(_ app: Application, fmp: (any FMPMarketDataProvider)?) -> any PilotDisclosureSource {
+        guard let fmp else {
+            app.logger.warning("pilot congress ingestion disabled: FMP not configured")
+            return DisabledPilotSource()
+        }
+        return FMPCongressPilotSource { chamber in
+            let req = request(app)
+            return chamber == "senate"
+                ? try await fmp.latestSenateTrades(limit: FMPCongressPilotSource.feedLimit, on: req)
+                : try await fmp.latestHouseTrades(limit: FMPCongressPilotSource.feedLimit, on: req)
+        }
+    }
+
     static func mirror(_ app: Application) -> PilotMirrorService {
         PilotMirrorService(
             quote: { symbol in try await app.marketDataService.quote(symbol: symbol, on: request(app)).currentPrice },
@@ -60,6 +69,14 @@ enum PilotWiring {
                 try await app.usageCounterService.enforceResourceLimit(.watchlistItems, userId: userId, currentCount: current, adding: 1, on: db)
             }
         )
+    }
+}
+
+/// A source with nothing to report: stands in for congress when FMP is not
+/// configured, so funds still ingest.
+struct DisabledPilotSource: PilotDisclosureSource {
+    func disclosures(for _: PilotSourceIdentity) async throws -> [PilotDisclosureInput] {
+        []
     }
 }
 
@@ -81,7 +98,7 @@ final class PilotIngestionJob: LifecycleHandler, @unchecked Sendable {
             guard self.state.begin() else { return }
             let task = Task {
                 defer { self.state.finish() }
-                guard let service = PilotWiring.ingestion(app) else { return }
+                let service = PilotWiring.ingestion(app)
                 _ = await JobLock.runAsLeader(app, name: "pilot_ingestion_job") {
                     await self.runOnceAsLeader(app, service: service)
                 }
