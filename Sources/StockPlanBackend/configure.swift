@@ -490,7 +490,7 @@ public func configure(_ app: Application) async throws {
     // funds. Off unless PILOTS_ENABLED; the controller 404s too.
     if envBool("PILOTS_ENABLED", default: false) {
         app.lifecycle.use(PilotIngestionJob(
-            intervalSeconds: Environment.get("PILOT_INGESTION_INTERVAL_SECONDS").flatMap(Int64.init) ?? 3600
+            intervalSeconds: Environment.get("PILOT_INGESTION_INTERVAL_SECONDS").flatMap(Int64.init) ?? PilotIngestionJob.defaultIntervalSeconds
         ))
         app.lifecycle.use(PilotMirrorJob(
             intervalSeconds: Environment.get("PILOT_MIRROR_INTERVAL_SECONDS").flatMap(Int64.init) ?? 3600

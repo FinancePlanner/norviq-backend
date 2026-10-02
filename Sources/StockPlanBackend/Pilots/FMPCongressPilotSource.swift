@@ -6,7 +6,8 @@ import Foundation
 /// The free plan returns only the newest 25 rows per chamber (page 0), so
 /// there is no history to search. Each ingestion run reads the feed once per
 /// chamber and hands each pilot its own rows. The memo keeps 15 pilots from
-/// costing 15 requests against a 250-request daily budget.
+/// costing 15 requests against a 250-request daily budget: one run costs two
+/// calls, about 24 a day at the default two-hour ingestion interval.
 struct FMPCongressPilotSource: PilotDisclosureSource {
     typealias Fetch = @Sendable (_ chamber: String) async throws -> [FMPCongressTrade]
 
@@ -15,7 +16,11 @@ struct FMPCongressPilotSource: PilotDisclosureSource {
     private let fetch: Fetch
     private let memo: FeedMemo
 
-    init(ttl: TimeInterval = 600, now: @escaping @Sendable () -> Date = Date.init, fetch: @escaping Fetch) {
+    /// At least one ingestion interval, so a slow run never refetches a feed
+    /// mid-run. A source is built per run, so the memo never spans two runs.
+    static let defaultMemoTTL: TimeInterval = .init(PilotIngestionJob.defaultIntervalSeconds)
+
+    init(ttl: TimeInterval = FMPCongressPilotSource.defaultMemoTTL, now: @escaping @Sendable () -> Date = Date.init, fetch: @escaping Fetch) {
         self.fetch = fetch
         memo = FeedMemo(ttl: ttl, now: now)
     }

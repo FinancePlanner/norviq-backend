@@ -80,16 +80,21 @@ struct DisabledPilotSource: PilotDisclosureSource {
     }
 }
 
-/// Pulls disclosures for every active pilot. Hourly, because the free congress
-/// feed shows only the newest 25 rows per chamber and older rows scroll off.
-/// Funds file quarterly, so each fund is read at most once a day.
+/// Pulls disclosures for every active pilot. Every two hours by default: each
+/// run reads the free congress feed once per chamber (the memo shares it across
+/// pilots), so that is about 24 FMP calls a day against a 250-call budget, while
+/// still reading the newest 25 rows per chamber often enough that rows rarely
+/// scroll off between runs. Funds file quarterly, so each fund is read at most
+/// once a day.
 final class PilotIngestionJob: LifecycleHandler, @unchecked Sendable {
     private let intervalSeconds: Int64
     private let state = BackgroundJobState()
 
     static let fundRefreshSeconds: TimeInterval = 86400
+    /// Also the `PILOT_INGESTION_INTERVAL_SECONDS` fallback in configure.swift.
+    static let defaultIntervalSeconds: Int64 = 7200
 
-    init(intervalSeconds: Int64 = 3600) {
+    init(intervalSeconds: Int64 = PilotIngestionJob.defaultIntervalSeconds) {
         self.intervalSeconds = max(900, intervalSeconds)
     }
 
