@@ -49,8 +49,10 @@ struct TransactionService {
     // MARK: - Read
 
     func list(userId: UUID, on db: any Database) async throws -> [TransactionResponse] {
+        // Pilot follows trade simulated cash; those rows are not the user's history.
         let accountIds = try await Account.query(on: db)
             .filter(\.$userId == userId)
+            .filter(\.$broker != PilotAccountResolver.broker)
             .all()
             .compactMap(\.id)
         guard !accountIds.isEmpty else { return [] }
