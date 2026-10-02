@@ -50,7 +50,7 @@ struct PilotMirrorService: Sendable {
             .filter(\.$portfolioListId == listId)
             .all()
         let holdings = stocks.reduce(into: [String: Double]()) { $0[$1.symbol, default: 0] += $1.shares }
-        let account = try await ManualAccountResolver.findOrCreate(userId: follow.userId, portfolioId: listId, on: db)
+        let account = try await PilotAccountResolver.findOrCreate(userId: follow.userId, portfolioId: listId, on: db)
         let cash = try await CashBalance.query(on: db)
             .filter(\.$accountId == account.requireID())
             .all()
@@ -99,7 +99,7 @@ struct PilotMirrorService: Sendable {
                     stockId: nil
                 )
             }
-            _ = try await recorder.record(trades, userId: follow.userId, portfolioId: listId, sourceProvider: "pilot", on: tx)
+            _ = try await recorder.record(trades, userId: follow.userId, portfolioId: listId, sourceProvider: "pilot", account: { try await PilotAccountResolver.findOrCreate(userId: $0, portfolioId: $1, on: $2) }, on: tx)
             for order in plan.orders {
                 try await PilotFollowEvent(followId: followId, bookVersion: version.version, kind: order.side == .buy ? "buy" : "sell", symbol: order.symbol, quantity: order.quantity, price: order.price, pricedAt: now).create(on: tx)
             }

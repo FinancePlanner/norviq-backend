@@ -44,13 +44,15 @@ struct PilotFollowService: Sendable {
                     throw Abort(.badRequest, reason: "Starting capital must be between 0 and 10,000,000.")
                 }
                 let listId = try await portfolioTarget(request.portfolioListId, pilot: pilot, userId: userId, on: tx)
-                let account = try await ManualAccountResolver.findOrCreate(userId: userId, portfolioId: listId, on: tx)
+                let account = try await PilotAccountResolver.findOrCreate(userId: userId, portfolioId: listId, on: tx)
                 try await CashBalance(accountId: account.requireID(), currency: account.baseCurrency, balance: capital, asOf: now).create(on: tx)
+                try await ensureNotFollowing(userId: userId, pilotId: pilotId, portfolioListId: listId, watchlistListId: nil, on: tx)
                 let follow = PilotFollow(userId: userId, pilotId: pilotId, targetKind: .portfolio, portfolioListId: listId, startingCapital: capital, currency: account.baseCurrency)
                 try await follow.create(on: tx)
                 return follow
             case .watchlist:
                 let listId = try await watchlistTarget(request.watchlistListId, pilot: pilot, userId: userId, on: tx)
+                try await ensureNotFollowing(userId: userId, pilotId: pilotId, portfolioListId: nil, watchlistListId: listId, on: tx)
                 let follow = PilotFollow(userId: userId, pilotId: pilotId, targetKind: .watchlist, watchlistListId: listId)
                 try await follow.create(on: tx)
                 return follow
@@ -70,6 +72,19 @@ struct PilotFollowService: Sendable {
         return follow
     }
 
+    private func ensureNotFollowing(userId: UUID, pilotId: UUID, portfolioListId: UUID?, watchlistListId: UUID?, on db: any Database) async throws {
+        var query = PilotFollow.query(on: db).filter(\.$userId == userId).filter(\.$pilotId == pilotId)
+        if let portfolioListId {
+            query = query.filter(\.$portfolioListId == portfolioListId)
+        }
+        if let watchlistListId {
+            query = query.filter(\.$watchlistListId == watchlistListId)
+        }
+        if try await query.count() > 0 {
+            throw Abort(.conflict, reason: "You already follow this pilot there.")
+        }
+    }
+
     private func portfolioTarget(_ rawId: String?, pilot: Pilot, userId: UUID, on db: any Database) async throws -> UUID {
         if let rawId {
             guard let id = UUID(uuidString: rawId),
@@ -79,7 +94,15 @@ struct PilotFollowService: Sendable {
                 throw Abort(.unprocessableEntity, reason: "Pilots can only be followed into a hypothetical portfolio, never your main or a real one.")
             }
             let held = try await Stock.query(on: db).filter(\.$portfolioListId == id).count()
-            guard held == 0 else {
+            let followed = try await PilotFollow.query(on: db).filter(\.$portfolioListId == id).count()
+            let accountIds = try await Account.query(on: db).filter(\.$portfolioId == id).all().map { try $0.requireID() }
+            var ledger = 0
+            if !accountIds.isEmpty {
+                ledger += try await CashBalance.query(on: db).filter(\.$accountId ~~ accountIds).count()
+                ledger += try await Transaction.query(on: db).filter(\.$accountId ~~ accountIds).count()
+            }
+            let cashPositions = try await PortfolioCashPositionRecord.query(on: db).filter(\.$portfolioId == id).count()
+            guard held == 0, followed == 0, ledger == 0, cashPositions == 0 else {
                 throw Abort(.unprocessableEntity, reason: "Choose an empty hypothetical portfolio, or let Norviq create one.")
             }
             return id

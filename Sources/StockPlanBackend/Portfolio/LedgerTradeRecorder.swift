@@ -48,9 +48,10 @@ struct LedgerTradeRecorder: Sendable {
         userId: UUID,
         portfolioId: UUID,
         sourceProvider: String?,
+        account resolveAccount: @Sendable (UUID, UUID, any Database) async throws -> Account = { try await ManualAccountResolver.findOrCreate(userId: $0, portfolioId: $1, on: $2) },
         on db: any Database
     ) async throws -> [LedgerTradeResult] {
-        let account = try await ManualAccountResolver.findOrCreate(userId: userId, portfolioId: portfolioId, on: db)
+        let account = try await resolveAccount(userId, portfolioId, db)
         let accountId = try account.requireID()
         let cash = try await cashRow(accountId: accountId, currency: account.baseCurrency, on: db)
 

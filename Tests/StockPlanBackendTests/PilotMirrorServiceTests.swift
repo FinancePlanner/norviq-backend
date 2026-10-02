@@ -64,7 +64,7 @@ struct PilotMirrorServiceTests {
 
     private func portfolioFollow(userId: UUID, pilot: Pilot, cash: Double, on db: any Database) async throws -> PilotFollow {
         let listId = try await makeHypothetical(userId: userId, on: db)
-        let account = try await ManualAccountResolver.findOrCreate(userId: userId, portfolioId: listId, on: db)
+        let account = try await PilotAccountResolver.findOrCreate(userId: userId, portfolioId: listId, on: db)
         try await CashBalance(accountId: account.requireID(), currency: account.baseCurrency, balance: cash, asOf: now).create(on: db)
         let follow = try PilotFollow(userId: userId, pilotId: pilot.requireID(), targetKind: .portfolio, portfolioListId: listId, startingCapital: cash)
         try await follow.create(on: db)
@@ -119,7 +119,7 @@ struct PilotMirrorServiceTests {
             #expect(events.contains { $0.kind == "buy" && $0.symbol == "AAPL" })
             let stock = try #require(try await Stock.query(on: app.db).filter(\.$portfolioListId == follow.portfolioListId!).first())
             #expect(stock.shares == 5)
-            let account = try await ManualAccountResolver.findOrCreate(userId: userId, portfolioId: follow.portfolioListId!, on: app.db)
+            let account = try await PilotAccountResolver.findOrCreate(userId: userId, portfolioId: follow.portfolioListId!, on: app.db)
             let cash = try await CashBalance.query(on: app.db).filter(\.$accountId == account.requireID()).all().reduce(0.0) { $0 + $1.balance }
             #expect(abs(cash - 500) < 1e-6)
         }

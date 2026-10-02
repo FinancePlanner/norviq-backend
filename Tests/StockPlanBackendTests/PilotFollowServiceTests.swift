@@ -86,27 +86,112 @@ struct PilotFollowServiceTests {
         }
     }
 
-    @Test("actual, default and non-empty portfolios are rejected with 422 and nothing is written")
+    private func portfolioReq(_ pilot: Pilot, _ list: PortfolioList?) throws -> PilotFollowCreateRequest {
+        try PilotFollowCreateRequest(pilotSlug: pilot.slug, targetKind: .portfolio, portfolioListId: list?.requireID().uuidString, watchlistListId: nil, startingCapital: 1000)
+    }
+
+    private func expect422(_ list: PortfolioList, pilot: Pilot, userId: UUID, on db: any Database, _ label: String) async throws {
+        do {
+            _ = try await followService.create(portfolioReq(pilot, list), userId: userId, entitlement: entitlement(userId, pro: true), now: now, on: db)
+            Issue.record("expected 422 for \(label)")
+        } catch let error as Abort {
+            #expect(error.status == .unprocessableEntity, "\(label)")
+        }
+    }
+
+    @Test("actual, default, archived and non-empty portfolios are rejected with 422 and nothing is written")
     func rejectsNonEmptyAndActualTargets() async throws {
+        try await withApp { app in
+            let db = app.db
+            let userId = try await makeUser(on: db)
+            let pilot = try await seededPilot(on: db)
+            let actual = PortfolioList(userId: userId, name: "Real", mode: "actual")
+            try await actual.create(on: db)
+            let defaulted = PortfolioList(userId: userId, name: "Main", isDefault: true, mode: "hypothetical")
+            try await defaulted.create(on: db)
+            let archived = PortfolioList(userId: userId, name: "Old", mode: "hypothetical")
+            archived.archivedAt = now
+            try await archived.create(on: db)
+            let busy = PortfolioList(userId: userId, name: "Busy", mode: "hypothetical")
+            try await busy.create(on: db)
+            try await Stock(userId: userId, portfolioListId: busy.requireID(), symbol: "KO", shares: 1, buyPrice: 1, buyDate: now).create(on: db)
+            let cashOnly = PortfolioList(userId: userId, name: "CashOnly", mode: "hypothetical")
+            try await cashOnly.create(on: db)
+            try await PortfolioCashPositionRecord(portfolioId: cashOnly.requireID(), label: "Cash", currency: "USD", balance: 5, asOf: now).create(on: db)
+            let taken = PortfolioList(userId: userId, name: "Taken", mode: "hypothetical")
+            try await taken.create(on: db)
+            let otherPilot = try await seededPilot(on: db)
+            try await PilotFollow(userId: userId, pilotId: otherPilot.requireID(), targetKind: .portfolio, portfolioListId: taken.requireID(), startingCapital: 1).create(on: db)
+
+            let accounts = try await Account.query(on: db).filter(\.$userId == userId).count()
+            let cashes = try await CashBalance.query(on: db).count()
+            let lists = try await PortfolioList.query(on: db).filter(\.$userId == userId).count()
+            let follows = try await PilotFollow.query(on: db).filter(\.$userId == userId).count()
+
+            for (list, label) in [(actual, "actual"), (defaulted, "default"), (archived, "archived"), (busy, "stock"), (cashOnly, "cash position"), (taken, "followed")] {
+                try await expect422(list, pilot: pilot, userId: userId, on: db, label)
+            }
+            #expect(try await Account.query(on: db).filter(\.$userId == userId).count() == accounts)
+            #expect(try await CashBalance.query(on: db).count() == cashes)
+            #expect(try await PortfolioList.query(on: db).filter(\.$userId == userId).count() == lists)
+            #expect(try await PilotFollow.query(on: db).filter(\.$userId == userId).count() == follows)
+            let stock = try #require(try await Stock.query(on: db).filter(\.$portfolioListId == busy.requireID()).first())
+            #expect(stock.symbol == "KO" && stock.shares == 1)
+        }
+    }
+
+    @Test("duplicate follow of the same pilot into the same watchlist is a 409")
+    func duplicateIsConflict() async throws {
         try await withApp { app in
             let userId = try await makeUser(on: app.db)
             let pilot = try await seededPilot(on: app.db)
             let pro = entitlement(userId, pro: true)
-            let actual = PortfolioList(userId: userId, name: "Main", isDefault: true, mode: "actual")
-            try await actual.create(on: app.db)
-            let busy = PortfolioList(userId: userId, name: "Busy", mode: "hypothetical")
-            try await busy.create(on: app.db)
-            try await Stock(userId: userId, portfolioListId: busy.requireID(), symbol: "KO", shares: 1, buyPrice: 1, buyDate: now).create(on: app.db)
-
-            for target in [actual, busy] {
-                do {
-                    _ = try await followService.create(PilotFollowCreateRequest(pilotSlug: pilot.slug, targetKind: .portfolio, portfolioListId: target.requireID().uuidString, watchlistListId: nil, startingCapital: 1000), userId: userId, entitlement: pro, now: now, on: app.db)
-                    Issue.record("expected 422 for \(target.name)")
-                } catch let error as Abort {
-                    #expect(error.status == .unprocessableEntity)
-                }
+            let first = try await followService.create(PilotFollowCreateRequest(pilotSlug: pilot.slug, targetKind: .watchlist, portfolioListId: nil, watchlistListId: nil, startingCapital: nil), userId: userId, entitlement: pro, now: now, on: app.db)
+            do {
+                _ = try await followService.create(PilotFollowCreateRequest(pilotSlug: pilot.slug, targetKind: .watchlist, portfolioListId: nil, watchlistListId: first.watchlistListId?.uuidString, startingCapital: nil), userId: userId, entitlement: pro, now: now, on: app.db)
+                Issue.record("expected 409")
+            } catch let error as Abort {
+                #expect(error.status == .conflict)
             }
-            #expect(try await PilotFollow.query(on: app.db).filter(\.$userId == userId).count() == 0)
+        }
+    }
+
+    @Test("existing manual accounts and their real cash are never touched by a portfolio follow")
+    func realAccountsUntouched() async throws {
+        try await withApp { app in
+            let db = app.db
+            let userId = try await makeUser(on: db)
+            let pilot = try await seededPilot(on: db)
+            let main = PortfolioList(userId: userId, name: "Main", isDefault: true, mode: "actual")
+            try await main.create(on: db)
+            let legacy = Account(userId: userId, externalId: "manual-\(userId.uuidString.lowercased())", broker: "manual", displayName: "Manual", baseCurrency: "USD")
+            try await legacy.create(on: db)
+            try await CashBalance(accountId: legacy.requireID(), currency: "USD", balance: 777, asOf: now).create(on: db)
+            let bound = try Account(userId: userId, externalId: "manual-main-\(userId.uuidString.lowercased())", broker: "manual", displayName: "Manual main", baseCurrency: "USD", portfolioId: main.requireID())
+            try await bound.create(on: db)
+            try await CashBalance(accountId: bound.requireID(), currency: "USD", balance: 555, asOf: now).create(on: db)
+
+            let follow = try await followService.create(portfolioReq(pilot, nil), userId: userId, entitlement: entitlement(userId, pro: true), now: now, on: db)
+
+            let legacyAfter = try #require(try await Account.find(legacy.requireID(), on: db))
+            #expect(legacyAfter.portfolioId == nil)
+            let boundAfter = try #require(try await Account.find(bound.requireID(), on: db))
+            #expect(boundAfter.portfolioId == main.id)
+            func cash(_ a: Account) async throws -> Double {
+                try await CashBalance.query(on: db).filter(\.$accountId == a.requireID()).all().reduce(0) { $0 + $1.balance }
+            }
+            #expect(try await cash(legacy) == 777)
+            #expect(try await cash(bound) == 555)
+
+            let listId = try #require(follow.portfolioListId)
+            let accounts = try await Account.query(on: db).filter(\.$portfolioId == listId).all()
+            #expect(accounts.count == 1)
+            let sim = try #require(accounts.first)
+            #expect(sim.broker == "pilot")
+            // 1000 capital, AAPL at weight 1.0 and price 100: fully invested.
+            let stock = try #require(try await Stock.query(on: db).filter(\.$portfolioListId == listId).first())
+            let simCash = try await cash(sim)
+            #expect(simCash == 1000 - stock.shares * 100)
         }
     }
 
