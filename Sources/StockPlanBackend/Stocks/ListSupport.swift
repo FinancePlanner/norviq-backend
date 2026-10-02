@@ -74,6 +74,14 @@ struct StockListCursor {
     }
 }
 
+/// The user's default portfolio, promoting or creating one when there is none.
+///
+/// A portfolio a pilot follow manages is never the default: the default is
+/// where real holdings land (broker syncs, imports, adds without a list), and
+/// the mirror would sell whatever reaches it. Such a list is skipped when
+/// promoting, and one already flagged default (it could only have been promoted
+/// before this rule) is demoted. When every list is followed, a fresh actual
+/// "Main Portfolio" is created. Users without follows resolve exactly as before.
 func ensureDefaultPortfolioListId(userId: UUID, on db: any Database) async throws -> UUID {
     if let existing = try await PortfolioList.query(on: db)
         .filter(\.$userId == userId)
@@ -81,11 +89,22 @@ func ensureDefaultPortfolioListId(userId: UUID, on db: any Database) async throw
         .first(),
         let id = existing.id
     {
-        return id
+        guard try await PilotFollowGuard.isFollowed(portfolioListId: id, on: db) else {
+            return id
+        }
+        existing.isDefault = false
+        try await existing.save(on: db)
     }
 
-    if let fallback = try await PortfolioList.query(on: db)
+    let followed = try await PilotFollow.query(on: db)
         .filter(\.$userId == userId)
+        .all()
+        .compactMap(\.portfolioListId)
+    var candidates = PortfolioList.query(on: db).filter(\.$userId == userId)
+    if !followed.isEmpty {
+        candidates = candidates.filter(\.$id !~ followed)
+    }
+    if let fallback = try await candidates
         .sort(\.$createdAt, .ascending)
         .first(),
         let fallbackId = fallback.id
@@ -95,12 +114,27 @@ func ensureDefaultPortfolioListId(userId: UUID, on db: any Database) async throw
         return fallbackId
     }
 
-    let created = PortfolioList(userId: userId, name: "Main Portfolio", isDefault: true)
+    let created = try await PortfolioList(
+        userId: userId,
+        name: availablePortfolioListName("Main Portfolio", userId: userId, on: db),
+        isDefault: true
+    )
     try await created.save(on: db)
     guard let id = created.id else {
         throw Abort(.internalServerError, reason: "Failed to create default portfolio list.")
     }
     return id
+}
+
+/// Portfolio names are unique per user: `base`, else "base 2", "base 3", …
+private func availablePortfolioListName(_ base: String, userId: UUID, on db: any Database) async throws -> String {
+    let taken = try await Set(PortfolioList.query(on: db).filter(\.$userId == userId).all().map(\.name))
+    guard taken.contains(base) else { return base }
+    var n = 2
+    while taken.contains("\(base) \(n)") {
+        n += 1
+    }
+    return "\(base) \(n)"
 }
 
 func ensureDefaultWatchlistListId(userId: UUID, on db: any Database) async throws -> UUID {

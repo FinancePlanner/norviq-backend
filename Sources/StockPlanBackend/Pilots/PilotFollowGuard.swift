@@ -11,11 +11,15 @@ import Vapor
 /// counts: a paused follow resumes against whatever the portfolio holds.
 enum PilotFollowGuard {
     static func ensureNotFollowed(portfolioListId: UUID, on db: any Database) async throws {
-        let followed = try await PilotFollow.query(on: db)
-            .filter(\.$portfolioListId == portfolioListId)
-            .count()
-        if followed > 0 {
+        if try await isFollowed(portfolioListId: portfolioListId, on: db) {
             throw Abort(.conflict, reason: "This portfolio is managed by a pilot follow. Stop following to edit it.")
         }
+    }
+
+    /// For writers that must not throw (a background sync): they skip instead.
+    static func isFollowed(portfolioListId: UUID, on db: any Database) async throws -> Bool {
+        try await PilotFollow.query(on: db)
+            .filter(\.$portfolioListId == portfolioListId)
+            .count() > 0
     }
 }
