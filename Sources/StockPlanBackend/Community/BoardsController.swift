@@ -22,6 +22,11 @@ struct BoardsController: RouteCollection {
         community.post("guidelines", "accept", use: acceptGuidelines)
         community.post("blocks", use: block)
         community.delete("blocks", ":username", use: unblock)
+        community.get("notifications", use: notifications)
+        community.get("notifications", "unread-count", use: unreadCount)
+        community.post("notifications", "read", use: markRead)
+        community.get("notification-settings", use: notificationSettings)
+        community.put("notification-settings", use: updateNotificationSettings)
 
         let boards = base.grouped("boards")
         boards.get(use: listBoards)
@@ -119,6 +124,50 @@ struct BoardsController: RouteCollection {
             .filter(\.$blockedId == target)
             .delete()
         return .noContent
+    }
+
+    // MARK: - Notifications
+
+    @Sendable
+    func notifications(req: Request) async throws -> BoardNotificationPage {
+        let viewer = try req.communityViewer
+        return try await BoardNotifier.page(for: viewer.userId, cursor: req.query[String.self, at: "cursor"], on: req.db)
+    }
+
+    @Sendable
+    func unreadCount(req: Request) async throws -> BoardUnreadCount {
+        let viewer = try req.communityViewer
+        return try await BoardUnreadCount(unreadCount: BoardNotifier.unreadCount(for: viewer.userId, on: req.db))
+    }
+
+    @Sendable
+    func markRead(req: Request) async throws -> HTTPStatus {
+        let viewer = try req.communityViewer
+        let body = try req.content.decode(MarkBoardNotificationsReadRequest.self)
+        guard (body.ids?.count ?? 0) <= 200 else {
+            throw Abort(.badRequest, reason: "Mark at most 200 notifications at once.")
+        }
+        try await BoardNotifier.markRead(body.ids, for: viewer.userId, on: req.db)
+        return .noContent
+    }
+
+    @Sendable
+    func notificationSettings(req: Request) async throws -> BoardNotificationSettings {
+        let viewer = try req.communityViewer
+        return try await BoardNotifier.settings(for: viewer.userId, on: req.db)
+    }
+
+    @Sendable
+    func updateNotificationSettings(req: Request) async throws -> BoardNotificationSettings {
+        let viewer = try req.communityViewer
+        let settings = try req.content.decode(BoardNotificationSettings.self)
+        let record = try await BoardNotificationSettingsRecord.query(on: req.db)
+            .filter(\.$userId == viewer.userId)
+            .first() ?? BoardNotificationSettingsRecord(userId: viewer.userId, settings: settings)
+        record.replyPush = settings.replyPush
+        record.upvotePush = settings.upvotePush
+        try await record.save(on: req.db)
+        return record.dto
     }
 
     // MARK: - Boards
@@ -279,9 +328,9 @@ struct BoardsController: RouteCollection {
     func vote(req: Request) async throws -> BoardVoteResponse {
         let viewer = try req.communityViewer
         try viewer.requireCanContribute()
-        let (post, _) = try await BoardsService.post(id: Self.uuid("postId", on: req), on: req.db)
+        let (post, board) = try await BoardsService.post(id: Self.uuid("postId", on: req), on: req.db)
         let postId = try post.requireID()
-        return try await req.db.transaction { tx in
+        let result = try await req.db.transaction { tx in
             let sql = try Self.sql(tx)
             let inserted = try await sql.raw("""
             INSERT INTO board_votes (id, post_id, user_id, created_at)
@@ -303,6 +352,10 @@ struct BoardsController: RouteCollection {
             let score = try row?.decode(column: "score", as: Int.self) ?? post.score
             return BoardVoteResponse(score: score, voted: voted)
         }
+        if result.voted {
+            await BoardNotifier.upvoted(post: post, board: board, actor: viewer, on: req)
+        }
+        return result
     }
 
     // MARK: - Comments
@@ -322,11 +375,13 @@ struct BoardsController: RouteCollection {
         }
 
         var depth = 0
+        var parent: BoardCommentRecord?
         if let parentId = body.parentId {
-            guard let parent = try await BoardCommentRecord.find(parentId, on: req.db), parent.postId == postId else {
+            guard let found = try await BoardCommentRecord.find(parentId, on: req.db), found.postId == postId else {
                 throw Abort(.badRequest, reason: "That reply target is gone.")
             }
-            depth = parent.depth + 1
+            parent = found
+            depth = found.depth + 1
             guard depth <= CommunityValidation.maxCommentDepth else {
                 throw Abort(.badRequest, reason: "This thread is too deep to reply further.")
             }
@@ -366,6 +421,7 @@ struct BoardsController: RouteCollection {
             WHERE post_id = \(bind: postId) AND user_id = \(bind: viewer.userId)
             """).run()
         }
+        await BoardNotifier.replied(comment: comment, parent: parent, post: post, board: board, actor: viewer, on: req)
         return try BoardComment(
             id: comment.requireID(),
             parentId: comment.parentId,

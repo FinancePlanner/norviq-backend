@@ -434,6 +434,7 @@ func registerMigrations(_ app: Application) {
     app.migrations.add(ExtendAssetCategoryEnum())
     app.migrations.add(CreatePilotTables())
     app.migrations.add(SeedPilots())
+    app.migrations.add(CreateBoardNotifications())
     app.migrations.add(AddPilotFollowTargetIndexes())
 }
 

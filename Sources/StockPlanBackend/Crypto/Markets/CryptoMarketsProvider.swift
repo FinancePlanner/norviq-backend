@@ -128,7 +128,7 @@ struct CoinGeckoV3CryptoMarketsProvider: CryptoMarketsProvider {
         switch response.status {
         case .ok:
             do {
-                return try response.content.decode(Body.self)
+                return try Self.decode(Body.self, from: response.body ?? ByteBuffer())
             } catch {
                 throw Abort(.badGateway, reason: "Failed to decode CoinGecko response for \(path).")
             }
@@ -141,6 +141,16 @@ struct CoinGeckoV3CryptoMarketsProvider: CryptoMarketsProvider {
             req.logger.error("coingecko request failed path=\(path) status=\(response.status.code)")
             throw Abort(.badGateway, reason: "Crypto market data isn’t available right now.")
         }
+    }
+}
+
+extension CoinGeckoV3CryptoMarketsProvider {
+    /// Not `response.content.decode`: that uses the app's global
+    /// `JSONDecoder.backendAPI`, which rewrites snake_case keys before the
+    /// explicit CodingKeys below are matched, so every `current_price` decoded
+    /// as nil and every coin was dropped. See `JSONDecoder.externalProvider`.
+    static func decode<Body: Decodable>(_: Body.Type, from buffer: ByteBuffer) throws -> Body {
+        try JSONDecoder.externalProvider.decode(Body.self, from: Data(buffer: buffer))
     }
 }
 
