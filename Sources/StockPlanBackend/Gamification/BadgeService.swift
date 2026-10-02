@@ -146,15 +146,22 @@ private extension DefaultBadgeService {
         var counts: [BadgeType: Int] = [:]
 
         // --- First Purchase & Investor: count manual holdings plus broker/import buy activity ---
+        // Pilot follows buy with simulated cash: neither their holdings (stamped
+        // source_provider "pilot" by the mirror) nor their transactions are the
+        // user's purchases.
         let stocks = try await Stock.query(on: db)
             .filter(\.$userId == userId)
             .all()
+            .filter { $0.sourceProvider != PilotAccountResolver.broker }
         let manualHoldingCount = stocks.count(where: { stock in
             stock.sourceProvider == nil && stock.sourceAccountId == nil
         })
         let importedHoldingCount = max(stocks.count - manualHoldingCount, 0)
 
-        let accounts = try await Account.query(on: db).filter(\.$userId == userId).all()
+        let accounts = try await Account.query(on: db)
+            .filter(\.$userId == userId)
+            .filter(\.$broker != PilotAccountResolver.broker)
+            .all()
         let accountIds = Set(accounts.compactMap(\.id))
 
         var buyCount = 0

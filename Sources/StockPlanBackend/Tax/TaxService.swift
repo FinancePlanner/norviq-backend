@@ -44,8 +44,10 @@ struct DefaultTaxService: TaxService {
         on db: any Database
     ) async throws -> TaxProfileContextResponse {
         let existing = try await profile(userId: userId, jurisdiction: jurisdiction, taxYear: taxYear, on: db)
+        // Pilot follow accounts hold simulated cash and are never taxable.
         let ownedAccounts = try await Account.query(on: db)
             .filter(\.$userId == userId)
+            .filter(\.$broker != PilotAccountResolver.broker)
             .all()
         let accounts = ownedAccounts
             .compactMap { account -> TaxProfileAccountOption? in

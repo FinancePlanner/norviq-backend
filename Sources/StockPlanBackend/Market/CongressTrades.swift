@@ -75,6 +75,9 @@ struct FMPCongressTrade: Codable, Sendable {
     /// The disclosed bracket, e.g. `$1,001 - $15,000`.
     let amount: String?
     let link: String?
+    /// Bioguide ID of the member (e.g. `P000197`). FMP names it `senateID` on
+    /// both chambers' feeds. The only stable identity the feed carries.
+    var senateID: String? = nil
 }
 
 // MARK: - Configuration

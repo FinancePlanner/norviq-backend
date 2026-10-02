@@ -192,9 +192,12 @@ struct ExportService: @unchecked Sendable {
         }
     }
 
-    private func getTransactionRows(userId: UUID, startDate: Date?, endDate: Date?, on db: any Database) async throws -> [TransactionExportRow] {
-        // Get user's account IDs
-        let accounts = try await Account.query(on: db).filter(\.$userId == userId).all()
+    func getTransactionRows(userId: UUID, startDate: Date?, endDate: Date?, on db: any Database) async throws -> [TransactionExportRow] {
+        // Get user's account IDs; pilot follows trade simulated cash and are left out.
+        let accounts = try await Account.query(on: db)
+            .filter(\.$userId == userId)
+            .filter(\.$broker != PilotAccountResolver.broker)
+            .all()
         let accountIds = accounts.map { $0.id! }
         guard !accountIds.isEmpty else { return [] }
 

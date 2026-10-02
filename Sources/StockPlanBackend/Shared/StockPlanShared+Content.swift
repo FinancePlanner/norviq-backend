@@ -410,3 +410,13 @@ extension CreateSanctionRequest: @retroactive Content {}
 extension UserSanctionListResponse: @retroactive Content {}
 extension BoardReportItem: @retroactive Content {}
 extension BoardReportListResponse: @retroactive Content {}
+
+// MARK: - Pilot follows
+
+extension PilotSummary: @retroactive Content {}
+extension PilotDetail: @retroactive Content {}
+extension PilotFollowCreateRequest: @retroactive Content {}
+extension PilotFollowUpdateRequest: @retroactive Content {}
+extension PilotFollowResponse: @retroactive Content {}
+extension PilotFollowEventResponse: @retroactive Content {}
+extension PilotFollowSnapshotResponse: @retroactive Content {}

@@ -18,6 +18,8 @@ tags:
   - name: Auth
   - name: Stocks
   - name: Watchlist
+  - name: Pilots
+    description: Simulated copy-trading of politicians and funds. Gated by `PILOTS_ENABLED`; every route returns 404 when it is off.
   - name: Research
   - name: Targets
   - name: MarketData
@@ -1135,6 +1137,247 @@ paths:
                 $ref: '#/components/schemas/WatchlistItemResponse'
         '401':
           description: Unauthorized
+  /v1/pilots:
+    get:
+      operationId: listPilots
+      tags: [Pilots]
+      summary: List pilots
+      description: Politicians and funds whose disclosed trades can be followed. Returns 404 when `PILOTS_ENABLED` is off.
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/PilotSummary'
+        '401':
+          description: Unauthorized
+        '404':
+          description: Not found, or the pilots feature is disabled (`PILOTS_ENABLED` off).
+
+  /v1/pilots/{slug}:
+    get:
+      operationId: getPilot
+      tags: [Pilots]
+      summary: Get a pilot
+      description: Latest book weights, recent disclosures and a plain-language reporting-lag note.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: slug
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PilotDetail'
+        '401':
+          description: Unauthorized
+        '404':
+          description: Not found, or the pilots feature is disabled (`PILOTS_ENABLED` off).
+
+  /v1/pilot-follows:
+    get:
+      operationId: listPilotFollows
+      tags: [Pilots]
+      summary: List pilot follows
+      description: The authenticated user's follows, newest first.
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/PilotFollowResponse'
+        '401':
+          description: Unauthorized
+        '404':
+          description: Not found, or the pilots feature is disabled (`PILOTS_ENABLED` off).
+    post:
+      operationId: createPilotFollow
+      tags: [Pilots]
+      summary: Follow a pilot
+      description: Starts a simulated follow into an empty watchlist or an empty hypothetical portfolio (or a new one Norviq creates). No real money is invested.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PilotFollowCreateRequest'
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PilotFollowResponse'
+        '401':
+          description: Unauthorized
+        '400':
+          description: Invalid starting capital.
+        '403':
+          description: A plan upgrade is required for this follow.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BillingUpgradeRequiredResponse'
+        '404':
+          description: Pilot or target list not found, or the pilots feature is disabled (`PILOTS_ENABLED` off).
+        '409':
+          description: The pilot has no book yet.
+        '422':
+          description: The target is not an empty hypothetical portfolio (it has stocks, cash, transactions, cash positions or an existing follow), or the chosen watchlist has items or an existing follow.
+
+  /v1/pilot-follows/{followId}:
+    get:
+      operationId: getPilotFollow
+      tags: [Pilots]
+      summary: Get a pilot follow
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: followId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PilotFollowResponse'
+        '401':
+          description: Unauthorized
+        '404':
+          description: Follow not found (or owned by another user), or the pilots feature is disabled.
+    patch:
+      operationId: updatePilotFollow
+      tags: [Pilots]
+      summary: Pause or resume a pilot follow
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: followId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PilotFollowUpdateRequest'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PilotFollowResponse'
+        '401':
+          description: Unauthorized
+        '404':
+          description: Follow not found (or owned by another user), or the pilots feature is disabled.
+    delete:
+      operationId: deletePilotFollow
+      tags: [Pilots]
+      summary: Stop a pilot follow
+      description: Stops the follow. The portfolio or watchlist it wrote to is kept.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: followId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '204':
+          description: Deleted
+        '401':
+          description: Unauthorized
+        '404':
+          description: Follow not found (or owned by another user), or the pilots feature is disabled.
+
+  /v1/pilot-follows/{followId}/events:
+    get:
+      operationId: listPilotFollowEvents
+      tags: [Pilots]
+      summary: List follow events
+      description: Simulated trades and watchlist changes, newest book version first (max 500).
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: followId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/PilotFollowEventResponse'
+        '401':
+          description: Unauthorized
+        '404':
+          description: Follow not found (or owned by another user), or the pilots feature is disabled.
+
+  /v1/pilot-follows/{followId}/snapshots:
+    get:
+      operationId: listPilotFollowSnapshots
+      tags: [Pilots]
+      summary: List follow value snapshots
+      description: Daily value and cash history, oldest first.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: followId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/PilotFollowSnapshotResponse'
+        '401':
+          description: Unauthorized
+        '404':
+          description: Follow not found (or owned by another user), or the pilots feature is disabled.
+
   /v1/watchlist/import/csv/preview:
     post:
       operationId: importWatchlistCsvPreview
@@ -12886,7 +13129,104 @@ components:
 
     WatchlistStatus:
       type: string
-      enum: [active, researching, waiting, ready, archived]
+      enum: [active, researching, waiting, ready, archived, exited]
+    PilotKind:
+      type: string
+      enum: [politician, fund]
+    PilotFollowTargetKind:
+      type: string
+      enum: [portfolio, watchlist]
+    PilotFollowStatus:
+      type: string
+      enum: [active, paused]
+    PilotSummary:
+      type: object
+      required: [slug, displayName, kind, holdingsCount]
+      properties:
+        slug: { type: string }
+        displayName: { type: string }
+        kind: { $ref: '#/components/schemas/PilotKind' }
+        chamber: { type: string, nullable: true, description: "`senate` or `house` for politicians; null for funds." }
+        updatedAt: { type: string, nullable: true, description: ISO-8601 time of the latest book version; null before the first ingestion. }
+        holdingsCount: { type: integer }
+    PilotWeight:
+      type: object
+      required: [symbol, weight]
+      properties:
+        symbol: { type: string }
+        weight: { type: number, format: double, description: "0...1. Weights in a book sum to 1." }
+    PilotDisclosureItem:
+      type: object
+      required: [symbol, side, instrument]
+      properties:
+        symbol: { type: string }
+        side: { type: string, description: "`buy`, `sell`, `sell_full` or `hold`." }
+        instrument: { type: string, description: "`stock`, `call` or `put`." }
+        transactionDate: { type: string, nullable: true }
+        disclosureDate: { type: string, nullable: true }
+        amountMin: { type: number, format: double, nullable: true }
+        amountMax: { type: number, format: double, nullable: true }
+        period: { type: string, nullable: true, description: "13F period such as `2026Q2`; null for politicians." }
+    PilotDetail:
+      type: object
+      required: [pilot, weights, skippedPuts, recentDisclosures, lagNote]
+      properties:
+        pilot: { $ref: '#/components/schemas/PilotSummary' }
+        weights:
+          type: array
+          items: { $ref: '#/components/schemas/PilotWeight' }
+        skippedPuts: { type: integer, description: Put trades in the window; not mirrored because a portfolio cannot go short. }
+        recentDisclosures:
+          type: array
+          items: { $ref: '#/components/schemas/PilotDisclosureItem' }
+        lagNote: { type: string, description: Plain-language reporting-lag and pricing disclaimer. }
+    PilotFollowCreateRequest:
+      type: object
+      required: [pilotSlug, targetKind]
+      properties:
+        pilotSlug: { type: string }
+        targetKind: { $ref: '#/components/schemas/PilotFollowTargetKind' }
+        portfolioListId: { type: string, format: uuid, nullable: true, description: An existing empty hypothetical portfolio. Omit to create a new one. }
+        watchlistListId: { type: string, format: uuid, nullable: true, description: An existing watchlist. Omit to create a new one. }
+        startingCapital: { type: number, format: double, nullable: true, description: Required for portfolio targets; ignored for watchlists. }
+    PilotFollowUpdateRequest:
+      type: object
+      required: [status]
+      properties:
+        status: { $ref: '#/components/schemas/PilotFollowStatus' }
+    PilotFollowResponse:
+      type: object
+      required: [id, pilot, targetKind, currency, status, appliedVersion, createdAt]
+      properties:
+        id: { type: string, format: uuid }
+        pilot: { $ref: '#/components/schemas/PilotSummary' }
+        targetKind: { $ref: '#/components/schemas/PilotFollowTargetKind' }
+        portfolioListId: { type: string, format: uuid, nullable: true }
+        watchlistListId: { type: string, format: uuid, nullable: true }
+        startingCapital: { type: number, format: double, nullable: true }
+        currency: { type: string }
+        status: { $ref: '#/components/schemas/PilotFollowStatus' }
+        appliedVersion: { type: integer, description: 0 until the first book version has been applied. }
+        createdAt: { type: string }
+    PilotFollowEventResponse:
+      type: object
+      required: [id, bookVersion, kind, symbol, pricedAt]
+      properties:
+        id: { type: string, format: uuid }
+        bookVersion: { type: integer }
+        kind: { type: string, description: "`buy`, `sell`, `watch_added`, `watch_exited`, `skipped_unpriced` or `skipped_limit`." }
+        symbol: { type: string }
+        quantity: { type: number, format: double, nullable: true }
+        price: { type: number, format: double, nullable: true }
+        pricedAt: { type: string }
+        note: { type: string, nullable: true }
+    PilotFollowSnapshotResponse:
+      type: object
+      required: [date, value, cash]
+      properties:
+        date: { type: string, description: "`yyyy-MM-dd`." }
+        value: { type: number, format: double }
+        cash: { type: number, format: double }
     WatchlistItemRequest:
       type: object
       properties:

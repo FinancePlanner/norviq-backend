@@ -212,6 +212,7 @@ struct StockServiceImpl: StockService {
         ) else {
             throw Abort(.internalServerError, reason: "Failed to resolve portfolio list.")
         }
+        try await PilotFollowGuard.ensureNotFollowed(portfolioListId: targetListId, on: db)
         let existing = try await Stock.query(on: db)
             .filter(\.$userId == userId)
             .filter(\.$portfolioListId == targetListId)
@@ -295,6 +296,13 @@ struct StockServiceImpl: StockService {
     func bulkCreate(payloads: [StockRequest], userId: UUID, on db: any Database) async throws
         -> BulkStockResponse
     {
+        // Every target list is checked before any row is written. A payload whose
+        // list does not resolve is left to the repository, which reports it per item.
+        for payload in payloads {
+            if let listId = try? await resolvePortfolioListId(requestedId: payload.portfolioListId, userId: userId, on: db) {
+                try await PilotFollowGuard.ensureNotFollowed(portfolioListId: listId, on: db)
+            }
+        }
         let results = try await repo.bulkCreate(payloads: payloads, userId: userId, on: db)
         let created = results.count(where: { $0.stock != nil })
         let failed = results.count(where: { $0.error != nil })
@@ -323,6 +331,13 @@ struct StockServiceImpl: StockService {
         -> StockResponse
     {
         _ = try validateSymbol(payload.symbol)
+        // Both ends of an edit: the list the holding is in and the one it may move to.
+        if let current = try await repo.find(id: id, userId: userId, on: db) {
+            try await PilotFollowGuard.ensureNotFollowed(portfolioListId: current.portfolioListId, on: db)
+            if let target = try? await resolvePortfolioListId(requestedId: payload.portfolioListId, userId: userId, on: db) {
+                try await PilotFollowGuard.ensureNotFollowed(portfolioListId: target, on: db)
+            }
+        }
         guard let stock = try await repo.update(id: id, payload: payload, userId: userId, on: db)
         else {
             throw StockServiceError.notFound
@@ -366,6 +381,9 @@ struct StockServiceImpl: StockService {
     }
 
     func delete(id: UUID, userId: UUID, on db: any Database) async throws {
+        if let current = try await repo.find(id: id, userId: userId, on: db) {
+            try await PilotFollowGuard.ensureNotFollowed(portfolioListId: current.portfolioListId, on: db)
+        }
         let deleted = try await repo.delete(id: id, userId: userId, on: db)
         guard deleted else {
             throw StockServiceError.notFound
@@ -385,6 +403,7 @@ struct StockServiceImpl: StockService {
         guard let stock = try await repo.find(id: id, userId: userId, on: db) else {
             throw StockServiceError.notFound
         }
+        try await PilotFollowGuard.ensureNotFollowed(portfolioListId: stock.portfolioListId, on: db)
 
         let tradeDate = try parseISODateOnly(payload.sellDate, field: "sellDate")
 
@@ -420,63 +439,28 @@ struct StockServiceImpl: StockService {
         }()
 
         return try await db.transaction { transactionDB in
-            // 1. Update/Delete Stock
-            if payload.sharesToSell == stock.shares {
-                _ = try await repo.delete(id: id, userId: userId, on: transactionDB)
-                stock.shares = 0
-            } else {
-                stock.shares -= payload.sharesToSell
-                try await stock.save(on: transactionDB)
-            }
-
-            // 2. Find or create a default manual account for cash proceeds.
-            let account = try await ManualAccountResolver.findOrCreate(
-                userId: userId,
-                portfolioId: stock.portfolioListId,
-                on: transactionDB
-            )
-
-            // 3. Update CashBalance
-            let currency = account.baseCurrency
-            if let existingCash = try await CashBalance.query(on: transactionDB)
-                .filter(\.$accountId == account.id!)
-                .filter(\.$currency == currency)
-                .first()
-            {
-                existingCash.balance += proceeds
-                existingCash.asOf = Date()
-                try await existingCash.save(on: transactionDB)
-            } else {
-                let newCash = CashBalance(
-                    accountId: account.id!,
-                    currency: currency,
-                    balance: proceeds,
-                    asOf: Date()
-                )
-                try await newCash.save(on: transactionDB)
-            }
-
-            // 4. Record the disposal as a Transaction.
-            //
-            // Without this the sale existed only as a shares decrement and a cash
-            // credit, so a manually recorded sell never reached realized P&L or the
-            // tax filing pack — only broker-imported sales did. This save is not
-            // caught: it belongs to the same unit of work as the share and cash
-            // changes above, so if it fails the whole sale rolls back rather than
-            // leaving the three out of step.
-            if let accountId = account.id, let instrumentId = sellInstrumentId {
-                let record = Transaction(
-                    accountId: accountId,
-                    instrumentId: instrumentId,
-                    externalId: TransactionService.manualExternalIDPrefix + UUID().uuidString.lowercased(),
-                    type: TransactionType.sell.rawValue,
+            // Shares, cash and the Transaction row move together through the
+            // one ledger write path; see LedgerTradeRecorder.
+            let results = try await LedgerTradeRecorder().record(
+                [LedgerTrade(
+                    symbol: stock.symbol,
+                    side: .sell,
                     quantity: payload.sharesToSell,
                     price: payload.sellPrice,
-                    currency: currency,
-                    tradeDate: tradeDate
-                )
-                try await record.save(on: transactionDB)
-            }
+                    tradeDate: tradeDate,
+                    instrumentId: sellInstrumentId,
+                    externalId: TransactionService.manualExternalIDPrefix + UUID().uuidString.lowercased(),
+                    stockId: id
+                )],
+                userId: userId,
+                portfolioId: stock.portfolioListId,
+                sourceProvider: nil,
+                // A once-followed portfolio keeps its pilot account; everything
+                // else takes the manual path exactly as before.
+                account: { try await PortfolioAccountResolver.forManualEdit(userId: $0, portfolioId: $1, on: $2) },
+                on: transactionDB
+            )
+            stock.shares = results.first?.remainingShares ?? 0
 
             // 5. Record Activity
             try? await req.userActivityService.recordActivity(

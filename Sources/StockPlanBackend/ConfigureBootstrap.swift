@@ -432,6 +432,8 @@ func registerMigrations(_ app: Application) {
     app.migrations.add(CreateGamificationTables())
     app.migrations.add(CreateCommunityBoardsTables())
     app.migrations.add(ExtendAssetCategoryEnum())
+    app.migrations.add(CreatePilotTables())
+    app.migrations.add(SeedPilots())
 }
 
 func envBool(_ key: String, default defaultValue: Bool) -> Bool {

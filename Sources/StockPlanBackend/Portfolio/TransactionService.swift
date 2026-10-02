@@ -49,8 +49,10 @@ struct TransactionService {
     // MARK: - Read
 
     func list(userId: UUID, on db: any Database) async throws -> [TransactionResponse] {
+        // Pilot follows trade simulated cash; those rows are not the user's history.
         let accountIds = try await Account.query(on: db)
             .filter(\.$userId == userId)
+            .filter(\.$broker != PilotAccountResolver.broker)
             .all()
             .compactMap(\.id)
         guard !accountIds.isEmpty else { return [] }
@@ -114,7 +116,8 @@ struct TransactionService {
             userId: userId,
             on: db
         )
-        let account = try await ManualAccountResolver.findOrCreate(
+        try await PilotFollowGuard.ensureNotFollowed(portfolioListId: portfolioListId, on: db)
+        let account = try await PortfolioAccountResolver.forManualEdit(
             userId: userId,
             portfolioId: portfolioListId,
             on: db
@@ -199,6 +202,9 @@ struct TransactionService {
         }
         guard model.externalId?.hasPrefix(Self.manualExternalIDPrefix) == true else {
             throw Abort(.forbidden, reason: "Imported transactions are read-only. Edit them at the source instead.")
+        }
+        if let portfolioId = account.portfolioId {
+            try await PilotFollowGuard.ensureNotFollowed(portfolioListId: portfolioId, on: db)
         }
         return model
     }
