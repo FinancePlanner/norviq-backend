@@ -166,7 +166,7 @@ final class PilotMirrorJob: LifecycleHandler, @unchecked Sendable {
                 do {
                     try await catchUp(follow, mirror: mirror, now: now, on: app.db)
                     if follow.target == .portfolio {
-                        try await snapshot(follow, now: now, on: app.db)
+                        try await snapshot(follow, now: now, logger: app.logger, on: app.db)
                     }
                 } catch {
                     app.logger.warning("pilot_mirror failed", metadata: ["follow_id": .string(follow.id?.uuidString ?? "?"), "error": .string(String(reflecting: error))])
@@ -192,12 +192,21 @@ final class PilotMirrorJob: LifecycleHandler, @unchecked Sendable {
 
     /// One row per follow per day. Kept apart from portfolio_value_snapshots
     /// on purpose: that table holds only real portfolios.
-    private func snapshot(_ follow: PilotFollow, now: Date, on db: any Database) async throws {
+    private func snapshot(_ follow: PilotFollow, now: Date, logger: Logger, on db: any Database) async throws {
         guard let listId = follow.portfolioListId else { return }
         let day = PortfolioSnapshotValuator.startOfDay(now)
         let exists = try await PilotFollowSnapshot.query(on: db).filter(\.$followId == follow.requireID()).filter(\.$capturedOn == day).first()
         guard exists == nil else { return }
         let valuation = try await PortfolioSnapshotValuator().value(userId: follow.userId, portfolioListId: listId, asOf: now, pricing: .live, on: db)
+        guard valuation.isFullyPriced else {
+            // Writing now would pin a partial value for the day (the exists-check
+            // above blocks later correction), so skip and let a later tick retry.
+            logger.warning("pilot_snapshot skipped: incomplete pricing", metadata: [
+                "follow_id": .string(follow.id?.uuidString ?? "?"),
+                "missing": .stringConvertible(valuation.missingSymbols),
+            ])
+            return
+        }
         try await PilotFollowSnapshot(followId: follow.requireID(), capturedOn: day, value: valuation.totalValue, cash: valuation.cashBalance).create(on: db)
     }
 }

@@ -124,7 +124,8 @@ struct FMPCongressPilotSource: PilotDisclosureSource {
 }
 
 /// Per-chamber cache of the feed for one ingestion run. Concurrent callers
-/// share one in-flight fetch; a failed fetch is evicted so the next call retries.
+/// share one in-flight fetch; a failed fetch is cached too (for the TTL), so an outage costs one call per
+/// chamber per run rather than one per pilot. The next run builds a fresh source.
 private actor FeedMemo {
     private let ttl: TimeInterval
     private let now: @Sendable () -> Date
@@ -143,13 +144,6 @@ private actor FeedMemo {
             entry = (now(), Task { try await fetch(chamber) })
             cache[chamber] = entry
         }
-        do {
-            return try await entry.task.value
-        } catch {
-            if let cur = cache[chamber], cur.at == entry.at {
-                cache[chamber] = nil
-            }
-            throw error
-        }
+        return try await entry.task.value
     }
 }

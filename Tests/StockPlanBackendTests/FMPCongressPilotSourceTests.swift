@@ -123,16 +123,20 @@ struct FMPCongressPilotSourceTests {
         #expect(await calls.counts == ["house": 1])
     }
 
-    @Test("a failed fetch is not cached")
-    func failureRetries() async {
+    @Test("a failed fetch is cached for the TTL, then retried")
+    func failureCachedThenRetries() async throws {
         let calls = Counter()
-        let src = FMPCongressPilotSource { chamber in
+        let clock = Clock()
+        let src = FMPCongressPilotSource(ttl: 600, now: { clock.date }) { chamber in
             await calls.increment(chamber)
             throw URLError(.timedOut)
         }
         for _ in 0 ..< 2 {
-            _ = try? await src.disclosures(for: pelosi)
+            await #expect(throws: (any Error).self) { _ = try await src.disclosures(for: pelosi) }
         }
+        #expect(await calls.counts == ["house": 1])
+        clock.advance(601)
+        await #expect(throws: (any Error).self) { _ = try await src.disclosures(for: pelosi) }
         #expect(await calls.counts == ["house": 2])
     }
 

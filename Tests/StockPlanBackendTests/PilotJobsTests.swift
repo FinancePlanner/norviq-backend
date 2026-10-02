@@ -1,5 +1,6 @@
 import Fluent
 import Foundation
+import SQLKit
 @testable import StockPlanBackend
 import StockPlanShared
 import Testing
@@ -51,6 +52,14 @@ struct PilotJobsTests {
         return try list.requireID()
     }
 
+    private func storeQuote(_ symbol: String, price: Double, on app: Application) async throws {
+        let sql = try #require(app.db as? any SQLDatabase)
+        try await sql.raw("""
+        INSERT INTO quote_cache (id, provider, symbol, currency, price, as_of, created_at)
+        VALUES (\(bind: UUID()), 'test', \(bind: symbol), 'USD', \(bind: price), now(), now())
+        """).run()
+    }
+
     private let now = Date(timeIntervalSince1970: 1_790_812_800)
 
     private func makePilot(on db: any Database) async throws -> Pilot {
@@ -62,6 +71,7 @@ struct PilotJobsTests {
     @Test("mirror job catches a lagging follow up to the latest version and writes one snapshot per day")
     func catchUpAndSnapshot() async throws {
         try await withApp { app in
+            let sym = "ZZ" + UUID().uuidString.prefix(6).uppercased()
             let userId = try await makeUser(on: app.db)
             let pilot = try await makePilot(on: app.db)
             let listId = try await makeHypothetical(userId: userId, on: app.db)
@@ -70,8 +80,9 @@ struct PilotJobsTests {
             let follow = try PilotFollow(userId: userId, pilotId: pilot.requireID(), targetKind: .portfolio, portfolioListId: listId, startingCapital: 1000)
             try await follow.create(on: app.db)
             try await PilotBookVersion(pilotId: pilot.requireID(), version: 1, computedAt: now, weights: ["AAPL": 1.0], skippedPuts: 0).create(on: app.db)
-            try await PilotBookVersion(pilotId: pilot.requireID(), version: 2, computedAt: now, weights: ["MSFT": 1.0], skippedPuts: 0).create(on: app.db)
+            try await PilotBookVersion(pilotId: pilot.requireID(), version: 2, computedAt: now, weights: [sym: 1.0], skippedPuts: 0).create(on: app.db)
 
+            try await storeQuote(sym, price: 100, on: app)
             let mirror = PilotMirrorService(quote: { _ in 100 }, instrument: { _ in nil }, watchlistLimit: { _, _, _ in })
             let job = PilotMirrorJob()
             await job.runOnceAsLeader(app, mirror: mirror, now: now)
@@ -79,8 +90,15 @@ struct PilotJobsTests {
 
             #expect(try await PilotFollow.find(follow.requireID(), on: app.db)?.appliedVersion == 2)
             let symbols = try await Stock.query(on: app.db).filter(\.$portfolioListId == listId).all().map(\.symbol)
-            #expect(symbols == ["MSFT"])
-            #expect(try await PilotFollowSnapshot.query(on: app.db).filter(\.$followId == follow.requireID()).count() == 1)
+            #expect(symbols == [sym])
+            let snaps = try await PilotFollowSnapshot.query(on: app.db).filter(\.$followId == follow.requireID()).all()
+            #expect(snaps.count == 1)
+            let held = try await Stock.query(on: app.db).filter(\.$portfolioListId == listId).first()
+            let shares = held?.shares ?? 0
+            let snap = try #require(snaps.first)
+            #expect(shares > 0)
+            #expect(abs(snap.value - (shares * 100 + snap.cash)) < 0.01)
+            #expect(abs(snap.cash - (1000 - shares * 100)) < 0.01)
         }
     }
 
@@ -99,6 +117,28 @@ struct PilotJobsTests {
             #expect(seen.contains("politician"))
             #expect(!seen.contains("0000000001"))
             _ = politician
+        }
+    }
+
+    @Test("an unpriced holding writes no snapshot until a price exists")
+    func skipsPartiallyPriced() async throws {
+        try await withApp { app in
+            let userId = try await makeUser(on: app.db)
+            let pilot = try await makePilot(on: app.db)
+            let listId = try await makeHypothetical(userId: userId, on: app.db)
+            let account = try await PilotAccountResolver.findOrCreate(userId: userId, portfolioId: listId, on: app.db)
+            try await CashBalance(accountId: account.requireID(), currency: account.baseCurrency, balance: 1000, asOf: now).create(on: app.db)
+            let sym = "ZZ" + UUID().uuidString.prefix(6).uppercased()
+            let follow = try PilotFollow(userId: userId, pilotId: pilot.requireID(), targetKind: .portfolio, portfolioListId: listId, startingCapital: 1000)
+            try await follow.create(on: app.db)
+            try await PilotBookVersion(pilotId: pilot.requireID(), version: 1, computedAt: now, weights: [sym: 1.0], skippedPuts: 0).create(on: app.db)
+            let mirror = PilotMirrorService(quote: { _ in 100 }, instrument: { _ in nil }, watchlistLimit: { _, _, _ in })
+            let job = PilotMirrorJob()
+            await job.runOnceAsLeader(app, mirror: mirror, now: now)
+            #expect(try await PilotFollowSnapshot.query(on: app.db).filter(\.$followId == follow.requireID()).count() == 0)
+            try await storeQuote(sym, price: 100, on: app)
+            await job.runOnceAsLeader(app, mirror: mirror, now: now)
+            #expect(try await PilotFollowSnapshot.query(on: app.db).filter(\.$followId == follow.requireID()).count() == 1)
         }
     }
 
