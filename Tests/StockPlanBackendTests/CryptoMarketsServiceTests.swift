@@ -74,7 +74,9 @@ struct CryptoMarketsServiceTests {
 
         func yearStartPrice(symbol: String, year _: Int, on _: Request) async throws -> Double? {
             lock.withLock { _requested.append(symbol) }
-            if fails { throw Abort(.badGateway, reason: "Limit Reach") }
+            if fails {
+                throw Abort(.badGateway, reason: "Limit Reach")
+            }
             return 10
         }
     }
