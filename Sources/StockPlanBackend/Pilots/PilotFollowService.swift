@@ -105,6 +105,10 @@ struct PilotFollowService: Sendable {
             guard held == 0, followed == 0, ledger == 0, cashPositions == 0 else {
                 throw Abort(.unprocessableEntity, reason: "Choose an empty hypothetical portfolio, or let Norviq create one.")
             }
+            // A broker sync writes real holdings into its bound list.
+            guard try await BrokerConnection.query(on: db).filter(\.$portfolioListId == id).count() == 0 else {
+                throw Abort(.unprocessableEntity, reason: "This portfolio is linked to a broker connection. Choose another, or let Norviq create one.")
+            }
             return id
         }
         let count = try await PortfolioList.query(on: db).filter(\.$userId == userId).filter(\.$archivedAt == nil).count()

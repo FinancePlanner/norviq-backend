@@ -263,6 +263,9 @@ struct IBKRBrokerSyncService {
         self.gatewayClient = gatewayClient
     }
 
+    /// Shown on a connection bound to a portfolio a pilot follow manages.
+    static let followedListNote = "Holdings aren't copied into a portfolio that follows a pilot."
+
     func sync(connection: BrokerConnection, userId: UUID, on req: Request) async throws -> BrokerSyncResponse {
         let account = try await resolveGatewayAccount(for: connection, on: req)
         let positions = try await gatewayClient.fetchPositions(accountID: account.externalID, on: req)
@@ -273,8 +276,9 @@ struct IBKRBrokerSyncService {
         }
 
         // Nil: the connection is bound to a portfolio a pilot follow manages.
-        // Its holdings are skipped, not written there (the mirror would sell
-        // them) and not thrown on, so the rest of the sync still runs.
+        // No `stocks` rows are written or removed there (the mirror would sell
+        // them), but the account's lots and positions stay current: they are
+        // the real tax lots. Nothing throws, so the rest of the sync runs.
         let portfolioListId = try await holdingsTargetListId(connection: connection, userId: userId, on: req)
         let sourceAccount = try await resolveImportAccount(
             account: account,
@@ -295,7 +299,6 @@ struct IBKRBrokerSyncService {
         var seenSymbols = Set<String>()
 
         for position in positions {
-            guard let portfolioListId else { break }
             let symbol = position.symbol.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
             guard !symbol.isEmpty else { continue }
             let didExist = existingSymbols.contains(symbol)
@@ -309,6 +312,8 @@ struct IBKRBrokerSyncService {
                 on: req
             )
             seenSymbols.insert(symbol)
+            // The counts describe holdings rows; none are written when skipped.
+            guard portfolioListId != nil else { continue }
             if didExist {
                 updated += 1
             } else {
@@ -316,14 +321,16 @@ struct IBKRBrokerSyncService {
             }
         }
 
-        let removed = portfolioListId == nil ? 0 : try await removeStaleImportedSymbols(
+        let staleRemoved = try await removeStaleImportedSymbols(
             existingSymbols: existingSymbols,
             seenSymbols: seenSymbols,
             provider: connection.provider,
             sourceAccountId: sourceAccountID,
             userId: userId,
+            touchingStocks: portfolioListId != nil,
             on: req.db
         )
+        let removed = portfolioListId == nil ? 0 : staleRemoved
 
         let initialLookbackDays = Double(Environment.get("IBKR_TRANSACTION_LOOKBACK_DAYS") ?? "3650") ?? 3650
         let overlapDays = Double(Environment.get("IBKR_TRANSACTION_OVERLAP_DAYS") ?? "7") ?? 7
@@ -357,7 +364,7 @@ struct IBKRBrokerSyncService {
         connection.externalId = account.externalID
         connection.displayName = account.displayName ?? connection.displayName
         connection.status = "connected"
-        connection.statusDetail = nil
+        connection.statusDetail = portfolioListId == nil ? Self.followedListNote : nil
         connection.connectedAt = connection.connectedAt ?? Date()
         connection.lastSyncedAt = Date()
         connection.portfolioListId = portfolioListId ?? connection.portfolioListId
@@ -818,21 +825,24 @@ private extension IBKRBrokerSyncService {
         position: IBKRBrokerPosition,
         provider: String,
         sourceAccountId: UUID,
-        portfolioListId: UUID,
+        portfolioListId: UUID?,
         userId: UUID,
         on req: Request
     ) async throws {
         try await req.db.transaction { db in
             let instrument = try await requireInstrument(symbol: symbol, conid: position.conid, currency: position.currency, on: req, db: db)
 
-            let existingStocks = try await Stock.query(on: db)
-                .filter(\.$userId == userId)
-                .filter(\.$sourceProvider == provider)
-                .filter(\.$sourceAccountId == sourceAccountId)
-                .filter(\.$symbol == symbol)
-                .all()
-            for stock in existingStocks {
-                try await stock.delete(on: db)
+            // Nil list: leave `stocks` alone; only the account ledger refreshes.
+            if portfolioListId != nil {
+                let existingStocks = try await Stock.query(on: db)
+                    .filter(\.$userId == userId)
+                    .filter(\.$sourceProvider == provider)
+                    .filter(\.$sourceAccountId == sourceAccountId)
+                    .filter(\.$symbol == symbol)
+                    .all()
+                for stock in existingStocks {
+                    try await stock.delete(on: db)
+                }
             }
 
             let instrumentID = try instrument.requireID()
@@ -877,6 +887,7 @@ private extension IBKRBrokerSyncService {
             )
             try await dbPosition.save(on: db)
 
+            guard let portfolioListId else { return }
             let stock = Stock(
                 userId: userId,
                 portfolioListId: portfolioListId,
@@ -937,20 +948,23 @@ private extension IBKRBrokerSyncService {
         provider: String,
         sourceAccountId: UUID,
         userId: UUID,
+        touchingStocks: Bool = true,
         on db: any Database
     ) async throws -> Int {
         let staleSymbols = existingSymbols.subtracting(seenSymbols)
         guard !staleSymbols.isEmpty else { return 0 }
 
         for symbol in staleSymbols {
-            let stocks = try await Stock.query(on: db)
-                .filter(\.$userId == userId)
-                .filter(\.$sourceProvider == provider)
-                .filter(\.$sourceAccountId == sourceAccountId)
-                .filter(\.$symbol == symbol)
-                .all()
-            for stock in stocks {
-                try await stock.delete(on: db)
+            if touchingStocks {
+                let stocks = try await Stock.query(on: db)
+                    .filter(\.$userId == userId)
+                    .filter(\.$sourceProvider == provider)
+                    .filter(\.$sourceAccountId == sourceAccountId)
+                    .filter(\.$symbol == symbol)
+                    .all()
+                for stock in stocks {
+                    try await stock.delete(on: db)
+                }
             }
 
             if let instrument = try await Instrument.query(on: db)

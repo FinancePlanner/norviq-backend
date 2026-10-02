@@ -239,6 +239,33 @@ extension StagingGatesTests {
         }
     }
 
+    @Test("IBKR sync bound to a followed portfolio still refreshes the account's lots and positions and says why holdings are missing")
+    func ibkrSyncBoundToFollowedListKeepsLedgerCurrent() async throws {
+        try await withApp { app in
+            let (_, userId) = try await registerTestUser(app: app)
+            let symbol = "GTD\(UUID().uuidString.prefix(4))".uppercased()
+            let instrument = try await seedInstrument(symbol: symbol, on: app.db)
+            let seeded = try await seedFollowedList(userId: userId, on: app.db)
+            let connection = BrokerConnection(userId: userId, provider: "ibkr", status: "connected", portfolioListId: seeded.listId)
+            try await connection.create(on: app.db)
+
+            _ = try await runIBKRSync(app, connection: connection, userId: userId, symbol: symbol)
+
+            let account = try #require(try await Account.query(on: app.db).filter(\.$userId == userId).filter(\.$broker == "ibkr").first())
+            let instrumentId = try instrument.requireID()
+            let position = try await Position.query(on: app.db).filter(\.$accountId == account.requireID()).filter(\.$instrumentId == instrumentId).first()
+            #expect(position?.quantity == 3)
+            let lots = try await Lot.query(on: app.db).filter(\.$accountId == account.requireID()).filter(\.$instrumentId == instrumentId).all()
+            #expect(lots.reduce(0) { $0 + $1.remainingQuantity } >= 3)
+            #expect(try await Stock.query(on: app.db).filter(\.$userId == userId).filter(\.$symbol == symbol).count() == 0)
+            #expect(try await stockSnapshot(listId: seeded.listId, on: app.db) == ["AAPL:5.0:pilot"])
+            let saved = try #require(try await BrokerConnection.find(connection.requireID(), on: app.db))
+            #expect(saved.statusDetail == "Holdings aren't copied into a portfolio that follows a pilot.")
+            #expect(saved.status == "connected")
+            #expect(saved.portfolioListId == seeded.listId)
+        }
+    }
+
     @Test("IBKR sync with no bound list never picks a followed portfolio")
     func ibkrSyncUnboundAvoidsFollowedList() async throws {
         try await withApp { app in
