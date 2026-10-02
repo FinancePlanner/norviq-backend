@@ -73,6 +73,12 @@ protocol PushNotificationSending: Sendable {
         devices: [PushDevice],
         req: Request
     ) async -> TargetPushSendSummary
+
+    func sendBoardEvent(
+        message: BoardPushMessage,
+        devices: [PushDevice],
+        req: Request
+    ) async -> TargetPushSendSummary
 }
 
 /// A friend request, or a request that was accepted. The app routes both
@@ -86,6 +92,24 @@ struct SocialPushMessage: Sendable {
     let kind: Kind
     let title: String
     let body: String
+}
+
+/// A reply or upvote on Boards. The push deep-links to the post.
+struct BoardPushMessage: Sendable {
+    enum Kind: String, Sendable {
+        case reply = "board_reply"
+        case upvote = "board_upvote"
+    }
+
+    let kind: Kind
+    let title: String
+    let body: String
+    let postId: UUID
+    let boardSlug: String
+
+    var deepLink: String {
+        "financeplan://boards/\(boardSlug)/posts/\(postId.uuidString)"
+    }
 }
 
 /// A message the assistant posted into a thread on its own (a standing task,
@@ -119,6 +143,15 @@ extension PushNotificationSending {
     /// Same reasoning as `sendAssistantMessage`: test doubles deliver nothing.
     func sendSocialEvent(
         message _: SocialPushMessage,
+        devices: [PushDevice],
+        req _: Request
+    ) async -> TargetPushSendSummary {
+        .init(delivered: 0, failed: devices.count)
+    }
+
+    /// Same reasoning as `sendAssistantMessage`: test doubles deliver nothing.
+    func sendBoardEvent(
+        message _: BoardPushMessage,
         devices: [PushDevice],
         req _: Request
     ) async -> TargetPushSendSummary {
@@ -306,6 +339,58 @@ struct APNSPushNotificationSender: PushNotificationSending {
                 failed += 1
                 req.logger.warning(
                     "push.notifications send failed social_event error_type=\(String(reflecting: type(of: error)))"
+                )
+                if isInvalidTokenError(error) {
+                    try? await req.pushDeviceService.deactivate(deviceToken: device.deviceToken, on: req.db)
+                }
+            }
+        }
+        return .init(delivered: delivered, failed: failed)
+    }
+
+    struct BoardEventPayload: Codable {
+        let schemaVersion: Int
+        let type: String
+        let postId: String
+        let boardSlug: String
+        let deepLink: String
+    }
+
+    func sendBoardEvent(
+        message: BoardPushMessage,
+        devices: [PushDevice],
+        req: Request
+    ) async -> TargetPushSendSummary {
+        guard devices.isEmpty == false else { return .init(delivered: 0, failed: 0) }
+        let notification = APNSAlertNotification(
+            alert: .init(title: .raw(message.title), body: .raw(message.body)),
+            expiration: .immediately,
+            priority: .immediately,
+            topic: topic,
+            payload: BoardEventPayload(
+                schemaVersion: 1,
+                type: message.kind.rawValue,
+                postId: message.postId.uuidString,
+                boardSlug: message.boardSlug,
+                deepLink: message.deepLink
+            ),
+            // One thread per post, so a busy post groups instead of flooding.
+            threadID: "board-post-\(message.postId.uuidString)",
+            category: message.kind.rawValue
+        )
+        var delivered = 0
+        var failed = 0
+        for device in devices {
+            do {
+                _ = try await client(for: device, req: req).sendAlertNotification(
+                    notification,
+                    deviceToken: device.deviceToken
+                )
+                delivered += 1
+            } catch {
+                failed += 1
+                req.logger.warning(
+                    "push.notifications send failed board_event error_type=\(String(reflecting: type(of: error)))"
                 )
                 if isInvalidTokenError(error) {
                     try? await req.pushDeviceService.deactivate(deviceToken: device.deviceToken, on: req.db)

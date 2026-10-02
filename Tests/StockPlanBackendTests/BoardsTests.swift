@@ -13,6 +13,7 @@ struct CommunityValidationTests {
         #expect(try CommunityValidation.slug("  DCA-Club ") == "dca-club")
         #expect(throws: (any Error).self) { try CommunityValidation.slug("ab") }
         #expect(throws: (any Error).self) { try CommunityValidation.slug("admin") }
+        #expect(throws: (any Error).self) { try CommunityValidation.slug("activity") }
         #expect(throws: (any Error).self) { try CommunityValidation.slug("-lead") }
         #expect(throws: (any Error).self) { try CommunityValidation.slug("no spaces") }
         #expect(throws: (any Error).self) { try CommunityValidation.slug("ação") }
