@@ -52,6 +52,41 @@ struct CryptoMarketsServiceTests {
         }
     }
 
+    /// Counts FMP history calls; fails every call when `fails` is set (the
+    /// plan quota answer, "Limit Reach").
+    final class CountingReference: CryptoReferenceDataSource, @unchecked Sendable {
+        private let lock = NIOLock()
+        private var _requested: [String] = []
+        var fails = false
+        var symbols: Set<String>
+
+        init(symbols: Set<String>) {
+            self.symbols = symbols
+        }
+
+        var requested: [String] {
+            lock.withLock { _requested }
+        }
+
+        func knownSymbols(on _: Request) async throws -> Set<String> {
+            symbols
+        }
+
+        func yearStartPrice(symbol: String, year _: Int, on _: Request) async throws -> Double? {
+            lock.withLock { _requested.append(symbol) }
+            if fails {
+                throw Abort(.badGateway, reason: "Limit Reach")
+            }
+            return 10
+        }
+    }
+
+    private static func ranked(_ count: Int) -> [CryptoMarketCoin] {
+        (1 ... count).map { index in
+            coin("coin\(index)", symbol: "C\(index)", price: 20, marketCap: Double(1000 - index) * 1e9)
+        }
+    }
+
     private static func coin(_ id: String, symbol: String, price: Double, marketCap: Double, day: Double = 1, month: Double = 10) -> CryptoMarketCoin {
         CryptoMarketCoin(
             id: id, symbol: symbol, name: id, rank: nil, sector: "Other", price: price,
@@ -116,6 +151,63 @@ struct CryptoMarketsServiceTests {
             #expect(bitcoin.returns.yearToDate == 100) // 100 now vs 50 at year start
             let ether = try #require(snapshot.coins.first { $0.id == "ethereum" })
             #expect(ether.returns.yearToDate == nil) // FMP had no history
+        }
+    }
+
+    @Test("a failed YTD fetch stops the batch and pauses later refreshes")
+    func ytdFailurePausesFill() async throws {
+        try await withRequest { req in
+            let coins = Self.ranked(10)
+            let reference = CountingReference(symbols: Set(coins.map { "\($0.symbol)USD" }))
+            reference.fails = true
+            let service = DefaultCryptoMarketsService(
+                provider: StubProvider(coins: coins), reference: reference, cache: InMemoryAIResponseCache(),
+                filter: .init(minMarketCap: 0, minVolume24h: 0, listSize: 10), freshTTLSeconds: 600
+            )
+
+            _ = try await service.refreshSnapshot(ytdFillBudget: 5, on: req)
+            _ = try await service.refreshSnapshot(ytdFillBudget: 5, on: req)
+
+            #expect(reference.requested.count == 1, "one failure, then paused: \(reference.requested)")
+        }
+    }
+
+    @Test("the pause is shared through the cache with other replicas")
+    func ytdPauseIsShared() async throws {
+        try await withRequest { req in
+            let coins = Self.ranked(5)
+            let cache = InMemoryAIResponseCache()
+            let failing = CountingReference(symbols: Set(coins.map { "\($0.symbol)USD" }))
+            failing.fails = true
+            _ = try await DefaultCryptoMarketsService(
+                provider: StubProvider(coins: coins), reference: failing, cache: cache, freshTTLSeconds: 600
+            ).refreshSnapshot(ytdFillBudget: 5, on: req)
+
+            let other = CountingReference(symbols: failing.symbols)
+            _ = try await DefaultCryptoMarketsService(
+                provider: StubProvider(coins: coins), reference: other, cache: cache, freshTTLSeconds: 600
+            ).refreshSnapshot(ytdFillBudget: 5, on: req)
+            #expect(other.requested.isEmpty)
+        }
+    }
+
+    @Test("YTD is only fetched for the top coins, within the per-tick budget")
+    func ytdCoverageAndBudget() async throws {
+        try await withRequest { req in
+            let coins = Self.ranked(10)
+            let reference = CountingReference(symbols: Set(coins.map { "\($0.symbol)USD" }))
+            let service = DefaultCryptoMarketsService(
+                provider: StubProvider(coins: coins), reference: reference, cache: InMemoryAIResponseCache(),
+                ytdCoverage: 3, freshTTLSeconds: 600
+            )
+
+            let first = try await service.refreshSnapshot(ytdFillBudget: 2, on: req)
+            #expect(reference.requested == ["C1USD", "C2USD"])
+            #expect(first.coins.filter { $0.returns.yearToDate != nil }.count == 2)
+
+            _ = try await service.refreshSnapshot(ytdFillBudget: 2, on: req)
+            _ = try await service.refreshSnapshot(ytdFillBudget: 2, on: req)
+            #expect(reference.requested == ["C1USD", "C2USD", "C3USD"], "never past the coverage")
         }
     }
 

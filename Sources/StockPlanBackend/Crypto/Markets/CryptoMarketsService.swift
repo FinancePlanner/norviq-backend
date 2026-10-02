@@ -26,6 +26,9 @@ final class DefaultCryptoMarketsService: CryptoMarketsService, @unchecked Sendab
         static func ytdBases(year: Int) -> String {
             "crypto:markets:ytd-base:v1:\(year)"
         }
+
+        /// Present while YTD filling is paused after an FMP failure.
+        static let ytdFillPaused = "crypto:markets:ytd-fill-paused:v1"
     }
 
     static let staleTTLSeconds = 86400
@@ -37,17 +40,24 @@ final class DefaultCryptoMarketsService: CryptoMarketsService, @unchecked Sendab
     static let inlineRetryBackoff: TimeInterval = 60
     static let dailyTTLSeconds = 86400
     static let ytdBaseTTLSeconds = 400 * 86400
+    /// After any FMP failure (in practice the plan's call quota: "Limit
+    /// Reach"), stop asking for YTD bases this long. FMP's key is shared with
+    /// stock quotes and news, so retrying every tick throttles those too.
+    static let ytdFillPauseSeconds = 6 * 3600
 
     private let provider: any CryptoMarketsProvider
     private let reference: (any CryptoReferenceDataSource)?
     private let cache: any AIResponseCache
     private let filter: CryptoMarketsFilter
     private let universeSize: Int
+    /// Only the largest coins get a YTD figure: each base costs one FMP call.
+    private let ytdCoverage: Int
     private let freshTTLSeconds: Int
     private let now: @Sendable () -> Date
     private let memory = NIOLockedValueBox<(snapshot: CryptoMarketSnapshot, storedAt: Date)?>(nil)
     private let singleFlight = CryptoSnapshotSingleFlight()
     private let lastInlineFailure = NIOLockedValueBox<Date?>(nil)
+    private let ytdFillPausedUntil = NIOLockedValueBox<Date?>(nil)
 
     init(
         provider: any CryptoMarketsProvider,
@@ -55,6 +65,7 @@ final class DefaultCryptoMarketsService: CryptoMarketsService, @unchecked Sendab
         cache: any AIResponseCache,
         filter: CryptoMarketsFilter = .init(),
         universeSize: Int = 250,
+        ytdCoverage: Int = 50,
         freshTTLSeconds: Int,
         now: @escaping @Sendable () -> Date = Date.init
     ) {
@@ -63,6 +74,7 @@ final class DefaultCryptoMarketsService: CryptoMarketsService, @unchecked Sendab
         self.cache = cache
         self.filter = filter
         self.universeSize = min(max(universeSize, 10), 250)
+        self.ytdCoverage = max(ytdCoverage, 0)
         self.freshTTLSeconds = max(freshTTLSeconds, 60)
         self.now = now
     }
@@ -200,7 +212,10 @@ final class DefaultCryptoMarketsService: CryptoMarketsService, @unchecked Sendab
 
     /// YTD = current price over the last close of the previous year. That base
     /// never changes within a year, so each coin costs one FMP history call per
-    /// year; the job fills a few per tick (FMP's basic plan has no batch call).
+    /// year; the job fills a few per tick (FMP's basic plan has no batch call
+    /// and a small daily quota shared with every other FMP feature). Only the
+    /// top `ytdCoverage` coins are filled, and the first failure stops the
+    /// batch and pauses filling for `ytdFillPauseSeconds`.
     /// A stored 0 marks "FMP has no history" so the coin is not retried.
     private func applyYearToDate(
         _ coins: [CryptoMarketCoin],
@@ -213,8 +228,11 @@ final class DefaultCryptoMarketsService: CryptoMarketsService, @unchecked Sendab
         let key = Keys.ytdBases(year: year)
         var bases: [String: Double] = await cache.get(key, on: req) ?? [:]
 
-        if let reference, fillBudget > 0 {
-            let missing = coins.compactMap(\.fmpSymbol).filter { bases[$0] == nil }.prefix(fillBudget)
+        if let reference, fillBudget > 0, await !ytdFillIsPaused(on: req) {
+            let missing = coins.prefix(ytdCoverage)
+                .compactMap(\.fmpSymbol)
+                .filter { bases[$0] == nil }
+                .prefix(fillBudget)
             var changed = false
             for symbol in missing {
                 if Task.isCancelled {
@@ -224,8 +242,12 @@ final class DefaultCryptoMarketsService: CryptoMarketsService, @unchecked Sendab
                     bases[symbol] = try await reference.yearStartPrice(symbol: symbol, year: year, on: req) ?? 0
                     changed = true
                 } catch {
-                    // Transient failures are not recorded, so the next tick retries.
-                    req.logger.debug("crypto_markets ytd base fetch failed symbol=\(symbol) error=\(error)")
+                    // Not recorded, so the coin is retried after the pause. One
+                    // failure is enough: the rest of the batch would hit the
+                    // same quota.
+                    await pauseYTDFill(on: req)
+                    req.logger.warning("crypto_markets ytd fill paused \(Self.ytdFillPauseSeconds)s after failure symbol=\(symbol) error=\(error)")
+                    break
                 }
             }
             if changed {
@@ -244,6 +266,21 @@ final class DefaultCryptoMarketsService: CryptoMarketsService, @unchecked Sendab
                 oneYear: returns.oneYear
             ))
         }
+    }
+
+    private func ytdFillIsPaused(on req: Request) async -> Bool {
+        if let until = ytdFillPausedUntil.withLockedValue({ $0 }), now() < until {
+            return true
+        }
+        // Shared across replicas and restarts, so a new pod does not spend
+        // the quota again straight away.
+        let paused: Bool? = await cache.get(Keys.ytdFillPaused, on: req)
+        return paused == true
+    }
+
+    private func pauseYTDFill(on req: Request) async {
+        ytdFillPausedUntil.withLockedValue { $0 = now().addingTimeInterval(TimeInterval(Self.ytdFillPauseSeconds)) }
+        await cache.set(Keys.ytdFillPaused, value: true, ttlSeconds: Self.ytdFillPauseSeconds, on: req)
     }
 
     /// Last-resort stablecoin guard for anything the category call and the
