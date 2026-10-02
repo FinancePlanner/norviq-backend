@@ -111,6 +111,17 @@ struct SECEdgar13FPilotSourceTests {
             #expect(await posts.count == 1)
         }
     }
+
+    @Test("resolver: OpenFIGI class tickers use a dot (BRK/B -> BRK.B)")
+    func classTickers() async throws {
+        try await withApp { app in
+            let response = Data(#"[{"data":[{"ticker":"BRK/B"}]},{"data":[{"ticker":"bf/a"}]}]"#.utf8)
+            let resolver = CusipSymbolResolver(post: { _ in response }, pause: {})
+            let cusips = ["084670702", "115637100"]
+            let out = try await resolver.resolve(cusips, on: app.db)
+            #expect(out == [cusips[0]: "BRK.B", cusips[1]: "BF.A"])
+        }
+    }
 }
 
 private actor PostLog {

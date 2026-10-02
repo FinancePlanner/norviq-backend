@@ -55,7 +55,9 @@ struct CusipSymbolResolver: Sendable {
             let response = try await post(JSONEncoder().encode(batch.map { Job(idValue: $0) }))
             let results = try JSONDecoder().decode([Result].self, from: response)
             for (cusip, result) in zip(batch, results) {
-                let ticker = result.data?.compactMap(\.ticker).first?.uppercased()
+                // OpenFIGI writes share classes with a slash ("BRK/B"); quotes and
+                // the rest of Norviq use a dot ("BRK.B").
+                let ticker = result.data?.compactMap(\.ticker).first?.uppercased().replacingOccurrences(of: "/", with: ".")
                 if let ticker {
                     out[cusip] = ticker
                 }
