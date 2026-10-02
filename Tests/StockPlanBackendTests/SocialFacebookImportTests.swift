@@ -369,7 +369,7 @@ struct SocialFacebookImportRouteTests {
             .map(\.providerUserID)
     }
 
-    @Test("Off unless SOCIAL_FACEBOOK_IMPORT_ENABLED; every route 404s while off")
+    @Test("Off unless SOCIAL_FACEBOOK_IMPORT_ENABLED; linking 404s while off, unlinking still works")
     func disabledByDefault() async throws {
         try await withApp(importEnabled: false) { app, signer in
             let a = try await register(app, "off1")
@@ -384,7 +384,9 @@ struct SocialFacebookImportRouteTests {
                                                                                       redirectURI: Self.redirectURI),
                                           SocialFacebookMatchesResponse.self)
             #expect(exchange.status == .notFound)
-            #expect(try await call(app, .DELETE, "v1/social/discovery/facebook", as: a, NoBody.self).status == .notFound)
+            // Removing your Facebook data never depends on the switch: the
+            // data-deletion page promises it works whenever you ask.
+            #expect(try await call(app, .DELETE, "v1/social/discovery/facebook", as: a, NoBody.self).status == .noContent)
         }
     }
 

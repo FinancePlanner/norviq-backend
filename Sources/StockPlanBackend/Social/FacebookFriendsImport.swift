@@ -137,7 +137,9 @@ enum FacebookFriendsImport {
     @Sendable
     static func disconnect(req: Request) async throws -> HTTPStatus {
         let userId = try req.auth.require(SessionToken.self).userId
-        _ = try requireConfig()
+        // No requireConfig(): unlinking and deleting the stored friend ids
+        // must keep working while the import is switched off (Meta's data
+        // deletion instructions point here).
         try await req.db.transaction { db in
             try await OAuthIdentity.query(on: db)
                 .filter(\.$user.$id == userId)
