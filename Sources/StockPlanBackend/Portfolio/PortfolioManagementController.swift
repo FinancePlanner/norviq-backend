@@ -448,6 +448,7 @@ struct PortfolioManagementController: RouteCollection {
     func createCashPosition(req: Request) async throws -> Response {
         let session = try req.auth.require(SessionToken.self)
         let context = try await access(req, userId: session.userId, editing: true)
+        try await PilotFollowGuard.ensureNotFollowed(portfolioListId: context.portfolio.requireID(), on: req.db)
         let payload = try req.content.decode(PortfolioCashPositionRequest.self)
         let record = try PortfolioCashPositionRecord(
             portfolioId: context.portfolio.requireID(),
@@ -466,6 +467,7 @@ struct PortfolioManagementController: RouteCollection {
     func updateCashPosition(req: Request) async throws -> PortfolioCashPosition {
         let session = try req.auth.require(SessionToken.self)
         let context = try await access(req, userId: session.userId, editing: true)
+        try await PilotFollowGuard.ensureNotFollowed(portfolioListId: context.portfolio.requireID(), on: req.db)
         let cashId = try parameter(req, "cashId")
         let payload = try req.content.decode(PortfolioCashPositionRequest.self)
         guard let record = try await PortfolioCashPositionRecord.query(on: req.db)
@@ -485,6 +487,7 @@ struct PortfolioManagementController: RouteCollection {
     func deleteCashPosition(req: Request) async throws -> HTTPStatus {
         let session = try req.auth.require(SessionToken.self)
         let context = try await access(req, userId: session.userId, editing: true)
+        try await PilotFollowGuard.ensureNotFollowed(portfolioListId: context.portfolio.requireID(), on: req.db)
         let cashId = try parameter(req, "cashId")
         guard let record = try await PortfolioCashPositionRecord.query(on: req.db)
             .filter(\.$id == cashId)

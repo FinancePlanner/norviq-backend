@@ -451,6 +451,8 @@ struct PortfolioController: RouteCollection {
             if list.isDefault {
                 throw Abort(.badRequest, reason: "Default portfolio list cannot be deleted.")
             }
+            // Its simulated holdings would be merged into the real default below.
+            try await PilotFollowGuard.ensureNotFollowed(portfolioListId: listId, on: tx)
 
             guard let defaultListId = try await resolvePortfolioListId(
                 requestedId: nil,

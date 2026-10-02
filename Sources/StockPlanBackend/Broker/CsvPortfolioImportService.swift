@@ -141,6 +141,8 @@ struct CsvPortfolioImportService {
             userId: userId,
             on: req.db
         )
+        // Before any write: the pilot mirror would sell imported real holdings.
+        try await PilotFollowGuard.ensureNotFollowed(portfolioListId: targetListId, on: req.db)
 
         // An import replaces only the rows it owns. Any same-symbol holding the
         // user added by hand, or imported from another broker, would survive

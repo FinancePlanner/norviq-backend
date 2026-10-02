@@ -117,6 +117,9 @@ struct DefaultBrokersService: BrokersService {
             on: req.db,
             defaultWhenMissing: true
         )
+        if let resolvedPortfolioListId {
+            try await PilotFollowGuard.ensureNotFollowed(portfolioListId: resolvedPortfolioListId, on: req.db)
+        }
 
         let flow = BrokerOAuthFlow(
             userId: userId,
@@ -185,6 +188,10 @@ struct DefaultBrokersService: BrokersService {
             on: req.db,
             defaultWhenMissing: true
         )
+        // Synced holdings land in this list; a followed one would have them sold.
+        if let resolvedPortfolioListId {
+            try await PilotFollowGuard.ensureNotFollowed(portfolioListId: resolvedPortfolioListId, on: req.db)
+        }
         let now = Date()
         let connection = try await upsertBrokerConnection(
             provider: "ibkr",

@@ -272,11 +272,10 @@ struct IBKRBrokerSyncService {
             throw Abort(.internalServerError, reason: "Broker connection id missing.")
         }
 
-        let portfolioListId: UUID = if let existingPortfolioListId = connection.portfolioListId {
-            existingPortfolioListId
-        } else {
-            try await ensureDefaultPortfolioListId(userId: userId, on: req.db)
-        }
+        // Nil: the connection is bound to a portfolio a pilot follow manages.
+        // Its holdings are skipped, not written there (the mirror would sell
+        // them) and not thrown on, so the rest of the sync still runs.
+        let portfolioListId = try await holdingsTargetListId(connection: connection, userId: userId, on: req)
         let sourceAccount = try await resolveImportAccount(
             account: account,
             provider: connection.provider,
@@ -296,6 +295,7 @@ struct IBKRBrokerSyncService {
         var seenSymbols = Set<String>()
 
         for position in positions {
+            guard let portfolioListId else { break }
             let symbol = position.symbol.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
             guard !symbol.isEmpty else { continue }
             let didExist = existingSymbols.contains(symbol)
@@ -316,7 +316,7 @@ struct IBKRBrokerSyncService {
             }
         }
 
-        let removed = try await removeStaleImportedSymbols(
+        let removed = portfolioListId == nil ? 0 : try await removeStaleImportedSymbols(
             existingSymbols: existingSymbols,
             seenSymbols: seenSymbols,
             provider: connection.provider,
@@ -360,7 +360,7 @@ struct IBKRBrokerSyncService {
         connection.statusDetail = nil
         connection.connectedAt = connection.connectedAt ?? Date()
         connection.lastSyncedAt = Date()
-        connection.portfolioListId = portfolioListId
+        connection.portfolioListId = portfolioListId ?? connection.portfolioListId
         connection.updatedAt = Date()
         try await connection.save(on: req.db)
 
@@ -979,16 +979,19 @@ private extension IBKRBrokerSyncService {
         return staleSymbols.count
     }
 
-    func ensureDefaultPortfolioListId(userId: UUID, on db: any Database) async throws -> UUID {
-        if let list = try await PortfolioList.query(on: db)
-            .filter(\.$userId == userId)
-            .first()
-        {
-            return try list.requireID()
+    /// Where synced holdings go: the connection's list, else the user's default
+    /// (which `ensureDefaultPortfolioListId` never resolves to a followed list,
+    /// creating an actual "Main Portfolio" when it has to). Nil when the
+    /// connection is bound to a followed list: that sync skips holdings.
+    func holdingsTargetListId(connection: BrokerConnection, userId: UUID, on req: Request) async throws -> UUID? {
+        guard let bound = connection.portfolioListId else {
+            return try await ensureDefaultPortfolioListId(userId: userId, on: req.db)
         }
-        let list = PortfolioList(userId: userId, name: "Default")
-        try await list.save(on: db)
-        return try list.requireID()
+        if try await PilotFollowGuard.isFollowed(portfolioListId: bound, on: req.db) {
+            req.logger.warning("broker.ibkr holdings_skipped reason=pilot_follow portfolio_list_id=\(bound.uuidString) user_id=\(userId.uuidString)")
+            return nil
+        }
+        return bound
     }
 }
 
