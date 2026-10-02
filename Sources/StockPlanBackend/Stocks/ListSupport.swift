@@ -137,18 +137,33 @@ private func availablePortfolioListName(_ base: String, userId: UUID, on db: any
     return "\(base) \(n)"
 }
 
+/// The user's default watchlist, promoting or creating one when there is none.
+/// Like the default portfolio, it is never a watchlist a pilot follow manages:
+/// adds without a list land there and the mirror rewrites its items. Users
+/// without watchlist follows resolve exactly as before.
 func ensureDefaultWatchlistListId(userId: UUID, on db: any Database) async throws -> UUID {
+    let followed = try await PilotFollow.query(on: db)
+        .filter(\.$userId == userId)
+        .all()
+        .compactMap(\.watchlistListId)
     if let existing = try await WatchlistList.query(on: db)
         .filter(\.$userId == userId)
         .filter(\.$isDefault == true)
         .first(),
         let id = existing.id
     {
-        return id
+        guard followed.contains(id) else {
+            return id
+        }
+        existing.isDefault = false
+        try await existing.save(on: db)
     }
 
-    if let fallback = try await WatchlistList.query(on: db)
-        .filter(\.$userId == userId)
+    var candidates = WatchlistList.query(on: db).filter(\.$userId == userId)
+    if !followed.isEmpty {
+        candidates = candidates.filter(\.$id !~ followed)
+    }
+    if let fallback = try await candidates
         .sort(\.$createdAt, .ascending)
         .first(),
         let fallbackId = fallback.id
@@ -158,7 +173,14 @@ func ensureDefaultWatchlistListId(userId: UUID, on db: any Database) async throw
         return fallbackId
     }
 
-    let created = WatchlistList(userId: userId, name: "Main Watchlist", isDefault: true)
+    let taken = try await Set(WatchlistList.query(on: db).filter(\.$userId == userId).all().map(\.name))
+    var name = "Main Watchlist"
+    var n = 2
+    while taken.contains(name) {
+        name = "Main Watchlist \(n)"
+        n += 1
+    }
+    let created = WatchlistList(userId: userId, name: name, isDefault: true)
     try await created.save(on: db)
     guard let id = created.id else {
         throw Abort(.internalServerError, reason: "Failed to create default watchlist list.")

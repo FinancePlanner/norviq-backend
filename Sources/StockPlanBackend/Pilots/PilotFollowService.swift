@@ -127,6 +127,10 @@ struct PilotFollowService: Sendable {
             else { throw Abort(.notFound, reason: "Watchlist not found.") }
             // Like a portfolio target: the mirror rewrites statuses and notes,
             // so it must never adopt items the user wrote by hand.
+            // Adds without a list land in the default watchlist.
+            guard try await WatchlistList.find(id, on: db)?.isDefault != true else {
+                throw Abort(.unprocessableEntity, reason: "Pilots can't be followed into your main watchlist. Choose another, or let Norviq create one.")
+            }
             let items = try await WatchlistItem.query(on: db).filter(\.$watchlistListId == id).count()
             let followed = try await PilotFollow.query(on: db).filter(\.$watchlistListId == id).count()
             guard items == 0, followed == 0 else {
