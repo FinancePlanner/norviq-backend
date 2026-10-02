@@ -253,12 +253,37 @@ public func configure(_ app: Application) async throws {
     }
     app.earningsService = DefaultEarningsService(provider: earningsProvider)
 
-    if let fmpProvider {
-        app.cryptoService = DefaultCryptoService(provider: fmpProvider)
-    } else {
-        app.logger.warning("FMP_API_KEY is not configured; using MockCryptoDataProvider for market data.")
-        app.cryptoService = DefaultCryptoService(provider: MockCryptoDataProvider())
+    let cryptoProvider = makeCryptoDataProvider(fmp: fmpProvider, environment: app.environment)
+    if cryptoProvider is DisabledCryptoDataProvider {
+        app.logger.error("FMP_API_KEY is not configured; crypto market data disabled.")
+    } else if cryptoProvider is MockCryptoDataProvider {
+        app.logger.warning("FMP_API_KEY is not configured; using MockCryptoDataProvider for crypto market data.")
     }
+    app.cryptoService = DefaultCryptoService(provider: cryptoProvider)
+
+    // Crypto markets view (bubbles, performers, heatmap, ATH board). CoinGecko
+    // supplies the ranked universe; FMP only the detail-link list and YTD bases.
+    // Without COINGECKO_API_KEY it falls back to CoinGecko's keyless public API.
+    let cryptoMarketsRefreshSeconds = Environment.get("CRYPTO_MARKETS_REFRESH_SECONDS").flatMap(Int.init(_:)) ?? 360
+    let defaultCryptoMarketsFilter = CryptoMarketsFilter()
+    app.cryptoMarketsService = DefaultCryptoMarketsService(
+        provider: CoinGeckoV3CryptoMarketsProvider(
+            apiKey: Environment.get("COINGECKO_API_KEY"),
+            plan: Environment.get("COINGECKO_API_PLAN")
+                .flatMap { CoinGeckoV3CryptoMarketsProvider.Plan(rawValue: $0.lowercased()) } ?? .demo
+        ),
+        reference: fmpProvider.map { FMPCryptoReferenceDataSource(provider: $0) },
+        cache: RedisJSONCache(label: "crypto_markets"),
+        filter: CryptoMarketsFilter(
+            minMarketCap: Environment.get("CRYPTO_MOVERS_MIN_MARKET_CAP_USD").flatMap(Double.init(_:))
+                ?? defaultCryptoMarketsFilter.minMarketCap,
+            minVolume24h: Environment.get("CRYPTO_MOVERS_MIN_VOLUME_USD").flatMap(Double.init(_:))
+                ?? defaultCryptoMarketsFilter.minVolume24h
+        ),
+        universeSize: Environment.get("CRYPTO_MARKETS_UNIVERSE_SIZE").flatMap(Int.init(_:)) ?? 250,
+        // Three missed ticks before the fresh copy lapses to the stale one.
+        freshTTLSeconds: cryptoMarketsRefreshSeconds * 3
+    )
 
     // AI insights (educational, Pro-gated). Backend proxy to OpenAI; key never
     // leaves the server. Boots disabled when no key is configured.
@@ -508,6 +533,9 @@ public func configure(_ app: Application) async throws {
         tickIntervalSeconds: macroTickSeconds,
         usRefreshSeconds: macroUSRefreshSeconds,
         intlRefreshSeconds: macroIntlRefreshSeconds
+    ))
+    app.lifecycle.use(CryptoMarketsRefreshJob(
+        intervalSeconds: Int64(Environment.get("CRYPTO_MARKETS_REFRESH_SECONDS").flatMap(Int.init(_:)) ?? 360)
     ))
 
     registerMigrations(app)

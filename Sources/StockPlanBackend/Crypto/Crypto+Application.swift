@@ -10,3 +10,14 @@ extension Application {
         set { storage[CryptoServiceKey.self] = newValue }
     }
 }
+
+extension Application {
+    struct CryptoMarketsServiceKey: StorageKey {
+        typealias Value = any CryptoMarketsService
+    }
+
+    var cryptoMarketsService: any CryptoMarketsService {
+        get { storage[CryptoMarketsServiceKey.self]! }
+        set { storage[CryptoMarketsServiceKey.self] = newValue }
+    }
+}

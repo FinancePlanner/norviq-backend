@@ -4061,6 +4061,53 @@ paths:
         '401':
           description: Unauthorized
 
+  /v1/crypto/markets:
+    get:
+      operationId: getCryptoMarkets
+      tags: [Crypto]
+      summary: Ranked crypto markets for one timeframe
+      description: |
+        One payload for the crypto markets view: the ranked coin list (bubbles,
+        heatmap), top and worst performers, and the all-time-high board.
+        Served from a snapshot refreshed in the background; `isStale` is true
+        when the last refresh failed and an older snapshot is returned.
+        Stablecoins are excluded. Performer lists and the ATH board also skip
+        coins under the market-cap and volume floor. Pro only.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: timeframe
+          in: query
+          required: false
+          schema:
+            $ref: '#/components/schemas/CryptoMarketsTimeframe'
+        - name: limit
+          in: query
+          required: false
+          description: Coins to return in `coins` (gainers, losers and the ATH board always consider the full universe).
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 250
+            default: 100
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CryptoMarketsResponse'
+        '400':
+          description: Unknown timeframe
+        '401':
+          description: Unauthorized
+        '402':
+          description: Pro subscription required
+        '429':
+          description: Too many requests
+        '502':
+          description: No crypto market data available
+
   /v1/crypto/quote/{symbol}:
     parameters:
       - name: symbol
@@ -11044,6 +11091,99 @@ components:
           format: double
           nullable: true
       required: [symbol, name]
+
+    CryptoMarketsTimeframe:
+      type: string
+      enum: ["1d", "1w", "1m", ytd, "1y", all]
+      default: "1d"
+      description: "`1m` is a rolling 30 days. `all` ranks by distance from the all-time high."
+
+    CryptoTimeframeReturns:
+      type: object
+      description: Percent change per window; a missing key means the source has no value.
+      properties:
+        "1d": {type: number, format: double, nullable: true}
+        "1w": {type: number, format: double, nullable: true}
+        "1m": {type: number, format: double, nullable: true}
+        ytd: {type: number, format: double, nullable: true}
+        "1y": {type: number, format: double, nullable: true}
+
+    CryptoMarketCoin:
+      type: object
+      required: [id, symbol, name, sector, price, returns, sparkline7d]
+      properties:
+        id: {type: string, description: Provider id, e.g. bitcoin}
+        symbol: {type: string, example: BTC}
+        fmpSymbol: {type: string, nullable: true, example: BTCUSD, description: Set when detail charts are available}
+        name: {type: string}
+        imageUrl: {type: string, nullable: true}
+        rank: {type: integer, nullable: true}
+        sector: {type: string}
+        price: {type: number, format: double}
+        marketCap: {type: number, format: double, nullable: true}
+        volume24h: {type: number, format: double, nullable: true}
+        changePct: {type: number, format: double, nullable: true, description: Value for the requested timeframe}
+        returns: {$ref: '#/components/schemas/CryptoTimeframeReturns'}
+        ath: {type: number, format: double, nullable: true}
+        athChangePct: {type: number, format: double, nullable: true}
+        athDate: {type: string, format: date-time, nullable: true}
+        atl: {type: number, format: double, nullable: true}
+        atlChangePct: {type: number, format: double, nullable: true}
+        atlDate: {type: string, format: date-time, nullable: true}
+        sparkline7d:
+          type: array
+          items: {type: number, format: double}
+
+    CryptoMarketsSummary:
+      type: object
+      required: [advancers, decliners]
+      properties:
+        totalMarketCap: {type: number, format: double, nullable: true}
+        btcDominancePct: {type: number, format: double, nullable: true}
+        advancers: {type: integer}
+        decliners: {type: integer}
+
+    CryptoAthBoard:
+      type: object
+      required: [recentAths, nearAth, deepestDrawdowns]
+      properties:
+        recentAths:
+          type: array
+          items: {$ref: '#/components/schemas/CryptoMarketCoin'}
+        nearAth:
+          type: array
+          items: {$ref: '#/components/schemas/CryptoMarketCoin'}
+        deepestDrawdowns:
+          type: array
+          items: {$ref: '#/components/schemas/CryptoMarketCoin'}
+
+    CryptoMarketsResponse:
+      type: object
+      required: [timeframe, supportedTimeframes, source, asOf, isStale, colorMode, colorScaleMaxPct, summary, coins, gainers, losers, athBoard]
+      properties:
+        timeframe: {$ref: '#/components/schemas/CryptoMarketsTimeframe'}
+        supportedTimeframes:
+          type: array
+          items: {$ref: '#/components/schemas/CryptoMarketsTimeframe'}
+        source: {type: string, example: coingecko}
+        asOf: {type: string, format: date-time}
+        isStale: {type: boolean}
+        colorMode:
+          type: string
+          enum: [change, athDistance]
+        colorScaleMaxPct: {type: number, format: double}
+        attribution: {type: string, nullable: true, description: Credit line clients must display}
+        summary: {$ref: '#/components/schemas/CryptoMarketsSummary'}
+        coins:
+          type: array
+          items: {$ref: '#/components/schemas/CryptoMarketCoin'}
+        gainers:
+          type: array
+          items: {$ref: '#/components/schemas/CryptoMarketCoin'}
+        losers:
+          type: array
+          items: {$ref: '#/components/schemas/CryptoMarketCoin'}
+        athBoard: {$ref: '#/components/schemas/CryptoAthBoard'}
 
     CryptoQuoteResponse:
       type: object

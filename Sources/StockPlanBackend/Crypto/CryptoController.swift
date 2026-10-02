@@ -4,7 +4,10 @@ import Vapor
 
 struct CryptoController: RouteCollection {
     func boot(routes: any RoutesBuilder) throws {
+        // Rate limit sits after auth so it keys per user, not per IP (web
+        // traffic arrives from one proxy address).
         let protected = routes.grouped(ScopedBearerAuthenticator(), SessionToken.guardMiddleware())
+            .grouped(RateLimitMiddleware(limit: 120, interval: 60, keyPrefix: "ratelimit:crypto"))
         let read = protected.grouped(ScopeRequirementMiddleware(.cryptoRead)).grouped("crypto")
         let write = protected.grouped(ScopeRequirementMiddleware(.cryptoWrite)).grouped("crypto")
 
@@ -16,6 +19,7 @@ struct CryptoController: RouteCollection {
         read.get("history", ":resolution", ":symbol", use: history)
         read.get("news", use: generalNews)
         read.get("news", ":symbol", use: news)
+        read.get("markets", use: markets)
 
         // Portfolio CRUD
         read.get("portfolio", use: listPortfolio)
@@ -34,6 +38,20 @@ struct CryptoController: RouteCollection {
     func cryptocurrencyList(req: Request) async throws -> [CryptoAssetResponse] {
         _ = try await requireCryptoEntitlement(req)
         return try await req.application.cryptoService.cryptocurrencyList(on: req)
+    }
+
+    /// Ranked universe projected onto one timeframe: bubbles, performers,
+    /// heatmap and ATH board in a single payload.
+    @Sendable
+    func markets(req: Request) async throws -> CryptoMarketsResponse {
+        _ = try await requireCryptoEntitlement(req)
+        let rawTimeframe = req.query[String.self, at: "timeframe"] ?? CryptoMarketsTimeframe.oneDay.rawValue
+        guard let timeframe = CryptoMarketsTimeframe(rawValue: rawTimeframe.lowercased()) else {
+            let allowed = CryptoMarketsTimeframe.allCases.map(\.rawValue).joined(separator: ", ")
+            throw Abort(.badRequest, reason: "timeframe must be one of: \(allowed).")
+        }
+        let limit = min(max(req.query[Int.self, at: "limit"] ?? 100, 1), 250)
+        return try await req.application.cryptoMarketsService.markets(timeframe: timeframe, limit: limit, on: req)
     }
 
     @Sendable
