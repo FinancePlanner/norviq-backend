@@ -461,6 +461,16 @@ public func configure(_ app: Application) async throws {
     app.lifecycle.use(PortfolioSnapshotJob(
         intervalSeconds: Environment.get("PORTFOLIO_SNAPSHOT_INTERVAL_SECONDS").flatMap(Int64.init) ?? 3600
     ))
+    // Pilot follows: simulated copy-trading of curated politicians and 13F
+    // funds. Off unless PILOTS_ENABLED; the controller 404s too.
+    if envBool("PILOTS_ENABLED", default: false) {
+        app.lifecycle.use(PilotIngestionJob(
+            intervalSeconds: Environment.get("PILOT_INGESTION_INTERVAL_SECONDS").flatMap(Int64.init) ?? 3600
+        ))
+        app.lifecycle.use(PilotMirrorJob(
+            intervalSeconds: Environment.get("PILOT_MIRROR_INTERVAL_SECONDS").flatMap(Int64.init) ?? 3600
+        ))
+    }
     // Operator-triggered reconstruction of history predating the job above.
     app.asyncCommands.use(PortfolioBackfillCommand(), as: "portfolio-backfill")
 
