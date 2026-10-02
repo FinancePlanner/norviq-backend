@@ -429,6 +429,7 @@ func registerMigrations(_ app: Application) {
     app.migrations.add(CreateOnboardingState())
     app.migrations.add(CreateSocialTables())
     app.migrations.add(CreatePilotTables())
+    app.migrations.add(SeedPilots())
 }
 
 func envBool(_ key: String, default defaultValue: Bool) -> Bool {
