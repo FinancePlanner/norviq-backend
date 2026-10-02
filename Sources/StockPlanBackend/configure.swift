@@ -281,6 +281,7 @@ public func configure(_ app: Application) async throws {
                 ?? defaultCryptoMarketsFilter.minVolume24h
         ),
         universeSize: Environment.get("CRYPTO_MARKETS_UNIVERSE_SIZE").flatMap(Int.init(_:)) ?? 250,
+        ytdCoverage: Environment.get("CRYPTO_MARKETS_YTD_COINS").flatMap(Int.init(_:)) ?? 50,
         // Three missed ticks before the fresh copy lapses to the stale one.
         freshTTLSeconds: cryptoMarketsRefreshSeconds * 3
     )
@@ -545,7 +546,9 @@ public func configure(_ app: Application) async throws {
         intlRefreshSeconds: macroIntlRefreshSeconds
     ))
     app.lifecycle.use(CryptoMarketsRefreshJob(
-        intervalSeconds: Int64(Environment.get("CRYPTO_MARKETS_REFRESH_SECONDS").flatMap(Int.init(_:)) ?? 360)
+        intervalSeconds: Int64(Environment.get("CRYPTO_MARKETS_REFRESH_SECONDS").flatMap(Int.init(_:)) ?? 360),
+        // FMP history calls per tick for YTD; 0 turns YTD filling off.
+        ytdFillBudget: Environment.get("CRYPTO_MARKETS_YTD_FILL_BUDGET").flatMap(Int.init(_:)) ?? 5
     ))
 
     registerMigrations(app)

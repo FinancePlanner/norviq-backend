@@ -6,15 +6,16 @@ import Vapor
 /// CoinGecko. Mirrors MacroRefreshJob: repeated task, overlap guard, leader
 /// lock across replicas, `runOnce` for tests.
 final class CryptoMarketsRefreshJob: LifecycleHandler, @unchecked Sendable {
-    /// FMP history calls per tick for missing YTD bases. ~100 listed coins
-    /// fill within a few ticks; after that each tick costs nothing extra.
-    static let ytdFillBudget = 25
-
     private let intervalSeconds: Int64
+    /// FMP history calls per tick for missing YTD bases (0 disables). Kept
+    /// small: FMP's quota is shared with stock quotes and news. Once the
+    /// covered coins have a base, ticks cost nothing extra until next year.
+    private let ytdFillBudget: Int
     private let initialDelaySeconds: Int64
     private let state = BackgroundJobState()
 
-    init(intervalSeconds: Int64, initialDelaySeconds: Int64 = 15) {
+    init(intervalSeconds: Int64, ytdFillBudget: Int = 5, initialDelaySeconds: Int64 = 15) {
+        self.ytdFillBudget = max(ytdFillBudget, 0)
         // Floor protects the CoinGecko monthly quota from a mistyped env var.
         self.intervalSeconds = max(intervalSeconds, 120)
         self.initialDelaySeconds = max(initialDelaySeconds, 0)
@@ -65,7 +66,7 @@ final class CryptoMarketsRefreshJob: LifecycleHandler, @unchecked Sendable {
             let req = Request(application: app, on: app.eventLoopGroup.next())
             do {
                 let snapshot = try await app.cryptoMarketsService.refreshSnapshot(
-                    ytdFillBudget: Self.ytdFillBudget, on: req
+                    ytdFillBudget: self.ytdFillBudget, on: req
                 )
                 app.logger.info("crypto_markets_refresh ok source=\(snapshot.source) coins=\(snapshot.coins.count)")
             } catch {
