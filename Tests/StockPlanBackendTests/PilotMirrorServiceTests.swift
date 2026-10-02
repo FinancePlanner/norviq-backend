@@ -175,6 +175,9 @@ struct PilotMirrorServiceTests {
             var item = try #require(try await WatchlistItem.query(on: app.db).filter(\.$watchlistListId == list.requireID()).first())
             #expect(item.status == WatchlistStatus.active.rawValue)
             #expect(item.note == "Test Pilot bought 2026-09-14")
+            // The user annotates the mirrored item; later pilot activity must not erase it.
+            item.note = "My thesis: AI capex"
+            try await item.save(on: app.db)
 
             let v2 = try await version(pilot, 2, ["AAPL": 1.0], on: app.db)
             let reloaded = try #require(try await PilotFollow.find(follow.requireID(), on: app.db))
@@ -187,6 +190,9 @@ struct PilotMirrorServiceTests {
             _ = try await svc.apply(follow: again, pilot: pilot, version: v3, previous: v2, now: now, on: app.db)
             item = try #require(try await WatchlistItem.find(item.requireID(), on: app.db))
             #expect(item.status == WatchlistStatus.active.rawValue)
+            let note = try #require(item.note)
+            #expect(note.hasPrefix("My thesis: AI capex · "))
+            #expect(note.hasSuffix(" · Test Pilot bought 2026-09-14"))
         }
     }
 

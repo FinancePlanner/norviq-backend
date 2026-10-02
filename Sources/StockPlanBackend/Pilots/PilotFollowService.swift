@@ -121,6 +121,13 @@ struct PilotFollowService: Sendable {
             guard let id = UUID(uuidString: rawId),
                   try await WatchlistList.query(on: db).filter(\.$id == id).filter(\.$userId == userId).first() != nil
             else { throw Abort(.notFound, reason: "Watchlist not found.") }
+            // Like a portfolio target: the mirror rewrites statuses and notes,
+            // so it must never adopt items the user wrote by hand.
+            let items = try await WatchlistItem.query(on: db).filter(\.$watchlistListId == id).count()
+            let followed = try await PilotFollow.query(on: db).filter(\.$watchlistListId == id).count()
+            guard items == 0, followed == 0 else {
+                throw Abort(.unprocessableEntity, reason: "Choose an empty watchlist, or let Norviq create one.")
+            }
             return id
         }
         let taken = try await Set(WatchlistList.query(on: db).filter(\.$userId == userId).all().map(\.name))

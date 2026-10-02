@@ -125,7 +125,7 @@ struct PilotMirrorService: Sendable {
                 let note = try await activityNote(pilot: pilot, symbol: symbol, bought: true, on: tx)
                 if let existing = try await WatchlistItem.query(on: tx).filter(\.$watchlistListId == listId).filter(\.$symbol == symbol).first() {
                     existing.status = WatchlistStatus.active.rawValue
-                    existing.note = note
+                    existing.note = Self.appending(note, to: existing.note)
                     try await existing.save(on: tx)
                 } else {
                     let count = try await WatchlistItem.query(on: tx).filter(\.$userId == follow.userId).count()
@@ -143,12 +143,18 @@ struct PilotMirrorService: Sendable {
                 guard let item = try await WatchlistItem.query(on: tx).filter(\.$watchlistListId == listId).filter(\.$symbol == symbol).first() else { continue }
                 let note = try await activityNote(pilot: pilot, symbol: symbol, bought: false, on: tx)
                 item.status = WatchlistStatus.exited.rawValue
-                item.note = [item.note, note].compactMap(\.self).joined(separator: " · ")
+                item.note = Self.appending(note, to: item.note)
                 try await item.save(on: tx)
                 try await PilotFollowEvent(followId: followId, bookVersion: version.version, kind: "watch_exited", symbol: symbol, pricedAt: now, note: note).create(on: tx)
             }
             return true
         }
+    }
+
+    /// Pilot activity is appended, never written over what is already there.
+    private static func appending(_ note: String, to existing: String?) -> String {
+        guard let existing, !existing.isEmpty else { return note }
+        return existing + " · " + note
     }
 
     /// "Nancy Pelosi bought 2026-09-14" or, for funds, "Berkshire Hathaway held in 2026Q2".

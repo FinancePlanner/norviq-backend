@@ -140,8 +140,8 @@ struct PilotFollowServiceTests {
         }
     }
 
-    @Test("duplicate follow of the same pilot into the same watchlist is a 409")
-    func duplicateIsConflict() async throws {
+    @Test("a duplicate follow into the same watchlist is a 422: the list is already followed and not empty")
+    func duplicateIsRejected() async throws {
         try await withApp { app in
             let userId = try await makeUser(on: app.db)
             let pilot = try await seededPilot(on: app.db)
@@ -149,10 +149,40 @@ struct PilotFollowServiceTests {
             let first = try await followService.create(PilotFollowCreateRequest(pilotSlug: pilot.slug, targetKind: .watchlist, portfolioListId: nil, watchlistListId: nil, startingCapital: nil), userId: userId, entitlement: pro, now: now, on: app.db)
             do {
                 _ = try await followService.create(PilotFollowCreateRequest(pilotSlug: pilot.slug, targetKind: .watchlist, portfolioListId: nil, watchlistListId: first.watchlistListId?.uuidString, startingCapital: nil), userId: userId, entitlement: pro, now: now, on: app.db)
-                Issue.record("expected 409")
+                Issue.record("expected 422")
             } catch let error as Abort {
-                #expect(error.status == .conflict)
+                #expect(error.status == .unprocessableEntity)
             }
+        }
+    }
+
+    @Test("a watchlist with a hand-added item is rejected with 422 and the item is untouched")
+    func rejectsNonEmptyWatchlist() async throws {
+        try await withApp { app in
+            let db = app.db
+            let userId = try await makeUser(on: db)
+            let pilot = try await seededPilot(on: db)
+            let list = WatchlistList(userId: userId, name: "Mine")
+            try await list.create(on: db)
+            let item = try WatchlistItem(userId: userId, watchlistListId: list.requireID(), symbol: "AAPL", note: "Wait for 150", status: .researching)
+            try await item.create(on: db)
+            do {
+                _ = try await followService.create(PilotFollowCreateRequest(pilotSlug: pilot.slug, targetKind: .watchlist, portfolioListId: nil, watchlistListId: list.requireID().uuidString, startingCapital: nil), userId: userId, entitlement: entitlement(userId, pro: true), now: now, on: db)
+                Issue.record("expected 422")
+            } catch let error as Abort {
+                #expect(error.status == .unprocessableEntity)
+                #expect(error.reason == "Choose an empty watchlist, or let Norviq create one.")
+            }
+            let after = try #require(try await WatchlistItem.find(item.requireID(), on: db))
+            #expect(after.note == "Wait for 150")
+            #expect(after.status == WatchlistStatus.researching.rawValue)
+            #expect(try await PilotFollow.query(on: db).filter(\.$userId == userId).count() == 0)
+
+            // An empty list of the user's own choosing is fine.
+            let empty = WatchlistList(userId: userId, name: "Empty")
+            try await empty.create(on: db)
+            let follow = try await followService.create(PilotFollowCreateRequest(pilotSlug: pilot.slug, targetKind: .watchlist, portfolioListId: nil, watchlistListId: empty.requireID().uuidString, startingCapital: nil), userId: userId, entitlement: entitlement(userId, pro: true), now: now, on: db)
+            #expect(follow.watchlistListId == empty.id)
         }
     }
 
