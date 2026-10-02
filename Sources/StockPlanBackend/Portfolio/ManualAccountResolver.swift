@@ -39,9 +39,17 @@ enum ManualAccountResolver {
             return legacy
         }
 
+        // `(broker, external_id)` is unique. The user's first manual account
+        // keeps the plain id (existing rows already use it); each further
+        // portfolio's account is suffixed with the portfolio id.
+        let baseExternalId = "manual-\(userId.uuidString.lowercased())"
+        let baseTaken = try await Account.query(on: db)
+            .filter(\.$broker == broker)
+            .filter(\.$externalId == baseExternalId)
+            .count() > 0
         let account = Account(
             userId: userId,
-            externalId: "manual-\(userId.uuidString.lowercased())",
+            externalId: baseTaken ? "\(baseExternalId)-\(portfolioId.uuidString.lowercased())" : baseExternalId,
             broker: broker,
             displayName: "Manual Cash Account",
             baseCurrency: "USD",

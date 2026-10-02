@@ -109,8 +109,9 @@ func routes(_ app: Application) throws {
     try api.register(collection: AdvancedReportingController())
     // Broker connect/sync hit third-party APIs and mutate stored credentials; rate limit
     // per-user and dedupe retried POSTs (OAuth callback, manual sync) via idempotency keys.
+    // The authenticator runs first so the limiter sees the session and buckets are per user.
     let brokerRateLimit = RateLimitMiddleware(limit: 30, interval: 60, keyPrefix: "ratelimit:broker")
-    try api.grouped(brokerRateLimit, IdempotencyMiddleware(keyPrefix: "idempotency:broker"))
+    try api.grouped(ScopedBearerAuthenticator(), brokerRateLimit, IdempotencyMiddleware(keyPrefix: "idempotency:broker"))
         .register(collection: BrokerController())
     // Pilot follows write simulated trades; rate limit and dedupe retried POSTs.
     // The authenticator runs first so the limiter sees the session and buckets are per user.
