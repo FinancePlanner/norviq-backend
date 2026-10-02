@@ -4,13 +4,15 @@ import Vapor
 
 enum BrokersServiceError: Error {
     case invalidProvider
+    /// "pilot" names the simulated-cash accounts of pilot follows.
+    case reservedProvider
     case notFound
 }
 
 extension BrokersServiceError: AbortError {
     var status: HTTPResponseStatus {
         switch self {
-        case .invalidProvider:
+        case .invalidProvider, .reservedProvider:
             .badRequest
         case .notFound:
             .notFound
@@ -21,6 +23,8 @@ extension BrokersServiceError: AbortError {
         switch self {
         case .invalidProvider:
             "Invalid broker provider."
+        case .reservedProvider:
+            "\"\(PilotAccountResolver.broker)\" is reserved."
         case .notFound:
             "Broker not found."
         }

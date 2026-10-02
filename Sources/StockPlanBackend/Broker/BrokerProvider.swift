@@ -37,6 +37,11 @@ enum BrokerProvider {
         guard !normalized.isEmpty, normalized.count <= 64 else {
             throw BrokersServiceError.invalidProvider
         }
+        // An import's account takes the provider as its broker; a "pilot" one
+        // would be adopted as a pilot follow's simulated-cash account.
+        guard normalized != PilotAccountResolver.broker else {
+            throw BrokersServiceError.reservedProvider
+        }
 
         return normalized
     }

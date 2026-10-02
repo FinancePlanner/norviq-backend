@@ -520,6 +520,11 @@ struct PortfolioManagementController: RouteCollection {
             .filter(\.$userId == session.userId)
             .first()
         else { throw Abort(.notFound, reason: "Account not found.") }
+        // The pilot account holds a follow's simulated cash; moving it would
+        // carry that cash into a real portfolio.
+        guard account.broker != PilotAccountResolver.broker else {
+            throw Abort(.unprocessableEntity, reason: "Simulated accounts can't be reassigned.")
+        }
         account.portfolioId = try context.portfolio.requireID()
         try await account.save(on: req.db)
         return .noContent
