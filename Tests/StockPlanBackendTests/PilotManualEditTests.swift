@@ -109,7 +109,7 @@ extension PilotControllerTests {
         }
     }
 
-    @Test("after unfollowing, a manual sell and a recorded trade use the pilot account; the legacy manual account is untouched")
+    @Test("after unfollowing, a manual sell and a recorded trade use the pilot account; the legacy manual account is untouched", .databaseLocked)
     func unfollowedPortfolioKeepsPilotAccount() async throws {
         setenv("PILOTS_ENABLED", "true", 1)
         defer { unsetenv("PILOTS_ENABLED") }

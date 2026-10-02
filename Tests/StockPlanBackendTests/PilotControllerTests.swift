@@ -46,7 +46,7 @@ struct PilotControllerTests {
         return (response.token, response.userId)
     }
 
-    @Test("flag off: 404")
+    @Test("flag off: 404", .databaseLocked)
     func flagOff() async throws {
         unsetenv("PILOTS_ENABLED")
         try await withApp { app in
@@ -57,7 +57,7 @@ struct PilotControllerTests {
         }
     }
 
-    @Test("flag on: list pilots, follow into a watchlist, read events, pause, delete")
+    @Test("flag on: list pilots, follow into a watchlist, read events, pause, delete", .databaseLocked)
     func lifecycle() async throws {
         setenv("PILOTS_ENABLED", "true", 1)
         defer { unsetenv("PILOTS_ENABLED") }
@@ -107,7 +107,7 @@ struct PilotControllerTests {
         }
     }
 
-    @Test("another user's follow is a 404")
+    @Test("another user's follow is a 404", .databaseLocked)
     func ownership() async throws {
         setenv("PILOTS_ENABLED", "true", 1)
         defer { unsetenv("PILOTS_ENABLED") }
