@@ -1210,7 +1210,7 @@ paths:
       operationId: createPilotFollow
       tags: [Pilots]
       summary: Follow a pilot
-      description: Starts a simulated follow into a watchlist or an empty hypothetical portfolio. No real money is invested.
+      description: Starts a simulated follow into an empty watchlist or an empty hypothetical portfolio (or a new one Norviq creates). No real money is invested.
       security:
         - bearerAuth: []
       requestBody:
@@ -1239,9 +1239,9 @@ paths:
         '404':
           description: Pilot or target list not found, or the pilots feature is disabled (`PILOTS_ENABLED` off).
         '409':
-          description: The pilot has no book yet, or this pilot is already followed into the same watchlist.
+          description: The pilot has no book yet.
         '422':
-          description: The target is not an empty hypothetical portfolio (it has stocks, cash, transactions, cash positions or an existing follow).
+          description: The target is not an empty hypothetical portfolio (it has stocks, cash, transactions, cash positions or an existing follow), or the chosen watchlist has items or an existing follow.
 
   /v1/pilot-follows/{followId}:
     get:
