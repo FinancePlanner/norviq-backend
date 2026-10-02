@@ -89,6 +89,69 @@ struct PilotMirrorServiceTests {
         }
     }
 
+    @Test("with real instruments, stocks equal the pilot account's net transactions; a stale re-apply adds none")
+    func stocksAndTransactionsAgree() async throws {
+        try await withApp { app in
+            let userId = try await makeUser(on: app.db)
+            let pilot = try await makePilot(on: app.db)
+            let follow = try await portfolioFollow(userId: userId, pilot: pilot, cash: 10000, on: app.db)
+            let followId = try follow.requireID()
+            let listId = try #require(follow.portfolioListId)
+            var instruments: [String: UUID] = [:]
+            for symbol in ["AAPL", "MSFT"] {
+                let instrument = Instrument(conid: "test:\(symbol):\(UUID().uuidString.prefix(6))", symbol: symbol, exchange: "TEST", currency: "USD")
+                try await instrument.create(on: app.db)
+                instruments[symbol] = try instrument.requireID()
+            }
+            let ids = instruments
+            let svc = PilotMirrorService(
+                quote: { symbol in ["AAPL": 100, "MSFT": 250][symbol] ?? 0 },
+                instrument: { symbol in ids[symbol] },
+                watchlistLimit: { _, _, _ in }
+            )
+            let account = try await PilotAccountResolver.findOrCreate(userId: userId, portfolioId: listId, on: app.db)
+            let accountId = try account.requireID()
+            let symbolById = Dictionary(uniqueKeysWithValues: ids.map { ($1, $0) })
+
+            func assertLedgerAgrees() async throws {
+                let stocks = try await Stock.query(on: app.db).filter(\.$portfolioListId == listId).all()
+                let held = stocks.reduce(into: [String: Double]()) { $0[$1.symbol, default: 0] += $1.shares }
+                let txs = try await Transaction.query(on: app.db).filter(\.$accountId == accountId).all()
+                var net: [String: Double] = [:]
+                for tx in txs {
+                    let symbol = try #require(symbolById[tx.instrumentId])
+                    let qty = tx.quantity ?? 0
+                    net[symbol, default: 0] += tx.type == "buy" ? qty : -qty
+                }
+                for symbol in Set(held.keys).union(net.keys) {
+                    #expect(abs((held[symbol] ?? 0) - (net[symbol] ?? 0)) < 1e-9, "\(symbol): stocks \(held[symbol] ?? 0) vs transactions \(net[symbol] ?? 0)")
+                }
+            }
+
+            let v1 = try await version(pilot, 1, ["AAPL": 0.5, "MSFT": 0.5], on: app.db)
+            #expect(try await svc.apply(follow: follow, pilot: pilot, version: v1, previous: nil, now: now, on: app.db))
+            try await assertLedgerAgrees()
+            let v1Txs = try await Transaction.query(on: app.db).filter(\.$accountId == accountId).all()
+            #expect(v1Txs.count == 2)
+            for tx in v1Txs {
+                let symbol = try #require(symbolById[tx.instrumentId])
+                #expect(tx.externalId == "pilot:\(followId.uuidString.lowercased()):v1:\(symbol)")
+            }
+
+            // The stale pod: same version again, follow as it was before the claim.
+            #expect(try await svc.apply(follow: follow, pilot: pilot, version: v1, previous: nil, now: now, on: app.db) == false)
+            #expect(try await Transaction.query(on: app.db).filter(\.$accountId == accountId).count() == 2)
+            try await assertLedgerAgrees()
+
+            // A rebalance that sells one name out and buys the other keeps them in step.
+            let v2 = try await version(pilot, 2, ["AAPL": 1.0], on: app.db)
+            let current = try #require(try await PilotFollow.find(followId, on: app.db))
+            #expect(try await svc.apply(follow: current, pilot: pilot, version: v2, previous: v1, now: now, on: app.db))
+            try await assertLedgerAgrees()
+            #expect(try await Stock.query(on: app.db).filter(\.$portfolioListId == listId).filter(\.$symbol == "MSFT").count() == 0)
+        }
+    }
+
     @Test("applying the same version twice changes nothing the second time")
     func applyIsIdempotent() async throws {
         try await withApp { app in
