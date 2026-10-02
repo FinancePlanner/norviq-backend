@@ -152,17 +152,12 @@ struct TaxPlanReconciler: Sendable {
         userId: UUID,
         on database: any Database
     ) async throws {
-        let accountIDs = try await Account.query(on: database)
-            .filter(\.$userId == userId)
-            .all()
-            .compactMap(\.id)
-        guard !accountIDs.isEmpty else { return }
-        let purchases = try await Transaction.query(on: database)
-            .filter(\.$accountId ~~ accountIDs)
-            .filter(\.$type == "BUY")
-            .filter(\.$tradeDate >= window.startsAt)
-            .filter(\.$tradeDate <= window.endsAt)
-            .all()
+        let purchases = try await TaxRestrictionPurchases.buys(
+            userId: userId,
+            from: window.startsAt,
+            through: window.endsAt,
+            on: database
+        )
         let instrumentIDs = Array(Set(purchases.map(\.instrumentId)))
         let instruments = instrumentIDs.isEmpty ? [] : try await Instrument.query(on: database)
             .filter(\.$id ~~ instrumentIDs)
@@ -189,6 +184,8 @@ struct TaxPlanReconciler: Sendable {
         guard let transactionID = transaction.id,
               let account = try await Account.find(transaction.accountId, on: database),
               account.userId == userId,
+              // A pilot follow's buys are simulated: they replace nothing.
+              account.broker != PilotAccountResolver.broker,
               let instrument = try await Instrument.find(transaction.instrumentId, on: database)
         else { return }
         let windows = try await TaxRestrictionWindow.query(on: database)
@@ -210,5 +207,26 @@ struct TaxPlanReconciler: Sendable {
             ?? instrument.cusip
             ?? instrument.isin
             ?? instrument.symbol.uppercased()
+    }
+}
+
+/// BUYs that can violate a wash-sale restriction window: real accounts only.
+/// A pilot follow's account holds simulated trades, which never count. Shared
+/// by both places that open a window (a completed action plan and a matched
+/// broker sell).
+enum TaxRestrictionPurchases {
+    static func buys(userId: UUID, from start: Date, through end: Date, on database: any Database) async throws -> [Transaction] {
+        let accountIDs = try await Account.query(on: database)
+            .filter(\.$userId == userId)
+            .filter(\.$broker != PilotAccountResolver.broker)
+            .all()
+            .compactMap(\.id)
+        guard !accountIDs.isEmpty else { return [] }
+        return try await Transaction.query(on: database)
+            .filter(\.$accountId ~~ accountIDs)
+            .filter(\.$type == "BUY")
+            .filter(\.$tradeDate >= start)
+            .filter(\.$tradeDate <= end)
+            .all()
     }
 }

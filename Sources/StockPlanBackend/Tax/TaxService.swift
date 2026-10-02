@@ -1216,17 +1216,12 @@ extension DefaultTaxService {
         window.endsAt = calendar.date(byAdding: .day, value: 30, to: executedAt)!
         window.status = "active"
         try await window.create(on: db)
-        let accountIDs = try await Account.query(on: db)
-            .filter(\.$userId == userId)
-            .all()
-            .compactMap(\.id)
-        guard !accountIDs.isEmpty else { return }
-        let purchases = try await Transaction.query(on: db)
-            .filter(\.$accountId ~~ accountIDs)
-            .filter(\.$type == "BUY")
-            .filter(\.$tradeDate >= window.startsAt)
-            .filter(\.$tradeDate <= window.endsAt)
-            .all()
+        let purchases = try await TaxRestrictionPurchases.buys(
+            userId: userId,
+            from: window.startsAt,
+            through: window.endsAt,
+            on: db
+        )
         let instrumentIDs = Array(Set(purchases.map(\.instrumentId)))
         let instruments = instrumentIDs.isEmpty ? [] : try await Instrument.query(on: db)
             .filter(\.$id ~~ instrumentIDs)
