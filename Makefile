@@ -6,7 +6,7 @@ BACKEND_TEST_ENV ?= testing
 HERMES_SERVER ?= root@78.46.192.73
 HERMES_LOCAL_PORT ?= 8787
 
-.PHONY: help build services migrate start logs stop lint dev build-dev \
+.PHONY: help build services migrate start logs stop lint check dev build-dev \
 	container-local health production-preflight rollback-app prune-images \
 	backup-db restore-drill export-user-data backend-test backend-openapi-check \
 	apns-production-check grafana-tunnel hermes-tunnel \
@@ -20,6 +20,7 @@ help:
 	@printf "  make logs     Follow app logs\n"
 	@printf "  make stop     Stop the compose stack\n"
 	@printf "  make lint     Run SwiftLint with auto-fix\n"
+	@printf "  make check    Check SwiftFormat, SwiftLint, and Periphery (no rewrite)\n"
 	@printf "  make backend-test          Run the backend Swift test suite\n"
 	@printf "  make backend-openapi-check Run OpenAPI documentation drift checks\n"
 	@printf "  make container-local APP_IMAGE=ghcr.io/<owner>/<repo> [APP_IMAGE_TAG=local-dev]\n"
@@ -72,6 +73,11 @@ lint:
 
 format:
 	swiftformat .
+
+check:
+	swiftformat . --lint
+	swiftlint
+	periphery scan
 
 backend-test:
 	LOG_LEVEL=$(or $(LOG_LEVEL),warning) swift test
