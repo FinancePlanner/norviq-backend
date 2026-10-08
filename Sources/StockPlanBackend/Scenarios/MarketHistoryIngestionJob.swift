@@ -26,13 +26,30 @@ final class MarketHistoryIngestionJob: LifecycleHandler, @unchecked Sendable {
         lock.lock(); scheduled?.cancel(); scheduled = nil; lock.unlock()
     }
 
+    /// One sweep over every held symbol. Leader-only: it also runs 30s after
+    /// every boot, so without the lock each replica (and each rollout) repeats
+    /// the sweep against the same market-data allowance.
     func runOnce(_ app: Application) async {
+        await JobLock.runAsLeader(app, name: "scenario_history_ingestion") {
+            await self.sweep(app)
+        }
+    }
+
+    private func sweep(_ app: Application) async {
         do {
             let holdingSymbols = try await Stock.query(on: app.db).all().map { $0.symbol.uppercased() }
             let proxies = try await HoldingRiskProfileModel.query(on: app.db).all().compactMap { $0.benchmarkProxy?.uppercased() }
             for symbol in Set(holdingSymbols + proxies).sorted() {
                 do {
                     try await ingest(symbol: symbol, app: app)
+                } catch let error as MarketDataProviderRateLimitedError {
+                    // Every further symbol would fail the same way and keep the
+                    // provider's window shut for user-facing requests. The next
+                    // tick resumes where coverage left off.
+                    app.logger.warning(
+                        "scenario_history_ingestion stopped: provider rate limited symbol=\(symbol) retry_after=\(error.retryAfterSeconds)"
+                    )
+                    return
                 } catch {
                     app.logger.warning("scenario_history_ingestion failed symbol=\(symbol) error=\(error)")
                 }
@@ -40,12 +57,25 @@ final class MarketHistoryIngestionJob: LifecycleHandler, @unchecked Sendable {
         } catch { app.logger.warning("scenario_history_ingestion failed error=\(error)") }
     }
 
+    /// First day to request. A symbol with stored bars only needs the days
+    /// after its last one; only a symbol with none gets the full 30-year
+    /// backfill.
+    ///
+    /// This used to re-fetch 30 years whenever more than 5 weekdays in that
+    /// window were missing — which is always: market holidays alone are ~270
+    /// weekdays over 30 years, and any symbol listed since then is "missing"
+    /// its pre-listing years. Every held symbol was re-downloaded in full on
+    /// every boot and every tick.
+    static func fetchStart(lastDate: Date?, fallbackStart: Date, calendar: Calendar) -> Date {
+        guard let lastDate else { return fallbackStart }
+        return calendar.date(byAdding: .day, value: 1, to: calendar.startOfDay(for: lastDate)) ?? fallbackStart
+    }
+
     private func ingest(symbol: String, app: Application) async throws {
         let calendar = Calendar(identifier: .gregorian); let today = calendar.startOfDay(for: Date())
         let fallbackStart = calendar.date(byAdding: .year, value: -30, to: today) ?? today
         let coverage = try await MarketPriceBarRepository().coverage(instrumentKey: symbol, from: fallbackStart, to: today, on: app.db)
-        let incrementalStart = coverage.lastDate.flatMap { calendar.date(byAdding: .day, value: 1, to: $0) } ?? fallbackStart
-        let start = coverage.missingWeekdays > 5 ? fallbackStart : incrementalStart
+        let start = Self.fetchStart(lastDate: coverage.lastDate, fallbackStart: fallbackStart, calendar: calendar)
         guard start <= today else { return }
         let request = Request(application: app, on: app.eventLoopGroup.next())
         let response = try await app.marketDataService.refreshHistory(

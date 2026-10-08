@@ -298,6 +298,17 @@ private struct TranscriptAvailabilityKey: Hashable {
 struct LiveFMPMarketDataProvider: FMPMarketDataProvider, CryptoDataProvider {
     let baseURL: String
     let apiKey: String
+    /// Shared across copies of this struct (Redis in production). Holds EOD
+    /// history and the "FMP is rate limiting us" marker; see `stockHistoricalEOD`
+    /// and `fetchJSON`.
+    let responseCache: any AIResponseCache
+    /// TTL for EOD history whose range reaches today. A range that ends before
+    /// today is immutable and is kept for `Self.closedRangeTTLSeconds`.
+    let eodTTLSeconds: Int
+    private let eodInFlight = InFlightFetchCoordinator<[CryptoHistoricalLightPoint]>()
+
+    static let closedRangeTTLSeconds = 7 * 86400
+    static let rateLimitedKey = "fmp:rate-limited:v1"
 
     var name: String {
         "fmp"
@@ -305,10 +316,14 @@ struct LiveFMPMarketDataProvider: FMPMarketDataProvider, CryptoDataProvider {
 
     init(
         baseURL: String = "https://financialmodelingprep.com",
-        apiKey: String = Environment.get("FMP_API_KEY") ?? ""
+        apiKey: String = Environment.get("FMP_API_KEY") ?? "",
+        responseCache: any AIResponseCache = RedisJSONCache(label: "fmp"),
+        eodTTLSeconds: Int = Environment.get("MARKET_TTL_EOD_SECONDS").flatMap(Int.init) ?? 3600
     ) {
         self.baseURL = baseURL
         self.apiKey = apiKey
+        self.responseCache = responseCache
+        self.eodTTLSeconds = max(60, eodTTLSeconds)
     }
 
     // MARK: - CryptoDataProvider
@@ -964,6 +979,12 @@ struct LiveFMPMarketDataProvider: FMPMarketDataProvider, CryptoDataProvider {
         )
     }
 
+    /// Daily closes, cached. Every chart range, the pressure view and the
+    /// scenario ingestion job ask for the same few symbols with date-only
+    /// bounds, so `(symbol, from, to)` repeats all day. Uncached, a client
+    /// loading ~24 holdings at once spent the plan's per-minute allowance in a
+    /// single burst (429 "Limit Reach", 2026-10-08). Concurrent identical
+    /// requests share one upstream call.
     func stockHistoricalEOD(
         symbol rawSymbol: String,
         from: String?,
@@ -971,18 +992,44 @@ struct LiveFMPMarketDataProvider: FMPMarketDataProvider, CryptoDataProvider {
         on req: Request
     ) async throws -> [CryptoHistoricalLightPoint] {
         let symbol = try normalizeSymbol(rawSymbol)
-        var query: [(String, String?)] = [("symbol", symbol)]
-        if let from {
-            query.append(("from", from))
+        let key = "fmp:eod:v1:\(symbol):\(from ?? "-"):\(to ?? "-")"
+        if let cached = await responseCache.get(key, as: [CryptoHistoricalLightPoint].self, on: req) {
+            return cached
         }
-        if let to {
-            query.append(("to", to))
+        if let shared = try await eodInFlight.joinOrLead(key: key) {
+            return shared
         }
-        return try await fetchJSON(
-            path: "/stable/historical-price-eod/light",
-            query: query,
-            on: req
-        )
+        do {
+            var query: [(String, String?)] = [("symbol", symbol)]
+            if let from {
+                query.append(("from", from))
+            }
+            if let to {
+                query.append(("to", to))
+            }
+            let points: [CryptoHistoricalLightPoint] = try await fetchJSON(
+                path: "/stable/historical-price-eod/light",
+                query: query,
+                on: req
+            )
+            await responseCache.set(key, value: points, ttlSeconds: eodCacheTTL(to: to), on: req)
+            await eodInFlight.complete(key: key, result: .success(points))
+            return points
+        } catch {
+            await eodInFlight.complete(key: key, result: .failure(error))
+            throw error
+        }
+    }
+
+    /// A range ending before today (UTC) can no longer change.
+    func eodCacheTTL(to: String?, now: Date = Date()) -> Int {
+        guard let to else { return eodTTLSeconds }
+        let formatter = DateFormatter()
+        formatter.calendar = Calendar(identifier: .gregorian)
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = TimeZone(identifier: "UTC")
+        formatter.dateFormat = "yyyy-MM-dd"
+        return to < formatter.string(from: now) ? Self.closedRangeTTLSeconds : eodTTLSeconds
     }
 }
 
@@ -994,6 +1041,12 @@ private extension LiveFMPMarketDataProvider {
     ) async throws -> ResponseBody {
         guard !apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             throw Abort(.serviceUnavailable, reason: "FMP_API_KEY is not configured.")
+        }
+
+        // While FMP is rate limiting this key, fail fast instead of spending
+        // more calls against the same per-minute allowance.
+        if let retryAfter = await responseCache.get(Self.rateLimitedKey, as: Int.self, on: req) {
+            throw MarketDataProviderRateLimitedError(retryAfterSeconds: retryAfter)
         }
 
         let uri = try makeURI(path: path, query: query)
@@ -1033,6 +1086,15 @@ private extension LiveFMPMarketDataProvider {
                 .paymentRequired,
                 reason: "Chart data isn’t available for this symbol right now. Try another symbol or check back later."
             )
+
+        case .tooManyRequests:
+            let body = extractResponseBody(response)
+            let retryAfter = response.headers.first(name: "Retry-After").flatMap(Int.init).map { max(1, $0) } ?? 60
+            req.logger.error(
+                "FMP request failed for \(path). status=\(response.status.code) retry_after=\(retryAfter) response=\(body)"
+            )
+            await responseCache.set(Self.rateLimitedKey, value: retryAfter, ttlSeconds: retryAfter, on: req)
+            throw MarketDataProviderRateLimitedError(retryAfterSeconds: retryAfter)
 
         default:
             let body = extractResponseBody(response)
