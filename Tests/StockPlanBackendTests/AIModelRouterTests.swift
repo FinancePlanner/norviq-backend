@@ -45,6 +45,8 @@ extension AIEnvironmentSuites {
                 "AI_PLAN_ROUTING_ENABLED",
                 "AI_FALLBACK_OPENROUTER_API_KEY", "AI_FALLBACK_OPENAI_API_KEY",
                 "OPENROUTER_API_KEY", "OPENAI_API_KEY",
+                "ANTHROPIC_API_KEY", "ANTHROPIC_FIRST", "ANTHROPIC_MODEL", "ANTHROPIC_EFFORT",
+                "ANTHROPIC_THINKING", "ANTHROPIC_SCOPE", "ANTHROPIC_MAX_TOKENS", "ANTHROPIC_BASE_URL",
             ] {
                 unsetenv(key)
             }
@@ -218,6 +220,123 @@ extension AIEnvironmentSuites {
 
             #expect(!config.isConfigured)
             #expect(config.proTiers.map(\.model) == config.freeTiers.map(\.model))
+        }
+
+        // MARK: - Anthropic trial rung
+
+        private func chainModels(_ config: AIProviderConfiguration) -> [[String]] {
+            [config.proTiers, config.legacyTiers, config.freeRouterTiers, config.freeTiers].map { $0.map(\.model) }
+        }
+
+        @Test("With the Anthropic env unset, or the key set without ANTHROPIC_FIRST, every chain is unchanged")
+        func anthropicOffLeavesChainsIdentical() {
+            defer { clearEnv() }
+            clearEnv()
+            setProductionLikeEnv()
+            let baseline = AIProviderConfiguration.load()
+            #expect(baseline.anthropicTier == nil)
+            #expect(baseline.freeRouterTiers.map(\.model) == baseline.freeTiers.map(\.model))
+
+            setenv("ANTHROPIC_API_KEY", "sk-ant-test", 1)
+            #expect(AIProviderConfiguration.load().anthropicTier == nil)
+            #expect(chainModels(AIProviderConfiguration.load()) == chainModels(baseline))
+
+            setenv("ANTHROPIC_FIRST", "false", 1)
+            #expect(chainModels(AIProviderConfiguration.load()) == chainModels(baseline))
+
+            // FIRST without a key is just as inert.
+            unsetenv("ANTHROPIC_API_KEY")
+            setenv("ANTHROPIC_FIRST", "true", 1)
+            #expect(chainModels(AIProviderConfiguration.load()) == chainModels(baseline))
+        }
+
+        @Test("ANTHROPIC_FIRST leads the pro, legacy and free router chains; freeTiers stays free-only")
+        func anthropicScopeAll() {
+            defer { clearEnv() }
+            clearEnv()
+            setProductionLikeEnv()
+            let baseline = AIProviderConfiguration.load()
+            setenv("ANTHROPIC_API_KEY", "sk-ant-test", 1)
+            setenv("ANTHROPIC_FIRST", "true", 1)
+
+            let config = AIProviderConfiguration.load()
+            let lead = "claude-haiku-5-5"
+
+            #expect(config.anthropicScope == .all)
+            #expect(config.proTiers.map(\.model) == [lead] + baseline.proTiers.map(\.model))
+            #expect(config.legacyTiers.map(\.model) == [lead] + baseline.legacyTiers.map(\.model))
+            #expect(config.freeRouterTiers.map(\.model) == [lead] + baseline.freeTiers.map(\.model))
+            #expect(config.freeTiers.map(\.model) == baseline.freeTiers.map(\.model))
+            #expect(config.freeTiers.allSatisfy { AIProviderConfiguration.isFreeModelSlug($0.model) })
+        }
+
+        @Test("ANTHROPIC_SCOPE=paid keeps free users on the free floor")
+        func anthropicScopePaid() async throws {
+            defer { clearEnv() }
+            clearEnv()
+            setProductionLikeEnv()
+            setenv("ANTHROPIC_API_KEY", "sk-ant-test", 1)
+            setenv("ANTHROPIC_FIRST", "true", 1)
+            setenv("ANTHROPIC_SCOPE", "paid", 1)
+
+            let config = AIProviderConfiguration.load()
+            #expect(config.anthropicScope == .paid)
+            #expect(config.freeRouterTiers.map(\.model) == config.freeTiers.map(\.model))
+            #expect(config.proTiers.first?.model == "claude-haiku-5-5")
+
+            let app = try await Application.make(.testing)
+            defer { Task { try? await app.asyncShutdown() } }
+            let router = try #require(makeAIModelRouter(app))
+            #expect(router.freeTiers.allSatisfy { AIProviderConfiguration.isFreeModelSlug($0.model) })
+            #expect(router.proTiers.first?.model == "claude-haiku-5-5")
+        }
+
+        @Test("A built router with scope all leads both plans with the Anthropic rung")
+        func anthropicRouterScopeAll() async throws {
+            defer { clearEnv() }
+            clearEnv()
+            setProductionLikeEnv()
+            setenv("ANTHROPIC_API_KEY", "sk-ant-test", 1)
+            setenv("ANTHROPIC_FIRST", "true", 1)
+
+            let app = try await Application.make(.testing)
+            defer { Task { try? await app.asyncShutdown() } }
+            let router = try #require(makeAIModelRouter(app))
+
+            #expect(router.freeTiers.first?.model == "claude-haiku-5-5")
+            #expect(router.proTiers.first?.model == "claude-haiku-5-5")
+            #expect(router.freeTiers.dropFirst().allSatisfy { AIProviderConfiguration.isFreeModelSlug($0.model) })
+            #expect(router.client(for: .free) is FallbackChatClient)
+        }
+
+        @Test("The Anthropic tier reads its model, effort, thinking, max tokens and base URL from the env")
+        func anthropicTierSettings() throws {
+            defer { clearEnv() }
+            clearEnv()
+            setProductionLikeEnv()
+            setenv("AI_MAX_TOKENS", "2000", 1)
+            setenv("ANTHROPIC_API_KEY", "sk-ant-test", 1)
+            setenv("ANTHROPIC_FIRST", "true", 1)
+
+            let defaults = try #require(AIProviderConfiguration.load().anthropicTier)
+            #expect(defaults.model == "claude-haiku-5-5")
+            #expect(defaults.baseURL == "https://api.anthropic.com")
+            // Not AI_MAX_TOKENS: that budget is sized for a model that does not think.
+            #expect(defaults.maxTokens == 4096)
+            #expect(defaults.supportsResponseFormat)
+            #expect(defaults.dialect == .anthropicMessages(AnthropicMessagesOptions(effort: nil, thinkingEnabled: true)))
+
+            setenv("ANTHROPIC_MODEL", "claude-sonnet-5-5", 1)
+            setenv("ANTHROPIC_EFFORT", "Low", 1)
+            setenv("ANTHROPIC_THINKING", "disabled", 1)
+            setenv("ANTHROPIC_MAX_TOKENS", "8000", 1)
+            setenv("ANTHROPIC_BASE_URL", "https://proxy.test/", 1)
+
+            let custom = try #require(AIProviderConfiguration.load().anthropicTier)
+            #expect(custom.model == "claude-sonnet-5-5")
+            #expect(custom.maxTokens == 8000)
+            #expect(custom.baseURL == "https://proxy.test")
+            #expect(custom.dialect == .anthropicMessages(AnthropicMessagesOptions(effort: "low", thinkingEnabled: false)))
         }
 
         // MARK: - Router
