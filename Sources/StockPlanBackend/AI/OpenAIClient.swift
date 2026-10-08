@@ -449,7 +449,10 @@ struct DefaultOpenAIChatClient: OpenAIChatClient {
     ) async throws -> Completion {
         let body = OpenAIChatRequestBody(
             model: model,
-            messages: messages,
+            // A transcript that went through the Anthropic rung carries its
+            // thinking blocks in `reasoning_details`. They mean nothing to an
+            // OpenAI-compatible provider, so they stay off this wire.
+            messages: messages.map(\.withoutAnthropicReasoning),
             tools: tools.isEmpty ? nil : tools,
             toolChoice: tools.isEmpty ? nil : "auto",
             temperature: 0.3,
