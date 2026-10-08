@@ -119,3 +119,37 @@ extension MarketBriefFixtures {
         }
     }
 }
+
+final class StubMarketBriefGenerator: MarketBriefGenerating, @unchecked Sendable {
+    private let lock = NSLock()
+    private var count = 0
+    let error: (any Error)?
+
+    init(error: (any Error)? = nil) {
+        self.error = error
+    }
+
+    var calls: Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return count
+    }
+
+    func generate(_ due: MarketBriefSchedule.Due, on _: Request) async throws -> GeneratedMarketBrief {
+        recordCall()
+        if let error { throw error }
+        return GeneratedMarketBrief(
+            responses: MarketBriefLanguage.allCases.map {
+                MarketBriefFixtures.response(date: due.tradingDate, slot: due.slot, language: $0.rawValue)
+            },
+            model: "stub"
+        )
+    }
+
+    /// Synchronous so it may take the lock (NSLock is unavailable in async code).
+    private func recordCall() {
+        lock.lock()
+        defer { lock.unlock() }
+        count += 1
+    }
+}
