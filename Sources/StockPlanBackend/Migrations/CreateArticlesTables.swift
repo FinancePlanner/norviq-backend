@@ -55,9 +55,15 @@ struct CreateArticlesTables: AsyncMigration {
             .create()
 
         if let sql = database as? any SQLDatabase {
-            try await sql.raw("CREATE INDEX articles_feed_idx ON articles (status, published_at DESC, id DESC)").run()
-            try await sql.raw("CREATE INDEX articles_tickers_idx ON articles USING GIN (tickers)").run()
-            try await sql.raw("CREATE INDEX articles_author_idx ON articles (author_id, published_at DESC)").run()
+            try await sql.raw("CREATE INDEX IF NOT EXISTS articles_feed_idx ON articles (status, published_at DESC, id DESC)").run()
+            try await sql.raw("CREATE INDEX IF NOT EXISTS articles_tickers_idx ON articles USING GIN (tickers)").run()
+            try await sql.raw("CREATE INDEX IF NOT EXISTS articles_author_idx ON articles (author_id, published_at DESC)").run()
+            // The upload cap counts an owner's recent images; the orphan sweep and
+            // the image route look articles up by cover.
+            try await sql.raw("CREATE INDEX IF NOT EXISTS article_images_owner_idx ON article_images (owner_id, created_at)").run()
+            try await sql.raw("""
+            CREATE INDEX IF NOT EXISTS articles_cover_idx ON articles (cover_image_id) WHERE cover_image_id IS NOT NULL
+            """).run()
         }
     }
 
