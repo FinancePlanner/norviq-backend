@@ -141,6 +141,7 @@ struct ArticlesRouteTests {
             #expect(try await Kit.send(app, .GET, "v1/articles", as: auth).status == .notFound)
             #expect(try await Kit.send(app, .POST, "v1/articles", as: auth, body: Kit.input()).status == .notFound)
             #expect(try await Kit.send(app, .GET, "v1/articles", as: nil).status == .notFound)
+            #expect(try await Kit.send(app, .PUT, "v1/admin/articles/anything/visibility", as: auth, body: ArticleVisibilityRequest(hidden: true)).status == .notFound)
         }
     }
 

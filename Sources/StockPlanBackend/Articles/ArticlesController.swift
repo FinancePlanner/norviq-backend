@@ -26,6 +26,7 @@ struct ArticlesController: RouteCollection {
         )
         read.get(use: list)
         read.get(":ref", use: get)
+        read.get("images", ":imageId", use: image)
         read.grouped(RateLimitMiddleware(limit: 120, interval: 60, keyPrefix: "ratelimit:article-view"))
             .post(":ref", "view", use: view)
 
@@ -45,6 +46,13 @@ struct ArticlesController: RouteCollection {
         votes.delete(":ref", "vote", use: unvote)
         write.grouped(RateLimitMiddleware(limit: 20, interval: 3600, keyPrefix: "ratelimit:article-report"))
             .post(":ref", "report", use: report)
+        write.grouped(RateLimitMiddleware(limit: 20, interval: 3600, keyPrefix: "ratelimit:article-image"))
+            .on(.POST, "images", body: .collect(maxSize: "3mb"), use: uploadImage)
+
+        routes.grouped("admin", "articles")
+            .grouped(ArticlesFlagMiddleware(), ScopedBearerAuthenticator(), SessionToken.guardMiddleware(),
+                     FirstPartyOnlyMiddleware(), CommunityAccessMiddleware())
+            .put(":ref", "visibility", use: setVisibility)
     }
 
     // MARK: - Reads
@@ -284,5 +292,56 @@ struct ArticlesController: RouteCollection {
         let parts = raw.split(separator: "_", maxSplits: 1)
         guard parts.count == 2, let millis = Int64(parts[0]), let id = UUID(uuidString: String(parts[1])) else { return nil }
         return (Date(timeIntervalSince1970: Double(millis) / 1000), id)
+    }
+
+    // MARK: - Images
+
+    private struct ImageUpload: Content {
+        var file: File
+    }
+
+    @Sendable
+    func uploadImage(req: Request) async throws -> ArticleImageUploadResponse {
+        let viewer = try req.communityViewer
+        try viewer.requireCanContribute()
+        let upload = try req.content.decode(ImageUpload.self)
+        let bytes = Array(upload.file.data.readableBytesView)
+        let sniffed = try ArticleImageSniffer.sniff(bytes)
+        let image = ArticleImage(ownerId: viewer.userId, image: sniffed, bytes: Data(bytes))
+        try await image.create(on: req.db)
+        return try ArticleImageUploadResponse(id: image.requireID())
+    }
+
+    @Sendable
+    func image(req: Request) async throws -> Response {
+        guard let id = req.parameters.get("imageId", as: UUID.self),
+              let image = try await ArticleImage.find(id, on: req.db)
+        else {
+            throw Abort(.notFound)
+        }
+        var headers = HTTPHeaders()
+        headers.replaceOrAdd(name: .contentType, value: image.contentType)
+        // Image ids are never reused and the bytes never change.
+        headers.replaceOrAdd(name: .cacheControl, value: "public, max-age=31536000, immutable")
+        headers.replaceOrAdd(name: "X-Content-Type-Options", value: "nosniff")
+        return Response(status: .ok, headers: headers, body: .init(data: image.bytes))
+    }
+
+    // MARK: - Moderation
+
+    @Sendable
+    func setVisibility(req: Request) async throws -> HTTPStatus {
+        let viewer = try req.communityViewer
+        guard viewer.isAdmin else { throw Abort(.forbidden, reason: "Admin access required.") }
+        guard let article = try await ArticleService.find(ref: req.parameters.get("ref") ?? "", on: req.db),
+              article.status != ArticleStatus.deleted.rawValue
+        else {
+            throw Abort(.notFound, reason: "Article not found")
+        }
+        let body = try req.content.decode(ArticleVisibilityRequest.self)
+        article.status = body.hidden ? ArticleStatus.hidden.rawValue : ArticleStatus.published.rawValue
+        try await article.save(on: req.db)
+        req.logger.notice("articles.visibility code=\(article.code) hidden=\(body.hidden) by=\(viewer.userId)")
+        return .noContent
     }
 }
