@@ -209,6 +209,7 @@ public func configure(_ app: Application) async throws {
     app.dataExportService = DefaultDataExportService(repository: app.dataExportRepository, exporter: app.exportService)
     try configureTaxOptimization(app)
     app.taxReportGenerator = TaxReportGenerator()
+    app.articleViewerCredentialIds = ArticleViewerCredentials.parse(Environment.get(ArticleViewerCredentials.environmentKey))
     let premiumEmails = Set(
         (Environment.get("BILLING_PREMIUM_EMAILS") ?? "")
             .split(separator: ",")

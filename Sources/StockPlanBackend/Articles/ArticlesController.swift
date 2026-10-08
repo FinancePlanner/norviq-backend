@@ -27,8 +27,7 @@ struct ArticlesController: RouteCollection {
         read.get(use: list)
         read.get(":ref", use: get)
         read.get("images", ":imageId", use: image)
-        read.grouped(RateLimitMiddleware(limit: 120, interval: 60, keyPrefix: "ratelimit:article-view"))
-            .post(":ref", "view", use: view)
+        read.grouped(ArticleViewRateLimitMiddleware()).post(":ref", "view", use: view)
 
         // Writes: the same gate as Boards (bans, mutes, username, guidelines).
         let write = articles.grouped(
@@ -167,15 +166,16 @@ struct ArticlesController: RouteCollection {
     static let viewerHeader = "X-Norviq-Viewer"
 
     /// Counts at most one view per viewer per UTC day. A first-party session is
-    /// keyed by user; the web's public token forwards a hashed visitor key.
-    /// Without either, nothing is counted.
+    /// keyed by user; the web's listed credential forwards a hashed visitor key.
+    /// Any other caller (another PAT, OAuth) counts nothing.
     @Sendable
     func view(req: Request) async throws -> HTTPStatus {
         let article = try await ArticleService.requireVisible(ref: req.parameters.get("ref") ?? "", viewer: nil, on: req.db)
         let key: String
         if let viewer = ArticleService.viewerId(req) {
             key = "u:\(viewer.uuidString)"
-        } else if let header = req.headers.first(name: Self.viewerHeader),
+        } else if ArticleViewerCredentials.isListed(req),
+                  let header = req.headers.first(name: Self.viewerHeader),
                   (16 ... 64).contains(header.count), header.allSatisfy(\.isHexDigit)
         {
             key = "v:\(header.lowercased())"

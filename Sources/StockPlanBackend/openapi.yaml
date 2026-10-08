@@ -9772,7 +9772,7 @@ paths:
       operationId: recordArticleView
       tags: [Articles]
       summary: Record an article view
-      description: Counts at most one view per viewer per UTC day. A first-party session is keyed by user; otherwise a valid `X-Norviq-Viewer` header is required, and without either nothing is counted (still 204).
+      description: Counts at most one view per viewer per UTC day. A first-party session is keyed by user. The `X-Norviq-Viewer` header is honored only from the web's own credential (listed in `ARTICLES_VIEWER_CREDENTIAL_IDS`), which is also exempt from the per-user rate limit; any other third-party credential counts nothing. Uncounted calls still return 204.
       security:
         - bearerAuth: []
       parameters:
@@ -9785,7 +9785,7 @@ paths:
         - name: X-Norviq-Viewer
           in: header
           required: false
-          description: Hashed visitor key (16-64 hex characters) forwarded by the web for logged-out visitors.
+          description: Hashed visitor key (16-64 hex characters) forwarded by the web for logged-out visitors. Ignored unless the caller is a listed web credential.
           schema:
             type: string
             pattern: '^[0-9a-fA-F]{16,64}$'

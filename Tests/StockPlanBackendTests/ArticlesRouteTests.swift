@@ -88,14 +88,38 @@ enum ArticleTestKit {
         return auth
     }
 
+    /// A third-party credential, minted the way MCPTokenAuthTests does it
+    /// (straight into the table, skipping the Pro gate on the mint route).
+    struct Credential {
+        let id: UUID
+        let token: String
+    }
+
+    static func credential(_ app: Application, owner: AuthResponse, scopes: [APIScope] = [.marketRead]) async throws -> Credential {
+        let raw = OpaqueToken.generate(prefix: OpaqueToken.patPrefix)
+        let pat = PersonalAccessToken(
+            userId: owner.userId, name: "articles-test", tokenHash: OpaqueToken.sha256Hex(raw),
+            scopes: scopes.map(\.rawValue), expiresAt: Date().addingTimeInterval(3600)
+        )
+        try await pat.save(on: app.db)
+        return try Credential(id: pat.requireID(), token: raw)
+    }
+
     static func send(
         _ app: Application, _ method: HTTPMethod, _ path: String, as auth: AuthResponse?,
         body: (any Content)? = nil, headers: HTTPHeaders = [:]
     ) async throws -> Reply {
+        try await send(app, method, path, token: auth?.token, body: body, headers: headers)
+    }
+
+    static func send(
+        _ app: Application, _ method: HTTPMethod, _ path: String, token: String?,
+        body: (any Content)? = nil, headers: HTTPHeaders = [:]
+    ) async throws -> Reply {
         var reply: Reply?
         try await app.testing().test(method, path, beforeRequest: { req in
-            if let auth {
-                req.headers.bearerAuthorization = BearerAuthorization(token: auth.token)
+            if let token {
+                req.headers.bearerAuthorization = BearerAuthorization(token: token)
             }
             for (name, value) in headers {
                 req.headers.replaceOrAdd(name: name, value: value)
