@@ -304,18 +304,45 @@ struct ArticlesController: RouteCollection {
         var file: File
     }
 
+    /// Uploads are capped per day in the database, and each one sweeps the
+    /// owner's day-old images that no article uses, so abandoned drafts can't
+    /// pile up bytes.
     @Sendable
     func uploadImage(req: Request) async throws -> ArticleImageUploadResponse {
         let viewer = try req.communityViewer
         try viewer.requireCanContribute()
+        let dayAgo = Date().addingTimeInterval(-86400)
+        if !viewer.isAdmin {
+            let recent = try await ArticleImage.query(on: req.db)
+                .filter(\.$ownerId == viewer.userId)
+                .filter(\.$createdAt > dayAgo)
+                .count()
+            guard recent < ArticleValidation.maxImagesPerDay else {
+                throw CodedAbort(status: .tooManyRequests, code: "article_image_daily_limit", reason: "You can upload 10 images a day.")
+            }
+        }
         let upload = try req.content.decode(ImageUpload.self)
         let bytes = Array(upload.file.data.readableBytesView)
         let sniffed = try ArticleImageSniffer.sniff(bytes)
         let image = ArticleImage(ownerId: viewer.userId, image: sniffed, bytes: Data(bytes))
         try await image.create(on: req.db)
+
+        do {
+            try await ArticleService.sql(req.db).raw("""
+            DELETE FROM article_images AS i
+            WHERE i.owner_id = \(bind: viewer.userId) AND i.created_at < \(bind: dayAgo)
+              AND NOT EXISTS (SELECT 1 FROM articles AS a WHERE a.cover_image_id = i.id)
+            """).run()
+        } catch {
+            req.logger.warning("articles.image_sweep failed error=\(String(describing: error))")
+        }
         return try ArticleImageUploadResponse(id: image.requireID())
     }
 
+    /// Served while a published article uses it as its cover. Otherwise only to
+    /// its owner's or an admin's own session (a third-party credential is
+    /// nobody), and everyone else gets the same 404 as a missing image, so
+    /// hiding an article takes its cover down too.
     @Sendable
     func image(req: Request) async throws -> Response {
         guard let id = req.parameters.get("imageId", as: UUID.self),
@@ -323,10 +350,24 @@ struct ArticlesController: RouteCollection {
         else {
             throw Abort(.notFound)
         }
+        let isPublishedCover = try await Article.query(on: req.db)
+            .filter(\.$coverImageId == id)
+            .filter(\.$status == ArticleStatus.published.rawValue)
+            .count() > 0
+        if !isPublishedCover {
+            guard let viewer = ArticleService.viewerId(req) else { throw Abort(.notFound) }
+            let canSee = if viewer == image.ownerId {
+                true
+            } else {
+                await ArticleService.isAdmin(viewer, on: req.db)
+            }
+            guard canSee else { throw Abort(.notFound) }
+        }
         var headers = HTTPHeaders()
         headers.replaceOrAdd(name: .contentType, value: image.contentType)
-        // Image ids are never reused and the bytes never change.
-        headers.replaceOrAdd(name: .cacheControl, value: "public, max-age=31536000, immutable")
+        // A day, not forever: a takedown has to reach caches. An image only its
+        // owner or an admin may see must not land in a shared cache at all.
+        headers.replaceOrAdd(name: .cacheControl, value: isPublishedCover ? "public, max-age=86400" : "private, no-store")
         headers.replaceOrAdd(name: "X-Content-Type-Options", value: "nosniff")
         return Response(status: .ok, headers: headers, body: .init(data: image.bytes))
     }

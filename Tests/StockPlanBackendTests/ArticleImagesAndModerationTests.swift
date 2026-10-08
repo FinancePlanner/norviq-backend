@@ -1,4 +1,5 @@
 import Fluent
+import FluentSQL
 import Foundation
 @testable import StockPlanBackend
 import StockPlanShared
@@ -27,7 +28,7 @@ struct ArticleImagesAndModerationTests {
         return try #require(reply)
     }
 
-    @Test("upload a PNG, attach it as the cover, and fetch it back with immutable caching")
+    @Test("upload a PNG, attach it as the cover, and fetch it back with day-long public caching")
     func coverRoundTrip() async throws {
         try await Kit.withApp { app in
             let ana = try await Kit.member(app, "img_ana")
@@ -44,7 +45,7 @@ struct ArticleImagesAndModerationTests {
             }) { res in
                 #expect(res.status == .ok)
                 #expect(res.headers.contentType?.description == "image/png")
-                #expect(res.headers.first(name: .cacheControl) == "public, max-age=31536000, immutable")
+                #expect(res.headers.first(name: .cacheControl) == "public, max-age=86400")
                 #expect(Array(res.body.readableBytesView) == png)
             }
         }
@@ -60,6 +61,98 @@ struct ArticleImagesAndModerationTests {
                 .decode(ArticleImageUploadResponse.self).id
             #expect(try await Kit.send(app, .POST, "v1/articles", as: bo, body: Kit.input(cover: imageId)).status == .badRequest)
         }
+    }
+
+    @Test("ten uploads a day, then 429 article_image_daily_limit; admins are exempt")
+    func dailyUploadCap() async throws {
+        try await Kit.withApp { app in
+            let admin = try await Kit.member(app, "cap_admin", email: Kit.adminEmail)
+            let ana = try await Kit.member(app, "cap_ana")
+            let png = ArticleImageSnifferTests.png(width: 10, height: 10)
+            for _ in 1 ... 10 {
+                #expect(try await upload(app, png, as: ana).status == .ok)
+                #expect(try await upload(app, png, as: admin).status == .ok)
+            }
+            let eleventh = try await upload(app, png, as: ana)
+            #expect(eleventh.status == .tooManyRequests && eleventh.code == "article_image_daily_limit")
+            #expect(try await upload(app, png, as: admin).status == .ok)
+
+            // The window is rolling: uploads older than a day stop counting.
+            try await backdate(app, owner: ana.userId)
+            #expect(try await upload(app, png, as: ana).status == .ok)
+        }
+    }
+
+    @Test("an upload clears the owner's day-old images that no article uses, and nothing else")
+    func uploadCleansUpOrphans() async throws {
+        try await Kit.withApp { app in
+            let ana = try await Kit.member(app, "orph_ana")
+            let bo = try await Kit.member(app, "orph_bo")
+            let png = ArticleImageSnifferTests.png(width: 10, height: 10)
+            let orphan = try await upload(app, png, as: ana).decode(ArticleImageUploadResponse.self).id
+            let cover = try await upload(app, png, as: ana).decode(ArticleImageUploadResponse.self).id
+            let deletedCover = try await upload(app, png, as: ana).decode(ArticleImageUploadResponse.self).id
+            let fresh = try await upload(app, png, as: ana).decode(ArticleImageUploadResponse.self).id
+            let bosOrphan = try await upload(app, png, as: bo).decode(ArticleImageUploadResponse.self).id
+            _ = try await Kit.publish(app, as: ana, Kit.input(cover: cover))
+            let deleted = try await Kit.publish(app, as: ana, Kit.input(title: "Second article about NEXT", cover: deletedCover))
+            #expect(try await Kit.send(app, .DELETE, "v1/articles/\(deleted.article.code)", as: ana).status == .noContent)
+            try await backdate(app, owner: ana.userId, except: fresh)
+            try await backdate(app, owner: bo.userId)
+
+            #expect(try await upload(app, png, as: ana).status == .ok)
+
+            #expect(try await ArticleImage.find(orphan, on: app.db) == nil)
+            // Any article still pointing at it keeps it, deleted ones included.
+            #expect(try await ArticleImage.find(cover, on: app.db) != nil)
+            #expect(try await ArticleImage.find(deletedCover, on: app.db) != nil)
+            #expect(try await ArticleImage.find(fresh, on: app.db) != nil)
+            #expect(try await ArticleImage.find(bosOrphan, on: app.db) != nil)
+        }
+    }
+
+    @Test("a cover is served only while a published article uses it, or to its owner or an admin")
+    func coverServing() async throws {
+        try await Kit.withApp { app in
+            let admin = try await Kit.member(app, "srv_admin", email: Kit.adminEmail)
+            let ana = try await Kit.member(app, "srv_ana")
+            let bo = try await Kit.member(app, "srv_bo")
+            let web = try await Kit.credential(app, owner: admin)
+            let png = ArticleImageSnifferTests.png(width: 10, height: 10)
+            let used = try await upload(app, png, as: ana).decode(ArticleImageUploadResponse.self).id
+            let loose = try await upload(app, png, as: ana).decode(ArticleImageUploadResponse.self).id
+            let code = try await Kit.publish(app, as: ana, Kit.input(cover: used)).article.code
+            func get(_ id: UUID, token: String) async throws -> Kit.Reply {
+                try await Kit.send(app, .GET, "v1/articles/images/\(id)", token: token)
+            }
+
+            let published = try await get(used, token: web.token)
+            #expect(published.status == .ok)
+            #expect(published.headers.first(name: .cacheControl) == "public, max-age=86400")
+            #expect(try await get(used, token: bo.token).status == .ok)
+
+            #expect(try await get(loose, token: bo.token).status == .notFound)
+            #expect(try await get(loose, token: web.token).status == .notFound)
+            let ownerOnly = try await get(loose, token: ana.token)
+            #expect(ownerOnly.status == .ok)
+            // Never into a shared cache: it would outlive the owner-only check.
+            #expect(ownerOnly.headers.first(name: .cacheControl) == "private, no-store")
+            #expect(try await get(loose, token: admin.token).status == .ok)
+
+            #expect(try await Kit.send(app, .PUT, "v1/admin/articles/\(code)/visibility", as: admin, body: ArticleVisibilityRequest(hidden: true)).status == .noContent)
+            #expect(try await get(used, token: web.token).status == .notFound)
+            #expect(try await get(used, token: bo.token).status == .notFound)
+            #expect(try await get(used, token: ana.token).status == .ok)
+        }
+    }
+
+    /// Moves an owner's uploads 25 hours into the past.
+    private func backdate(_ app: Application, owner: UUID, except kept: UUID? = nil) async throws {
+        let sql = try #require(app.db as? any SQLDatabase)
+        try await sql.raw("""
+        UPDATE article_images SET created_at = created_at - interval '25 hours'
+        WHERE owner_id = \(bind: owner) AND id IS DISTINCT FROM \(bind: kept)
+        """).run()
     }
 
     @Test("hidden articles are visible to their author and admins only, and leave the feed")

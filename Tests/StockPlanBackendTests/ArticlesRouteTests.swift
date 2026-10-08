@@ -28,6 +28,7 @@ enum ArticleTestKit {
     struct Reply {
         let status: HTTPStatus
         let body: Data
+        var headers: HTTPHeaders = [:]
 
         func decode<T: Decodable>(_: T.Type) throws -> T {
             try JSONDecoder.backendAPI.decode(T.self, from: body)
@@ -128,7 +129,7 @@ enum ArticleTestKit {
                 try req.content.encode(body)
             }
         }, afterResponse: { res async throws in
-            reply = Reply(status: res.status, body: Data(res.body.readableBytesView))
+            reply = Reply(status: res.status, body: Data(res.body.readableBytesView), headers: res.headers)
         })
         return try #require(reply)
     }

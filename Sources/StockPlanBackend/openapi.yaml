@@ -9839,7 +9839,7 @@ paths:
       operationId: uploadArticleImage
       tags: [Articles]
       summary: Upload an article image
-      description: PNG, JPEG or WebP, up to 2 MB and at most 4096 px per side. Use the returned id as `coverImageId`.
+      description: PNG, JPEG or WebP, up to 2 MB and at most 4096 px per side, and at most 10 uploads per rolling 24 hours (admins exempt). Use the returned id as `coverImageId`. Each upload deletes the caller's images older than 24 hours that no article uses as its cover.
       security:
         - bearerAuth: []
       requestBody:
@@ -9869,7 +9869,7 @@ paths:
         '415':
           description: Unsupported image type
         '429':
-          description: Rate limited.
+          description: Rate limited, or 10 uploads in the last 24 hours (error code `article_image_daily_limit`).
         '401':
           description: Unauthorized
         '404':
@@ -9880,7 +9880,7 @@ paths:
       operationId: getArticleImage
       tags: [Articles]
       summary: Get an article image
-      description: Immutable bytes, cached for a year.
+      description: Served while a published article uses the image as its cover (`Cache-Control public, max-age=86400`). Otherwise only to the owner's or an admin's own first-party session (`Cache-Control private, no-store`); a third-party credential, or anyone else, gets 404.
       security:
         - bearerAuth: []
       parameters:
@@ -9903,7 +9903,7 @@ paths:
         '401':
           description: Unauthorized
         '404':
-          description: Not found, or the articles feature is disabled (`ARTICLES_ENABLED` off).
+          description: Not found, not the cover of a published article (for anyone but its owner or an admin), or the articles feature is disabled (`ARTICLES_ENABLED` off).
 
   /v1/admin/articles/{ref}/visibility:
     put:

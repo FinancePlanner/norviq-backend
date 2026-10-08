@@ -4,6 +4,7 @@ import Vapor
 /// Input rules for articles. Pure, so they test without a database.
 enum ArticleValidation {
     static let maxPerDay = 3
+    static let maxImagesPerDay = 10
     static let titleRange = 8 ... 140
     static let bodyRange = 300 ... 20000
     static let maxBullets = 3
