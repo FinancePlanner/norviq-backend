@@ -34,6 +34,12 @@ struct AIProviderConfiguration: Sendable {
     let proFallbacks: [AIProviderTier]
     /// Per-request upstream timeout, shared by every rung of the chain.
     let requestTimeout: TimeAmount
+    /// The Anthropic Messages rung that leads every chain while the Haiku trial
+    /// is on. Nil — and every chain exactly as before — unless
+    /// `ANTHROPIC_API_KEY` is set *and* `ANTHROPIC_FIRST` is true.
+    let anthropicTier: AIProviderTier?
+    /// Whether the Anthropic rung also leads the free plan's chain.
+    let anthropicScope: AnthropicScope
 
     var isConfigured: Bool {
         !apiKey.isEmpty && !baseURL.isEmpty && !defaultModel.isEmpty
@@ -59,13 +65,28 @@ struct AIProviderConfiguration: Sendable {
     /// balance, and a Pro user hitting a 402 should get a weaker answer rather
     /// than no answer. See `AIFallbackChain` for the demotion rules.
     var proTiers: [AIProviderTier] {
-        (primaryTier.map { [$0] } ?? []) + proFallbacks + freeTiers
+        anthropicLead + (primaryTier.map { [$0] } ?? []) + proFallbacks + freeTiers
+    }
+
+    /// The free plan's chain as the router builds it: `freeTiers`, led by the
+    /// Anthropic rung when `ANTHROPIC_SCOPE=all`.
+    ///
+    /// The one deliberate exception to the free chain's money guard. The trial
+    /// is billed against its own capped Anthropic workspace rather than the
+    /// OpenRouter account the guard protects, and `ANTHROPIC_SCOPE=paid`
+    /// takes free users back out of it. `freeTiers` itself stays free-only.
+    var freeRouterTiers: [AIProviderTier] {
+        (anthropicScope == .all ? anthropicLead : []) + freeTiers
     }
 
     /// The pre-routing chain: the primary followed by `AI_FALLBACK_PROVIDERS`.
     /// Used when plan routing is switched off.
     var legacyTiers: [AIProviderTier] {
-        (primaryTier.map { [$0] } ?? []) + fallbacks
+        anthropicLead + (primaryTier.map { [$0] } ?? []) + fallbacks
+    }
+
+    private var anthropicLead: [AIProviderTier] {
+        anthropicTier.map { [$0] } ?? []
     }
 
     static func load() -> Self {
@@ -118,6 +139,57 @@ struct AIProviderConfiguration: Sendable {
             proFallbacks: loadProFallbacks(maxTokens: maxTokens),
             requestTimeout: .seconds(Int64(
                 max(1, Environment.get("AI_REQUEST_TIMEOUT_SECONDS").flatMap(Int.init) ?? 60)
+            )),
+            anthropicTier: loadAnthropicTier(),
+            anthropicScope: AnthropicScope(
+                rawValue: (Environment.get("ANTHROPIC_SCOPE") ?? "")
+                    .trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            ) ?? .all
+        )
+    }
+
+    /// Where the Anthropic rung applies.
+    enum AnthropicScope: String, Sendable {
+        /// Both plans' chains.
+        case all
+        /// Only the Pro (and legacy) chains; free users keep the free floor.
+        case paid
+    }
+
+    static let defaultAnthropicModel = "claude-haiku-5-5"
+
+    /// Today's `AI_MAX_TOKENS` is sized for a model that does not think. Haiku
+    /// 5.5 spends thinking out of the same budget, so its rung gets its own.
+    static let defaultAnthropicMaxTokens = 4096
+
+    /// The Anthropic Messages rung, or nil when the trial is off.
+    ///
+    /// `ANTHROPIC_FIRST` is the rollback switch: with it false the key can stay
+    /// sealed in the cluster and nothing changes. The rung speaks its own
+    /// dialect, so `AI_PROVIDER` stays `openrouter` — proactive tips call
+    /// `/responses`, which Anthropic does not serve.
+    static func loadAnthropicTier() -> AIProviderTier? {
+        let apiKey = firstNonEmpty(Environment.get("ANTHROPIC_API_KEY"))
+        guard !apiKey.isEmpty, envBool("ANTHROPIC_FIRST", default: false) else { return nil }
+
+        let model = firstNonEmpty(Environment.get("ANTHROPIC_MODEL"), defaultAnthropicModel)
+        let effort = firstNonEmpty(Environment.get("ANTHROPIC_EFFORT")).lowercased()
+        let thinking = firstNonEmpty(Environment.get("ANTHROPIC_THINKING")).lowercased()
+        return AIProviderTier(
+            label: "anthropic-\(model)",
+            apiKey: apiKey,
+            baseURL: firstNonEmpty(
+                Environment.get("ANTHROPIC_BASE_URL"),
+                AnthropicChatClient.defaultBaseURL
+            ).trimmingCharacters(in: CharacterSet(charactersIn: "/")),
+            model: model,
+            maxTokens: Environment.get("ANTHROPIC_MAX_TOKENS").flatMap(Int.init) ?? defaultAnthropicMaxTokens,
+            // Not a native response_format, but the client asks for JSON in
+            // the system prompt and cuts the reply to its object.
+            supportsResponseFormat: true,
+            dialect: .anthropicMessages(AnthropicMessagesOptions(
+                effort: effort.isEmpty ? nil : effort,
+                thinkingEnabled: thinking != "disabled"
             ))
         )
     }

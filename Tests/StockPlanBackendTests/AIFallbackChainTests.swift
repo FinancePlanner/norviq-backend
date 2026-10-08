@@ -115,6 +115,104 @@ extension AIEnvironmentSuites {
 
         // MARK: - Chain behaviour
 
+        // MARK: - Anthropic rung
+
+        /// An Anthropic rung over a stubbed wire, ahead of a scripted OpenRouter rung.
+        private func anthropicChain(
+            _ reply: (HTTPStatus, String),
+            fallbackCalls: CallCounter
+        ) -> (FallbackChatClient, AnthropicStubHTTP) {
+            let stub = AnthropicStubHTTP([reply])
+            let anthropic = AIProviderTier(
+                label: "anthropic-claude-haiku-5-5", apiKey: "sk-ant-test",
+                baseURL: "https://anthropic.test", model: "claude-haiku-5-5",
+                maxTokens: 4096, supportsResponseFormat: true,
+                dialect: .anthropicMessages(AnthropicMessagesOptions(effort: "low"))
+            )
+            let client = FallbackChatClient(rungs: [
+                .init(tier: anthropic, client: AnthropicChatClient(
+                    apiKey: anthropic.apiKey, model: anthropic.model, baseURL: anthropic.baseURL,
+                    maxTokens: anthropic.maxTokens, options: AnthropicMessagesOptions(effort: "low")
+                )),
+                .init(tier: tier("openrouter"),
+                      client: CountingChatClient(behaviour: .succeeding(marker: "openrouter"), counter: fallbackCalls)),
+            ])
+            return (client, stub)
+        }
+
+        @Test("An Anthropic rung that hits its spend cap hands the turn to OpenRouter")
+        func anthropicUsageLimitFallsThrough() async throws {
+            let fallbackCalls = CallCounter()
+            let (client, stub) = anthropicChain(
+                (.badRequest, #"{"type":"error","error":{"type":"invalid_request_error","message":"You have reached your specified API usage limits."}}"#),
+                fallbackCalls: fallbackCalls
+            )
+            try await stub.withRequest { req in
+                let message = try await client.chat(
+                    messages: [OpenAIMessage(role: "user", content: "Hi")], tools: [], responseFormat: nil, on: req
+                )
+                #expect(message.content == "openrouter")
+                #expect(stub.requests.count == 1)
+                #expect(fallbackCalls.count == 1)
+            }
+        }
+
+        @Test("An Anthropic refusal, outage or bad key all hand the turn to OpenRouter")
+        func anthropicFailuresFallThrough() async throws {
+            let replies: [(HTTPStatus, String)] = [
+                (.ok, anthropicReply(content: "[]", stopReason: "refusal")),
+                (.ok, anthropicReply(content: #"[{"type":"thinking","thinking":"","signature":"s"}]"#, stopReason: "max_tokens")),
+                (.unauthorized, #"{"type":"error","error":{"type":"authentication_error"}}"#),
+                (.init(statusCode: 529), #"{"type":"error","error":{"type":"overloaded_error"}}"#),
+            ]
+            for reply in replies {
+                let fallbackCalls = CallCounter()
+                let (client, stub) = anthropicChain(reply, fallbackCalls: fallbackCalls)
+                try await stub.withRequest { req in
+                    let message = try await client.chat(
+                        messages: [OpenAIMessage(role: "user", content: "Hi")], tools: [], responseFormat: nil, on: req
+                    )
+                    #expect(message.content == "openrouter", "reply \(reply.0.code) should fail over")
+                    #expect(fallbackCalls.count == 1)
+                }
+            }
+        }
+
+        @Test("A healthy Anthropic rung answers without touching OpenRouter")
+        func anthropicAnswers() async throws {
+            let fallbackCalls = CallCounter()
+            let (client, stub) = anthropicChain(
+                (.ok, anthropicReply(content: #"[{"type":"text","text":"From Haiku"}]"#)),
+                fallbackCalls: fallbackCalls
+            )
+            try await stub.withRequest { req in
+                let message = try await client.chat(
+                    messages: [OpenAIMessage(role: "user", content: "Hi")], tools: [], responseFormat: nil, on: req
+                )
+                #expect(message.content == "From Haiku")
+                #expect(fallbackCalls.count == 0)
+            }
+        }
+
+        @Test("The builder gives an Anthropic-dialect tier the Anthropic client")
+        func builderHonoursDialect() async throws {
+            let app = try await Application.make(.testing)
+            defer { Task { try? await app.asyncShutdown() } }
+
+            let anthropic = AIProviderTier(
+                label: "anthropic", apiKey: "k", baseURL: "https://anthropic.test", model: "claude-haiku-5-5",
+                maxTokens: 4096, supportsResponseFormat: true,
+                dialect: .anthropicMessages(AnthropicMessagesOptions())
+            )
+            #expect(makeFallbackChatClient(tiers: [anthropic], timeout: .seconds(5), logger: app.logger) is AnthropicChatClient)
+            #expect(makeFallbackChatClient(tiers: [tier("plain")], timeout: .seconds(5), logger: app.logger) is DefaultOpenAIChatClient)
+            let chain = try #require(makeFallbackChatClient(
+                tiers: [anthropic, tier("plain")], timeout: .seconds(5), logger: app.logger
+            ) as? FallbackChatClient)
+            #expect(chain.rungs.first?.client is AnthropicChatClient)
+            #expect(chain.rungs.last?.client is DefaultOpenAIChatClient)
+        }
+
         @Test("A healthy primary short-circuits the chain")
         func primaryWinsWithoutTouchingFallback() async throws {
             try await withRequest { req in

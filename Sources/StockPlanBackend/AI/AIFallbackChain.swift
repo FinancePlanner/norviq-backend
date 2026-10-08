@@ -2,6 +2,14 @@ import Foundation
 import NIOCore
 import Vapor
 
+/// The wire protocol a rung speaks.
+enum AIProviderDialect: Sendable, Equatable {
+    /// OpenAI Chat Completions: OpenRouter, OpenAI and anything compatible.
+    case openAIChat
+    /// Anthropic's own Messages API. See `AnthropicChatClient`.
+    case anthropicMessages(AnthropicMessagesOptions)
+}
+
 /// One rung of the chat fallback chain: the credentials and model to try, plus
 /// what that model is actually capable of.
 struct AIProviderTier: Sendable {
@@ -14,6 +22,8 @@ struct AIProviderTier: Sendable {
     /// and why-moved paths ask for `json_object` and decode the reply strictly,
     /// so a tier that might return prose is skipped rather than tried.
     let supportsResponseFormat: Bool
+    /// Defaulted so every existing OpenAI-compatible call site is unchanged.
+    var dialect: AIProviderDialect = .openAIChat
 
     var isUsable: Bool {
         !apiKey.isEmpty && !baseURL.isEmpty && !model.isEmpty
@@ -195,16 +205,26 @@ func makeFallbackChatClient(
     guard !usable.isEmpty else { return nil }
 
     let rungs = usable.map { tier in
-        FallbackChatClient.Rung(
-            tier: tier,
-            client: DefaultOpenAIChatClient(
+        let client: any OpenAIChatClient = switch tier.dialect {
+        case .openAIChat:
+            DefaultOpenAIChatClient(
                 apiKey: tier.apiKey,
                 model: tier.model,
                 baseURL: tier.baseURL,
                 maxTokens: tier.maxTokens,
                 timeout: timeout
             )
-        )
+        case let .anthropicMessages(options):
+            AnthropicChatClient(
+                apiKey: tier.apiKey,
+                model: tier.model,
+                baseURL: tier.baseURL,
+                maxTokens: tier.maxTokens,
+                options: options,
+                timeout: timeout
+            )
+        }
+        return FallbackChatClient.Rung(tier: tier, client: client)
     }
 
     logger.notice("ai_provider_chain \(usable.map(\.label).joined(separator: " -> "))")

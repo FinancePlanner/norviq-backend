@@ -81,7 +81,7 @@ func makeAIModelRouter(_ app: Application) -> AIModelRouter? {
     }
 
     let configuration = AIProviderConfiguration.load()
-    let freeTiers = configuration.freeTiers
+    let freeTiers = configuration.freeRouterTiers
     let proTiers = configuration.proTiers
 
     // Built separately so a broken free rung cannot silently reshape the pro
