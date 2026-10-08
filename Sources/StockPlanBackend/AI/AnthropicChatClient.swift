@@ -455,7 +455,7 @@ struct AnthropicChatClient: OpenAIChatClient {
             }
         }
 
-        let finishReason: String = switch response.stopReason {
+        let finishReason = switch response.stopReason {
         case "tool_use": "tool_calls"
         case "max_tokens", "model_context_window_exceeded": "length"
         default: "stop"
@@ -469,14 +469,15 @@ struct AnthropicChatClient: OpenAIChatClient {
             text = extractJSONObject(text)
         }
 
+        let marker: OpenAIJSONValue = .object([
+            "type": .string(reasoningMarkerType),
+            "blocks": .array(thinking),
+        ])
         let message = OpenAIMessage(
             role: "assistant",
             content: text.isEmpty && !toolCalls.isEmpty ? nil : text,
             toolCalls: toolCalls.isEmpty ? nil : toolCalls,
-            reasoningDetails: [.object([
-                "type": .string(reasoningMarkerType),
-                "blocks": .array(thinking),
-            ])]
+            reasoningDetails: [marker]
         )
         return DefaultOpenAIChatClient.Completion(message: message, finishReason: finishReason)
     }
