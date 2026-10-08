@@ -49,7 +49,3 @@ enum ArticlePresenter {
         )
     }
 }
-
-extension ArticleWriteRequest: @retroactive Content {}
-extension ArticleDetail: @retroactive Content {}
-extension ArticleListResponse: @retroactive Content {}

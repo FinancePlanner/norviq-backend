@@ -26,6 +26,8 @@ struct ArticlesController: RouteCollection {
         )
         read.get(use: list)
         read.get(":ref", use: get)
+        read.grouped(RateLimitMiddleware(limit: 120, interval: 60, keyPrefix: "ratelimit:article-view"))
+            .post(":ref", "view", use: view)
 
         // Writes: the same gate as Boards (bans, mutes, username, guidelines).
         let write = articles.grouped(
@@ -38,6 +40,11 @@ struct ArticlesController: RouteCollection {
         write.grouped(RateLimitMiddleware(limit: 10, interval: 3600, keyPrefix: "ratelimit:article-edit"))
             .patch(":ref", use: update)
         write.delete(":ref", use: delete)
+        let votes = write.grouped(RateLimitMiddleware(limit: 60, interval: 60, keyPrefix: "ratelimit:article-vote"))
+        votes.post(":ref", "vote", use: vote)
+        votes.delete(":ref", "vote", use: unvote)
+        write.grouped(RateLimitMiddleware(limit: 20, interval: 3600, keyPrefix: "ratelimit:article-report"))
+            .post(":ref", "report", use: report)
     }
 
     // MARK: - Reads
@@ -145,6 +152,124 @@ struct ArticlesController: RouteCollection {
         article.status = ArticleStatus.deleted.rawValue
         try await article.save(on: req.db)
         return .noContent
+    }
+
+    // MARK: - Engagement
+
+    static let viewerHeader = "X-Norviq-Viewer"
+
+    /// Counts at most one view per viewer per UTC day. A first-party session is
+    /// keyed by user; the web's public token forwards a hashed visitor key.
+    /// Without either, nothing is counted.
+    @Sendable
+    func view(req: Request) async throws -> HTTPStatus {
+        let article = try await ArticleService.requireVisible(ref: req.parameters.get("ref") ?? "", viewer: nil, on: req.db)
+        let key: String
+        if let viewer = ArticleService.viewerId(req) {
+            key = "u:\(viewer.uuidString)"
+        } else if let header = req.headers.first(name: Self.viewerHeader),
+                  (16 ... 64).contains(header.count), header.allSatisfy(\.isHexDigit)
+        {
+            key = "v:\(header.lowercased())"
+        } else {
+            return .noContent
+        }
+        let articleId = try article.requireID()
+        let day = Self.utcDay(Date())
+        let sql = try ArticleService.sql(req.db)
+        let inserted = try await sql.raw("""
+        INSERT INTO article_views (id, article_id, viewer_key, day)
+        VALUES (\(bind: UUID()), \(bind: articleId), \(bind: key), \(bind: day))
+        ON CONFLICT (article_id, viewer_key, day) DO NOTHING
+        RETURNING id
+        """).all()
+        if !inserted.isEmpty {
+            try await sql.raw("UPDATE articles SET view_count = view_count + 1 WHERE id = \(bind: articleId)").run()
+        }
+        return .noContent
+    }
+
+    @Sendable
+    func vote(req: Request) async throws -> ArticleVoteResponse {
+        try await setVote(true, req: req)
+    }
+
+    @Sendable
+    func unvote(req: Request) async throws -> ArticleVoteResponse {
+        try await setVote(false, req: req)
+    }
+
+    /// The vote row and the counter move in one transaction, so the counter is
+    /// always the row count.
+    private func setVote(_ on: Bool, req: Request) async throws -> ArticleVoteResponse {
+        let viewer = try req.communityViewer
+        try viewer.requireCanContribute()
+        let article = try await ArticleService.requireVisible(ref: req.parameters.get("ref") ?? "", viewer: nil, on: req.db)
+        let articleId = try article.requireID()
+        return try await req.db.transaction { tx in
+            let sql = try ArticleService.sql(tx)
+            let changed: Bool = if on {
+                try await !sql.raw("""
+                INSERT INTO article_votes (id, article_id, user_id, created_at)
+                VALUES (\(bind: UUID()), \(bind: articleId), \(bind: viewer.userId), \(bind: Date()))
+                ON CONFLICT (article_id, user_id) DO NOTHING
+                RETURNING id
+                """).all().isEmpty
+            } else {
+                try await !sql.raw("""
+                DELETE FROM article_votes WHERE article_id = \(bind: articleId) AND user_id = \(bind: viewer.userId)
+                RETURNING id
+                """).all().isEmpty
+            }
+            let delta = changed ? (on ? 1 : -1) : 0
+            let row = try await sql.raw("""
+            UPDATE articles SET upvote_count = GREATEST(upvote_count + \(bind: delta), 0)
+            WHERE id = \(bind: articleId) RETURNING upvote_count
+            """).first()
+            let count = try row?.decode(column: "upvote_count", as: Int.self) ?? article.upvoteCount
+            return ArticleVoteResponse(upvoteCount: count, voted: on)
+        }
+    }
+
+    /// Reporting skips requireCanContribute on purpose: a muted person must
+    /// still be able to flag a scam.
+    @Sendable
+    func report(req: Request) async throws -> HTTPStatus {
+        let viewer = try req.communityViewer
+        let article = try await ArticleService.requireVisible(ref: req.parameters.get("ref") ?? "", viewer: nil, on: req.db)
+        let body = try req.content.decode(ArticleReportRequest.self)
+        let note = body.note?.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard (note?.count ?? 0) <= 1000 else {
+            throw Abort(.badRequest, reason: "Keep the details under 1,000 characters.")
+        }
+        try await SocialReport(
+            reporterId: viewer.userId,
+            targetType: "article",
+            targetId: article.requireID().uuidString,
+            reason: body.reason.rawValue,
+            note: (note?.isEmpty ?? true) ? nil : note
+        ).save(on: req.db)
+        req.logger.notice("articles.report filed code=\(article.code) reason=\(body.reason.rawValue)")
+
+        let reason = body.reason.rawValue
+        let excerpt = "\(article.code) · \(article.title)"
+        Task {
+            do {
+                try await req.discord.send("🚩 Article report (\(reason)):\n```\(excerpt.prefix(300))```", on: req)
+            } catch {
+                req.logger.warning("articles.report discord ping failed: \(String(describing: error))")
+            }
+        }
+        return .noContent
+    }
+
+    static func utcDay(_ date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.calendar = Calendar(identifier: .gregorian)
+        formatter.timeZone = TimeZone(identifier: "UTC")
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "yyyy-MM-dd"
+        return formatter.string(from: date)
     }
 
     // MARK: - Cursor
