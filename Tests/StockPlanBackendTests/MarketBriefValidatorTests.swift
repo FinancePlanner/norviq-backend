@@ -108,4 +108,29 @@ struct MarketBriefValidatorTests {
         let output = try MarketBriefValidator.validate(section(filler, greeting: "  "), slot: .morning, language: .en, grounded: [])
         #expect(output.greeting == nil)
     }
+
+    @Test("Invented whole-number levels and percentages are dropped; rounded real ones kept")
+    func wholeNumbers() throws {
+        let output = try MarketBriefValidator.validate(
+            section([item("DAX at 24150."), item("DAX near 25032."), item("Europe fell 2%."), item("A Europa cai 1%.")] + filler),
+            slot: .morning, language: .en, grounded: [25032.36, 0.77]
+        )
+        #expect(output.items.map(\.text).contains("DAX near 25032."))
+        #expect(output.items.map(\.text).contains("A Europa cai 1%."))
+        #expect(!output.items.map(\.text).contains("DAX at 24150."))
+        #expect(!output.items.map(\.text).contains("Europe fell 2%."))
+    }
+
+    @Test("Without web search, only headline URLs from the facts count as a source")
+    func offlineSourcesRestricted() throws {
+        let output = try MarketBriefValidator.validate(
+            section([
+                item("Brent near $104.50.", source: "https://evil.example/x"),
+                item("Exports fell 0,8%.", source: "https://example.com/34"),
+            ] + filler),
+            slot: .morning, language: .en, grounded: [], allowedSources: ["https://example.com/34"]
+        )
+        #expect(output.dropped == 1)
+        #expect(output.items.first?.sourceUrl == "https://example.com/34")
+    }
 }

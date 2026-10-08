@@ -67,4 +67,17 @@ struct MarketBriefRepositoryTests {
             }
         }
     }
+
+    @Test("Latest follows the trading date, not when a brief was (re)generated")
+    func latestByTradingDate() async throws {
+        try await MarketBriefFixtures.withApp { app in
+            let base = Date(timeIntervalSince1970: 1_791_500_000)
+            try await repo.save(both("2026-10-08", .morning), model: "m", generatedAt: base, on: app.db)
+            // A replaced brief for an earlier day, written later.
+            try await repo.save(both("2026-10-07", .evening), model: "m", generatedAt: base.addingTimeInterval(3600), on: app.db)
+            let latest = try await repo.latest(language: "en", on: app.db)
+            #expect(latest?.tradingDate == "2026-10-08")
+            #expect(latest?.slot == .morning)
+        }
+    }
 }

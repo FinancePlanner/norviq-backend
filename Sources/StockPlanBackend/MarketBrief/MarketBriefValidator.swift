@@ -35,7 +35,8 @@ enum MarketBriefValidator {
         _ section: MarketBriefDraft.Section,
         slot: MarketBriefSlot,
         language: MarketBriefLanguage,
-        grounded: [Double]
+        grounded: [Double],
+        allowedSources: Set<String>? = nil
     ) throws -> Output {
         let limits = limits(for: slot)
         var kept: [MarketBriefItem] = []
@@ -51,7 +52,12 @@ enum MarketBriefValidator {
                 dropped += 1
                 continue
             }
-            let source = httpsURL(item.sourceUrl)
+            // Without web search the model saw no page but the headlines, so a
+            // link is only a source if it is one of theirs. A made-up or
+            // injected URL must not switch the number check off.
+            let source = httpsURL(item.sourceUrl).flatMap { url in
+                allowedSources.map { $0.contains(url) ? url : nil } ?? url
+            }
             if source == nil, !isGrounded(text, grounded: grounded) {
                 dropped += 1
                 continue
@@ -69,13 +75,13 @@ enum MarketBriefValidator {
         )
     }
 
-    /// Every separator-bearing number must match some fact under either
-    /// reading, allowing for the model rounding to one decimal (±0.05) or
-    /// rounding a level (±0.1%).
+    /// Every checked number must match some fact under one of its readings,
+    /// allowing for the model's rounding (the token's tolerance) or rounding a
+    /// level (±0.1%).
     static func isGrounded(_ text: String, grounded: [Double]) -> Bool {
-        MarketBriefNumbers.tokens(in: text).allSatisfy { readings in
-            readings.contains { reading in
-                grounded.contains { fact in abs(fact - reading) <= max(0.051, abs(fact) * 0.001) }
+        MarketBriefNumbers.tokens(in: text).allSatisfy { token in
+            token.readings.contains { reading in
+                grounded.contains { fact in abs(fact - reading) <= max(token.tolerance, abs(fact) * 0.001) }
             }
         }
     }

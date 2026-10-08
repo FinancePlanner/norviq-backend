@@ -25,6 +25,9 @@ enum MarketBriefSchedule {
     static let morningEnd = 12 * 60
     static let eveningStart = 22 * 60 + 30
     static let eveningEnd = 24 * 60
+    /// European cash open, in Lisbon minutes. A European row stamped before it
+    /// is yesterday's close, not today's open.
+    static let europeanOpen = 8 * 60
 
     static func dueSlot(now: Date) -> Due? {
         let parts = calendar.dateComponents([.weekday, .hour, .minute], from: now)
@@ -39,6 +42,11 @@ enum MarketBriefSchedule {
             return Due(tradingDate: localDate(now), slot: .evening)
         }
         return nil
+    }
+
+    static func localMinutes(_ date: Date) -> Int {
+        let parts = calendar.dateComponents([.hour, .minute], from: date)
+        return (parts.hour ?? 0) * 60 + (parts.minute ?? 0)
     }
 
     static func localDate(_ now: Date) -> String {

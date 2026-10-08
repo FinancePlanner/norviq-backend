@@ -99,4 +99,20 @@ struct MarketBriefGeneratorTests {
             #expect(brief.responses.allSatisfy { $0.groups.isEmpty && $0.items.count == 5 })
         }
     }
+
+    @Test("Shown rows must be from the trading day; European rows from after the open; context keeps the 18 h rule")
+    func currentQuotesOnly() throws {
+        // Good Friday 2026-04-03 (WEST): European markets shut, CME open.
+        let goodFriday = MarketBriefSchedule.Due(tradingDate: "2026-04-03", slot: .morning)
+        func at(_ iso: String) throws -> Date { try #require(ISO8601DateFormatter().date(from: iso)) }
+        let quotes = [
+            IndexQuote(symbol: "^GDAXI", price: 1, previousClose: 1, marketTime: try at("2026-04-02T15:30:00Z")),
+            IndexQuote(symbol: "^FCHI", price: 1, previousClose: 1, marketTime: try at("2026-04-03T06:55:00Z")),
+            IndexQuote(symbol: "^STOXX50E", price: 1, previousClose: 1, marketTime: try at("2026-04-03T07:05:00Z")),
+            IndexQuote(symbol: "NQ=F", price: 1, previousClose: 1, marketTime: try at("2026-04-03T07:00:00Z")),
+            IndexQuote(symbol: "^N225", price: 1, previousClose: 1, marketTime: try at("2026-04-02T06:30:00Z")),
+        ]
+        let kept = MarketBriefGenerator.currentQuotes(quotes, for: goodFriday).map(\.symbol)
+        #expect(kept == ["^STOXX50E", "NQ=F", "^N225"])
+    }
 }

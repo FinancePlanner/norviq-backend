@@ -54,6 +54,11 @@ struct DatabaseMarketBriefRepository: MarketBriefRepository {
     func latest(language: String, on db: any Database) async throws -> MarketBriefResponse? {
         try await MarketBriefRecord.query(on: db)
             .filter(\.$language == language)
+            // By trading day, not by write time: a `--replace` run must not
+            // make an old brief the current card. Same day: "evening" sorts
+            // before "morning", and evening is the later brief.
+            .sort(\.$tradingDate, .descending)
+            .sort(\.$slot, .ascending)
             .sort(\.$generatedAt, .descending)
             .first()
             .map(decode)

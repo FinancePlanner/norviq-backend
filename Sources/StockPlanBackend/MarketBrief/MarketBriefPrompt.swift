@@ -45,7 +45,8 @@ enum MarketBriefPrompt {
         let factsJSON = try String(decoding: encoder.encode(facts), as: UTF8.self)
         let research = webSearch
             ? "Use web search for today's market news and cite each source in sourceUrl."
-            : "Web search is unavailable. Use only FACTS; every item has sourceUrl null."
+            : "Web search is unavailable. Use only FACTS; sourceUrl is null or a headline url from FACTS. "
+            + "Keep it short: at most 5 items per language, each under 300 characters."
         return [
             OpenAIMessage(role: "system", content: systemPrompt),
             OpenAIMessage(role: "user", content: "\(research)\n\nSERVER-SELECTED FACTS:\n\(factsJSON)"),

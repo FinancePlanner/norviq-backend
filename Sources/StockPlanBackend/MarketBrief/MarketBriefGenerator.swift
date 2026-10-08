@@ -36,10 +36,9 @@ struct MarketBriefGenerator: MarketBriefGenerating {
 
     func generate(_ due: MarketBriefSchedule.Due, on req: Request) async throws -> GeneratedMarketBrief {
         let at = now()
-        let quoteList = await quotes.quotes(
-            symbols: MarketBriefCatalog.instruments(for: due.slot).map(\.symbol),
-            now: at,
-            on: req
+        let quoteList = await Self.currentQuotes(
+            quotes.quotes(symbols: MarketBriefCatalog.instruments(for: due.slot).map(\.symbol), now: at, on: req),
+            for: due
         )
         let facts = await MarketBriefFacts.build(
             slot: due.slot,
@@ -53,7 +52,7 @@ struct MarketBriefGenerator: MarketBriefGenerating {
         if let webClient {
             do {
                 return try await attempt(
-                    webClient, webSearch: true, model: webModel, degraded: false,
+                    webClient, webSearch: true, model: webModel, degraded: false, allowedSources: nil,
                     due: due, facts: facts, quotes: quoteList, at: at, on: req
                 )
             } catch {
@@ -65,8 +64,26 @@ struct MarketBriefGenerator: MarketBriefGenerating {
         }
         return try await attempt(
             fallbackClient(), webSearch: false, model: Self.fallbackModelLabel, degraded: true,
+            allowedSources: Set(facts.headlines.compactMap(\.url)),
             due: due, facts: facts, quotes: quoteList, at: at, on: req
         )
+    }
+
+    /// Rows a reader sees must be from the trading day, and European rows from
+    /// after the open: on Good Friday or 1 May the DAX's last print is
+    /// Thursday's close, well inside the provider's 18 h freshness window,
+    /// and would otherwise be shown as "European open". Context symbols
+    /// (Asia, Brent, yields) keep the provider's 18 h rule.
+    static func currentQuotes(_ quotes: [IndexQuote], for due: MarketBriefSchedule.Due) -> [IndexQuote] {
+        let groups = MarketBriefCatalog.groups(for: due.slot)
+        let rowSymbols = Set(groups.flatMap(\.instruments).map(\.symbol))
+        let openSymbols = Set(groups.filter { $0.id == "eu_open" }.flatMap(\.instruments).map(\.symbol))
+        return quotes.filter { quote in
+            guard rowSymbols.contains(quote.symbol) else { return true }
+            guard MarketBriefSchedule.localDate(quote.marketTime) == due.tradingDate else { return false }
+            return !openSymbols.contains(quote.symbol)
+                || MarketBriefSchedule.localMinutes(quote.marketTime) >= MarketBriefSchedule.europeanOpen
+        }
     }
 
     private func attempt(
@@ -74,6 +91,7 @@ struct MarketBriefGenerator: MarketBriefGenerating {
         webSearch: Bool,
         model: String,
         degraded: Bool,
+        allowedSources: Set<String>?,
         due: MarketBriefSchedule.Due,
         facts: MarketBriefFacts,
         quotes: [IndexQuote],
@@ -91,7 +109,8 @@ struct MarketBriefGenerator: MarketBriefGenerating {
         let grounded = facts.groundedNumbers
         let responses = try MarketBriefLanguage.allCases.map { language in
             let output = try MarketBriefValidator.validate(
-                draft.section(language), slot: due.slot, language: language, grounded: grounded
+                draft.section(language), slot: due.slot, language: language, grounded: grounded,
+                allowedSources: allowedSources
             )
             if output.dropped > 0 {
                 req.logger.info(
