@@ -103,8 +103,8 @@ struct ArticlesController: RouteCollection {
         let viewer = try req.communityViewer
         try viewer.requireCanContribute()
         let input = try req.content.decode(ArticleWriteRequest.self)
-        let fields = try await ArticleService.validate(input, authorId: viewer.userId, on: req)
 
+        // Before validation, which spends market-data quota on ticker lookups.
         if !viewer.isAdmin {
             let since = Date().addingTimeInterval(-86400)
             let recent = try await Article.query(on: req.db)
@@ -115,6 +115,7 @@ struct ArticlesController: RouteCollection {
                 throw CodedAbort(status: .tooManyRequests, code: "article_daily_limit", reason: "You can publish 3 articles a day.")
             }
         }
+        let fields = try await ArticleService.validate(input, authorId: viewer.userId, on: req)
 
         let source = input.source.flatMap { $0 == .unknown ? nil : $0 } ?? .web
         let article = Article(
@@ -271,13 +272,16 @@ struct ArticlesController: RouteCollection {
         return .noContent
     }
 
+    private static let utcCalendar: Calendar = {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(secondsFromGMT: 0) ?? .gmt
+        return calendar
+    }()
+
+    /// `yyyy-MM-dd` in UTC.
     static func utcDay(_ date: Date) -> String {
-        let formatter = DateFormatter()
-        formatter.calendar = Calendar(identifier: .gregorian)
-        formatter.timeZone = TimeZone(identifier: "UTC")
-        formatter.locale = Locale(identifier: "en_US_POSIX")
-        formatter.dateFormat = "yyyy-MM-dd"
-        return formatter.string(from: date)
+        let day = utcCalendar.dateComponents([.year, .month, .day], from: date)
+        return String(format: "%04d-%02d-%02d", day.year ?? 0, day.month ?? 0, day.day ?? 0)
     }
 
     // MARK: - Cursor

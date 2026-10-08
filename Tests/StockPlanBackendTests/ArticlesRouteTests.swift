@@ -224,9 +224,48 @@ struct ArticlesRouteTests {
             for n in 1 ... 3 {
                 _ = try await Kit.publish(app, as: auth, Kit.input(title: "Article number \(n) about NEXT"))
             }
+            // Every ticker now "doesn't exist": a 429 rather than a 400 proves the
+            // cap is checked before any market-data lookup is spent.
+            app.articleTickerVerifier = StubTickerVerifier(missing: ["NEXT"])
             let fourth = try await Kit.send(app, .POST, "v1/articles", as: auth, body: Kit.input(title: "Article number 4 about NEXT"))
             #expect(fourth.status == .tooManyRequests && fourth.code == "article_daily_limit")
         }
+    }
+
+    @Test("a third-party credential reads anonymously, even when its owner is an admin and the author")
+    func thirdPartyReadsAnonymously() async throws {
+        try await Kit.withApp { app in
+            let admin = try await Kit.member(app, "anon_admin", email: Kit.adminEmail)
+            let credential = try await Kit.credential(app, owner: admin)
+
+            let own = try await Kit.publish(app, as: admin).article.code
+            #expect(try await Kit.send(app, .POST, "v1/articles/\(own)/vote", as: admin).status == .ok)
+            let hidden = try await Kit.publish(app, as: admin, Kit.input(title: "Hidden article about NEXT")).article.code
+            #expect(try await Kit.send(app, .PUT, "v1/admin/articles/\(hidden)/visibility", as: admin, body: ArticleVisibilityRequest(hidden: true)).status == .noContent)
+            let deleted = try await Kit.publish(app, as: admin, Kit.input(title: "Deleted article about NEXT")).article.code
+            #expect(try await Kit.send(app, .DELETE, "v1/articles/\(deleted)", as: admin).status == .noContent)
+
+            // The admin's own session still sees both.
+            #expect(try await Kit.send(app, .GET, "v1/articles/\(hidden)", as: admin).status == .ok)
+            #expect(try await Kit.send(app, .GET, "v1/articles/\(deleted)", as: admin).status == .ok)
+
+            #expect(try await Kit.send(app, .GET, "v1/articles/\(hidden)", token: credential.token).status == .notFound)
+            #expect(try await Kit.send(app, .GET, "v1/articles/\(deleted)", token: credential.token).status == .notFound)
+            let read = try await Kit.send(app, .GET, "v1/articles/\(own)", token: credential.token)
+            #expect(read.status == .ok)
+            let detail = try read.decode(ArticleDetail.self)
+            #expect(detail.article.upvoteCount == 1)
+            #expect(detail.viewerUpvoted == false)
+            #expect(detail.viewerIsAuthor == false)
+        }
+    }
+
+    @Test("utcDay is the UTC calendar day, whatever the local time zone")
+    func utcDay() {
+        #expect(ArticlesController.utcDay(Date(timeIntervalSince1970: 0)) == "1970-01-01")
+        // 2026-10-08T23:59:59Z, then one second later.
+        #expect(ArticlesController.utcDay(Date(timeIntervalSince1970: 1_791_503_999)) == "2026-10-08")
+        #expect(ArticlesController.utcDay(Date(timeIntervalSince1970: 1_791_504_000)) == "2026-10-09")
     }
 
     @Test("feed is newest first, filters by ticker and author, and pages with a cursor")
