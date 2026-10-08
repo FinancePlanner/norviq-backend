@@ -4,10 +4,11 @@ Date: 2026-10-08 · Status: approved design, pending written-spec review · Bran
 
 ## Context
 The user wants Norviq's main screens (web `/dashboard`, the web landing page, the iOS dashboard tab) to show two short market briefs each weekday:
-- **Morning brief** (07:30 Lisbon): European and US futures rows (🇩🇪 DAX → 25.032 → 🔴 0,77%), then 5–7 📌 highlights on Asia, yields, oil, macro data and the day's calendar, plus 📍 earnings of the day.
+- **Morning brief** (08:15 Lisbon, 15 min after the European open): European opening rows and US futures rows (🇩🇪 DAX → 25.032 → 🔴 0,77%), then 5–7 📌 highlights on Asia, yields, oil, macro data and the day's calendar, plus 📍 earnings of the day.
 - **Evening recap** (22:30 Lisbon, 90 min after the US close): 5–8 numbered stories that moved markets that day, with $TICKERs, including world events where they affect markets.
 
 **Decisions made with the user:**
+- Morning slot moved from 07:30 to 08:15 on 2026-10-08, because Yahoo has no European index futures. At 08:15 the European rows are live opening moves.
 - Numbers come from the Yahoo chart API. The text is written by the LLM with web search.
 - Both en and pt-PT are generated. Each client shows the one matching its language.
 - Weekdays only.
@@ -31,7 +32,7 @@ Found while writing this spec. Both reduce risk and both follow patterns already
 New file `Sources/StockPlanShared/Market/MarketBriefDTOs.swift`, in the same style as `News/NewsTickerDTOs.swift` (public, Codable, Sendable, Equatable, explicit inits):
 - `MarketBriefSlot` (`morning`, `evening`)
 - `MarketBriefQuoteRow`: symbol, flag, name, `level` (a string the server has already formatted for the locale), `changePercent` (string), `direction` (up/down/flat)
-- `MarketBriefQuoteGroup`: id `eu_futures`/`us_futures`, title, tone, rows
+- `MarketBriefQuoteGroup`: id `eu_open`/`us_futures` (morning) or `eu_close`/`us_close` (evening), title, tone, rows
 - `MarketBriefItem`: kind `highlight`/`earnings`/`story`, text, tickers, sourceUrl?
 - `MarketBriefResponse`: enabled, tradingDate, slot, language, greeting?, groups, items, generatedAt, degraded
 
@@ -45,12 +46,12 @@ Tag v5.20.0 (the latest tag is v5.19.0 and HEAD is on it).
 
 | File | Role |
 |---|---|
-| `IndexQuoteProvider.swift` | A protocol, plus `YahooChartQuoteProvider`, which reads `query1.finance.yahoo.com/v8/finance/chart/{sym}?range=5d&interval=1d`. Price comes from `meta.regularMarketPrice` and the previous close from `meta.chartPreviousClose`. Each symbol is fetched separately, with an 8 s timeout and a browser User-Agent. If one symbol fails, only that row is left out. Symbols: ES=F, NQ=F, ^GDAXI, ^FCHI, ^STOXX50E (or FESX=F), ^N225, ^HSI, BZ=F, ^TNX. |
+| `IndexQuoteProvider.swift` | A protocol, plus `YahooChartQuoteProvider`, which reads `query1.finance.yahoo.com/v8/finance/chart/{sym}?range=1d&interval=1d`. Price comes from `meta.regularMarketPrice` and the previous close from `meta.chartPreviousClose`. It must be `range=1d`: with `range=5d`, `chartPreviousClose` is the close from before the five-day window, not yesterday's close (checked 2026-10-08). A row is dropped when `meta.regularMarketTime` is more than 18 h old, which also drops a market that is closed for a holiday. Each symbol is fetched separately, with an 8 s timeout and a browser User-Agent. If one symbol fails, only that row is left out. Symbols: morning rows ^GDAXI, ^FCHI, ^STOXX50E (European open), NQ=F, ES=F (US futures). Evening rows: the same three European indices (close), plus ^NDX, ^GSPC, ^DJI (US close). Context facts only, never rows: ^N225, ^HSI, BZ=F, ^TNX. Yahoo has no European index futures: FDAX=F, FESX=F and FCE=F all return 404 (checked 2026-10-08). |
 | `MarketBriefFormatter.swift` | Formats numbers for each language with `NumberFormatter`: pt_PT gives `25.032` and `0,77%`, en_US gives `25,032` and `0.77%`. Also holds the flag and name for each symbol. |
-| `MarketBriefFacts.swift` | Builds the "SERVER-SELECTED FACTS" JSON: Yahoo quotes; the 10-year yield from `FREDMacroProvider` (`Macro/Providers/FREDMacroProvider.swift`) as a backup to ^TNX; today's earnings from the earnings service (`Earnings/EarningsProvider.swift`); headlines from `NewsProvider` general news and `FeedsClient` (`News/FeedsClient.swift`). |
+| `MarketBriefFacts.swift` | Builds the "SERVER-SELECTED FACTS" JSON: Yahoo quotes; the 10-year yield from ^TNX, with no FRED backup (if ^TNX is missing, web search covers yields); today's earnings from the earnings service (`Earnings/EarningsProvider.swift`); headlines from `NewsProvider` general news and `FeedsClient` (`News/FeedsClient.swift`). |
 | `MarketBriefPrompt.swift` | Same style as `AI/AIPrompt.swift`: a fixed system prompt plus the facts block. One call returns both languages (`{"en":{…},"pt-PT":{…}}`, `json_object`), so the two versions say the same thing and the cost is halved. Rules: no number that isn't in the facts or a cited web result; use `$TICKER`; pt-PT, not pt-BR; 5–7 morning items and 5–8 evening stories. |
-| `MarketBriefValidator.swift` | Checks the LLM output: it must decode as JSON; item counts and lengths (≤280 characters) must be in range; tickers must match `^\$?[A-Z.]{1,6}$`. Every formatted number in the text must either match a fact or belong to an item with a `sourceUrl`; otherwise that item is dropped. If fewer than 3 items are left, the brief is rejected. |
-| `MarketBriefSchedule.swift` | A pure function `dueSlot(now:) -> (tradingDate, slot)?` using the `Europe/Lisbon` time zone, so daylight-saving changes need no special handling. Monday–Friday only. Morning window 07:30–12:00, evening window 22:30–23:59. |
+| `MarketBriefValidator.swift` | Checks the LLM output: it must decode as JSON; item counts and lengths must be in range (≤400 characters for a morning item, ≤1000 for an evening story; the user's example recap stories run 400–900); tickers must match `^\$?[A-Z.]{1,6}$`. Every formatted number in the text must either match a fact or belong to an item with a `sourceUrl`; otherwise that item is dropped. If fewer than 3 items are left, the brief is rejected. |
+| `MarketBriefSchedule.swift` | A pure function `dueSlot(now:) -> (tradingDate, slot)?` using the `Europe/Lisbon` time zone, so daylight-saving changes need no special handling. Monday–Friday only. Morning window 08:15–12:00, evening window 22:30–23:59. |
 | `MarketBriefJob.swift` | Copies the pattern in `Insights/SentimentAggregationJob.swift`: `BackgroundJobState` and `scheduleRepeatedTask` every 300 s. When a slot is due and no row exists yet, it takes the Postgres lock with `JobLock.runAsLeader(app, name: "market_brief_job")` (`Shared/JobLock.swift`), checks again, then generates. At most 3 attempts per slot, tracked in memory. A pod that boots late, say at 08:10, still produces that morning's brief. |
 | `MarketBriefController.swift` | Serves `GET /v1/market/brief?lang=&slot=&date=`. By default it returns the latest brief for the language, so on weekends users see Friday's recap. An unknown `lang` falls back to `en`. When the flag is off it returns 200 with `enabled:false`. Response header `Cache-Control: private, max-age=300`, because the route is authenticated; the web keeps its own cache. |
 
@@ -59,7 +60,7 @@ Tag v5.20.0 (the latest tag is v5.19.0 and HEAD is on it).
 - **Fallback when that call fails:** try once more with `app.openAIChatClient` (the existing fallback chain), using only the facts we gathered ourselves. That brief is saved with `degraded=true`.
 
 **Storage:**
-- New model `Models/MarketBriefRecord.swift`, following `Models/MacroSnapshotRecord.swift`. Columns: trading_date, slot, language, payload (JSON), generated_at, model, sources, degraded.
+- New model `Models/MarketBriefRecord.swift`, following `Models/MacroSnapshotRecord.swift`. Columns: trading_date, slot, language, payload (JSON), generated_at, model, degraded. There is no `sources` column: each item's `sourceUrl` is already in the payload.
 - Migration `Migrations/CreateMarketBriefs.swift` with a unique key on (trading_date, slot, language). Register it after `AddSocialFacebookImport()` (`ConfigureBootstrap.swift:~440`).
 - The en and pt-PT rows are written in one transaction.
 
@@ -98,7 +99,7 @@ Tag v5.20.0 (the latest tag is v5.19.0 and HEAD is on it).
 
 ## Verification
 - **Unit tests** (`Tests/StockPlanBackendTests/`):
-  - `MarketBriefScheduleTests`: daylight-saving changes on 2026-03-29 and 2026-10-25; 07:29 vs 07:30; 12:01 (window missed); Saturday; a late pod boot.
+  - `MarketBriefScheduleTests`: the weekdays either side of the daylight-saving changes (2026-03-27/30 and 2026-10-23/26); 08:14 vs 08:15; 12:01 (window missed); Saturday; a late pod boot.
   - `YahooChartQuoteProviderTests`: a saved JSON response; a missing `chartPreviousClose`; an error payload.
   - `MarketBriefFormatterTests`: pt and en formatting, including negative values.
   - `MarketBriefValidatorTests`: an invented number is dropped; a number with a source is kept; too few items is rejected.
@@ -109,7 +110,7 @@ Tag v5.20.0 (the latest tag is v5.19.0 and HEAD is on it).
 - **iOS:** run `xcodebuild` (with `ENABLE_USER_SCRIPT_SANDBOXING=NO` locally). Look at the card in the simulator in en and pt-PT.
 
 ## Risks
-- **Yahoo is unofficial.** It can rate-limit, start requiring a cookie or crumb, or block datacenter IPs. Mitigation: a missing row is left out, quotes are cached in memory for 15 minutes, and the provider sits behind a protocol so it can be swapped. ^STOXX50E may be stale before the market opens; FESX=F is the alternative.
+- **Yahoo is unofficial.** It can rate-limit, start requiring a cookie or crumb, or block datacenter IPs. Mitigation: a missing or stale row is left out, and the provider sits behind a protocol so it can be swapped. There is no quote cache: about 12 calls twice a day does not need one.
 - **Web search cost.** The `:online` suffix costs about $0.02 per call, at 2 calls a day. The free fallback models don't run web search, and some don't support `json_object` (`AIModelCapabilities`, `AIFallbackChain.swift:46`). That is why the fallback brief is marked `degraded`.
 - **Invented facts.** The number check in the validator is a heuristic. The `degraded` flag stays visible and rejected items are logged.
 - **Market holidays** still produce a brief. A holiday list can come later.
