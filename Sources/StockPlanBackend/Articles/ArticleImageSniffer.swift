@@ -58,6 +58,11 @@ enum ArticleImageSniffer {
         var i = 2
         while i + 9 < b.count {
             guard b[i] == 0xFF else { return nil }
+            // Any marker may be preceded by 0xFF fill bytes.
+            if b[i + 1] == 0xFF {
+                i += 1
+                continue
+            }
             let marker = b[i + 1]
             let length = be16(b, i + 2)
             let isStartOfFrame = (0xC0 ... 0xCF).contains(marker) && ![0xC4, 0xC8, 0xCC].contains(marker)

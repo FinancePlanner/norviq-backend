@@ -43,6 +43,16 @@ struct ArticleImageSnifferTests {
         #expect(webp.contentType == "image/webp" && webp.width == 640 && webp.height == 480)
     }
 
+    @Test("JPEG fill bytes (repeated 0xFF) before a marker are skipped")
+    func jpegFillBytes() throws {
+        var bytes: [UInt8] = [0xFF, 0xD8, 0xFF, 0xFF, 0xFF, 0xC0, 0x00, 0x11, 0x08]
+        bytes += withUnsafeBytes(of: UInt16(480).bigEndian, Array.init)
+        bytes += withUnsafeBytes(of: UInt16(640).bigEndian, Array.init)
+        bytes += [0x03, 0x01, 0x22, 0x00, 0x02, 0x11, 0x01, 0x03, 0x11, 0x01]
+        let jpeg = try ArticleImageSniffer.sniff(bytes)
+        #expect(jpeg.contentType == "image/jpeg" && jpeg.width == 640 && jpeg.height == 480)
+    }
+
     @Test("an SVG or HTML file is unsupported media")
     func unknownType() {
         #expect {
