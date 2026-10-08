@@ -383,6 +383,7 @@ extension SpreadsheetImportCommitResponse: @retroactive Content {}
 
 extension NewsTickerItem: @retroactive Content {}
 extension NewsTickerResponse: @retroactive Content {}
+extension MarketBriefResponse: @retroactive Content {}
 extension NewsTickerSettings: @retroactive Content {}
 extension UpdateNewsTickerSettingsRequest: @retroactive Content {}
 extension NewsTickerFeed: @retroactive Content {}
