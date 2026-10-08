@@ -374,36 +374,52 @@ struct DefaultOpenAIChatClient: OpenAIChatClient {
         responseFormat: String?,
         on req: Request
     ) async throws -> OpenAIMessage {
-        var result = try await completion(
+        try await Self.completeResumingTruncation(
             messages: messages,
-            tools: tools,
             responseFormat: responseFormat,
-            on: req
-        )
-        // A completion stopped by the token cap comes back as an ordinary
-        // success carrying half an answer. Ask for the rest rather than handing
-        // the user a sentence that breaks off mid-word.
+            model: model,
+            logger: req.logger
+        ) { transcript in
+            try await completion(
+                messages: transcript,
+                tools: tools,
+                responseFormat: responseFormat,
+                on: req
+            )
+        }
+    }
+
+    /// Runs one completion and, when the token cap cut it short, asks for the
+    /// rest.
+    ///
+    /// A completion stopped by the token cap comes back as an ordinary success
+    /// carrying half an answer. Ask for the rest rather than handing the user a
+    /// sentence that breaks off mid-word. Shared by every chat dialect, so a
+    /// provider only has to report `finishReason == "length"` to get it.
+    static func completeResumingTruncation(
+        messages: [OpenAIMessage],
+        responseFormat: String?,
+        model: String,
+        logger: Logger,
+        completion: ([OpenAIMessage]) async throws -> Completion
+    ) async throws -> OpenAIMessage {
+        var result = try await completion(messages)
         var transcript = messages
         var rounds = 0
-        while rounds < Self.maxContinuations,
-              Self.canResume(
+        while rounds < maxContinuations,
+              canResume(
                   finishReason: result.finishReason,
                   message: result.message,
                   responseFormat: responseFormat
               )
         {
             rounds += 1
-            req.logger.warning(
+            logger.warning(
                 "ai_completion_truncated round=\(rounds) model=\(model) content_chars=\(result.message.content?.count ?? 0)"
             )
             transcript.append(result.message)
-            transcript.append(OpenAIMessage(role: "user", content: Self.resumePrompt))
-            let next = try await completion(
-                messages: transcript,
-                tools: tools,
-                responseFormat: responseFormat,
-                on: req
-            )
+            transcript.append(OpenAIMessage(role: "user", content: resumePrompt))
+            let next = try await completion(transcript)
             guard let addition = next.message.content, !addition.isEmpty else { break }
             result = Completion(
                 message: OpenAIMessage(
