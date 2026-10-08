@@ -522,7 +522,9 @@ struct DefaultOpenAIChatClient: OpenAIChatClient {
 /// instead of booting into `DisabledOpenAIChatClient`.
 func makeOpenAIChatClient(_ app: Application) -> any OpenAIChatClient {
     let configuration = AIProviderConfiguration.load()
-    var tiers: [AIProviderTier] = []
+    // The Haiku trial's rung, when on, leads this chain as it does the routed
+    // ones. Nil otherwise, so the chain below is exactly what it was.
+    var tiers: [AIProviderTier] = configuration.anthropicTier.map { [$0] } ?? []
 
     if configuration.isConfigured {
         app.logger.notice("ai_provider configured provider=\(configuration.provider.rawValue) model=\(configuration.defaultModel)")
