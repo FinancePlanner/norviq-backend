@@ -133,6 +133,7 @@ func routes(_ app: Application) throws {
     try api.grouped(aiRateLimit).register(collection: AIViewSummaryController())
     try api.grouped(aiRateLimit).register(collection: AIChatController())
     try api.grouped(aiRateLimit).register(collection: AIAssistantController())
+    try api.grouped(aiRateLimit).register(collection: TerminalPositionsAIController())
     // Rate limited too: verification makes an outbound call per request.
     try api.grouped(aiRateLimit).register(collection: AIProviderCredentialController())
     try api.register(collection: BudgetController())

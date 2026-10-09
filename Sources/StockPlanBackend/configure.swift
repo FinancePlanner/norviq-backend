@@ -500,6 +500,7 @@ public func configure(_ app: Application) async throws {
     }
     // Operator-triggered reconstruction of history predating the job above.
     app.asyncCommands.use(PortfolioBackfillCommand(), as: "portfolio-backfill")
+    app.terminalAIClient = TerminalAIAdvisor.liveClient()
 
     // Macro / inflation (Nowflation parity). FRED is the keystone provider:
     // without FRED_API_KEY the US (and intl fallback) stay disabled while
