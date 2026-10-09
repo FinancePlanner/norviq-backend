@@ -1878,6 +1878,59 @@ paths:
                   $ref: '#/components/schemas/NewsItemResponse'
         '401':
           description: Unauthorized
+  /v1/market/brief:
+    get:
+      operationId: getMarketBrief
+      tags: [MarketData]
+      summary: Latest market brief (morning pre-market or evening recap)
+      description: >-
+        Shared, non-personalised brief generated twice per weekday (08:15 and
+        22:30 Europe/Lisbon). Index rows come from market data; the text is
+        model-written and any unsourced number in it was checked against those
+        rows. Without `slot` and `date` this returns the newest brief for the
+        language, so weekends show Friday's recap. `enabled: false` when the
+        feature is off.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: lang
+          in: query
+          required: false
+          description: >-
+            `en` or `pt-PT`. Anything starting with `pt` is `pt-PT`; anything
+            else is `en`.
+          schema:
+            type: string
+            default: en
+        - name: slot
+          in: query
+          required: false
+          description: With `date`, fetch that exact brief instead of the latest.
+          schema:
+            type: string
+            enum: [morning, evening]
+        - name: date
+          in: query
+          required: false
+          description: Lisbon trading date, `yyyy-MM-dd`. Required when `slot` is given.
+          schema:
+            type: string
+            format: date
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MarketBriefResponse'
+        '400':
+          description: Unknown slot, or slot without a valid date
+        '401':
+          description: Unauthorized
+        '403':
+          description: Token lacks the market:read scope
+        '404':
+          description: No brief for that date and slot
   /v1/news/ticker:
     get:
       operationId: getNewsTicker
@@ -14398,6 +14451,92 @@ components:
         sourceUrl: { type: string, nullable: true }
         publishedAt: { type: string, format: date-time }
       required: [id, title, source, publishedAt]
+    MarketBriefQuoteRow:
+      type: object
+      properties:
+        symbol:
+          type: string
+        flag:
+          type: string
+        name:
+          type: string
+        level:
+          type: string
+          description: Formatted for the response language, for example "25.032" (pt-PT) or "25,032" (en).
+        changePercent:
+          type: string
+          description: Unsigned and formatted, for example "0,77%". `direction` carries the sign.
+        direction:
+          type: string
+          enum: [up, down, flat]
+      required: [symbol, flag, name, level, changePercent, direction]
+    MarketBriefQuoteGroup:
+      type: object
+      properties:
+        id:
+          type: string
+          enum: [eu_open, us_futures, eu_close, us_close]
+        title:
+          type: string
+        tone:
+          type: string
+          enum: [up, down, flat]
+        rows:
+          type: array
+          items:
+            $ref: '#/components/schemas/MarketBriefQuoteRow'
+      required: [id, title, tone, rows]
+    MarketBriefItem:
+      type: object
+      properties:
+        kind:
+          type: string
+          enum: [highlight, earnings, story]
+        text:
+          type: string
+        tickers:
+          type: array
+          items:
+            type: string
+        sourceUrl:
+          type: string
+          nullable: true
+      required: [kind, text, tickers]
+    MarketBriefResponse:
+      type: object
+      properties:
+        enabled:
+          type: boolean
+        tradingDate:
+          type: string
+          format: date
+          nullable: true
+        slot:
+          type: string
+          enum: [morning, evening]
+          nullable: true
+        language:
+          type: string
+          enum: [en, pt-PT]
+        greeting:
+          type: string
+          nullable: true
+        groups:
+          type: array
+          items:
+            $ref: '#/components/schemas/MarketBriefQuoteGroup'
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/MarketBriefItem'
+        generatedAt:
+          type: string
+          format: date-time
+          nullable: true
+        degraded:
+          type: boolean
+          description: Web search was unavailable; the text came from in-house sources only.
+      required: [enabled, language, groups, items, degraded]
     NewsTickerResponse:
       type: object
       properties:
