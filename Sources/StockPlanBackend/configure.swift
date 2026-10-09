@@ -500,7 +500,17 @@ public func configure(_ app: Application) async throws {
     }
     // Operator-triggered reconstruction of history predating the job above.
     app.asyncCommands.use(PortfolioBackfillCommand(), as: "portfolio-backfill")
+    // Nil (feature answers 503) unless the provider is OpenRouter or TERMINAL_AI_MODEL is set:
+    // the default model is an OpenRouter `:online` slug that other providers reject.
     app.terminalAIClient = TerminalAIAdvisor.liveClient()
+    if app.terminalAIClient == nil {
+        let ai = AIProviderConfiguration.load()
+        let reason = TerminalAIAdvisor.unavailableReason(
+            provider: ai.provider, apiKey: ai.apiKey, baseURL: ai.baseURL,
+            configuredModel: Environment.get("TERMINAL_AI_MODEL")
+        ) ?? "unknown"
+        app.logger.warning("terminal_ai_disabled", metadata: ["reason": .string(reason)])
+    }
 
     // Macro / inflation (Nowflation parity). FRED is the keystone provider:
     // without FRED_API_KEY the US (and intl fallback) stay disabled while

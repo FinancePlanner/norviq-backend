@@ -57,7 +57,8 @@ extension ActionCatalog {
                 }
                 guard let client = req.application.terminalAIClient else { return errorPayload("AI lookup unavailable") }
                 do {
-                    return try await encode(TerminalAIAdvisor(client: client).shareFacts(ticker: symbol, on: req))
+                    let currency = try await service.currency(userId: context.userId, on: req.db)
+                    return try await encode(TerminalAIAdvisor(client: client).shareFacts(ticker: symbol, currency: currency, on: req))
                 } catch let abort as any AbortError {
                     return errorPayload(abort.reason)
                 }

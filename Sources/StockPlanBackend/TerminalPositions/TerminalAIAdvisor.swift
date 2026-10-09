@@ -6,7 +6,7 @@ import Vapor
 /// suggestion, strict JSON, validated before it reaches the user. It never
 /// writes: the user accepts a suggestion in the UI, which then PATCHes.
 ///
-/// No sampling parameters are sent (Haiku 5.5 rejects them), and there is no
+/// No sampling parameters are sent (some Anthropic models reject them), and there is no
 /// fallback without web search — a guessed share count is worse than none.
 struct TerminalAIAdvisor: Sendable {
     /// OpenRouter's `:online` slug turns on web search.
@@ -15,14 +15,31 @@ struct TerminalAIAdvisor: Sendable {
 
     let client: any OpenAIChatClient
 
+    /// Why there is no client, or nil when one can be built. The default model is
+    /// an OpenRouter slug, so any other provider needs `TERMINAL_AI_MODEL`.
+    static func unavailableReason(provider: AIProviderKind, apiKey: String, baseURL: String, configuredModel: String?) -> String? {
+        guard !apiKey.isEmpty, !baseURL.isEmpty else { return "no AI API key or base URL configured" }
+        let hasModel = !(configuredModel?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true)
+        if provider != .openRouter, !hasModel {
+            return "AI_PROVIDER is \(provider.rawValue) and TERMINAL_AI_MODEL is unset; the default model is an OpenRouter slug"
+        }
+        return nil
+    }
+
     static func liveClient() -> (any OpenAIChatClient)? {
         let config = AIProviderConfiguration.load()
-        guard !config.apiKey.isEmpty, !config.baseURL.isEmpty else { return nil }
-        let configured = Environment.get("TERMINAL_AI_MODEL")?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return liveClient(provider: config.provider, apiKey: config.apiKey, baseURL: config.baseURL, configuredModel: Environment.get("TERMINAL_AI_MODEL"))
+    }
+
+    static func liveClient(provider: AIProviderKind, apiKey: String, baseURL: String, configuredModel: String?) -> (any OpenAIChatClient)? {
+        guard unavailableReason(provider: provider, apiKey: apiKey, baseURL: baseURL, configuredModel: configuredModel) == nil else {
+            return nil
+        }
+        let configured = configuredModel?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         return DefaultOpenAIChatClient(
-            apiKey: config.apiKey,
+            apiKey: apiKey,
             model: configured.isEmpty ? defaultModel : configured,
-            baseURL: config.baseURL,
+            baseURL: baseURL,
             maxTokens: 1200,
             timeout: .seconds(60)
         )
@@ -34,8 +51,9 @@ struct TerminalAIAdvisor: Sendable {
     "asOf": "YYYY-MM-DD"|null, "sources": ["https://..."]}
     sharesOutstanding is the latest total shares outstanding from the most recent filing (10-Q, 10-K, \
     or the exchange/regulator equivalent), as a plain number, not in millions. currentSharePrice is the \
-    latest price. Every number must come from a source you list; if you cannot find one, use null. \
-    Never estimate.
+    latest price, quoted in the currency named in the request; if you can only find it in another currency, \
+    report the price you found and set "currency" to that currency's ISO code. Every number must come from a \
+    source you list; if you cannot find one, use null. Never estimate.
     """
 
     static let scenarioPrompt = """
@@ -43,21 +61,22 @@ struct TerminalAIAdvisor: Sendable {
     {"terminalShareCount": number, "terminalMarketCap": number, "rationale": string, "sources": ["https://..."]}
     terminalShareCount is the share count you expect at the horizon given the dilution or buyback trend in \
     filings. terminalMarketCap is a market cap at the horizon grounded in published analyst ranges or the \
-    company's historical growth, in the company's reporting currency, as a plain number. rationale is 1-3 \
-    sentences naming what the numbers rest on. This is an assumption to be edited by the user, not a forecast \
+    company's historical growth, as a plain number converted to the currency named in the request (not the \
+    company's reporting currency). rationale is 1-3 sentences naming what the numbers rest on and stating the \
+    currency the market cap is in. This is an assumption to be edited by the user, not a forecast \
     or advice.
     """
 
-    func shareFacts(ticker: String, on req: Request) async throws -> ShareFactsSuggestion {
-        let content = try await ask(system: Self.shareFactsPrompt, user: "Ticker: \(ticker)", on: req)
+    func shareFacts(ticker: String, currency: String, on req: Request) async throws -> ShareFactsSuggestion {
+        let content = try await ask(system: Self.shareFactsPrompt, user: "Ticker: \(ticker). Currency: \(currency).", on: req)
         return try Self.parseShareFacts(content, ticker: ticker)
     }
 
-    func scenario(ticker: String, horizonYears: Int?, on req: Request) async throws -> TerminalScenarioSuggestion {
+    func scenario(ticker: String, horizonYears: Int?, currency: String, on req: Request) async throws -> TerminalScenarioSuggestion {
         let horizon = min(max(horizonYears ?? Self.defaultHorizonYears, 1), 30)
         let content = try await ask(
             system: Self.scenarioPrompt,
-            user: "Ticker: \(ticker). Horizon: \(horizon) years.",
+            user: "Ticker: \(ticker). Horizon: \(horizon) years. Currency: \(currency) (give terminalMarketCap in \(currency)).",
             on: req
         )
         return try Self.parseScenario(content, ticker: ticker, horizonYears: horizon)

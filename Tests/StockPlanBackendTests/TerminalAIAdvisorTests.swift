@@ -1,3 +1,4 @@
+import Fluent
 import Foundation
 @testable import StockPlanBackend
 import StockPlanShared
@@ -23,6 +24,34 @@ final class ScriptedTerminalChatClient: OpenAIChatClient, @unchecked Sendable {
         lock.lock()
         defer { lock.unlock() }
         return replies.isEmpty ? .failure(Abort(.badGateway)) : replies.removeFirst()
+    }
+}
+
+/// Records every message list it is sent. Locking in sync helpers only.
+final class CapturingTerminalChatClient: OpenAIChatClient, @unchecked Sendable {
+    private let lock = NSLock()
+    private var captured: [[OpenAIMessage]] = []
+    let reply: String
+
+    init(reply: String) {
+        self.reply = reply
+    }
+
+    func chat(messages: [OpenAIMessage], tools _: [OpenAITool], responseFormat _: String?, on _: Request) async throws -> OpenAIMessage {
+        record(messages)
+        return OpenAIMessage(role: "assistant", content: reply)
+    }
+
+    private func record(_ messages: [OpenAIMessage]) {
+        lock.lock()
+        defer { lock.unlock() }
+        captured.append(messages)
+    }
+
+    func userMessages() -> [String] {
+        lock.lock()
+        defer { lock.unlock() }
+        return captured.compactMap { $0.last(where: { $0.role == "user" })?.content }
     }
 }
 
@@ -138,5 +167,73 @@ struct TerminalAIAdvisorTests {
                 #expect(res.status == .serviceUnavailable)
             }
         }
+    }
+
+    private let scenarioJSON = #"{"terminalShareCount": 1750000000, "terminalMarketCap": 150000000000, "rationale": "Consensus growth.", "sources": ["https://a.example"]}"#
+
+    private func postScenario(_ app: Application, token: String, horizon: Int?, _ check: @escaping (TestingHTTPResponse) async throws -> Void) async throws {
+        try await app.testing().test(.POST, "v1/terminal-positions/ai/scenario", beforeRequest: { req in
+            req.headers.bearerAuthorization = BearerAuthorization(token: token)
+            try req.content.encode(TerminalScenarioSuggestionRequest(ticker: "sofi", horizonYears: horizon), as: .json)
+        }, afterResponse: check)
+    }
+
+    @Test("Scenario endpoint returns the suggestion and clamps horizonYears to 1...30")
+    func scenarioEndpointClampsHorizon() async throws {
+        try await withApp(pro: true) { app in
+            let user = try await TerminalFixtures.registerUser(app: app)
+            app.terminalAIClient = ScriptedTerminalChatClient([.success(scenarioJSON), .success(scenarioJSON), .success(scenarioJSON)])
+            try await postScenario(app, token: user.token, horizon: 5) { res in
+                #expect(res.status == .ok)
+                let body = try res.content.decode(TerminalScenarioSuggestion.self)
+                #expect(body.ticker == "SOFI")
+                #expect(body.terminalShareCount == 1_750_000_000)
+                #expect(body.terminalMarketCap == 150_000_000_000)
+                #expect(body.horizonYears == 5)
+            }
+            try await postScenario(app, token: user.token, horizon: 99) { res in
+                let body = try res.content.decode(TerminalScenarioSuggestion.self)
+                #expect(body.horizonYears == 30)
+            }
+            try await postScenario(app, token: user.token, horizon: 0) { res in
+                let body = try res.content.decode(TerminalScenarioSuggestion.self)
+                #expect(body.horizonYears == 1)
+            }
+        }
+    }
+
+    @Test("Scenario and share-facts prompts name the user's currency, not the reporting currency")
+    func promptsNameUserCurrency() async throws {
+        try await withApp(pro: true) { app in
+            let user = try await TerminalFixtures.registerUser(app: app)
+            try await PortfolioList.query(on: app.db).filter(\PortfolioList.$userId == user.userId).delete()
+            try await PortfolioList(userId: user.userId, name: "Euro", isDefault: true, baseCurrency: "EUR").save(on: app.db)
+            let client = CapturingTerminalChatClient(reply: scenarioJSON)
+            app.terminalAIClient = client
+            try await postScenario(app, token: user.token, horizon: 10) { res in
+                #expect(res.status == .ok)
+            }
+            let users = client.userMessages()
+            #expect(users.count == 1)
+            #expect(users.first?.contains("EUR") == true)
+        }
+    }
+
+    @Test("Live client is built for OpenRouter, or for another provider only with TERMINAL_AI_MODEL")
+    func liveClientEligibility() {
+        let url = "https://example.invalid/v1"
+        #expect(TerminalAIAdvisor.liveClient(provider: .openRouter, apiKey: "k", baseURL: url, configuredModel: nil) != nil)
+        #expect(TerminalAIAdvisor.liveClient(provider: .openAI, apiKey: "k", baseURL: url, configuredModel: nil) == nil)
+        #expect(TerminalAIAdvisor.liveClient(provider: .openAI, apiKey: "k", baseURL: url, configuredModel: "  ") == nil)
+        #expect(TerminalAIAdvisor.liveClient(provider: .openAI, apiKey: "k", baseURL: url, configuredModel: "gpt-x") != nil)
+        #expect(TerminalAIAdvisor.liveClient(provider: .openRouter, apiKey: "", baseURL: url, configuredModel: nil) == nil)
+        #expect(TerminalAIAdvisor.unavailableReason(provider: .custom, apiKey: "k", baseURL: url, configuredModel: nil)?.contains("TERMINAL_AI_MODEL") == true)
+    }
+
+    @Test("Summing never overflows to infinity")
+    func finiteSumStaysFinite() {
+        let sum = TerminalPositionsService.finiteSum([Double.greatestFiniteMagnitude, Double.greatestFiniteMagnitude, 5])
+        #expect(sum.isFinite)
+        #expect(TerminalPositionsService.finiteSum([1, .infinity, .nan, 2]) == 3)
     }
 }

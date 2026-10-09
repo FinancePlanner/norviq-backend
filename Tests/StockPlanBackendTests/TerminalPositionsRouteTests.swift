@@ -142,4 +142,58 @@ struct TerminalPositionsRouteTests {
             }
         }
     }
+
+    @Test("A planning:read PAT cannot write positions or autobuys")
+    func readOnlyPATCannotWrite() async throws {
+        try await TerminalFixtures.withApp { app in
+            let user = try await TerminalFixtures.registerUser(app: app)
+            let readOnly = try await mintPAT(app: app, userId: user.userId, scopes: [.planningRead])
+            try await send(app, .GET, "v1/terminal-positions", token: readOnly) { res in
+                #expect(res.status == .ok)
+            }
+            try await send(app, .POST, "v1/terminal-positions", token: readOnly, body: TerminalFixtures.amzn()) { res in
+                #expect(res.status == .forbidden)
+            }
+            try await send(app, .DELETE, "v1/autobuys/\(UUID().uuidString)", token: readOnly) { res in
+                #expect(res.status == .forbidden)
+            }
+        }
+    }
+
+    @Test("Numbers above the 1e18 cap are 422; two rows at the cap keep the summary finite")
+    func capsInputs() async throws {
+        try await TerminalFixtures.withApp { app in
+            let user = try await TerminalFixtures.registerUser(app: app)
+            let tooBig = TerminalPositionCreateRequest(
+                ticker: "BIG", terminalShareCount: 1, terminalMarketCap: 1, valueWanted: 1e19
+            )
+            try await send(app, .POST, "v1/terminal-positions", token: user.token, body: tooBig) { res in
+                #expect(res.status == .unprocessableEntity)
+                #expect(res.body.string.contains("too large"))
+            }
+            let atCap = TerminalPositionCreateRequest(
+                ticker: "CAP", sharesOutstanding: 1e18, terminalShareCount: 1e18, terminalMarketCap: 1e18,
+                valueWanted: 1e18, sharesOwned: 1e18, currentSharePrice: 1e18
+            )
+            try await send(app, .POST, "v1/terminal-positions", token: user.token, body: atCap) { res in
+                #expect(res.status == .created)
+            }
+            try await send(app, .POST, "v1/terminal-positions", token: user.token, body: atCap) { res in
+                #expect(res.status == .created)
+            }
+            try await send(app, .POST, "v1/autobuys", token: user.token,
+                           body: AutobuyCreateRequest(label: "big", amount: 1e19, cadence: .weekly))
+            { res in
+                #expect(res.status == .unprocessableEntity)
+            }
+            try await send(app, .GET, "v1/terminal-positions/summary", token: user.token) { res in
+                #expect(res.status == .ok)
+                let body = try res.content.decode(TerminalPositionsSummaryResponse.self)
+                #expect(body.totalValueWanted.isFinite)
+                #expect(body.totalGapValueAtTerminal.isFinite)
+                #expect((body.totalCapitalAtTodayPrice ?? 0).isFinite)
+                #expect(body.monthlyAutobuyTotal.isFinite)
+            }
+        }
+    }
 }

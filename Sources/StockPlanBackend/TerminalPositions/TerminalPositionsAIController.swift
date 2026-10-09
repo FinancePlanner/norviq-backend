@@ -31,16 +31,19 @@ struct TerminalPositionsAIController: RouteCollection {
     func shareFacts(req: Request) async throws -> ShareFactsSuggestion {
         let advisor = try await advisor(req)
         let input = try req.content.decode(ShareFactsRequest.self)
-        return try await advisor.shareFacts(ticker: TerminalPositionsService.normalisedTicker(input.ticker), on: req)
+        let currency = try await TerminalPositionsService().currency(userId: req.auth.require(SessionToken.self).userId, on: req.db)
+        return try await advisor.shareFacts(ticker: TerminalPositionsService.normalisedTicker(input.ticker), currency: currency, on: req)
     }
 
     @Sendable
     func scenario(req: Request) async throws -> TerminalScenarioSuggestion {
         let advisor = try await advisor(req)
         let input = try req.content.decode(TerminalScenarioSuggestionRequest.self)
+        let currency = try await TerminalPositionsService().currency(userId: req.auth.require(SessionToken.self).userId, on: req.db)
         return try await advisor.scenario(
             ticker: TerminalPositionsService.normalisedTicker(input.ticker),
             horizonYears: input.horizonYears,
+            currency: currency,
             on: req
         )
     }

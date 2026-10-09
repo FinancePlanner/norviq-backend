@@ -52,8 +52,12 @@ struct TerminalPositionsService: Sendable {
         return ticker
     }
 
+    /// Largest accepted value for any numeric input, so sums of a user's rows stay finite.
+    static let maxInput = 1e18
+
     static func finite(_ value: Double, _ field: String) throws -> Double {
         guard value.isFinite else { throw Abort(.unprocessableEntity, reason: "\(field) must be a number") }
+        guard abs(value) <= maxInput else { throw Abort(.unprocessableEntity, reason: "\(field) is too large") }
         return value
     }
 
@@ -349,7 +353,18 @@ struct TerminalPositionsService: Sendable {
     }
 
     static func monthlyTotal(_ rows: [AutobuyRecord]) -> Double {
-        AutobuyMath.monthlyTotal(rows.map { (amount: $0.amount, cadence: $0.cadenceValue, percent: $0.percent, active: $0.active) })
+        finiteSum(rows.map { row in
+            row.active ? AutobuyMath.monthlyEquivalent(amount: row.amount, cadence: row.cadenceValue, percent: row.percent) ?? 0 : 0
+        })
+    }
+
+    /// Sum that ignores non-finite terms and never overflows to infinity,
+    /// so the JSON encoder cannot fail on a stored extreme value.
+    static func finiteSum(_ values: [Double]) -> Double {
+        values.reduce(0) { total, value in
+            let next = total + value
+            return value.isFinite && next.isFinite ? next : total
+        }
     }
 
     // MARK: - Currency and summary
@@ -378,9 +393,9 @@ struct TerminalPositionsService: Sendable {
         return try await TerminalPositionsSummaryResponse(
             currency: currency(userId: userId, on: db),
             positionCount: positions.count,
-            totalValueWanted: valid.reduce(0) { $0 + $1.valueWanted },
-            totalGapValueAtTerminal: valid.reduce(0) { $0 + ($1.gapValueAtTerminal ?? 0) },
-            totalCapitalAtTodayPrice: priced.isEmpty ? nil : priced.reduce(0, +),
+            totalValueWanted: Self.finiteSum(valid.map(\.valueWanted)),
+            totalGapValueAtTerminal: Self.finiteSum(valid.map { $0.gapValueAtTerminal ?? 0 }),
+            totalCapitalAtTodayPrice: priced.isEmpty ? nil : Self.finiteSum(priced),
             pricedPositionCount: priced.count,
             monthlyAutobuyTotal: Self.monthlyTotal(autobuys),
             topPositions: Array(valid.sorted { $0.valueWanted > $1.valueWanted }.prefix(3))
