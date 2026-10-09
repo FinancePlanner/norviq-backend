@@ -107,7 +107,7 @@ enum ActionCatalog {
     /// Every write action, across every domain, plus the few reads that supply
     /// the ids writes need. Everything else read-only is in AIReadToolRegistry.
     static var all: [ActionDefinition] {
-        expenseActions + watchlistActions + transactionActions + positionActions + goalActions
+        expenseActions + watchlistActions + transactionActions + positionActions + goalActions + terminalPositionActions
     }
 
     static func definition(named name: String) -> ActionDefinition? {

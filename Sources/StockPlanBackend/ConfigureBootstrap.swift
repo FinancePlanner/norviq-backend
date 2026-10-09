@@ -435,8 +435,10 @@ func registerMigrations(_ app: Application) {
     app.migrations.add(CreatePilotTables())
     app.migrations.add(SeedPilots())
     app.migrations.add(CreateBoardNotifications())
+    app.migrations.add(CreateArticlesTables())
     app.migrations.add(AddPilotFollowTargetIndexes())
     app.migrations.add(AddSocialFacebookImport())
+    app.migrations.add(CreateTerminalPositions())
     app.migrations.add(CreateMarketBriefs())
 }
 

@@ -20,6 +20,8 @@ tags:
   - name: Watchlist
   - name: Pilots
     description: Simulated copy-trading of politicians and funds. Gated by `PILOTS_ENABLED`; every route returns 404 when it is off.
+  - name: Articles
+    description: User-published, ticker-tagged stock articles. Gated by `ARTICLES_ENABLED`; every route returns 404 when it is off.
   - name: Research
   - name: Targets
   - name: MarketData
@@ -6900,6 +6902,256 @@ paths:
         '402':
           description: Pro subscription required
 
+  /v1/terminal-positions:
+    get:
+      operationId: listTerminalPositions
+      tags: [TerminalPositions]
+      summary: List terminal position scenarios
+      description: >-
+        The user's terminal scenarios in display order. Derived fields (terminal
+        share price, shares needed, progress, still needed) are recomputed on
+        every read and are null when `scenarioError` is set. Planning math, not
+        financial advice.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: ticker
+          in: query
+          required: false
+          description: Only rows for this ticker (case-insensitive).
+          schema: { type: string }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TerminalPositionsListResponse' }
+        '401': { description: Unauthorized }
+        '403': { description: Token lacks planning:read }
+    post:
+      operationId: createTerminalPosition
+      tags: [TerminalPositions]
+      summary: Create a terminal position scenario
+      description: >-
+        Appends a row. A share count or market cap of zero or less is stored and
+        reported through `scenarioError`; negative value wanted or shares owned
+        is 422.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/TerminalPositionCreateRequest' }
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TerminalPositionResponse' }
+        '401': { description: Unauthorized }
+        '403': { description: Token lacks planning:write }
+        '422': { description: Invalid ticker or numbers }
+  /v1/terminal-positions/summary:
+    get:
+      operationId: getTerminalPositionsSummary
+      tags: [TerminalPositions]
+      summary: Totals for the dashboard and the table footer
+      description: >-
+        Totals over valid rows plus the monthly autobuy total. "Shares-needed
+        notional at terminal prices" equals totalValueWanted by construction, so
+        it is not a separate field.
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TerminalPositionsSummaryResponse' }
+        '401': { description: Unauthorized }
+  /v1/terminal-positions/order:
+    put:
+      operationId: reorderTerminalPositions
+      tags: [TerminalPositions]
+      summary: Reorder terminal positions
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/TerminalPositionOrderRequest' }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TerminalPositionsListResponse' }
+        '422': { description: ids must list every position exactly once }
+  /v1/terminal-positions/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    patch:
+      operationId: updateTerminalPosition
+      tags: [TerminalPositions]
+      summary: Update a terminal position (only the fields sent change)
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/TerminalPositionUpdateRequest' }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TerminalPositionResponse' }
+        '404': { description: Not found }
+        '422': { description: Invalid field or unknown clear name }
+    delete:
+      operationId: deleteTerminalPosition
+      tags: [TerminalPositions]
+      summary: Delete a terminal position
+      security:
+        - bearerAuth: []
+      responses:
+        '204': { description: Deleted }
+        '404': { description: Not found }
+  /v1/terminal-positions/{id}/duplicate:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    post:
+      operationId: duplicateTerminalPosition
+      tags: [TerminalPositions]
+      summary: Duplicate a terminal position right after itself
+      security:
+        - bearerAuth: []
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TerminalPositionResponse' }
+        '404': { description: Not found }
+  /v1/terminal-positions/ai/share-facts:
+    post:
+      operationId: suggestTerminalShareFacts
+      tags: [TerminalPositions]
+      summary: AI suggestion for shares outstanding and current price (Pro)
+      description: >-
+        Web-search suggestion with https sources. Never stored; the client
+        applies it only when the user accepts. 403 with code upgrade_required
+        for non-Pro users.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ShareFactsRequest' }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ShareFactsSuggestion' }
+        '403': { description: Upgrade required (code upgrade_required) or missing scope }
+        '422': { description: 'No usable, sourced numbers' }
+        '503': { description: AI lookup unavailable }
+  /v1/terminal-positions/ai/scenario:
+    post:
+      operationId: suggestTerminalScenario
+      tags: [TerminalPositions]
+      summary: AI suggestion for terminal share count and market cap (Pro)
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/TerminalScenarioSuggestionRequest' }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TerminalScenarioSuggestion' }
+        '403': { description: Upgrade required (code upgrade_required) or missing scope }
+        '422': { description: 'No usable, sourced numbers' }
+        '503': { description: AI lookup unavailable }
+  /v1/autobuys:
+    get:
+      operationId: listAutobuys
+      tags: [TerminalPositions]
+      summary: List recurring autobuys with monthly equivalents
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AutobuysListResponse' }
+    post:
+      operationId: createAutobuy
+      tags: [TerminalPositions]
+      summary: Create a recurring autobuy
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AutobuyCreateRequest' }
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AutobuyResponse' }
+        '422': { description: 'Invalid amount, cadence or percent' }
+  /v1/autobuys/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    patch:
+      operationId: updateAutobuy
+      tags: [TerminalPositions]
+      summary: Update an autobuy
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AutobuyUpdateRequest' }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AutobuyResponse' }
+        '404': { description: Not found }
+    delete:
+      operationId: deleteAutobuy
+      tags: [TerminalPositions]
+      summary: Delete an autobuy
+      security:
+        - bearerAuth: []
+      responses:
+        '204': { description: Deleted }
+        '404': { description: Not found }
   /v1/goals:
     get:
       operationId: listGoals
@@ -9614,6 +9866,379 @@ paths:
         '200': { description: Updated delivery preferences, content: { application/json: { schema: { $ref: '#/components/schemas/TelegramPreferencesResponse' } } } }
         '400': { description: 'Unknown alert kind or timezone, or an incomplete quiet-hours window' }
         '401': { description: Missing or invalid authentication token }
+  /v1/articles:
+    get:
+      operationId: listArticles
+      tags: [Articles]
+      summary: List articles
+      description: Published articles, newest first, cursor-paginated.
+      security:
+        - bearerAuth: []
+      parameters:
+        - { name: ticker, in: query, required: false, description: "Only articles tagged with this ticker.", schema: { type: string } }
+        - { name: author, in: query, required: false, description: "Only articles by this username.", schema: { type: string } }
+        - { name: cursor, in: query, required: false, description: "`nextCursor` from the previous page.", schema: { type: string } }
+        - { name: limit, in: query, required: false, description: "Page size (default 20, clamped to 1-100).", schema: { type: integer, minimum: 1, maximum: 100, default: 20 } }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ArticleListResponse'
+        '400':
+          description: Invalid `ticker` value.
+        '401':
+          description: Unauthorized
+        '404':
+          description: Not found, or the articles feature is disabled (`ARTICLES_ENABLED` off).
+    post:
+      operationId: createArticle
+      tags: [Articles]
+      summary: Publish an article
+      description: Creates and publishes an article. Limited to 3 per day for non-admins.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ArticleWriteRequest'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ArticleDetail'
+        '400':
+          description: Invalid title, body, bullet points, tickers, disclosure or cover image
+        '403':
+          description: Forbidden. Error code `community_muted`, `username_required` or `guidelines_required`.
+        '429':
+          description: Daily publishing limit reached (error code `article_daily_limit`), or rate limited
+        '401':
+          description: Unauthorized
+        '404':
+          description: Not found, or the articles feature is disabled (`ARTICLES_ENABLED` off).
+
+  /v1/articles/{ref}:
+    get:
+      operationId: getArticle
+      tags: [Articles]
+      summary: Get an article
+      description: Full article by UUID or short code.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: ref
+          in: path
+          required: true
+          description: Article UUID or 8-character short code.
+          schema:
+            type: string
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ArticleDetail'
+        '401':
+          description: Unauthorized
+        '404':
+          description: Not found, or the articles feature is disabled (`ARTICLES_ENABLED` off).
+    patch:
+      operationId: updateArticle
+      tags: [Articles]
+      summary: Update an article
+      description: Full replace of the article's content; `source` is ignored. Author only.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: ref
+          in: path
+          required: true
+          description: Article UUID or 8-character short code.
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ArticleWriteRequest'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ArticleDetail'
+        '400':
+          description: Invalid content
+        '403':
+          description: Not the author, or muted, banned (`community_banned`), missing username or guidelines not accepted
+        '429':
+          description: Rate limited.
+        '401':
+          description: Unauthorized
+        '404':
+          description: Not found, or the articles feature is disabled (`ARTICLES_ENABLED` off).
+    delete:
+      operationId: deleteArticle
+      tags: [Articles]
+      summary: Delete an article
+      description: Soft delete. Author or admin.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: ref
+          in: path
+          required: true
+          description: Article UUID or 8-character short code.
+          schema:
+            type: string
+      responses:
+        '204':
+          description: No content
+        '403':
+          description: Not the author or an admin, or banned (`community_banned`)
+        '401':
+          description: Unauthorized
+        '404':
+          description: Not found, or the articles feature is disabled (`ARTICLES_ENABLED` off).
+
+  /v1/articles/{ref}/vote:
+    post:
+      operationId: voteArticle
+      tags: [Articles]
+      summary: Upvote an article
+      description: Idempotent.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: ref
+          in: path
+          required: true
+          description: Article UUID or 8-character short code.
+          schema:
+            type: string
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ArticleVoteResponse'
+        '403':
+          description: Muted, banned (`community_banned`), missing username or guidelines not accepted
+        '429':
+          description: Rate limited.
+        '401':
+          description: Unauthorized
+        '404':
+          description: Not found, or the articles feature is disabled (`ARTICLES_ENABLED` off).
+    delete:
+      operationId: unvoteArticle
+      tags: [Articles]
+      summary: Remove an upvote
+      description: Idempotent.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: ref
+          in: path
+          required: true
+          description: Article UUID or 8-character short code.
+          schema:
+            type: string
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ArticleVoteResponse'
+        '403':
+          description: Muted, banned (`community_banned`), missing username or guidelines not accepted
+        '429':
+          description: Rate limited.
+        '401':
+          description: Unauthorized
+        '404':
+          description: Not found, or the articles feature is disabled (`ARTICLES_ENABLED` off).
+
+  /v1/articles/{ref}/view:
+    post:
+      operationId: recordArticleView
+      tags: [Articles]
+      summary: Record an article view
+      description: Counts at most one view per viewer per UTC day. A first-party session is keyed by user. The `X-Norviq-Viewer` header is honored only from the web's own credential (listed in `ARTICLES_VIEWER_CREDENTIAL_IDS`), which is also exempt from the per-user rate limit; any other third-party credential counts nothing. Uncounted calls still return 204.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: ref
+          in: path
+          required: true
+          description: Article UUID or 8-character short code.
+          schema:
+            type: string
+        - name: X-Norviq-Viewer
+          in: header
+          required: false
+          description: Hashed visitor key (16-64 hex characters) forwarded by the web for logged-out visitors. Ignored unless the caller is a listed web credential.
+          schema:
+            type: string
+            pattern: '^[0-9a-fA-F]{16,64}$'
+      responses:
+        '204':
+          description: No content
+        '429':
+          description: Rate limited.
+        '401':
+          description: Unauthorized
+        '404':
+          description: Not found, or the articles feature is disabled (`ARTICLES_ENABLED` off).
+
+  /v1/articles/{ref}/report:
+    post:
+      operationId: reportArticle
+      tags: [Articles]
+      summary: Report an article
+      description: Files a report for moderators. Allowed while muted.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: ref
+          in: path
+          required: true
+          description: Article UUID or 8-character short code.
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ArticleReportRequest'
+      responses:
+        '204':
+          description: No content
+        '400':
+          description: Invalid reason or note over 1,000 characters
+        '403':
+          description: Banned from the community (error code `community_banned`).
+        '429':
+          description: Rate limited.
+        '401':
+          description: Unauthorized
+        '404':
+          description: Not found, or the articles feature is disabled (`ARTICLES_ENABLED` off).
+
+  /v1/articles/images:
+    post:
+      operationId: uploadArticleImage
+      tags: [Articles]
+      summary: Upload an article image
+      description: PNG, JPEG or WebP, up to 2 MB and at most 4096 px per side, and at most 10 uploads per rolling 24 hours (admins exempt). Use the returned id as `coverImageId`. Each upload deletes the caller's images older than 24 hours that no article uses as its cover.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                file:
+                  type: string
+                  format: binary
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ArticleImageUploadResponse'
+        '400':
+          description: Missing or unreadable file, a damaged image, or a side over 4096 px
+        '403':
+          description: Muted, banned (`community_banned`), missing username or guidelines not accepted
+        '413':
+          description: Image larger than 2 MB
+        '415':
+          description: Unsupported image type
+        '429':
+          description: Rate limited, or 10 uploads in the last 24 hours (error code `article_image_daily_limit`).
+        '401':
+          description: Unauthorized
+        '404':
+          description: Not found, or the articles feature is disabled (`ARTICLES_ENABLED` off).
+
+  /v1/articles/images/{imageId}:
+    get:
+      operationId: getArticleImage
+      tags: [Articles]
+      summary: Get an article image
+      description: Served while a published article uses the image as its cover (`Cache-Control public, max-age=86400`). Otherwise only to the owner's or an admin's own first-party session (`Cache-Control private, no-store`); a third-party credential, or anyone else, gets 404.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: imageId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Image bytes
+          content:
+            image/png:
+              schema: { type: string, format: binary }
+            image/jpeg:
+              schema: { type: string, format: binary }
+            image/webp:
+              schema: { type: string, format: binary }
+        '401':
+          description: Unauthorized
+        '404':
+          description: Not found, not the cover of a published article (for anyone but its owner or an admin), or the articles feature is disabled (`ARTICLES_ENABLED` off).
+
+  /v1/admin/articles/{ref}/visibility:
+    put:
+      operationId: setArticleVisibility
+      tags: [Articles]
+      summary: Hide or unhide an article
+      description: Admin only.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: ref
+          in: path
+          required: true
+          description: Article UUID or 8-character short code.
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ArticleVisibilityRequest'
+      responses:
+        '204':
+          description: No content
+        '403':
+          description: Admin access required
+        '401':
+          description: Unauthorized
+        '404':
+          description: Not found, or the articles feature is disabled (`ARTICLES_ENABLED` off).
+
 components:
   parameters:
     ScenarioResourceID:
@@ -16797,6 +17422,167 @@ components:
         source:
           $ref: '#/components/schemas/GoalStatusSource'
       required: [status, source]
+    TerminalPositionResponse:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        ticker: { type: string }
+        sharesOutstanding: { type: number, nullable: true }
+        terminalShareCount: { type: number }
+        terminalMarketCap: { type: number }
+        valueWanted: { type: number }
+        sharesOwned: { type: number }
+        currentSharePrice: { type: number, nullable: true }
+        notes: { type: string, nullable: true }
+        sortOrder: { type: integer }
+        terminalSharePrice: { type: number, nullable: true }
+        sharesNeeded: { type: number, nullable: true }
+        capitalAtTodayPrice: { type: number, nullable: true }
+        progress: { type: number, nullable: true }
+        sharesStillNeeded: { type: number, nullable: true }
+        gapValueAtTerminal: { type: number, nullable: true }
+        scenarioError:
+          type: string
+          nullable: true
+          enum: [share_count_not_positive, market_cap_not_positive, invalid_number]
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+      required: [id, ticker, terminalShareCount, terminalMarketCap, valueWanted, sharesOwned, sortOrder, createdAt, updatedAt]
+    TerminalPositionCreateRequest:
+      type: object
+      properties:
+        ticker: { type: string }
+        sharesOutstanding: { type: number, nullable: true }
+        terminalShareCount: { type: number }
+        terminalMarketCap: { type: number }
+        valueWanted: { type: number }
+        sharesOwned: { type: number, nullable: true }
+        currentSharePrice: { type: number, nullable: true }
+        notes: { type: string, nullable: true }
+      required: [ticker, terminalShareCount, terminalMarketCap, valueWanted]
+    TerminalPositionUpdateRequest:
+      type: object
+      properties:
+        ticker: { type: string }
+        sharesOutstanding: { type: number }
+        terminalShareCount: { type: number }
+        terminalMarketCap: { type: number }
+        valueWanted: { type: number }
+        sharesOwned: { type: number }
+        currentSharePrice: { type: number }
+        notes: { type: string }
+        clear:
+          type: array
+          items: { type: string, enum: [sharesOutstanding, currentSharePrice, notes] }
+    TerminalPositionOrderRequest:
+      type: object
+      properties:
+        ids:
+          type: array
+          items: { type: string, format: uuid }
+      required: [ids]
+    TerminalPositionsListResponse:
+      type: object
+      properties:
+        currency: { type: string }
+        positions:
+          type: array
+          items: { $ref: '#/components/schemas/TerminalPositionResponse' }
+      required: [currency, positions]
+    TerminalPositionsSummaryResponse:
+      type: object
+      properties:
+        currency: { type: string }
+        positionCount: { type: integer }
+        totalValueWanted: { type: number }
+        totalGapValueAtTerminal: { type: number }
+        totalCapitalAtTodayPrice: { type: number, nullable: true }
+        pricedPositionCount: { type: integer }
+        monthlyAutobuyTotal: { type: number }
+        topPositions:
+          type: array
+          items: { $ref: '#/components/schemas/TerminalPositionResponse' }
+      required: [currency, positionCount, totalValueWanted, totalGapValueAtTerminal, pricedPositionCount, monthlyAutobuyTotal, topPositions]
+    AutobuyResponse:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        ticker: { type: string, nullable: true }
+        label: { type: string }
+        amount: { type: number }
+        cadence: { type: string, enum: [weekly, biweekly, bimonthly, monthly, percentOfContribution, unknown] }
+        percent: { type: number, nullable: true }
+        active: { type: boolean }
+        monthlyEquivalent: { type: number, nullable: true }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+      required: [id, label, amount, cadence, active, createdAt, updatedAt]
+    AutobuyCreateRequest:
+      type: object
+      properties:
+        ticker: { type: string, nullable: true }
+        label: { type: string }
+        amount: { type: number }
+        cadence: { type: string, enum: [weekly, biweekly, bimonthly, monthly, percentOfContribution] }
+        percent: { type: number, nullable: true }
+        active: { type: boolean, nullable: true }
+      required: [label, amount, cadence]
+    AutobuyUpdateRequest:
+      type: object
+      properties:
+        ticker: { type: string }
+        label: { type: string }
+        amount: { type: number }
+        cadence: { type: string, enum: [weekly, biweekly, bimonthly, monthly, percentOfContribution] }
+        percent: { type: number }
+        active: { type: boolean }
+        clear:
+          type: array
+          items: { type: string, enum: [ticker, percent] }
+    AutobuysListResponse:
+      type: object
+      properties:
+        currency: { type: string }
+        autobuys:
+          type: array
+          items: { $ref: '#/components/schemas/AutobuyResponse' }
+        monthlyTotal: { type: number }
+      required: [currency, autobuys, monthlyTotal]
+    ShareFactsRequest:
+      type: object
+      properties:
+        ticker: { type: string }
+      required: [ticker]
+    ShareFactsSuggestion:
+      type: object
+      properties:
+        ticker: { type: string }
+        sharesOutstanding: { type: number, nullable: true }
+        currentSharePrice: { type: number, nullable: true }
+        currency: { type: string, nullable: true }
+        asOf: { type: string, nullable: true }
+        sources:
+          type: array
+          items: { type: string }
+      required: [ticker, sources]
+    TerminalScenarioSuggestionRequest:
+      type: object
+      properties:
+        ticker: { type: string }
+        horizonYears: { type: integer, nullable: true }
+      required: [ticker]
+    TerminalScenarioSuggestion:
+      type: object
+      properties:
+        ticker: { type: string }
+        terminalShareCount: { type: number }
+        terminalMarketCap: { type: number }
+        horizonYears: { type: integer }
+        rationale: { type: string }
+        sources:
+          type: array
+          items: { type: string }
+      required: [ticker, terminalShareCount, terminalMarketCap, horizonYears, rationale, sources]
     GoalResponse:
       type: object
       properties:
@@ -18260,3 +19046,77 @@ components:
       required: [read]
       properties:
         read: { type: boolean }
+    ArticleAuthor:
+      type: object
+      required: [id]
+      properties:
+        id: { type: string, format: uuid }
+        username: { type: string, nullable: true }
+        avatarURL: { type: string, nullable: true }
+    ArticleSummary:
+      type: object
+      required: [id, code, slug, title, bulletPoints, tickers, author, upvoteCount, viewCount, wordCount, status, source, publishedAt]
+      properties:
+        id: { type: string, format: uuid }
+        code: { type: string, description: 8-character URL-safe short id }
+        slug: { type: string }
+        title: { type: string }
+        bulletPoints: { type: array, items: { type: string } }
+        tickers: { type: array, items: { type: string } }
+        author: { $ref: '#/components/schemas/ArticleAuthor' }
+        coverImageId: { type: string, format: uuid, nullable: true }
+        upvoteCount: { type: integer }
+        viewCount: { type: integer }
+        wordCount: { type: integer }
+        status: { type: string, enum: [published, hidden, deleted, unknown] }
+        source: { type: string, enum: [web, ios, discord, unknown] }
+        publishedAt: { type: string, format: date-time }
+        editedAt: { type: string, format: date-time, nullable: true }
+    ArticleDetail:
+      type: object
+      required: [article, bodyMarkdown, disclosure, viewerUpvoted, viewerIsAuthor]
+      properties:
+        article: { $ref: '#/components/schemas/ArticleSummary' }
+        bodyMarkdown: { type: string }
+        disclosure: { type: string }
+        viewerUpvoted: { type: boolean }
+        viewerIsAuthor: { type: boolean }
+    ArticleListResponse:
+      type: object
+      required: [items]
+      properties:
+        items: { type: array, items: { $ref: '#/components/schemas/ArticleSummary' } }
+        nextCursor: { type: string, nullable: true }
+    ArticleWriteRequest:
+      type: object
+      required: [title, bodyMarkdown, bulletPoints, tickers, disclosure]
+      properties:
+        title: { type: string }
+        bodyMarkdown: { type: string }
+        bulletPoints: { type: array, items: { type: string } }
+        tickers: { type: array, items: { type: string } }
+        disclosure: { type: string }
+        coverImageId: { type: string, format: uuid, nullable: true }
+        source: { type: string, enum: [web, ios, discord, unknown], nullable: true, description: Ignored on update. }
+    ArticleVoteResponse:
+      type: object
+      required: [upvoteCount, voted]
+      properties:
+        upvoteCount: { type: integer }
+        voted: { type: boolean }
+    ArticleReportRequest:
+      type: object
+      required: [reason]
+      properties:
+        reason: { type: string, enum: [spam, harassment, hate, scam, impersonation, inappropriate, other] }
+        note: { type: string, nullable: true, maxLength: 1000 }
+    ArticleImageUploadResponse:
+      type: object
+      required: [id]
+      properties:
+        id: { type: string, format: uuid }
+    ArticleVisibilityRequest:
+      type: object
+      required: [hidden]
+      properties:
+        hidden: { type: boolean }
