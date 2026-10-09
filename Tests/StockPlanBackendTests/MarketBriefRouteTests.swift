@@ -44,7 +44,9 @@ struct MarketBriefRouteTests {
         _ check: @escaping (TestingHTTPResponse) async throws -> Void
     ) async throws {
         try await app.testing().test(.GET, path, beforeRequest: { req in
-            if let token { req.headers.bearerAuthorization = BearerAuthorization(token: token) }
+            if let token {
+                req.headers.bearerAuthorization = BearerAuthorization(token: token)
+            }
         }, afterResponse: check)
     }
 

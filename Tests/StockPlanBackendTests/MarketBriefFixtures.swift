@@ -137,7 +137,9 @@ final class StubMarketBriefGenerator: MarketBriefGenerating, @unchecked Sendable
 
     func generate(_ due: MarketBriefSchedule.Due, on _: Request) async throws -> GeneratedMarketBrief {
         recordCall()
-        if let error { throw error }
+        if let error {
+            throw error
+        }
         return GeneratedMarketBrief(
             responses: MarketBriefLanguage.allCases.map {
                 MarketBriefFixtures.response(date: due.tradingDate, slot: due.slot, language: $0.rawValue)

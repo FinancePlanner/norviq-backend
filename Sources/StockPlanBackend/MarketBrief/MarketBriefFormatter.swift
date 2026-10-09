@@ -46,16 +46,24 @@ enum MarketBriefFormatter {
     /// "🔴 0,00%".
     static func direction(_ change: Double) -> MarketBriefDirection {
         let shown = (change * 100).rounded(.toNearestOrAwayFromZero) / 100
-        if shown > 0 { return .up }
-        if shown < 0 { return .down }
+        if shown > 0 {
+            return .up
+        }
+        if shown < 0 {
+            return .down
+        }
         return .flat
     }
 
     static func tone(_ changes: [Double]) -> MarketBriefDirection {
         guard !changes.isEmpty else { return .flat }
         let mean = changes.reduce(0, +) / Double(changes.count)
-        if mean > toneBand { return .up }
-        if mean < -toneBand { return .down }
+        if mean > toneBand {
+            return .up
+        }
+        if mean < -toneBand {
+            return .down
+        }
         return .flat
     }
 
@@ -64,7 +72,7 @@ enum MarketBriefFormatter {
         return MarketBriefCatalog.groups(for: slot).compactMap { spec in
             let present = spec.instruments.compactMap { instrument in bySymbol[instrument.symbol].map { (instrument, $0) } }
             guard !present.isEmpty else { return nil }
-            let tone = tone(present.map { $0.1.changePercent })
+            let tone = tone(present.map(\.1.changePercent))
             return MarketBriefQuoteGroup(
                 id: spec.id,
                 title: MarketBriefCatalog.title(groupId: spec.id, tone: tone, language: language),

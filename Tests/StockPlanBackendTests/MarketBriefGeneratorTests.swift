@@ -54,7 +54,7 @@ struct MarketBriefGeneratorTests {
         let fallback = ScriptedBriefChatClient([.content(MarketBriefFixtures.draftJSON())])
         try await MarketBriefFixtures.withRequest { req in
             let brief = try await generator(quotes: [dax], web: web, fallback: fallback).generate(due, on: req)
-            #expect(brief.responses.allSatisfy { $0.degraded })
+            #expect(brief.responses.allSatisfy { response in response.degraded })
             #expect(brief.model == "fallback-chain")
             #expect(fallback.calls.first?.last?.content?.contains("Web search is unavailable") == true)
         }
@@ -66,7 +66,7 @@ struct MarketBriefGeneratorTests {
         let fallback = ScriptedBriefChatClient([.content(MarketBriefFixtures.draftJSON())])
         try await MarketBriefFixtures.withRequest { req in
             let brief = try await generator(quotes: [dax], web: web, fallback: fallback).generate(due, on: req)
-            #expect(brief.responses.allSatisfy { $0.degraded })
+            #expect(brief.responses.allSatisfy { response in response.degraded })
         }
     }
 
@@ -75,7 +75,7 @@ struct MarketBriefGeneratorTests {
         let fallback = ScriptedBriefChatClient([.content(MarketBriefFixtures.draftJSON())])
         try await MarketBriefFixtures.withRequest { req in
             let brief = try await generator(quotes: [dax], web: nil, fallback: fallback).generate(due, on: req)
-            #expect(brief.responses.allSatisfy { $0.degraded })
+            #expect(brief.responses.allSatisfy { response in response.degraded })
             #expect(fallback.calls.count == 1)
         }
     }
@@ -104,13 +104,15 @@ struct MarketBriefGeneratorTests {
     func currentQuotesOnly() throws {
         // Good Friday 2026-04-03 (WEST): European markets shut, CME open.
         let goodFriday = MarketBriefSchedule.Due(tradingDate: "2026-04-03", slot: .morning)
-        func at(_ iso: String) throws -> Date { try #require(ISO8601DateFormatter().date(from: iso)) }
-        let quotes = [
-            IndexQuote(symbol: "^GDAXI", price: 1, previousClose: 1, marketTime: try at("2026-04-02T15:30:00Z")),
-            IndexQuote(symbol: "^FCHI", price: 1, previousClose: 1, marketTime: try at("2026-04-03T06:55:00Z")),
-            IndexQuote(symbol: "^STOXX50E", price: 1, previousClose: 1, marketTime: try at("2026-04-03T07:05:00Z")),
-            IndexQuote(symbol: "NQ=F", price: 1, previousClose: 1, marketTime: try at("2026-04-03T07:00:00Z")),
-            IndexQuote(symbol: "^N225", price: 1, previousClose: 1, marketTime: try at("2026-04-02T06:30:00Z")),
+        func at(_ iso: String) throws -> Date {
+            try #require(ISO8601DateFormatter().date(from: iso))
+        }
+        let quotes = try [
+            IndexQuote(symbol: "^GDAXI", price: 1, previousClose: 1, marketTime: at("2026-04-02T15:30:00Z")),
+            IndexQuote(symbol: "^FCHI", price: 1, previousClose: 1, marketTime: at("2026-04-03T06:55:00Z")),
+            IndexQuote(symbol: "^STOXX50E", price: 1, previousClose: 1, marketTime: at("2026-04-03T07:05:00Z")),
+            IndexQuote(symbol: "NQ=F", price: 1, previousClose: 1, marketTime: at("2026-04-03T07:00:00Z")),
+            IndexQuote(symbol: "^N225", price: 1, previousClose: 1, marketTime: at("2026-04-02T06:30:00Z")),
         ]
         let kept = MarketBriefGenerator.currentQuotes(quotes, for: goodFriday).map(\.symbol)
         #expect(kept == ["^STOXX50E", "NQ=F", "^N225"])
