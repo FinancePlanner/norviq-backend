@@ -411,6 +411,16 @@ extension UserSanctionListResponse: @retroactive Content {}
 extension BoardReportItem: @retroactive Content {}
 extension BoardReportListResponse: @retroactive Content {}
 
+// MARK: - Articles
+
+extension ArticleWriteRequest: @retroactive Content {}
+extension ArticleDetail: @retroactive Content {}
+extension ArticleListResponse: @retroactive Content {}
+extension ArticleVoteResponse: @retroactive Content {}
+extension ArticleReportRequest: @retroactive Content {}
+extension ArticleImageUploadResponse: @retroactive Content {}
+extension ArticleVisibilityRequest: @retroactive Content {}
+
 // MARK: - Pilot follows
 
 extension PilotSummary: @retroactive Content {}

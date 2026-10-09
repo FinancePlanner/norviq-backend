@@ -5,8 +5,24 @@ protocol DiscordWebhookService: Sendable {
 }
 
 struct DefaultDiscordWebhookService: DiscordWebhookService {
-    private struct DiscordPayload: Content {
+    struct DiscordPayload: Content {
+        struct AllowedMentions: Content {
+            let parse: [String]
+        }
+
         let content: String
+        /// Messages quote user text (report notes, titles, board posts), so
+        /// nothing in them may ping @everyone, a role or a person.
+        let allowedMentions: AllowedMentions
+
+        enum CodingKeys: String, CodingKey {
+            case content
+            case allowedMentions = "allowed_mentions"
+        }
+    }
+
+    static func payload(_ message: String) -> DiscordPayload {
+        DiscordPayload(content: message, allowedMentions: .init(parse: []))
     }
 
     func send(_ message: String, on req: Request) async throws {
@@ -15,7 +31,7 @@ struct DefaultDiscordWebhookService: DiscordWebhookService {
             return
         }
 
-        let payload = DiscordPayload(content: message)
+        let payload = Self.payload(message)
         let response = try await req.client.post(URI(string: webhookURL)) { clientReq in
             try clientReq.content.encode(payload)
         }
