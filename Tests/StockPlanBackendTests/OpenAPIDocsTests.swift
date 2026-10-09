@@ -384,4 +384,25 @@ struct OpenAPIDocsTests {
         #expect(provider.contains("'400':"))
         #expect(provider.contains("reserved"))
     }
+
+    @Test("Terminal position routes and schemas are documented")
+    func terminalPositionsAreDocumented() throws {
+        let body = try BundledOpenAPISpec.yamlString()
+        for operation in [
+            "listTerminalPositions", "createTerminalPosition", "updateTerminalPosition", "deleteTerminalPosition",
+            "duplicateTerminalPosition", "reorderTerminalPositions", "getTerminalPositionsSummary",
+            "listAutobuys", "createAutobuy", "updateAutobuy", "deleteAutobuy",
+            "suggestTerminalShareFacts", "suggestTerminalScenario",
+        ] {
+            #expect(body.contains("operationId: \(operation)"), "missing \(operation)")
+        }
+        for schema in [
+            "TerminalPositionResponse", "TerminalPositionCreateRequest", "TerminalPositionUpdateRequest",
+            "TerminalPositionOrderRequest", "TerminalPositionsListResponse", "TerminalPositionsSummaryResponse",
+            "AutobuyResponse", "AutobuyCreateRequest", "AutobuyUpdateRequest", "AutobuysListResponse",
+            "ShareFactsRequest", "ShareFactsSuggestion", "TerminalScenarioSuggestionRequest", "TerminalScenarioSuggestion",
+        ] {
+            #expect(body.contains("    \(schema):"), "missing schema \(schema)")
+        }
+    }
 }
