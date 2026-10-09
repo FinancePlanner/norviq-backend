@@ -298,6 +298,7 @@ private struct BillingFeatureDescriptor {
         .init(feature: .smartScreening, title: "Smart watchlist screening", proOnly: true),
         .init(feature: .rebalancingRules, title: "Custom rebalancing rules", proOnly: true),
         .init(feature: .goalPlanning, title: "Goal-based financial planning", proOnly: false),
+        .init(feature: .terminalPositionAI, title: "AI terminal scenario research", proOnly: true),
         .init(feature: .aiInsights, title: "AI assistant and insights", proOnly: true),
         .init(feature: .mcpAccess, title: "MCP integrations", proOnly: true),
         .init(feature: .scenarioPlanning, title: "Scenario planning", proOnly: true),
