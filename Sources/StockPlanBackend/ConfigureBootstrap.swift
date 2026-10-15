@@ -445,6 +445,7 @@ func registerMigrations(_ app: Application) {
     app.migrations.add(AddSocialFacebookImport())
     app.migrations.add(CreateTerminalPositions())
     app.migrations.add(CreateMarketBriefs())
+    app.migrations.add(CreateMarketBriefNotificationPreferences())
     app.migrations.add(BackfillEmailVerifiedAtAndPasswordSetAt())
     app.migrations.add(CascadeUserOwnedRowsOnDelete())
 }

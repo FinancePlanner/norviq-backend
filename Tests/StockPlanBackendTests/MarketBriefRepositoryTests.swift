@@ -80,4 +80,32 @@ struct MarketBriefRepositoryTests {
             #expect(latest?.slot == .morning)
         }
     }
+
+    @Test("Previous: an evening points at the same day's morning, a morning at the last earlier brief")
+    func previous() async throws {
+        try await MarketBriefFixtures.withApp { app in
+            let at = Date(timeIntervalSince1970: 1_791_500_000)
+            // Friday evening, then nothing over the weekend, then Monday.
+            try await repo.save(both("2026-10-09", .evening), model: "m", generatedAt: at, on: app.db)
+            try await repo.save(both("2026-10-12", .morning), model: "m", generatedAt: at, on: app.db)
+            try await repo.save(both("2026-10-12", .evening), model: "m", generatedAt: at, on: app.db)
+
+            let mondayEvening = try await repo.previous(tradingDate: "2026-10-12", slot: .evening, language: "en", on: app.db)
+            #expect(mondayEvening == MarketBriefRef(slot: .morning, tradingDate: "2026-10-12"))
+            let mondayMorning = try await repo.previous(tradingDate: "2026-10-12", slot: .morning, language: "pt-PT", on: app.db)
+            #expect(mondayMorning == MarketBriefRef(slot: .evening, tradingDate: "2026-10-09"))
+            #expect(try await repo.previous(tradingDate: "2026-10-09", slot: .evening, language: "en", on: app.db) == nil)
+        }
+    }
+
+    @Test("Previous: an evening with no morning that day falls back to an earlier day")
+    func previousSkipsMissingMorning() async throws {
+        try await MarketBriefFixtures.withApp { app in
+            let at = Date(timeIntervalSince1970: 1_791_500_000)
+            try await repo.save(both("2026-10-07", .morning), model: "m", generatedAt: at, on: app.db)
+            try await repo.save(both("2026-10-08", .evening), model: "m", generatedAt: at, on: app.db)
+            let ref = try await repo.previous(tradingDate: "2026-10-08", slot: .evening, language: "en", on: app.db)
+            #expect(ref == MarketBriefRef(slot: .morning, tradingDate: "2026-10-07"))
+        }
+    }
 }

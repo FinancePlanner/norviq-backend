@@ -10,6 +10,10 @@ protocol MarketBriefRepository: Sendable {
     func delete(tradingDate: String, slot: MarketBriefSlot, on db: any Database) async throws
     func latest(language: String, on db: any Database) async throws -> MarketBriefResponse?
     func find(tradingDate: String, slot: MarketBriefSlot, language: String, on db: any Database) async throws -> MarketBriefResponse?
+    /// The brief stored just before (tradingDate, slot) in this language:
+    /// the same day's morning behind an evening, otherwise the latest earlier
+    /// day. Holidays and missed slots fall out of the data, not a calendar.
+    func previous(tradingDate: String, slot: MarketBriefSlot, language: String, on db: any Database) async throws -> MarketBriefRef?
 }
 
 struct DatabaseMarketBriefRepository: MarketBriefRepository {
@@ -71,6 +75,28 @@ struct DatabaseMarketBriefRepository: MarketBriefRepository {
             .filter(\.$language == language)
             .first()
             .map(decode)
+    }
+
+    func previous(tradingDate: String, slot: MarketBriefSlot, language: String, on db: any Database) async throws -> MarketBriefRef? {
+        var record: MarketBriefRecord?
+        if slot == .evening {
+            record = try await MarketBriefRecord.query(on: db)
+                .filter(\.$language == language)
+                .filter(\.$tradingDate == tradingDate)
+                .filter(\.$slot == MarketBriefSlot.morning.rawValue)
+                .first()
+        }
+        if record == nil {
+            record = try await MarketBriefRecord.query(on: db)
+                .filter(\.$language == language)
+                .filter(\.$tradingDate < tradingDate)
+                // Same ordering as `latest`: "evening" sorts before "morning".
+                .sort(\.$tradingDate, .descending)
+                .sort(\.$slot, .ascending)
+                .first()
+        }
+        guard let record, let previousSlot = MarketBriefSlot(rawValue: record.slot) else { return nil }
+        return MarketBriefRef(slot: previousSlot, tradingDate: record.tradingDate)
     }
 
     private func decode(_ record: MarketBriefRecord) throws -> MarketBriefResponse {

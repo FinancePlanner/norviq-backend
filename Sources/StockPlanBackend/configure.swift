@@ -505,6 +505,7 @@ public func configure(_ app: Application) async throws {
     app.marketBriefRepository = DatabaseMarketBriefRepository()
     app.marketBriefGenerator = MarketBriefGenerator.live(app: app, news: newsProvider)
     app.marketBriefEnabled = envBool("MARKET_BRIEF_ENABLED", default: false)
+    app.marketBriefPushEnabled = envBool("MARKET_BRIEF_PUSH_ENABLED", default: false)
     if app.marketBriefEnabled {
         app.lifecycle.use(MarketBriefJob())
     }
