@@ -133,7 +133,6 @@ struct MarketBriefRouteTests {
         }
     }
 
-
     @Test("The latest brief names the one before it; stored payloads never carry it")
     func latestCarriesPrevious() async throws {
         try await MarketBriefFixtures.withApp { app in
