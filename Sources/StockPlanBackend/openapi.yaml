@@ -1950,6 +1950,59 @@ paths:
                   $ref: '#/components/schemas/NewsItemResponse'
         '401':
           description: Unauthorized
+  /v1/market/brief:
+    get:
+      operationId: getMarketBrief
+      tags: [MarketData]
+      summary: Latest market brief (morning pre-market or evening recap)
+      description: >-
+        Shared, non-personalised brief generated twice per weekday (08:15 and
+        22:30 Europe/Lisbon). Index rows come from market data; the text is
+        model-written and any unsourced number in it was checked against those
+        rows. Without `slot` and `date` this returns the newest brief for the
+        language, so weekends show Friday's recap. `enabled: false` when the
+        feature is off.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: lang
+          in: query
+          required: false
+          description: >-
+            `en` or `pt-PT`. Anything starting with `pt` is `pt-PT`; anything
+            else is `en`.
+          schema:
+            type: string
+            default: en
+        - name: slot
+          in: query
+          required: false
+          description: With `date`, fetch that exact brief instead of the latest.
+          schema:
+            type: string
+            enum: [morning, evening]
+        - name: date
+          in: query
+          required: false
+          description: Lisbon trading date, `yyyy-MM-dd`. Required when `slot` is given.
+          schema:
+            type: string
+            format: date
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MarketBriefResponse'
+        '400':
+          description: Unknown slot, or slot without a valid date
+        '401':
+          description: Unauthorized
+        '403':
+          description: Token lacks the market:read scope
+        '404':
+          description: No brief for that date and slot
   /v1/news/ticker:
     get:
       operationId: getNewsTicker
@@ -6923,6 +6976,256 @@ paths:
         '402':
           description: Pro subscription required
 
+  /v1/terminal-positions:
+    get:
+      operationId: listTerminalPositions
+      tags: [TerminalPositions]
+      summary: List terminal position scenarios
+      description: >-
+        The user's terminal scenarios in display order. Derived fields (terminal
+        share price, shares needed, progress, still needed) are recomputed on
+        every read and are null when `scenarioError` is set. Planning math, not
+        financial advice.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: ticker
+          in: query
+          required: false
+          description: Only rows for this ticker (case-insensitive).
+          schema: { type: string }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TerminalPositionsListResponse' }
+        '401': { description: Unauthorized }
+        '403': { description: Token lacks planning:read }
+    post:
+      operationId: createTerminalPosition
+      tags: [TerminalPositions]
+      summary: Create a terminal position scenario
+      description: >-
+        Appends a row. A share count or market cap of zero or less is stored and
+        reported through `scenarioError`; negative value wanted or shares owned
+        is 422.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/TerminalPositionCreateRequest' }
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TerminalPositionResponse' }
+        '401': { description: Unauthorized }
+        '403': { description: Token lacks planning:write }
+        '422': { description: Invalid ticker or numbers }
+  /v1/terminal-positions/summary:
+    get:
+      operationId: getTerminalPositionsSummary
+      tags: [TerminalPositions]
+      summary: Totals for the dashboard and the table footer
+      description: >-
+        Totals over valid rows plus the monthly autobuy total. "Shares-needed
+        notional at terminal prices" equals totalValueWanted by construction, so
+        it is not a separate field.
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TerminalPositionsSummaryResponse' }
+        '401': { description: Unauthorized }
+  /v1/terminal-positions/order:
+    put:
+      operationId: reorderTerminalPositions
+      tags: [TerminalPositions]
+      summary: Reorder terminal positions
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/TerminalPositionOrderRequest' }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TerminalPositionsListResponse' }
+        '422': { description: ids must list every position exactly once }
+  /v1/terminal-positions/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    patch:
+      operationId: updateTerminalPosition
+      tags: [TerminalPositions]
+      summary: Update a terminal position (only the fields sent change)
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/TerminalPositionUpdateRequest' }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TerminalPositionResponse' }
+        '404': { description: Not found }
+        '422': { description: Invalid field or unknown clear name }
+    delete:
+      operationId: deleteTerminalPosition
+      tags: [TerminalPositions]
+      summary: Delete a terminal position
+      security:
+        - bearerAuth: []
+      responses:
+        '204': { description: Deleted }
+        '404': { description: Not found }
+  /v1/terminal-positions/{id}/duplicate:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    post:
+      operationId: duplicateTerminalPosition
+      tags: [TerminalPositions]
+      summary: Duplicate a terminal position right after itself
+      security:
+        - bearerAuth: []
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TerminalPositionResponse' }
+        '404': { description: Not found }
+  /v1/terminal-positions/ai/share-facts:
+    post:
+      operationId: suggestTerminalShareFacts
+      tags: [TerminalPositions]
+      summary: AI suggestion for shares outstanding and current price (Pro)
+      description: >-
+        Web-search suggestion with https sources. Never stored; the client
+        applies it only when the user accepts. 403 with code upgrade_required
+        for non-Pro users.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ShareFactsRequest' }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ShareFactsSuggestion' }
+        '403': { description: Upgrade required (code upgrade_required) or missing scope }
+        '422': { description: 'No usable, sourced numbers' }
+        '503': { description: AI lookup unavailable }
+  /v1/terminal-positions/ai/scenario:
+    post:
+      operationId: suggestTerminalScenario
+      tags: [TerminalPositions]
+      summary: AI suggestion for terminal share count and market cap (Pro)
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/TerminalScenarioSuggestionRequest' }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TerminalScenarioSuggestion' }
+        '403': { description: Upgrade required (code upgrade_required) or missing scope }
+        '422': { description: 'No usable, sourced numbers' }
+        '503': { description: AI lookup unavailable }
+  /v1/autobuys:
+    get:
+      operationId: listAutobuys
+      tags: [TerminalPositions]
+      summary: List recurring autobuys with monthly equivalents
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AutobuysListResponse' }
+    post:
+      operationId: createAutobuy
+      tags: [TerminalPositions]
+      summary: Create a recurring autobuy
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AutobuyCreateRequest' }
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AutobuyResponse' }
+        '422': { description: 'Invalid amount, cadence or percent' }
+  /v1/autobuys/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    patch:
+      operationId: updateAutobuy
+      tags: [TerminalPositions]
+      summary: Update an autobuy
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AutobuyUpdateRequest' }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AutobuyResponse' }
+        '404': { description: Not found }
+    delete:
+      operationId: deleteAutobuy
+      tags: [TerminalPositions]
+      summary: Delete an autobuy
+      security:
+        - bearerAuth: []
+      responses:
+        '204': { description: Deleted }
+        '404': { description: Not found }
   /v1/goals:
     get:
       operationId: listGoals
@@ -14248,6 +14551,92 @@ components:
         sourceUrl: { type: string, nullable: true }
         publishedAt: { type: string, format: date-time }
       required: [id, title, source, publishedAt]
+    MarketBriefQuoteRow:
+      type: object
+      properties:
+        symbol:
+          type: string
+        flag:
+          type: string
+        name:
+          type: string
+        level:
+          type: string
+          description: Formatted for the response language, for example "25.032" (pt-PT) or "25,032" (en).
+        changePercent:
+          type: string
+          description: Unsigned and formatted, for example "0,77%". `direction` carries the sign.
+        direction:
+          type: string
+          enum: [up, down, flat]
+      required: [symbol, flag, name, level, changePercent, direction]
+    MarketBriefQuoteGroup:
+      type: object
+      properties:
+        id:
+          type: string
+          enum: [eu_open, us_futures, eu_close, us_close]
+        title:
+          type: string
+        tone:
+          type: string
+          enum: [up, down, flat]
+        rows:
+          type: array
+          items:
+            $ref: '#/components/schemas/MarketBriefQuoteRow'
+      required: [id, title, tone, rows]
+    MarketBriefItem:
+      type: object
+      properties:
+        kind:
+          type: string
+          enum: [highlight, earnings, story]
+        text:
+          type: string
+        tickers:
+          type: array
+          items:
+            type: string
+        sourceUrl:
+          type: string
+          nullable: true
+      required: [kind, text, tickers]
+    MarketBriefResponse:
+      type: object
+      properties:
+        enabled:
+          type: boolean
+        tradingDate:
+          type: string
+          format: date
+          nullable: true
+        slot:
+          type: string
+          enum: [morning, evening]
+          nullable: true
+        language:
+          type: string
+          enum: [en, pt-PT]
+        greeting:
+          type: string
+          nullable: true
+        groups:
+          type: array
+          items:
+            $ref: '#/components/schemas/MarketBriefQuoteGroup'
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/MarketBriefItem'
+        generatedAt:
+          type: string
+          format: date-time
+          nullable: true
+        degraded:
+          type: boolean
+          description: Web search was unavailable; the text came from in-house sources only.
+      required: [enabled, language, groups, items, degraded]
     NewsTickerResponse:
       type: object
       properties:
@@ -17133,6 +17522,167 @@ components:
         source:
           $ref: '#/components/schemas/GoalStatusSource'
       required: [status, source]
+    TerminalPositionResponse:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        ticker: { type: string }
+        sharesOutstanding: { type: number, nullable: true }
+        terminalShareCount: { type: number }
+        terminalMarketCap: { type: number }
+        valueWanted: { type: number }
+        sharesOwned: { type: number }
+        currentSharePrice: { type: number, nullable: true }
+        notes: { type: string, nullable: true }
+        sortOrder: { type: integer }
+        terminalSharePrice: { type: number, nullable: true }
+        sharesNeeded: { type: number, nullable: true }
+        capitalAtTodayPrice: { type: number, nullable: true }
+        progress: { type: number, nullable: true }
+        sharesStillNeeded: { type: number, nullable: true }
+        gapValueAtTerminal: { type: number, nullable: true }
+        scenarioError:
+          type: string
+          nullable: true
+          enum: [share_count_not_positive, market_cap_not_positive, invalid_number]
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+      required: [id, ticker, terminalShareCount, terminalMarketCap, valueWanted, sharesOwned, sortOrder, createdAt, updatedAt]
+    TerminalPositionCreateRequest:
+      type: object
+      properties:
+        ticker: { type: string }
+        sharesOutstanding: { type: number, nullable: true }
+        terminalShareCount: { type: number }
+        terminalMarketCap: { type: number }
+        valueWanted: { type: number }
+        sharesOwned: { type: number, nullable: true }
+        currentSharePrice: { type: number, nullable: true }
+        notes: { type: string, nullable: true }
+      required: [ticker, terminalShareCount, terminalMarketCap, valueWanted]
+    TerminalPositionUpdateRequest:
+      type: object
+      properties:
+        ticker: { type: string }
+        sharesOutstanding: { type: number }
+        terminalShareCount: { type: number }
+        terminalMarketCap: { type: number }
+        valueWanted: { type: number }
+        sharesOwned: { type: number }
+        currentSharePrice: { type: number }
+        notes: { type: string }
+        clear:
+          type: array
+          items: { type: string, enum: [sharesOutstanding, currentSharePrice, notes] }
+    TerminalPositionOrderRequest:
+      type: object
+      properties:
+        ids:
+          type: array
+          items: { type: string, format: uuid }
+      required: [ids]
+    TerminalPositionsListResponse:
+      type: object
+      properties:
+        currency: { type: string }
+        positions:
+          type: array
+          items: { $ref: '#/components/schemas/TerminalPositionResponse' }
+      required: [currency, positions]
+    TerminalPositionsSummaryResponse:
+      type: object
+      properties:
+        currency: { type: string }
+        positionCount: { type: integer }
+        totalValueWanted: { type: number }
+        totalGapValueAtTerminal: { type: number }
+        totalCapitalAtTodayPrice: { type: number, nullable: true }
+        pricedPositionCount: { type: integer }
+        monthlyAutobuyTotal: { type: number }
+        topPositions:
+          type: array
+          items: { $ref: '#/components/schemas/TerminalPositionResponse' }
+      required: [currency, positionCount, totalValueWanted, totalGapValueAtTerminal, pricedPositionCount, monthlyAutobuyTotal, topPositions]
+    AutobuyResponse:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        ticker: { type: string, nullable: true }
+        label: { type: string }
+        amount: { type: number }
+        cadence: { type: string, enum: [weekly, biweekly, bimonthly, monthly, percentOfContribution, unknown] }
+        percent: { type: number, nullable: true }
+        active: { type: boolean }
+        monthlyEquivalent: { type: number, nullable: true }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+      required: [id, label, amount, cadence, active, createdAt, updatedAt]
+    AutobuyCreateRequest:
+      type: object
+      properties:
+        ticker: { type: string, nullable: true }
+        label: { type: string }
+        amount: { type: number }
+        cadence: { type: string, enum: [weekly, biweekly, bimonthly, monthly, percentOfContribution] }
+        percent: { type: number, nullable: true }
+        active: { type: boolean, nullable: true }
+      required: [label, amount, cadence]
+    AutobuyUpdateRequest:
+      type: object
+      properties:
+        ticker: { type: string }
+        label: { type: string }
+        amount: { type: number }
+        cadence: { type: string, enum: [weekly, biweekly, bimonthly, monthly, percentOfContribution] }
+        percent: { type: number }
+        active: { type: boolean }
+        clear:
+          type: array
+          items: { type: string, enum: [ticker, percent] }
+    AutobuysListResponse:
+      type: object
+      properties:
+        currency: { type: string }
+        autobuys:
+          type: array
+          items: { $ref: '#/components/schemas/AutobuyResponse' }
+        monthlyTotal: { type: number }
+      required: [currency, autobuys, monthlyTotal]
+    ShareFactsRequest:
+      type: object
+      properties:
+        ticker: { type: string }
+      required: [ticker]
+    ShareFactsSuggestion:
+      type: object
+      properties:
+        ticker: { type: string }
+        sharesOutstanding: { type: number, nullable: true }
+        currentSharePrice: { type: number, nullable: true }
+        currency: { type: string, nullable: true }
+        asOf: { type: string, nullable: true }
+        sources:
+          type: array
+          items: { type: string }
+      required: [ticker, sources]
+    TerminalScenarioSuggestionRequest:
+      type: object
+      properties:
+        ticker: { type: string }
+        horizonYears: { type: integer, nullable: true }
+      required: [ticker]
+    TerminalScenarioSuggestion:
+      type: object
+      properties:
+        ticker: { type: string }
+        terminalShareCount: { type: number }
+        terminalMarketCap: { type: number }
+        horizonYears: { type: integer }
+        rationale: { type: string }
+        sources:
+          type: array
+          items: { type: string }
+      required: [ticker, terminalShareCount, terminalMarketCap, horizonYears, rationale, sources]
     GoalResponse:
       type: object
       properties:

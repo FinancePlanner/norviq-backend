@@ -173,6 +173,7 @@ enum BillingFeature: String {
     case rebalancingRules = "rebalancing_rules"
     /// Deterministic planning is free for one active goal; cross-feature optimization is Pro.
     case goalPlanning = "goal_planning"
+    case terminalPositionAI = "terminal_position_ai"
 }
 
 struct BillingPlanLimits {
@@ -229,7 +230,7 @@ struct BillingPlanLimits {
              .spreadsheetImport, .screenshotImport,
              .advancedPortfolios, .jointPortfolios, .advancedReportTemplates,
              .advancedReportSchedules, .advancedReportRuns,
-             .netWorthForecasting, .smartScreening, .rebalancingRules, .goalPlanning:
+             .netWorthForecasting, .smartScreening, .rebalancingRules, .goalPlanning, .terminalPositionAI:
             nil
         }
     }
@@ -356,7 +357,7 @@ struct DefaultUsageCounterService: UsageCounterService {
              .spreadsheetImport, .screenshotImport,
              .advancedPortfolios, .jointPortfolios, .advancedReportTemplates,
              .advancedReportSchedules, .advancedReportRuns,
-             .netWorthForecasting, .smartScreening, .rebalancingRules, .goalPlanning:
+             .netWorthForecasting, .smartScreening, .rebalancingRules, .goalPlanning, .terminalPositionAI:
             0
         }
     }
@@ -380,7 +381,7 @@ struct DefaultUsageCounterService: UsageCounterService {
              .spreadsheetImport, .screenshotImport,
              .advancedPortfolios, .jointPortfolios, .advancedReportTemplates,
              .advancedReportSchedules, .advancedReportRuns,
-             .netWorthForecasting, .smartScreening, .rebalancingRules, .goalPlanning:
+             .netWorthForecasting, .smartScreening, .rebalancingRules, .goalPlanning, .terminalPositionAI:
             break
         }
     }

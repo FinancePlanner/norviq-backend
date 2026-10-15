@@ -384,4 +384,36 @@ struct OpenAPIDocsTests {
         #expect(provider.contains("'400':"))
         #expect(provider.contains("reserved"))
     }
+
+    @Test("Market brief route and schemas are documented")
+    func marketBriefIsDocumented() throws {
+        let body = try BundledOpenAPISpec.yamlString()
+        #expect(body.contains("  /v1/market/brief:"))
+        #expect(body.contains("operationId: getMarketBrief"))
+        #expect(body.contains("    MarketBriefResponse:"))
+        #expect(body.contains("    MarketBriefQuoteGroup:"))
+        #expect(body.contains("    MarketBriefQuoteRow:"))
+        #expect(body.contains("    MarketBriefItem:"))
+    }
+
+    @Test("Terminal position routes and schemas are documented")
+    func terminalPositionsAreDocumented() throws {
+        let body = try BundledOpenAPISpec.yamlString()
+        for operation in [
+            "listTerminalPositions", "createTerminalPosition", "updateTerminalPosition", "deleteTerminalPosition",
+            "duplicateTerminalPosition", "reorderTerminalPositions", "getTerminalPositionsSummary",
+            "listAutobuys", "createAutobuy", "updateAutobuy", "deleteAutobuy",
+            "suggestTerminalShareFacts", "suggestTerminalScenario",
+        ] {
+            #expect(body.contains("operationId: \(operation)"), "missing \(operation)")
+        }
+        for schema in [
+            "TerminalPositionResponse", "TerminalPositionCreateRequest", "TerminalPositionUpdateRequest",
+            "TerminalPositionOrderRequest", "TerminalPositionsListResponse", "TerminalPositionsSummaryResponse",
+            "AutobuyResponse", "AutobuyCreateRequest", "AutobuyUpdateRequest", "AutobuysListResponse",
+            "ShareFactsRequest", "ShareFactsSuggestion", "TerminalScenarioSuggestionRequest", "TerminalScenarioSuggestion",
+        ] {
+            #expect(body.contains("    \(schema):"), "missing schema \(schema)")
+        }
+    }
 }

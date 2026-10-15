@@ -443,6 +443,8 @@ func registerMigrations(_ app: Application) {
     app.migrations.add(CreateArticlesTables())
     app.migrations.add(AddPilotFollowTargetIndexes())
     app.migrations.add(AddSocialFacebookImport())
+    app.migrations.add(CreateTerminalPositions())
+    app.migrations.add(CreateMarketBriefs())
     app.migrations.add(BackfillEmailVerifiedAtAndPasswordSetAt())
     app.migrations.add(CascadeUserOwnedRowsOnDelete())
 }

@@ -73,6 +73,7 @@ func routes(_ app: Application) throws {
     // Rate limit market data endpoints (quotes, search) to protect third-party API quotas.
     let marketRateLimit = RateLimitMiddleware(limit: 100, interval: 60, keyPrefix: "ratelimit:market")
     try api.grouped(marketRateLimit).register(collection: MarketDataController())
+    try api.grouped(marketRateLimit).register(collection: MarketBriefController())
     try api.register(collection: ScenarioController())
     if goalPlanningRoutesEnabled() {
         try api.register(collection: GoalPlanningController())
@@ -134,6 +135,7 @@ func routes(_ app: Application) throws {
     try api.grouped(aiRateLimit).register(collection: AIViewSummaryController())
     try api.grouped(aiRateLimit).register(collection: AIChatController())
     try api.grouped(aiRateLimit).register(collection: AIAssistantController())
+    try api.grouped(aiRateLimit).register(collection: TerminalPositionsAIController())
     // Rate limited too: verification makes an outbound call per request.
     try api.grouped(aiRateLimit).register(collection: AIProviderCredentialController())
     try api.register(collection: BudgetController())
@@ -165,6 +167,7 @@ func routes(_ app: Application) throws {
         .register(collection: BankController())
     try api.register(collection: ReportsController())
     try api.register(collection: GoalsController())
+    try api.register(collection: TerminalPositionsController())
     try api.register(collection: UserActivityController())
     try api.register(collection: BadgeController())
     try api.register(collection: AssetsController())

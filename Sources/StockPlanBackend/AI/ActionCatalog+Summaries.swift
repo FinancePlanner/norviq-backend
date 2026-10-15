@@ -81,6 +81,14 @@ extension ActionCatalog {
             return "Rename goal \(shortId(args)) to \(quoted(args.string("title")))."
         case "delete_goal":
             return "Permanently delete goal \(shortId(args))."
+        case "get_terminal_positions":
+            return "Read your terminal position scenarios."
+        case "get_terminal_position":
+            return "Read your terminal scenario for \(terminalTicker(args))."
+        case "lookup_share_facts":
+            return "Look up shares outstanding and price for \(terminalTicker(args)) with web search."
+        case "set_terminal_scenario":
+            return "Set the terminal scenario for \(terminalTicker(args))\(terminalFields(args))."
         default:
             return nil
         }
@@ -102,6 +110,8 @@ extension ActionCatalog {
         case "add_goal": "Goal created."
         case "update_goal": "Goal updated."
         case "delete_goal": "Goal deleted."
+        case "get_terminal_positions", "get_terminal_position", "lookup_share_facts": "Done."
+        case "set_terminal_scenario": "Terminal scenario saved."
         default: nil
         }
     }
@@ -115,6 +125,18 @@ extension ActionCatalog {
 
     private static func symbol(_ args: ActionArguments) -> String {
         args.string("symbol")?.uppercased() ?? "(no symbol)"
+    }
+
+    private static func terminalTicker(_ args: ActionArguments) -> String {
+        (args.string("ticker") ?? args.string("symbol"))?.uppercased() ?? "(no ticker)"
+    }
+
+    private static func terminalFields(_ args: ActionArguments) -> String {
+        let parts = [
+            ("share count", "terminalShareCount"), ("market cap", "terminalMarketCap"), ("value wanted", "valueWanted"),
+            ("shares owned", "sharesOwned"), ("shares outstanding", "sharesOutstanding"), ("current price", "currentSharePrice"),
+        ].compactMap { label, key in args.double(key).map { "\(label) \(number($0))" } }
+        return parts.isEmpty ? "" : ": " + parts.joined(separator: ", ")
     }
 
     /// Ids are UUIDs and unreadable in full; the first block is enough for a

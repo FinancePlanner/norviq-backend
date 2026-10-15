@@ -498,8 +498,30 @@ public func configure(_ app: Application) async throws {
             intervalSeconds: Environment.get("PILOT_MIRROR_INTERVAL_SECONDS").flatMap(Int64.init) ?? 3600
         ))
     }
+    // Market brief: two shared briefs per weekday, 08:15 and 22:30 Lisbon.
+    // The generator is built on every boot so the operator command works with
+    // the flag off; MARKET_BRIEF_ENABLED gates only the scheduled job and what
+    // the route serves. `newsProvider` is the same chain the news feed uses.
+    app.marketBriefRepository = DatabaseMarketBriefRepository()
+    app.marketBriefGenerator = MarketBriefGenerator.live(app: app, news: newsProvider)
+    app.marketBriefEnabled = envBool("MARKET_BRIEF_ENABLED", default: false)
+    if app.marketBriefEnabled {
+        app.lifecycle.use(MarketBriefJob())
+    }
+    app.asyncCommands.use(MarketBriefGenerateCommand(), as: "market-brief-generate")
     // Operator-triggered reconstruction of history predating the job above.
     app.asyncCommands.use(PortfolioBackfillCommand(), as: "portfolio-backfill")
+    // Nil (feature answers 503) unless the provider is OpenRouter or TERMINAL_AI_MODEL is set:
+    // the default model is an OpenRouter `:online` slug that other providers reject.
+    app.terminalAIClient = TerminalAIAdvisor.liveClient()
+    if app.terminalAIClient == nil {
+        let ai = AIProviderConfiguration.load()
+        let reason = TerminalAIAdvisor.unavailableReason(
+            provider: ai.provider, apiKey: ai.apiKey, baseURL: ai.baseURL,
+            configuredModel: Environment.get("TERMINAL_AI_MODEL")
+        ) ?? "unknown"
+        app.logger.warning("terminal_ai_disabled", metadata: ["reason": .string(reason)])
+    }
 
     // Macro / inflation (Nowflation parity). FRED is the keystone provider:
     // without FRED_API_KEY the US (and intl fallback) stay disabled while
