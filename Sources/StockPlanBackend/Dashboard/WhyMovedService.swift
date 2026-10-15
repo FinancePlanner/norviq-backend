@@ -167,7 +167,7 @@ struct DefaultWhyMovedService: WhyMovedService {
 
         // Soft-fail like every other refusal here: the movers still render,
         // only the AI sentence is missing.
-        guard (try? await AIConsent.isAllowed(userId: userId, req: req)) == true else {
+        guard await (try? AIConsent.isAllowed(userId: userId, req: req)) == true else {
             return nil
         }
 

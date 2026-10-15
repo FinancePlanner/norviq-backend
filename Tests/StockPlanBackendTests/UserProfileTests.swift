@@ -223,7 +223,9 @@ struct UserProfileTests {
         var result: (HTTPStatus, String?) = (.internalServerError, nil)
         try await app.testing().test(method, path, beforeRequest: { req in
             req.headers.bearerAuthorization = .init(token: token)
-            if let body { try req.content.encode(body) }
+            if let body {
+                try req.content.encode(body)
+            }
         }, afterResponse: { res async in
             result = (res.status, try? res.content.decode(APIErrorEnvelope.self).reason)
         })

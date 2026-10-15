@@ -49,7 +49,9 @@ enum AIConsent {
     /// Check for a user-initiated request; applies the legacy-iOS grace.
     static func isAllowed(userId: UUID, req: Request) async throws -> Bool {
         guard isEnforced else { return true }
-        if try await consentedAt(userId: userId, on: req.db) != nil { return true }
+        if try await consentedAt(userId: userId, on: req.db) != nil {
+            return true
+        }
         guard legacyIOSGrace, isLegacyIOSClient(req) else { return false }
         PrometheusMetrics.shared.recordAIConsentLegacyGrace()
         req.logger.info("ai_consent.legacy_grace user_id=\(userId.uuidString) path=\(req.url.path)")

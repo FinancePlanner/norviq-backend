@@ -103,7 +103,9 @@ struct IPNetwork {
         for (lhs, rhs) in zip(address.bytes, base.bytes) where remaining > 0 {
             let bits = min(8, remaining)
             let mask = UInt8(truncatingIfNeeded: 0xFF << (8 - bits))
-            if lhs & mask != rhs & mask { return false }
+            if lhs & mask != rhs & mask {
+                return false
+            }
             remaining -= bits
         }
         return true

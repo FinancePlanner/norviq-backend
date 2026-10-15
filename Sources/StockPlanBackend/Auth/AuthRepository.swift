@@ -218,7 +218,11 @@ struct DatabaseAuthRepository: AuthRepository {
     func revokeAllTokens(userId: UUID, sparing: SparedSession?, on db: any Database) async throws {
         let now = Date()
         try await db.transaction { db in
-            let cutoff: Date? = if let sparing { sparing.accessTokenIssuedAt } else { now }
+            let cutoff: Date? = if let sparing {
+                sparing.accessTokenIssuedAt
+            } else {
+                now
+            }
             if let cutoff, let user = try await User.find(userId, on: db) {
                 // Never move the cutoff back: that would revive tokens an
                 // earlier revocation already ended.

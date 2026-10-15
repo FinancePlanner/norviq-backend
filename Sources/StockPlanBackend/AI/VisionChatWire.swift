@@ -16,7 +16,7 @@ struct VisionRequest: Content {
     var maxTokens: Int
     var responseFormat: ResponseFormat
     /// Set by `VisionChatCaller` from the base URL; see `OpenRouterProviderPreferences`.
-    var provider: OpenRouterProviderPreferences? = nil
+    var provider: OpenRouterProviderPreferences?
 
     struct ResponseFormat: Content {
         var type: String
