@@ -1931,6 +1931,51 @@ paths:
           description: Token lacks the market:read scope
         '404':
           description: No brief for that date and slot
+  /v1/market/brief/notifications:
+    get:
+      operationId: getMarketBriefNotificationPreferences
+      tags: [Notifications]
+      summary: Market brief push opt-in
+      description: Off (`enabled false`, `en`) until the user opts in.
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MarketBriefNotificationPreferences'
+        '401':
+          description: Unauthorized
+        '403':
+          description: Token lacks the notifications:read scope
+    put:
+      operationId: updateMarketBriefNotificationPreferences
+      tags: [Notifications]
+      summary: Turn the market brief push on or off
+      description: >-
+        One push per brief (08:15 and 22:30 Europe/Lisbon, weekdays), written
+        from the brief in `language`.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MarketBriefNotificationPreferences'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MarketBriefNotificationPreferences'
+        '401':
+          description: Unauthorized
+        '403':
+          description: Token lacks the notifications:write scope
   /v1/news/ticker:
     get:
       operationId: getNewsTicker
@@ -14536,7 +14581,35 @@ components:
         degraded:
           type: boolean
           description: Web search was unavailable; the text came from in-house sources only.
+        previous:
+          allOf:
+            - $ref: '#/components/schemas/MarketBriefRef'
+          nullable: true
+          description: >-
+            The brief stored before this one in the same language (the
+            morning brief behind an evening recap, otherwise the latest
+            earlier day). Fetch it with `slot` and `date`.
       required: [enabled, language, groups, items, degraded]
+    MarketBriefRef:
+      type: object
+      properties:
+        slot:
+          type: string
+          enum: [morning, evening]
+        tradingDate:
+          type: string
+          format: date
+      required: [slot, tradingDate]
+    MarketBriefNotificationPreferences:
+      type: object
+      properties:
+        enabled:
+          type: boolean
+        language:
+          type: string
+          enum: [en, pt-PT]
+          description: Language of the push. Anything starting with `pt` is stored as `pt-PT`; anything else as `en`.
+      required: [enabled, language]
     NewsTickerResponse:
       type: object
       properties:

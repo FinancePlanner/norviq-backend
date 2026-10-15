@@ -79,6 +79,12 @@ protocol PushNotificationSending: Sendable {
         devices: [PushDevice],
         req: Request
     ) async -> TargetPushSendSummary
+
+    func sendMarketBrief(
+        message: MarketBriefPushMessage,
+        devices: [PushDevice],
+        req: Request
+    ) async -> TargetPushSendSummary
 }
 
 /// A friend request, or a request that was accepted. The app routes both
@@ -152,6 +158,14 @@ extension PushNotificationSending {
     /// Same reasoning as `sendAssistantMessage`: test doubles deliver nothing.
     func sendBoardEvent(
         message _: BoardPushMessage,
+        devices: [PushDevice],
+        req _: Request
+    ) async -> TargetPushSendSummary {
+        .init(delivered: 0, failed: devices.count)
+    }
+
+    func sendMarketBrief(
+        message _: MarketBriefPushMessage,
         devices: [PushDevice],
         req _: Request
     ) async -> TargetPushSendSummary {
@@ -237,6 +251,17 @@ struct NoopPushNotificationSender: PushNotificationSending {
     ) async -> TargetPushSendSummary {
         req.logger.debug(
             "push.notifications disabled earnings_reminder symbol=\(symbol) earningsDate=\(earningsDate) leadDays=\(leadDays) devices=\(devices.count)"
+        )
+        return .init(delivered: 0, failed: devices.count)
+    }
+
+    func sendMarketBrief(
+        message: MarketBriefPushMessage,
+        devices: [PushDevice],
+        req: Request
+    ) async -> TargetPushSendSummary {
+        req.logger.debug(
+            "push.notifications disabled market_brief slot=\(message.slot.rawValue) date=\(message.tradingDate) devices=\(devices.count)"
         )
         return .init(delivered: 0, failed: devices.count)
     }
@@ -391,6 +416,57 @@ struct APNSPushNotificationSender: PushNotificationSending {
                 failed += 1
                 req.logger.warning(
                     "push.notifications send failed board_event error_type=\(String(reflecting: type(of: error)))"
+                )
+                if isInvalidTokenError(error) {
+                    try? await req.pushDeviceService.deactivate(deviceToken: device.deviceToken, on: req.db)
+                }
+            }
+        }
+        return .init(delivered: delivered, failed: failed)
+    }
+
+    struct MarketBriefPayload: Codable {
+        let schemaVersion: Int
+        let type: String
+        let slot: String
+        let tradingDate: String
+        let deepLink: String
+    }
+
+    func sendMarketBrief(
+        message: MarketBriefPushMessage,
+        devices: [PushDevice],
+        req: Request
+    ) async -> TargetPushSendSummary {
+        guard devices.isEmpty == false else { return .init(delivered: 0, failed: 0) }
+        let notification = APNSAlertNotification(
+            alert: .init(title: .raw(message.title), body: .raw(message.body)),
+            expiration: .immediately,
+            priority: .immediately,
+            topic: topic,
+            payload: MarketBriefPayload(
+                schemaVersion: 1,
+                type: "market_brief",
+                slot: message.slot.rawValue,
+                tradingDate: message.tradingDate,
+                deepLink: message.deepLink
+            ),
+            threadID: "market-brief",
+            category: MarketBriefPushMessage.category
+        )
+        var delivered = 0
+        var failed = 0
+        for device in devices {
+            do {
+                _ = try await client(for: device, req: req).sendAlertNotification(
+                    notification,
+                    deviceToken: device.deviceToken
+                )
+                delivered += 1
+            } catch {
+                failed += 1
+                req.logger.warning(
+                    "push.notifications send failed market_brief error_type=\(String(reflecting: type(of: error)))"
                 )
                 if isInvalidTokenError(error) {
                     try? await req.pushDeviceService.deactivate(deviceToken: device.deviceToken, on: req.db)

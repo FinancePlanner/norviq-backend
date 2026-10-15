@@ -65,6 +65,9 @@ final class MarketBriefJob: LifecycleHandler, @unchecked Sendable {
                 let outcome = try await runner.run(due, replace: false, on: req)
                 if case let .generated(degraded) = outcome {
                     app.logger.info("market_brief ok date=\(due.tradingDate) slot=\(due.slot.rawValue) degraded=\(degraded)")
+                    if app.marketBriefPushEnabled {
+                        await self.push(due, now: now, on: req)
+                    }
                 }
             } catch {
                 let failures = self.attempts.recordFailure(for: due)
@@ -72,6 +75,16 @@ final class MarketBriefJob: LifecycleHandler, @unchecked Sendable {
                     "market_brief failed date=\(due.tradingDate) slot=\(due.slot.rawValue) attempt=\(failures)/\(Self.maxAttemptsPerSlot) error=\(String(describing: error))"
                 )
             }
+        }
+    }
+
+    /// A failed push is logged, never retried: the brief itself is written,
+    /// and a retry would mean a second notification.
+    private func push(_ due: MarketBriefSchedule.Due, now: Date, on req: Request) async {
+        do {
+            try await MarketBriefNotifier(repository: req.application.marketBriefRepository).notify(due, now: now, on: req)
+        } catch {
+            req.logger.error("market_brief push failed date=\(due.tradingDate) slot=\(due.slot.rawValue) error=\(String(describing: error))")
         }
     }
 }

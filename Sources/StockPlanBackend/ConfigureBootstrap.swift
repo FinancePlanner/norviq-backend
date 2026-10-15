@@ -440,6 +440,7 @@ func registerMigrations(_ app: Application) {
     app.migrations.add(AddSocialFacebookImport())
     app.migrations.add(CreateTerminalPositions())
     app.migrations.add(CreateMarketBriefs())
+    app.migrations.add(CreateMarketBriefNotificationPreferences())
 }
 
 func envBool(_ key: String, default defaultValue: Bool) -> Bool {

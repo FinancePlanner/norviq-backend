@@ -131,4 +131,8 @@ private struct RacingRepository: MarketBriefRepository {
     func find(tradingDate: String, slot: MarketBriefSlot, language: String, on db: any Database) async throws -> MarketBriefResponse? {
         try await inner.find(tradingDate: tradingDate, slot: slot, language: language, on: db)
     }
+
+    func previous(tradingDate: String, slot: MarketBriefSlot, language: String, on db: any Database) async throws -> MarketBriefRef? {
+        try await inner.previous(tradingDate: tradingDate, slot: slot, language: language, on: db)
+    }
 }
