@@ -51,7 +51,7 @@ struct ExpenseImportController: RouteCollection {
         // The daily AI cap is charged only when a model will actually be
         // called; heuristic-only imports shouldn't consume anyone's allowance.
         let provider = req.spreadsheetAnalysisProvider
-        if provider.isEnabled {
+        if provider.isEnabled, try await AIConsent.isAllowed(userId: session.userId, req: req) {
             try await AIDailyCap.enforce(
                 req,
                 userId: session.userId,

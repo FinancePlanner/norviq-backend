@@ -22,14 +22,7 @@ struct RateLimitMiddleware: AsyncMiddleware {
             return try await next.respond(to: request)
         }
 
-        // Key by authenticated user when available so shared egress IPs (e.g. the
-        // MCP service proxying many users) don't exhaust a single bucket.
-        let identifier: String = if let session = request.auth.get(SessionToken.self) {
-            "user:\(session.userId.uuidString)"
-        } else {
-            request.remoteAddress?.ipAddress ?? "unknown"
-        }
-        let key = RedisKey("\(keyPrefix):\(identifier)")
+        let key = RedisKey("\(keyPrefix):\(Self.identifier(for: request))")
         let count: Int
         do {
             count = try await Self.incrementWithWindow(key, interval: interval, on: request.redis)
@@ -45,6 +38,17 @@ struct RateLimitMiddleware: AsyncMiddleware {
             throw Abort(.tooManyRequests, reason: "Rate limit exceeded. Please try again later.")
         }
         return try await next.respond(to: request)
+    }
+
+    /// The bucket a request counts against. Key by authenticated user when
+    /// available so shared egress IPs (e.g. the MCP service proxying many
+    /// users) don't exhaust a single bucket; otherwise by the real client IP,
+    /// not the proxy in front of us (see `ClientIP`).
+    static func identifier(for request: Request) -> String {
+        if let session = request.auth.get(SessionToken.self) {
+            return "user:\(session.userId.uuidString)"
+        }
+        return ClientIP.resolve(request) ?? "unknown"
     }
 
     /// INCR the bucket and guarantee it carries a TTL, in one round trip.

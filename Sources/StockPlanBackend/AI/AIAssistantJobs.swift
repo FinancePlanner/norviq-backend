@@ -34,6 +34,12 @@ final class AIAssistantRetentionJob: LifecycleHandler, @unchecked Sendable {
                 action.status = "expired"
                 try await action.save(on: app.db)
             }
+            // Proposed actions carry the user's arguments and summaries. Kept
+            // 30 days like conversations (privacy policy), whatever their
+            // status; their audit rows cascade with them.
+            if let actionCutoff = Calendar(identifier: .gregorian).date(byAdding: .day, value: -30, to: now) {
+                try await AIPendingAction.query(on: app.db).filter(\.$createdAt < actionCutoff).delete()
+            }
 
             let calendar = Calendar(identifier: .gregorian)
             if let usageCutoff = calendar.date(byAdding: .month, value: -14, to: now) {
@@ -49,16 +55,30 @@ final class AIAssistantRetentionJob: LifecycleHandler, @unchecked Sendable {
 }
 
 final class AIDailyTipJob: LifecycleHandler, @unchecked Sendable {
-    private struct ResponsesRequest: Content {
+    struct ResponsesRequest: Content {
         let model: String
         let input: String
         let store: Bool
         let maxOutputTokens: Int
+        /// See `OpenRouterProviderPreferences`; nil (and omitted) elsewhere.
+        var provider: OpenRouterProviderPreferences?
 
         enum CodingKeys: String, CodingKey {
-            case model, input, store
+            case model, input, store, provider
             case maxOutputTokens = "max_output_tokens"
         }
+    }
+
+    /// The tips request body. Built here so the OpenRouter data policy is
+    /// applied (and testable) the same way as on the chat client.
+    static func tipsRequest(model: String, input: String, baseURL: String) -> ResponsesRequest {
+        ResponsesRequest(
+            model: model,
+            input: input,
+            store: false,
+            maxOutputTokens: 350,
+            provider: OpenRouterProviderPreferences.forBaseURL(baseURL)
+        )
     }
 
     private struct ResponsesResponse: Content {
@@ -95,10 +115,18 @@ final class AIDailyTipJob: LifecycleHandler, @unchecked Sendable {
         scheduled = nil
     }
 
-    func runOnce(_ app: Application) async {
+    struct RunSummary: Equatable, Sendable {
+        var considered = 0
+        /// Pro users with tips on who have not consented to AI data sharing.
+        var skippedNoConsent = 0
+    }
+
+    @discardableResult
+    func runOnce(_ app: Application) async -> RunSummary {
+        var summary = RunSummary()
         guard AICostControls.proactiveTipsEnabled else {
             app.logger.info("ai_assistant.daily_tips_skipped reason=disabled")
-            return
+            return summary
         }
         do {
             let preferences = try await AIAssistantPreference.query(on: app.db)
@@ -108,6 +136,11 @@ final class AIDailyTipJob: LifecycleHandler, @unchecked Sendable {
                 do {
                     let billing = try await app.billingContextService.context(userId: preference.userId, on: app.db)
                     guard billing.isPro else { continue }
+                    guard try await AIConsent.isAllowed(userId: preference.userId, on: app.db) else {
+                        summary.skippedNoConsent += 1
+                        continue
+                    }
+                    summary.considered += 1
                     try await generateIfMeaningful(for: preference.userId, app: app)
                 } catch {
                     app.logger.warning("ai_assistant.daily_tip_user_failed user_id=\(preference.userId) error=\(error)")
@@ -116,6 +149,10 @@ final class AIDailyTipJob: LifecycleHandler, @unchecked Sendable {
         } catch {
             app.logger.error("ai_assistant.daily_tips_failed error=\(error)")
         }
+        if summary.skippedNoConsent > 0 {
+            app.logger.info("ai_assistant.daily_tips_skipped reason=no_ai_consent count=\(summary.skippedNoConsent)")
+        }
+        return summary
     }
 
     private func generateIfMeaningful(for userId: UUID, app: Application) async throws {
@@ -177,7 +214,7 @@ final class AIDailyTipJob: LifecycleHandler, @unchecked Sendable {
         let provider = AIProviderConfiguration.load()
         let response = try await app.client.post(URI(string: "\(provider.baseURL)/responses")) { request in
             request.headers.bearerAuthorization = .init(token: provider.apiKey)
-            try request.content.encode(ResponsesRequest(model: provider.tipsModel, input: prompt, store: false, maxOutputTokens: 350))
+            try request.content.encode(Self.tipsRequest(model: provider.tipsModel, input: prompt, baseURL: provider.baseURL))
         }
         guard response.status == .ok else {
             throw Abort(.badGateway, reason: "OpenAI Responses API returned \(response.status.code).")

@@ -171,7 +171,7 @@ struct GoCardlessProvider: BankProvider {
 
     func disconnect(connection: BankConnection, on req: Request) async throws {
         let token = try await client.newAccessToken(on: req)
-        try? await client.deleteRequisition(id: connection.providerItemId, accessToken: token, on: req)
+        try await client.deleteRequisition(id: connection.providerItemId, accessToken: token, on: req)
     }
 
     // MARK: - Helpers

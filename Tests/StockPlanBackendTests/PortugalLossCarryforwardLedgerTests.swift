@@ -11,7 +11,7 @@ struct PortugalLossCarryforwardLedgerTests {
     @Test
     func `consumes oldest balances and repeated reconciliation is idempotent`() async throws {
         try await withApp { app in
-            let userId = UUID()
+            let userId = try await makeUser(on: app.db)
             try await createBalance(userId: userId, year: 2021, amount: 1000, on: app.db)
             try await createBalance(userId: userId, year: 2022, amount: 500, on: app.db)
             let result = capitalGainsResult(balance: 2000, applied: 1200)
@@ -61,7 +61,7 @@ struct PortugalLossCarryforwardLedgerTests {
     @Test
     func `excludes balances after the fifth following tax year`() async throws {
         try await withApp { app in
-            let userId = UUID()
+            let userId = try await makeUser(on: app.db)
             try await createBalance(userId: userId, year: 2018, amount: 900, on: app.db)
             try await createBalance(userId: userId, year: 2019, amount: 400, on: app.db)
             #expect(try await ledger.available(userId: userId, taxYear: 2024, on: app.db) == 400)
@@ -71,7 +71,7 @@ struct PortugalLossCarryforwardLedgerTests {
     @Test
     func `upserts a recalculated source year without duplicating it`() async throws {
         try await withApp { app in
-            let userId = UUID()
+            let userId = try await makeUser(on: app.db)
             try await ledger.reconcile(
                 userId: userId,
                 taxYear: 2026,
@@ -114,6 +114,17 @@ struct PortugalLossCarryforwardLedgerTests {
             }
             try await app.asyncShutdown()
         }
+    }
+
+    /// `tax_loss_carryforwards.user_id` references users, so balances need a real owner.
+    private func makeUser(on db: any Database) async throws -> UUID {
+        let id = UUID()
+        try await User(
+            id: id,
+            email: "ledger_\(id.uuidString.prefix(8).lowercased())@example.com",
+            passwordHash: "not-a-real-hash"
+        ).create(on: db)
+        return id
     }
 
     private func createBalance(

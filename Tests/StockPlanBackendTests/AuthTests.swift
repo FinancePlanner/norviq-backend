@@ -2,6 +2,7 @@ import Crypto
 import Fluent
 import Foundation
 import Logging
+import SQLKit
 @testable import StockPlanBackend
 import Testing
 import VaporTesting
@@ -751,6 +752,226 @@ struct AuthTests {
     @Test("OAuth exchange links verified X email to existing account")
     func oauthExchangeLinksVerifiedXEmailToExistingAccount() async throws {
         try await assertOAuthLinksVerifiedExistingEmail(provider: .x)
+    }
+
+    // MARK: - Pre-hijack guard
+
+    private func login(_ app: Application, email: String, password: String) async throws -> HTTPStatus {
+        var status: HTTPStatus = .internalServerError
+        try await app.testing().test(.POST, "v1/auth/login", beforeRequest: { req in
+            try req.content.encode(AuthLoginRequest(email: email, password: password))
+        }, afterResponse: { res async in
+            status = res.status
+        })
+        return status
+    }
+
+    private func refreshStatus(_ app: Application, refreshToken: String) async throws -> HTTPStatus {
+        var status: HTTPStatus = .internalServerError
+        try await app.testing().test(.POST, "v1/auth/refresh", beforeRequest: { req in
+            try req.content.encode(AuthRefreshRequest(refreshToken: refreshToken))
+        }, afterResponse: { res async in
+            status = res.status
+        })
+        return status
+    }
+
+    @Test("OAuth sign-in to an unverified password account ends the squatter's password and sessions")
+    func oauthNeutralizesSquattedAccount() async throws {
+        try await withApp { app in
+            let email = "victim@example.com"
+            // The attacker registers the victim's address first.
+            let squatter = try await makeAuthenticatedUser(app: app, email: email, username: "squatter")
+            let squatterPAT = PersonalAccessToken(
+                userId: squatter.userId, name: "squatter", tokenHash: sha256("nvq_pat_squatter"),
+                scopes: ["portfolio:read"], expiresAt: Date().addingTimeInterval(86400)
+            )
+            try await squatterPAT.save(on: app.db)
+            // Everything else a squatter could attach to come back later.
+            // Raw insert: the model's UInt32 sign count trips PostgresNIO's
+            // debug-build assertion on save.
+            let sql = try #require(app.db as? any SQLDatabase)
+            try await sql.raw("""
+            INSERT INTO webauthn_credentials (id, user_id, credential_id, public_key, created_at)
+            VALUES (\(bind: UUID()), \(bind: squatter.userId), 'squatter-key', '\\x010203'::bytea, now())
+            """).run()
+            try await MessagingLink(userId: squatter.userId, platform: "telegram", externalID: "666").save(on: app.db)
+            try await MessagingLinkCode(
+                codeHash: Data([9]), userId: squatter.userId, platform: "telegram", expiresAt: Date().addingTimeInterval(600)
+            ).save(on: app.db)
+            try await PortfolioShareLink(userId: squatter.userId, portfolioListId: nil, slug: "squatter-share").save(on: app.db)
+            let mailer = RecordingMailerService()
+            app.mailer = mailer
+            #expect(try await User.find(squatter.userId, on: app.db)?.emailVerifiedAt == nil)
+
+            // Later the victim signs in with Google, which vouches for the address.
+            configureFakeOAuthProvider(
+                app,
+                provider: .google,
+                identity: OAuthIdentityInfo(
+                    providerUserID: "google-victim", email: email, emailVerified: true, suggestedUsername: "victim"
+                )
+            )
+            let exchangeReq = try await makeOAuthExchangeRequest(app: app, provider: .google)
+            var victim: AuthResponse?
+            try await app.testing().test(.POST, "v1/auth/oauth/google/exchange", beforeRequest: { req in
+                try req.content.encode(exchangeReq)
+            }, afterResponse: { res async throws in
+                #expect(res.status == .ok)
+                victim = try res.content.decode(AuthResponse.self)
+            })
+            let victimAuth = try #require(victim)
+            #expect(victimAuth.userId == squatter.userId)
+
+            #expect(try await login(app, email: email, password: "Password123!") == .unauthorized)
+            #expect(try await refreshStatus(app, refreshToken: squatter.refreshToken) == .unauthorized)
+            #expect(try await PersonalAccessToken.find(squatterPAT.requireID(), on: app.db)?.revokedAt != nil)
+            // The squatter's access JWT is dead too, not just left to its TTL.
+            try await app.testing().test(.GET, "v1/auth/me", beforeRequest: { req in
+                req.headers.bearerAuthorization = .init(token: squatter.token)
+            }, afterResponse: { res async in
+                #expect(res.status == .unauthorized)
+            })
+            #expect(try await WebAuthnCredential.query(on: app.db).filter(\.$user.$id == squatter.userId).count() == 0)
+            #expect(try await MessagingLink.query(on: app.db).filter(\.$userId == squatter.userId).count() == 0)
+            #expect(try await MessagingLinkCode.query(on: app.db).filter(\.$userId == squatter.userId).count() == 0)
+            #expect(try await PortfolioShareLink.query(on: app.db).filter(\.$userId == squatter.userId).count() == 0)
+            let notices = await mailer.messages()
+            #expect(notices.count == 1)
+            #expect(notices.first?.to == email)
+            #expect(notices.first?.body.contains("Google") == true)
+            #expect(notices.first?.body.contains("password reset") == true)
+            // The session the victim was just given still works.
+            #expect(try await refreshStatus(app, refreshToken: victimAuth.refreshToken) == .ok)
+            try await app.testing().test(.GET, "v1/auth/me", beforeRequest: { req in
+                req.headers.bearerAuthorization = .init(token: victimAuth.token)
+            }, afterResponse: { res async in
+                #expect(res.status == .ok)
+            })
+
+            let user = try #require(try await User.find(squatter.userId, on: app.db))
+            #expect(user.emailVerifiedAt != nil)
+            #expect(user.passwordSetAt == nil)
+        }
+    }
+
+    @Test("OAuth sign-in to an already verified account links without touching the password")
+    func oauthLinksVerifiedAccountKeepingPassword() async throws {
+        try await withApp { app in
+            let email = "verified-owner@example.com"
+            let owner = try await makeAuthenticatedUser(app: app, email: email, username: "verified_owner")
+            let user = try #require(try await User.find(owner.userId, on: app.db))
+            user.emailVerifiedAt = Date()
+            try await user.save(on: app.db)
+
+            configureFakeOAuthProvider(
+                app,
+                provider: .google,
+                identity: OAuthIdentityInfo(
+                    providerUserID: "google-verified-owner", email: email, emailVerified: true, suggestedUsername: nil
+                )
+            )
+            let exchangeReq = try await makeOAuthExchangeRequest(app: app, provider: .google)
+            try await app.testing().test(.POST, "v1/auth/oauth/google/exchange", beforeRequest: { req in
+                try req.content.encode(exchangeReq)
+            }, afterResponse: { res async in
+                #expect(res.status == .ok)
+            })
+
+            #expect(try await login(app, email: email, password: "Password123!") == .ok)
+            #expect(try await refreshStatus(app, refreshToken: owner.refreshToken) == .ok)
+        }
+    }
+
+    @Test("OAuth-created users are email-verified and have no password of their own")
+    func oauthCreatedUserIsVerifiedWithoutPassword() async throws {
+        try await withApp { app in
+            configureFakeOAuthProvider(
+                app,
+                provider: .apple,
+                identity: OAuthIdentityInfo(
+                    providerUserID: "apple-fresh", email: "fresh@example.com", emailVerified: true, suggestedUsername: nil
+                )
+            )
+            let exchangeReq = try await makeOAuthExchangeRequest(app: app, provider: .apple)
+            var created: AuthResponse?
+            try await app.testing().test(.POST, "v1/auth/oauth/apple/exchange", beforeRequest: { req in
+                try req.content.encode(exchangeReq)
+            }, afterResponse: { res async throws in
+                #expect(res.status == .ok)
+                created = try res.content.decode(AuthResponse.self)
+            })
+            let createdId = try #require(created).userId
+            let user = try #require(try await User.find(createdId, on: app.db))
+            #expect(user.emailVerifiedAt != nil)
+            #expect(user.passwordSetAt == nil)
+
+            let registered = try await makeAuthenticatedUser(app: app, email: "pw@example.com", username: "pw_user")
+            let pwUser = try #require(try await User.find(registered.userId, on: app.db))
+            #expect(pwUser.emailVerifiedAt == nil)
+            #expect(pwUser.passwordSetAt != nil)
+        }
+    }
+
+    @Test("Password reset revokes every session and proves the mailbox")
+    func resetPasswordRevokesSessions() async throws {
+        try await withApp { app in
+            let email = "reset-revokes@example.com"
+            let auth = try await makeAuthenticatedUser(app: app, email: email, username: "reset_revokes")
+            try await app.authRepository.createPasswordResetToken(
+                userId: auth.userId, codeHash: sha256("123456"),
+                expiresAt: Date().addingTimeInterval(600), on: app.db
+            )
+
+            try await app.testing().test(.POST, "v1/auth/reset-password", beforeRequest: { req in
+                try req.content.encode(AuthResetPasswordRequest(email: email, code: "123456", newPassword: "NewPassword123!"))
+            }, afterResponse: { res async in
+                #expect(res.status == .noContent)
+            })
+
+            #expect(try await refreshStatus(app, refreshToken: auth.refreshToken) == .unauthorized)
+            // The access JWT issued before the reset is refused as well.
+            try await app.testing().test(.GET, "v1/auth/me", beforeRequest: { req in
+                req.headers.bearerAuthorization = .init(token: auth.token)
+            }, afterResponse: { res async in
+                #expect(res.status == .unauthorized)
+            })
+            #expect(try await login(app, email: email, password: "NewPassword123!") == .ok)
+            #expect(try await User.find(auth.userId, on: app.db)?.emailVerifiedAt != nil)
+        }
+    }
+
+    @Test("Tokens without iat keep working until the user's first revocation, then stop")
+    func preReleaseTokensSurviveUntilRevocation() async throws {
+        try await withApp { app in
+            let auth = try await makeAuthenticatedUser(app: app, email: "legacy-jwt@example.com", username: "legacy_jwt")
+            // A token as minted before v1.4.1: no iat claim.
+            let legacy = try await app.jwt.keys.sign(SessionToken(
+                userId: auth.userId, exp: .init(value: Date().addingTimeInterval(3600))
+            ))
+            func meStatus(_ token: String) async throws -> HTTPStatus {
+                var status: HTTPStatus = .internalServerError
+                try await app.testing().test(.GET, "v1/auth/me", beforeRequest: { req in
+                    req.headers.bearerAuthorization = .init(token: token)
+                }, afterResponse: { res async in
+                    status = res.status
+                })
+                return status
+            }
+            #expect(try await meStatus(legacy) == .ok)
+
+            try await app.authRepository.revokeAllTokens(userId: auth.userId, sparing: nil, on: app.db)
+            #expect(try await meStatus(legacy) == .unauthorized)
+            #expect(try await meStatus(auth.token) == .unauthorized)
+            // A fresh login is issued after the cutoff and works.
+            var fresh: AuthResponse?
+            try await app.testing().test(.POST, "v1/auth/login", beforeRequest: { req in
+                try req.content.encode(AuthLoginRequest(email: "legacy-jwt@example.com", password: "Password123!"))
+            }, afterResponse: { res async throws in
+                fresh = try res.content.decode(AuthResponse.self)
+            })
+            #expect(try await meStatus(#require(fresh).token) == .ok)
+        }
     }
 
     @Test("OAuth exchange does not link unverified email to existing account")

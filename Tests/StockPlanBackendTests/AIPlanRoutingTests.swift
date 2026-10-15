@@ -135,6 +135,11 @@ extension AIEnvironmentSuites {
                     on: app, identifier: "lifetime", email: "LIFETIME@example.com"
                 )
 
+                // The allowlist only counts for a verified address.
+                let user = try #require(try await User.find(auth.userId, on: app.db))
+                user.emailVerifiedAt = Date()
+                try await user.save(on: app.db)
+
                 // No entitlement row, no subscription — the allowlist alone.
                 #expect(try await Entitlement.query(on: app.db).filter(\.$userId == auth.userId).first() == nil)
 

@@ -1,4 +1,5 @@
 import Fluent
+import NIOConcurrencyHelpers
 import StockPlanShared
 import Vapor
 
@@ -42,7 +43,8 @@ protocol BankProvider: Sendable {
     /// Pull new/changed transactions into the staging table.
     func sync(connection: BankConnection, on req: Request) async throws -> BankSyncResult
 
-    /// Revoke access at the provider (best-effort).
+    /// Revoke access at the provider. Throws when the provider refuses, so the
+    /// caller can log it; callers treat it as best-effort and never block on it.
     func disconnect(connection: BankConnection, on req: Request) async throws
 
     // MARK: - Hosted-link flow (GoCardless / EU)
@@ -114,5 +116,62 @@ extension Application {
 extension Request {
     var bankProviderRegistry: BankProviderRegistry {
         application.bankProviderRegistry
+    }
+}
+
+/// Best-effort revocation at the bank aggregator (Plaid `/item/remove`,
+/// GoCardless requisition delete). A failure is logged, never thrown: the
+/// local disconnect or account deletion must still go through. Each call is
+/// capped (`timeout`), so a hung provider cannot hold a deletion open.
+enum BankConnectionRevoker {
+    struct TimedOut: Error {}
+
+    static func revoke(_ connection: BankConnection, on req: Request, timeout: Duration = .seconds(10)) async {
+        let connectionId = connection.id?.uuidString ?? "unknown"
+        do {
+            let kind = BankProviderKind(rawValue: connection.provider) ?? .plaid
+            let provider = try req.bankProviderRegistry.provider(for: kind)
+            // Not a task group: a group waits for every child, and an HTTP call
+            // that ignores cancellation would hold it open past the deadline.
+            // Whichever finishes first resumes; the loser is cancelled and left.
+            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, any Error>) in
+                let once = ResumeOnce(continuation)
+                let work = Task {
+                    do {
+                        try await provider.disconnect(connection: connection, on: req)
+                        once.resume(with: .success(()))
+                    } catch {
+                        once.resume(with: .failure(error))
+                    }
+                }
+                Task {
+                    try? await Task.sleep(for: timeout)
+                    work.cancel()
+                    once.resume(with: .failure(TimedOut()))
+                }
+            }
+        } catch {
+            req.logger.warning(
+                "bank.revoke_failed provider=\(connection.provider) connection_id=\(connectionId) error_type=\(String(reflecting: type(of: error)))"
+            )
+        }
+    }
+}
+
+/// Resumes a continuation exactly once, from whichever caller gets there first.
+private final class ResumeOnce: @unchecked Sendable {
+    private let lock = NIOLock()
+    private var continuation: CheckedContinuation<Void, any Error>?
+
+    init(_ continuation: CheckedContinuation<Void, any Error>) {
+        self.continuation = continuation
+    }
+
+    func resume(with result: Result<Void, any Error>) {
+        let pending: CheckedContinuation<Void, any Error>? = lock.withLock {
+            defer { continuation = nil }
+            return continuation
+        }
+        pending?.resume(with: result)
     }
 }

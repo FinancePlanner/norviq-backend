@@ -23,8 +23,9 @@ final class DataExportCleanupJob: LifecycleHandler, @unchecked Sendable {
                 defer { self.state.finish() }
                 do {
                     let db = app.db(.psql)
-                    let cutoffDate = Calendar.current.date(byAdding: .day, value: -7, to: Date())!
-                    let deletedCount = try await self.repository.deleteExpired(before: cutoffDate, on: db)
+                    // `expires_at` is already creation + 7 days: delete at expiry,
+                    // not a further week later.
+                    let deletedCount = try await self.repository.deleteExpired(before: Date(), on: db)
                     if deletedCount > 0 {
                         app.logger.info("data_export.cleanup deleted=\(deletedCount)")
                     }

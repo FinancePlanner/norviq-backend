@@ -43,16 +43,16 @@ struct CommunityValidationTests {
 struct BoardsRouteTests {
     static let adminEmail = "brd+admin@example.com"
 
-    private func withApp(admins: String? = BoardsRouteTests.adminEmail, _ test: (Application) async throws -> Void) async throws {
+    /// `admins: true` arms the allowlist: the user registered as "admin" is
+    /// added to `NORVIQ_ADMIN_USER_IDS` (ids only exist after registration).
+    private func withApp(admins: Bool = true, _ test: (Application) async throws -> Void) async throws {
         try await DatabaseTestLock.withLock {
-            if let admins {
-                setenv("NORVIQ_ADMIN_EMAILS", admins, 1)
+            if admins {
+                setenv("NORVIQ_ADMIN_USER_IDS", "", 1)
             } else {
-                unsetenv("NORVIQ_ADMIN_EMAILS")
+                unsetenv("NORVIQ_ADMIN_USER_IDS")
             }
-            unsetenv("INSIGHTS_ADMIN_EMAILS")
-            unsetenv("SOCIAL_MODERATOR_EMAILS")
-            defer { unsetenv("NORVIQ_ADMIN_EMAILS") }
+            defer { unsetenv("NORVIQ_ADMIN_USER_IDS") }
             let app = try await Application.make(.testing)
             do {
                 try await configure(app)
@@ -95,7 +95,11 @@ struct BoardsRouteTests {
             #expect(res.status == .ok)
             response = try res.content.decode(AuthResponse.self)
         })
-        return try #require(response)
+        let auth = try #require(response)
+        if id == "admin", let current = ProcessInfo.processInfo.environment["NORVIQ_ADMIN_USER_IDS"] {
+            setenv("NORVIQ_ADMIN_USER_IDS", current.isEmpty ? auth.userId.uuidString : "\(current),\(auth.userId.uuidString)", 1)
+        }
+        return auth
     }
 
     private func send(
@@ -394,24 +398,35 @@ struct BoardsRouteTests {
         }
     }
 
-    @Test("One admin list: the legacy social moderator list grants Boards admin too")
-    func legacyModeratorListIsAdmin() async throws {
-        try await withApp(admins: nil) { app in
-            setenv("SOCIAL_MODERATOR_EMAILS", Self.adminEmail, 1)
-            defer { unsetenv("SOCIAL_MODERATOR_EMAILS") }
+    @Test("One admin list, by user id: Boards and social moderation both read it")
+    func userIDListIsTheOnlyAdminList() async throws {
+        try await withApp(admins: false) { app in
             let admin = try await register(app, "admin")
+
+            // The retired email lists grant nothing, even naming the user.
+            setenv("NORVIQ_ADMIN_EMAILS", Self.adminEmail, 1)
+            setenv("INSIGHTS_ADMIN_EMAILS", Self.adminEmail, 1)
+            setenv("SOCIAL_MODERATOR_EMAILS", Self.adminEmail, 1)
+            defer {
+                unsetenv("NORVIQ_ADMIN_EMAILS")
+                unsetenv("INSIGHTS_ADMIN_EMAILS")
+                unsetenv("SOCIAL_MODERATOR_EMAILS")
+            }
+            #expect(try await send(app, .GET, "v1/admin/community/sanctions", as: admin).status == .forbidden)
+            #expect(try await send(app, .GET, "v1/admin/social/reports", as: admin).status == .forbidden)
+
+            setenv("NORVIQ_ADMIN_USER_IDS", " \(admin.userId.uuidString) ,not-a-uuid", 1)
             #expect(try await send(app, .GET, "v1/admin/community/sanctions", as: admin).status == .ok)
             #expect(try await send(app, .GET, "v1/admin/social/reports", as: admin).status == .ok)
 
-            // NORVIQ_ADMIN_EMAILS, once set, is the whole list.
-            setenv("NORVIQ_ADMIN_EMAILS", "someone-else@example.com", 1)
+            setenv("NORVIQ_ADMIN_USER_IDS", UUID().uuidString, 1)
             #expect(try await send(app, .GET, "v1/admin/social/reports", as: admin).status == .forbidden)
         }
     }
 
     @Test("With no admin list configured, nobody is an admin")
     func adminFailsClosed() async throws {
-        try await withApp(admins: nil) { app in
+        try await withApp(admins: false) { app in
             let admin = try await register(app, "admin")
             #expect(try await send(app, .GET, "v1/admin/community/sanctions", as: admin).status == .forbidden)
         }

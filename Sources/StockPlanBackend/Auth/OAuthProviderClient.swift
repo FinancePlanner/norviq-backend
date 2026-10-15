@@ -132,20 +132,20 @@ struct GoogleOAuthProviderClient: OAuthProviderClient {
 
         let rawBody = oauthExtractBody(from: tokenResponse)
         guard tokenResponse.status == HTTPStatus.ok else {
-            req.logger.warning("Google token exchange non-200 (\(tokenResponse.status.code)): \(rawBody)")
+            req.logger.warning("Google token exchange non-200 (\(tokenResponse.status.code)) body_bytes=\(rawBody.utf8.count)")
             throw Abort(
                 .badGateway,
-                reason: "Google token exchange failed (\(tokenResponse.status.code)): \(rawBody)"
+                reason: "Google token exchange failed (\(tokenResponse.status.code))"
             )
         }
         if let providerError = oauthDetectProviderError(in: tokenResponse, provider: "Google") {
-            req.logger.warning("Google token exchange returned 200 with error body: \(rawBody)")
+            req.logger.warning("Google token exchange returned 200 with error body, body_bytes=\(rawBody.utf8.count)")
             throw providerError
         }
 
         let token: TokenResponse = try oauthDecodeProviderJSON(TokenResponse.self, from: tokenResponse, provider: "Google")
         guard let idToken = token.idToken?.trimmedNonEmpty else {
-            req.logger.warning("Google token exchange 200 but missing id_token. Body: \(rawBody)")
+            req.logger.warning("Google token exchange 200 but missing id_token body_bytes=\(rawBody.utf8.count)")
             throw Abort(.badGateway, reason: "Google token exchange did not return id_token")
         }
 
@@ -321,20 +321,20 @@ struct AppleOAuthProviderClient: OAuthProviderClient {
 
         let rawBody = oauthExtractBody(from: tokenResponse)
         guard tokenResponse.status == HTTPStatus.ok else {
-            req.logger.warning("Apple token exchange non-200 (\(tokenResponse.status.code)): \(rawBody)")
+            req.logger.warning("Apple token exchange non-200 (\(tokenResponse.status.code)) body_bytes=\(rawBody.utf8.count)")
             throw Abort(
                 .badGateway,
-                reason: "Apple token exchange failed (\(tokenResponse.status.code)): \(rawBody)"
+                reason: "Apple token exchange failed (\(tokenResponse.status.code))"
             )
         }
         if let providerError = oauthDetectProviderError(in: tokenResponse, provider: "Apple") {
-            req.logger.warning("Apple token exchange returned 200 with error body: \(rawBody)")
+            req.logger.warning("Apple token exchange returned 200 with error body, body_bytes=\(rawBody.utf8.count)")
             throw providerError
         }
 
         let token: TokenResponse = try oauthDecodeProviderJSON(TokenResponse.self, from: tokenResponse, provider: "Apple")
         guard let idToken = token.idToken?.trimmedNonEmpty else {
-            req.logger.warning("Apple token exchange 200 but missing id_token. Body: \(rawBody)")
+            req.logger.warning("Apple token exchange 200 but missing id_token body_bytes=\(rawBody.utf8.count)")
             throw Abort(.badGateway, reason: "Apple token exchange did not return id_token")
         }
 
@@ -500,14 +500,14 @@ struct XOAuthProviderClient: OAuthProviderClient {
 
         let rawTokenBody = oauthExtractBody(from: tokenResponse)
         guard tokenResponse.status == HTTPStatus.ok else {
-            req.logger.warning("X token exchange non-200 (\(tokenResponse.status.code)): \(rawTokenBody)")
+            req.logger.warning("X token exchange non-200 (\(tokenResponse.status.code)) body_bytes=\(rawTokenBody.utf8.count)")
             throw Abort(
                 .badGateway,
-                reason: "X token exchange failed (\(tokenResponse.status.code)): \(rawTokenBody)"
+                reason: "X token exchange failed (\(tokenResponse.status.code))"
             )
         }
         if let providerError = oauthDetectProviderError(in: tokenResponse, provider: "X") {
-            req.logger.warning("X token exchange returned 200 with error body: \(rawTokenBody)")
+            req.logger.warning("X token exchange returned 200 with error body, body_bytes=\(rawTokenBody.utf8.count)")
             throw providerError
         }
 
@@ -516,7 +516,7 @@ struct XOAuthProviderClient: OAuthProviderClient {
         // and silently drops the token.
         let token = try oauthDecodeProviderJSON(TokenResponse.self, from: tokenResponse, provider: "X")
         guard let accessToken = token.accessToken?.trimmedNonEmpty else {
-            req.logger.warning("X token exchange 200 but missing access_token. Body: \(rawTokenBody)")
+            req.logger.warning("X token exchange 200 but missing access_token body_bytes=\(rawTokenBody.utf8.count)")
             throw Abort(.badGateway, reason: "X token exchange did not return an access token")
         }
 
@@ -527,10 +527,10 @@ struct XOAuthProviderClient: OAuthProviderClient {
 
         guard userResponse.status == HTTPStatus.ok else {
             let rawUserBody = oauthExtractBody(from: userResponse)
-            req.logger.warning("X user profile non-200 (\(userResponse.status.code)): \(rawUserBody)")
+            req.logger.warning("X user profile non-200 (\(userResponse.status.code)) body_bytes=\(rawUserBody.utf8.count)")
             throw Abort(
                 .badGateway,
-                reason: "X user profile request failed (\(userResponse.status.code)): \(rawUserBody)"
+                reason: "X user profile request failed (\(userResponse.status.code))"
             )
         }
 

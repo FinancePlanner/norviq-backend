@@ -1020,6 +1020,18 @@ struct BillingTests {
                 registerUser(on: app, identifier: "premium-email-xyz", email: "XYZ@gmail.com"),
             ]
 
+            // Unverified, the listed address grants nothing: anyone could
+            // register it. Only the trial tier applies.
+            for auth in premiumUsers {
+                let entitlement = try await app.entitlementResolver.resolve(userId: auth.userId, on: app.db)
+                #expect(entitlement.level != "pro")
+            }
+            for auth in premiumUsers {
+                let user = try #require(try await User.find(auth.userId, on: app.db))
+                user.emailVerifiedAt = Date()
+                try await user.save(on: app.db)
+            }
+
             for auth in premiumUsers {
                 let entitlement = try await app.entitlementResolver.resolve(userId: auth.userId, on: app.db)
                 #expect(entitlement.level == "pro")

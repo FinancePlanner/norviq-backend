@@ -156,6 +156,8 @@ struct DefaultAuthService: AuthService {
                 username: normalizedUsername,
                 email: normalizedEmail,
                 passwordHash: hash,
+                passwordSetAt: Date(),
+                emailVerifiedAt: nil,
                 dateOfBirth: dateOfBirth,
                 on: req.db
             )
@@ -167,7 +169,7 @@ struct DefaultAuthService: AuthService {
         try await initializeDefaultTrialIfNeeded(for: user, on: req)
 
         Task {
-            try? await req.discord.send("🎉 New user registered: \(normalizedEmail)", on: req)
+            try? await req.discord.send("🎉 New user registered (password)", on: req)
         }
 
         return try await makeAuthResponse(for: user, on: req)
@@ -233,6 +235,15 @@ struct DefaultAuthService: AuthService {
             user.failedLoginAttempts = 0
             user.lockoutUntil = nil
             try await persistUser(user, on: req)
+        }
+
+        // A concurrent reset or takeover guard may have replaced the hash
+        // while bcrypt ran. The password just verified is then stale: refuse.
+        guard let userId = user.id,
+              let current = try await repo.findUser(id: userId, on: req.db),
+              current.passwordHash == user.passwordHash
+        else {
+            throw Abort(.unauthorized, reason: "Invalid email or password")
         }
 
         // 4. Check for email verification
@@ -307,8 +318,18 @@ struct DefaultAuthService: AuthService {
         }
 
         user.passwordHash = try await req.password.async.hash(newPassword).get()
-        try await persistUser(user, on: req)
-        try await repo.markPasswordResetTokenUsed(resetToken, usedAt: now, on: req.db)
+        user.passwordSetAt = now
+        // The code arrived by email, so the reset also proves the mailbox.
+        user.emailVerifiedAt = user.emailVerifiedAt ?? now
+        // One transaction: a new password must never land without the
+        // revocation that goes with it.
+        try await req.db.transaction { db in
+            try await persistUser(user, on: db, req: req)
+            try await repo.markPasswordResetTokenUsed(resetToken, usedAt: now, on: db)
+            // A reset is what someone does when they think the account is
+            // compromised: whatever sessions exist were opened with the old password.
+            try await repo.revokeAllTokens(userId: userId, sparing: nil, on: db)
+        }
 
         return .noContent
     }
@@ -327,6 +348,13 @@ struct DefaultAuthService: AuthService {
 
         guard let user = try await repo.findUser(id: storedToken.userId, on: req.db) else {
             throw Abort(.unauthorized, reason: "User not found")
+        }
+        // Belt and braces for revokeAllTokens: a token minted before the
+        // user's last revocation is dead even if its row escaped the update.
+        if let validAfter = user.sessionsValidAfter,
+           (storedToken.createdAt ?? .distantPast) < validAfter
+        {
+            throw Abort(.unauthorized, reason: "Invalid refresh token")
         }
 
         try await repo.revokeRefreshToken(storedToken, revokedAt: now, on: req.db)
@@ -485,6 +513,10 @@ struct DefaultAuthService: AuthService {
                 throw Abort(.conflict, reason: "ACCOUNT_EXISTS_LINK_REQUIRED")
             }
 
+            if existingUser.emailVerifiedAt == nil {
+                try await neutralizeUnverifiedAccount(existingUser, provider: provider, now: now, on: req)
+            }
+
             _ = try await createOAuthIdentity(
                 for: existingUser,
                 provider: provider,
@@ -516,13 +548,15 @@ struct DefaultAuthService: AuthService {
             username: oauthUsername,
             email: resolvedUserEmail,
             passwordHash: oauthPasswordHash,
+            passwordSetAt: nil,
+            emailVerifiedAt: now,
             dateOfBirth: defaultDateOfBirth(),
             on: req.db
         )
         try await initializeDefaultTrialIfNeeded(for: user, on: req)
 
         Task {
-            try? await req.discord.send("🎉 New user registered via OAuth: \(resolvedUserEmail)", on: req)
+            try? await req.discord.send("🎉 New user registered (oauth)", on: req)
         }
 
         _ = try await createOAuthIdentity(
@@ -655,6 +689,12 @@ struct DefaultAuthService: AuthService {
             email: normalizedIdentityEmail,
             on: req
         )
+        // The signed-in user just proved, through the provider, that they
+        // control the account's email.
+        if user.emailVerifiedAt == nil {
+            user.emailVerifiedAt = now
+            try await persistUser(user, on: req)
+        }
 
         return OAuthLinkResponse(
             provider: provider,
@@ -747,6 +787,59 @@ struct DefaultAuthService: AuthService {
 
     // MARK: - Internals
 
+    /// Pre-hijack guard. Nobody ever proved control of this account's email,
+    /// and a provider has just vouched for it on someone's behalf. Whoever set
+    /// the password may be a squatter who registered the victim's address
+    /// before the victim signed in with Google or Apple, so that password and
+    /// every session it opened end here, along with anything else a squatter
+    /// could have attached to reach the account later: passkeys, Telegram
+    /// links and public portfolio share links. A real owner can still reset
+    /// the password by email, and is told what happened.
+    private func neutralizeUnverifiedAccount(
+        _ user: User,
+        provider: OAuthProvider,
+        now: Date,
+        on req: Request
+    ) async throws {
+        guard let userId = user.id else {
+            throw Abort(.internalServerError, reason: "User id missing")
+        }
+        user.passwordHash = try await req.password.async.hash(randomURLSafeString(length: 48)).get()
+        user.passwordSetAt = nil
+        user.emailVerifiedAt = now
+        try await req.db.transaction { db in
+            try await persistUser(user, on: db, req: req)
+            try await repo.revokeAllTokens(userId: userId, sparing: nil, on: db)
+            try await WebAuthnCredential.query(on: db).filter(\.$user.$id == userId).delete()
+            try await MessagingLink.query(on: db).filter(\.$userId == userId).delete()
+            try await MessagingLinkCode.query(on: db).filter(\.$userId == userId).delete()
+            try await PortfolioShareLink.query(on: db).filter(\.$userId == userId).delete()
+        }
+        req.logger.warning("auth.oauth unverified_account_secured user_id=\(userId.uuidString)")
+
+        // After the commit, and best-effort: the account is already safe.
+        let providerName = Self.providerDisplayName(provider)
+        let notice = MailMessage(
+            to: normalizeEmail(user.email),
+            subject: "We secured your Norviq account",
+            body: "We secured your account: a sign-in with \(providerName) verified your email, so any password or passkey set before was removed. Use password reset if you want a password.",
+            purpose: "account_secured"
+        )
+        do {
+            try await req.application.mailer.send(notice, on: req)
+        } catch {
+            req.logger.warning("auth.oauth account_secured_notice_failed user_id=\(userId.uuidString)")
+        }
+    }
+
+    private static func providerDisplayName(_ provider: OAuthProvider) -> String {
+        switch provider {
+        case .apple: "Apple"
+        case .google: "Google"
+        case .x: "X"
+        }
+    }
+
     private func createOAuthIdentity(
         for user: User,
         provider: OAuthProvider,
@@ -779,7 +872,11 @@ struct DefaultAuthService: AuthService {
 
         let expiresIn = jwtExpiresInSeconds(from: req)
         let expiration = ExpirationClaim(value: Date().addingTimeInterval(TimeInterval(expiresIn)))
-        let payload = SessionToken(userId: userId, exp: expiration)
+        let payload = SessionToken(
+            userId: userId,
+            exp: expiration,
+            iat: IssuedAtClaim(value: Date())
+        )
         let token = try await req.jwt.sign(payload)
 
         let (refresh, refreshExpiresIn) = try await issueRefreshToken(userId: userId, on: req)
@@ -1170,8 +1267,12 @@ struct DefaultAuthService: AuthService {
     }
 
     private func persistUser(_ user: User, on req: Request) async throws {
+        try await persistUser(user, on: req.db, req: req)
+    }
+
+    private func persistUser(_ user: User, on db: any Database, req: Request) async throws {
         try user.encryptProtectedFields(using: req.userPIIEncryptionService)
-        try await user.save(on: req.db)
+        try await user.save(on: db)
         try user.hydrateProtectedFields(using: req.userPIIEncryptionService)
     }
 

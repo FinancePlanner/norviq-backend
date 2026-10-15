@@ -62,7 +62,11 @@ final class AIAssistantWatchJob: LifecycleHandler, @unchecked Sendable {
         var posted = 0
         var silent = 0
         var failed = 0
+        /// Due, but the owner has not consented to AI data sharing.
+        var skippedNoConsent = 0
     }
+
+    private struct SkippedForAIConsent: Error {}
 
     @discardableResult
     func runOnce(_ app: Application) async -> RunSummary {
@@ -82,10 +86,15 @@ final class AIAssistantWatchJob: LifecycleHandler, @unchecked Sendable {
                 } else {
                     summary.silent += 1
                 }
+            } catch is SkippedForAIConsent {
+                summary.skippedNoConsent += 1
             } catch {
                 summary.failed += 1
                 app.logger.warning("ai_assistant.watch_run_failed watch_id=\(id) error=\(String(reflecting: error).prefix(300))")
             }
+        }
+        if summary.skippedNoConsent > 0 {
+            app.logger.info("ai_assistant.watch_skipped reason=no_ai_consent count=\(summary.skippedNoConsent)")
         }
         return summary
     }
@@ -119,6 +128,11 @@ final class AIAssistantWatchJob: LifecycleHandler, @unchecked Sendable {
     /// Runs one claimed watch. Returns whether a message was posted.
     private func run(watchId: UUID, app: Application) async throws -> Bool {
         guard let watch = try await AIAssistantWatch.find(watchId, on: app.db), watch.enabled else { return false }
+        // Checked before the runner so nothing about the task reaches a model.
+        // The watch stays enabled: it resumes once the user consents.
+        guard try await AIConsent.isAllowed(userId: watch.userId, on: app.db) else {
+            throw SkippedForAIConsent()
+        }
         guard let conversation = try await AIConversation.query(on: app.db)
             .filter(\.$id == watch.conversationId).filter(\.$userId == watch.userId).first()
         else {

@@ -18,8 +18,11 @@ struct UserProfileController: RouteCollection {
 
         users.put(use: updateProfile)
         users.patch("username", use: updateUsername)
-        users.patch("email", use: updateEmail)
-        users.patch("password", use: updatePassword)
+        // Both check the current password: cap guesses per user. Keyed by the
+        // session's user id, since the authenticator has already run.
+        let credentialRateLimit = RateLimitMiddleware(limit: 5, interval: 60, keyPrefix: "ratelimit:credentials")
+        users.grouped(credentialRateLimit).patch("email", use: updateEmail)
+        users.grouped(credentialRateLimit).patch("password", use: updatePassword)
         users.delete(use: deleteProfile)
 
         users.group(":id") { byID in
@@ -49,7 +52,7 @@ struct UserProfileController: RouteCollection {
     @Sendable
     func deleteProfile(req: Request) async throws -> DeleteUserProfileResponse {
         let session = try req.auth.require(SessionToken.self)
-        return try await req.application.userProfileService.delete(userId: session.userId, on: req.db)
+        return try await req.application.userProfileService.delete(userId: session.userId, on: req)
     }
 
     @Sendable
@@ -62,15 +65,21 @@ struct UserProfileController: RouteCollection {
     @Sendable
     func updateEmail(req: Request) async throws -> UpdateUserProfileResponse {
         let session = try req.auth.require(SessionToken.self)
-        let payload = try req.content.decode(UpdateEmailRequest.self)
-        return try await req.application.userProfileService.updateEmail(userId: session.userId, payload: payload, on: req.db)
+        let payload = try req.content.decode(UpdateEmailWithReauthRequest.self)
+        return try await req.application.userProfileService.updateEmail(userId: session.userId, payload: payload, on: req)
     }
 
     @Sendable
     func updatePassword(req: Request) async throws -> APIMessageResponse {
         let session = try req.auth.require(SessionToken.self)
         let payload = try req.content.decode(UpdatePasswordRequest.self)
-        try await req.application.userProfileService.updatePassword(userId: session.userId, payload: payload, on: req)
+        let callerRefreshToken = try? req.content.decode(CallerRefreshToken.self).refreshToken
+        try await req.application.userProfileService.updatePassword(
+            userId: session.userId,
+            payload: payload,
+            callerRefreshToken: callerRefreshToken,
+            on: req
+        )
         return APIMessageResponse(success: true, message: "Password updated successfully")
     }
 
@@ -93,7 +102,7 @@ struct UserProfileController: RouteCollection {
     func deleteProfileByID(req: Request) async throws -> DeleteUserProfileResponse {
         let session = try req.auth.require(SessionToken.self)
         let userId = try requireAuthorizedUserID(req, session: session)
-        return try await req.application.userProfileService.delete(userId: userId, on: req.db)
+        return try await req.application.userProfileService.delete(userId: userId, on: req)
     }
 
     private func requireAuthorizedUserID(_ req: Request, session: SessionToken) throws -> UUID {

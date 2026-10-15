@@ -41,14 +41,15 @@ enum ArticleTestKit {
 
     static func withApp(enabled: Bool = true, _ test: (Application) async throws -> Void) async throws {
         try await DatabaseTestLock.withLock {
-            setenv("NORVIQ_ADMIN_EMAILS", adminEmail, 1)
+            // Armed but empty: whoever registers as `adminEmail` is added to it.
+            setenv("NORVIQ_ADMIN_USER_IDS", "", 1)
             if enabled {
                 setenv("ARTICLES_ENABLED", "true", 1)
             } else {
                 unsetenv("ARTICLES_ENABLED")
             }
             defer {
-                unsetenv("NORVIQ_ADMIN_EMAILS")
+                unsetenv("NORVIQ_ADMIN_USER_IDS")
                 unsetenv("ARTICLES_ENABLED")
             }
             let app = try await Application.make(.testing)
@@ -79,7 +80,12 @@ enum ArticleTestKit {
             #expect(res.status == .ok)
             response = try res.content.decode(AuthResponse.self)
         })
-        return try #require(response)
+        let auth = try #require(response)
+        // The admin allowlist is by user id, which only exists from here on.
+        if email == adminEmail, let current = ProcessInfo.processInfo.environment["NORVIQ_ADMIN_USER_IDS"] {
+            setenv("NORVIQ_ADMIN_USER_IDS", current.isEmpty ? auth.userId.uuidString : "\(current),\(auth.userId.uuidString)", 1)
+        }
+        return auth
     }
 
     /// Registered and past the community guidelines, so they can publish.

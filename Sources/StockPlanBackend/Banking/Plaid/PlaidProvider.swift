@@ -122,7 +122,7 @@ struct PlaidProvider: BankProvider {
     func disconnect(connection: BankConnection, on req: Request) async throws {
         guard let encrypted = connection.accessTokenEnc else { return }
         let accessToken = try req.tokenEncryptionService.decrypt(encrypted, context: .bankPlaid)
-        try? await client.removeItem(accessToken: accessToken, on: req)
+        try await client.removeItem(accessToken: accessToken, on: req)
     }
 
     // MARK: - Upserts

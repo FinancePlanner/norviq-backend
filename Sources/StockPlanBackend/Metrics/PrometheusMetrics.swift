@@ -37,6 +37,8 @@ final class PrometheusMetrics: @unchecked Sendable {
     let scenarioRunsCompleted = ManagedAtomic<Int64>(0)
     let scenarioRunsFailed = ManagedAtomic<Int64>(0)
     let scenarioCacheHits = ManagedAtomic<Int64>(0)
+    /// AI requests let through without consent by the legacy-iOS grace.
+    let aiConsentLegacyGrace = ManagedAtomic<Int64>(0)
     let scenarioPathsTotal = ManagedAtomic<Int64>(0)
     let scenarioQueueDepth = ManagedAtomic<Int64>(0)
     let scenarioDurationMilliseconds = ManagedAtomic<Int64>(0)
@@ -104,6 +106,10 @@ final class PrometheusMetrics: @unchecked Sendable {
 
     func recordScenarioFailed() {
         scenarioRunsFailed.wrappingIncrement(ordering: .relaxed)
+    }
+
+    func recordAIConsentLegacyGrace() {
+        aiConsentLegacyGrace.wrappingIncrement(ordering: .relaxed)
     }
 
     func recordScenarioCacheHit() {
@@ -183,6 +189,7 @@ final class PrometheusMetrics: @unchecked Sendable {
         out.append("\n# TYPE scenario_runs_completed_total counter\nscenario_runs_completed_total \(scenarioRunsCompleted.load(ordering: .relaxed))\n")
         out.append("# TYPE scenario_runs_failed_total counter\nscenario_runs_failed_total \(scenarioRunsFailed.load(ordering: .relaxed))\n")
         out.append("# TYPE scenario_result_cache_hits_total counter\nscenario_result_cache_hits_total \(scenarioCacheHits.load(ordering: .relaxed))\n")
+        out.append("# TYPE ai_consent_legacy_grace_total counter\nai_consent_legacy_grace_total \(aiConsentLegacyGrace.load(ordering: .relaxed))\n")
         out.append("# TYPE scenario_simulation_paths_total counter\nscenario_simulation_paths_total \(scenarioPathsTotal.load(ordering: .relaxed))\n")
         out.append("# TYPE scenario_queue_depth gauge\nscenario_queue_depth \(scenarioQueueDepth.load(ordering: .relaxed))\n")
         out.append("# TYPE scenario_run_duration_milliseconds_total counter\nscenario_run_duration_milliseconds_total \(scenarioDurationMilliseconds.load(ordering: .relaxed))\n")

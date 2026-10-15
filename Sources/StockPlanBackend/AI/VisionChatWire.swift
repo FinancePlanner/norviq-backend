@@ -15,6 +15,8 @@ struct VisionRequest: Content {
     var temperature: Double
     var maxTokens: Int
     var responseFormat: ResponseFormat
+    /// Set by `VisionChatCaller` from the base URL; see `OpenRouterProviderPreferences`.
+    var provider: OpenRouterProviderPreferences? = nil
 
     struct ResponseFormat: Content {
         var type: String
@@ -23,7 +25,7 @@ struct VisionRequest: Content {
     }
 
     enum CodingKeys: String, CodingKey {
-        case model, messages, temperature
+        case model, messages, temperature, provider
         case maxTokens = "max_tokens"
         case responseFormat = "response_format"
     }
@@ -108,8 +110,10 @@ enum VisionChatCaller {
         feature: String,
         on req: Request
     ) async throws -> String? {
+        var body = body
+        body.provider = OpenRouterProviderPreferences.forBaseURL(baseURL)
         let uri = URI(string: "\(baseURL)/chat/completions")
-        let response = try await req.client.post(uri) { clientReq in
+        let response = try await req.client.post(uri) { [body] clientReq in
             clientReq.headers.contentType = .json
             clientReq.headers.bearerAuthorization = BearerAuthorization(token: apiKey)
             try clientReq.content.encode(body)
@@ -117,7 +121,9 @@ enum VisionChatCaller {
 
         guard response.status == .ok else {
             let bodyText = response.body.map { String(buffer: $0) } ?? ""
-            req.logger.error("\(feature)_error status=\(response.status.code) body=\(bodyText.prefix(300))")
+            // Same redaction as DefaultOpenAIChatClient: the key can be echoed back.
+            let safeBody = bodyText.contains(apiKey) ? "<redacted: contained the key>" : String(bodyText.prefix(300))
+            req.logger.error("\(feature)_error status=\(response.status.code) body=\(safeBody)")
             throw Abort(.badGateway, reason: "\(feature.replacingOccurrences(of: "_", with: " ").capitalized) is temporarily unavailable. Please try again.")
         }
 

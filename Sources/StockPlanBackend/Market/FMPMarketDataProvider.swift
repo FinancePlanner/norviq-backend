@@ -1073,7 +1073,8 @@ private extension LiveFMPMarketDataProvider {
                     ? String(repeating: "*", count: apiKey.count - 4) + apiKey.suffix(4)
                     : "****"
             req.logger.error(
-                "FMP rejected the request. status=\(response.status.code) url=\(uri) apiKeyLength=\(apiKey.count) maskedKey=\(maskedApiKey) response=\(body)"
+                // Path only: the query string carries `apikey=`.
+                "FMP rejected the request. status=\(response.status.code) path=\(uri.path) apiKeyLength=\(apiKey.count) maskedKey=\(maskedApiKey) response=\(body.replacingOccurrences(of: apiKey, with: "<redacted>"))"
             )
             throw Abort(.badGateway, reason: "Market data isn’t available right now. Please try again later.")
 

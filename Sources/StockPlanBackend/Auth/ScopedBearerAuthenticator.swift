@@ -22,6 +22,7 @@ struct ScopedBearerAuthenticator: AsyncBearerAuthenticator {
             try await authenticateOAuth(bearer.token, for: request)
         } else {
             let session = try await request.jwt.verify(bearer.token, as: SessionToken.self)
+            guard try await session.isCurrent(on: request.db) else { return }
             request.auth.login(session)
         }
     }

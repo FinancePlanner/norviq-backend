@@ -359,6 +359,11 @@ func registerMigrations(_ app: Application) {
     // Must exist before BackfillEncryptedUserProfileFields: that job loads the
     // current User model, which now selects dca_symbol.
     app.migrations.add(AddDcaSymbolToUsers())
+    // Same reason: the User model now selects these too. Registered here, out
+    // of date order, so a fresh database has them before the backfill; an
+    // existing one runs them as its next batch like any other new migration.
+    app.migrations.add(AddEmailVerifiedAtAndPasswordSetAtToUsers())
+    app.migrations.add(AddAIDataConsentAtToUsers())
     app.migrations.add(BackfillEncryptedUserProfileFields())
     app.migrations.add(CreateUserActivity())
     app.migrations.add(AddNewsViewedActivityType())
@@ -438,6 +443,8 @@ func registerMigrations(_ app: Application) {
     app.migrations.add(CreateArticlesTables())
     app.migrations.add(AddPilotFollowTargetIndexes())
     app.migrations.add(AddSocialFacebookImport())
+    app.migrations.add(BackfillEmailVerifiedAtAndPasswordSetAt())
+    app.migrations.add(CascadeUserOwnedRowsOnDelete())
 }
 
 func envBool(_ key: String, default defaultValue: Bool) -> Bool {

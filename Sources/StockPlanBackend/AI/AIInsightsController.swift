@@ -48,6 +48,7 @@ struct AIInsightsController: RouteCollection {
     private func requireAIEntitlement(_ req: Request) async throws -> SessionToken {
         try AICostControls.requireEnabled(reason: "AI insights are temporarily unavailable.")
         let session = try req.auth.require(SessionToken.self)
+        try await AIConsent.require(userId: session.userId, req: req)
         try await req.usageCounterService.requirePremium(.aiInsights, userId: session.userId, on: req.db)
         return session
     }

@@ -19,6 +19,7 @@ struct AIChatController: RouteCollection {
         }
         let session = try req.auth.require(SessionToken.self)
         try AICostControls.requireEnabled(reason: "The assistant is temporarily unavailable.")
+        try await AIConsent.require(userId: session.userId, req: req)
         try await req.usageCounterService.requirePremium(.aiInsights, userId: session.userId, on: req.db)
         try await AIDailyCap.enforce(
             req,

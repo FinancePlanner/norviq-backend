@@ -42,9 +42,25 @@ struct DatabaseDataExportRepository: DataExportRepository {
             .filter(\.$expiresAt != nil)
             .filter(\.$expiresAt < date)
             .all()
+        var deleted = 0
         for export in exports {
+            // The file is the personal data; the row only points at it. Keep
+            // the row when the file will not go, so the next run retries.
+            guard Self.removeFile(at: export.filePath) else { continue }
             try await export.delete(on: db)
+            deleted += 1
         }
-        return exports.count
+        return deleted
+    }
+
+    /// Removes an export file. A missing file counts as removed.
+    static func removeFile(at path: String?) -> Bool {
+        guard let path, !path.isEmpty, FileManager.default.fileExists(atPath: path) else { return true }
+        do {
+            try FileManager.default.removeItem(atPath: path)
+            return true
+        } catch {
+            return false
+        }
     }
 }
