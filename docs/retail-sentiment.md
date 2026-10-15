@@ -205,7 +205,7 @@ existing group.
 | `GET /sentiment/trending?limit=20` | free |
 | `GET /sentiment/history/{symbol}?limit=30` | **Pro** |
 | `GET /tickers/{symbol}/sentiment` (pre-existing) | **Pro** |
-| `POST /sentiment/sync` | admin (`INSIGHTS_ADMIN_EMAILS`) |
+| `POST /sentiment/sync` | admin (`NORVIQ_ADMIN_USER_IDS`) |
 | `POST /sentiment/seed-index` | admin |
 
 The free/Pro line is **aggregate vs evidence**. Free endpoints return score,

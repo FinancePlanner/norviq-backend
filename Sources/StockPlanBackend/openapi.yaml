@@ -538,7 +538,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/UpdateUserProfileResponse'
         '400':
-          description: Invalid payload. Returned when the profile ID does not match the authenticated user, the email is invalid, or the username fails validation.
+          description: Invalid payload. Returned when the profile ID does not match the authenticated user, the email is invalid, or the username fails validation. A changed email is refused with reason `EMAIL_CHANGE_REQUIRES_REAUTH`; use `PATCH /v1/users/email`.
         '401':
           description: Missing or invalid bearer token, or the authenticated user could not be resolved.
         '409':
@@ -729,6 +729,11 @@ paths:
       operationId: updateEmail
       tags: [UserProfile]
       summary: Update the authenticated user's email
+      description: >-
+        Re-authenticates with the current password. On success the new address
+        is unverified and every other session (refresh tokens, personal access
+        tokens, OAuth tokens) is revoked; pass `refreshToken` to keep the
+        caller's own refresh token.
       security:
         - bearerAuth: []
       requestBody:
@@ -736,7 +741,7 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/UpdateEmailRequest'
+              $ref: '#/components/schemas/UpdateEmailWithReauthRequest'
       responses:
         '200':
           description: The updated user profile.
@@ -745,11 +750,19 @@ paths:
               schema:
                 $ref: '#/components/schemas/UpdateUserProfileResponse'
         '400':
-          description: Invalid email.
+          description: >-
+            Invalid email; `currentPassword` missing (reason
+            `CURRENT_PASSWORD_REQUIRED`) or wrong (reason
+            `INVALID_CURRENT_PASSWORD`); or the address is the current one
+            (reason `EMAIL_UNCHANGED`).
         '401':
           description: Unauthorized
+        '429':
+          description: More than 5 attempts a minute for this user.
         '409':
-          description: Email already registered.
+          description: >-
+            Email already registered, or the account has no password it could
+            re-authenticate with (OAuth-only; reason `REAUTH_REQUIRED`).
 
   /v1/users/password:
     patch:
@@ -772,9 +785,68 @@ paths:
               schema:
                 $ref: '#/components/schemas/APIMessageResponse'
         '400':
-          description: Invalid password payload.
+          description: Invalid password payload, or the current password is wrong (reason `INVALID_CURRENT_PASSWORD`).
         '401':
-          description: Unauthorized or current password incorrect.
+          description: Unauthorized
+        '429':
+          description: More than 5 attempts a minute for this user.
+
+  /v1/users/ai-consent:
+    get:
+      operationId: getAIConsent
+      tags: [UserProfile]
+      summary: Whether the user consented to sending data to third-party AI providers
+      description: Accepts scoped tokens with `settings:read`.
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: The consent timestamp, or null when the user has not consented.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AIConsentResponse'
+        '401':
+          description: Unauthorized
+    post:
+      operationId: grantAIConsent
+      tags: [UserProfile]
+      summary: Consent to sending data to third-party AI providers
+      description: >-
+        First-party sessions only. Idempotent; a repeat keeps the original
+        timestamp. While `AI_CONSENT_ENFORCED` is on, AI routes answer 403 with
+        reason `AI_CONSENT_REQUIRED` until this is called.
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: The consent timestamp.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AIConsentResponse'
+        '401':
+          description: Unauthorized
+        '403':
+          description: Scoped tokens cannot grant consent.
+    delete:
+      operationId: withdrawAIConsent
+      tags: [UserProfile]
+      summary: Withdraw consent to sending data to third-party AI providers
+      description: First-party sessions only. Idempotent.
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Consent withdrawn; `consentedAt` is null.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AIConsentResponse'
+        '401':
+          description: Unauthorized
+        '403':
+          description: Scoped tokens cannot withdraw consent.
 
   /v1/badges:
     get:
@@ -5930,6 +6002,8 @@ paths:
           description: Forbidden
         '404':
           description: Not Found
+        '410':
+          description: The export is past its 7-day expiry (reason `EXPORT_EXPIRED`).
 
   /webhooks/revenuecat:
     post:
@@ -12118,14 +12192,40 @@ components:
           type: string
           format: email
       required: [email]
+    UpdateEmailWithReauthRequest:
+      type: object
+      properties:
+        email:
+          type: string
+          format: email
+        currentPassword:
+          type: string
+          description: Required. Missing gives 400 `CURRENT_PASSWORD_REQUIRED`.
+        refreshToken:
+          type: string
+          description: The caller's own refresh token, spared when other sessions are revoked.
+      required: [email]
     UpdatePasswordRequest:
       type: object
+      description: >-
+        Every other session is revoked on success; pass `refreshToken` to keep
+        the caller's own refresh token.
       properties:
         currentPassword:
           type: string
         newPassword:
           type: string
+        refreshToken:
+          type: string
       required: [currentPassword, newPassword]
+    AIConsentResponse:
+      type: object
+      properties:
+        consentedAt:
+          type: string
+          format: date-time
+          nullable: true
+      required: [consentedAt]
     APIMessageResponse:
       type: object
       properties:

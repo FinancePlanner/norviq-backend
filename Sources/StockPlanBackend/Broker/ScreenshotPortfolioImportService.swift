@@ -30,6 +30,8 @@ struct ScreenshotPortfolioImportService {
         userId: UUID,
         on req: Request
     ) async throws -> ScreenshotImportPreviewResponse {
+        // The screenshots go to a third-party vision model.
+        try await AIConsent.require(userId: userId, req: req)
         let (items, errors, kind) = try await extractRows(from: images, on: req)
 
         let enriched = try await CsvPortfolioImportService().preview(

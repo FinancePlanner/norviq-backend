@@ -3,7 +3,6 @@ import StockPlanShared
 import Vapor
 
 struct AuthController: RouteCollection {
-    private static let mfaCapabilityHeader = "X-StockPlan-Client-Capabilities"
     private static let mfaCapabilityToken = "mfa-auth-v1"
     private let environment: Environment
 
@@ -397,11 +396,7 @@ struct AuthController: RouteCollection {
     }
 
     private func clientSupportsMFA(_ req: Request) -> Bool {
-        let raw = req.headers.first(name: Self.mfaCapabilityHeader) ?? ""
-        return raw
-            .split(separator: ",")
-            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() }
-            .contains(Self.mfaCapabilityToken)
+        ClientCapabilities.has(Self.mfaCapabilityToken, in: req)
     }
 
     private func loginResponse(for outcome: AuthLoginOutcome, req: Request) throws -> Response {

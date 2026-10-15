@@ -197,7 +197,8 @@ struct PlaidClient: Sendable {
 
         guard response.status == .ok else {
             let detail = response.body.map { String(buffer: $0) } ?? ""
-            req.logger.warning("Plaid \(path) failed status=\(response.status.code) body=\(detail.prefix(300))")
+            // Length only: Plaid error bodies can echo request fields.
+            req.logger.warning("Plaid \(path) failed status=\(response.status.code) body_bytes=\(detail.utf8.count)")
             throw Abort(.badGateway, reason: "Plaid request failed.")
         }
         return try response.content.decode(T.self)

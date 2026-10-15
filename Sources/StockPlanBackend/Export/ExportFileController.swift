@@ -38,6 +38,12 @@ struct ExportFileController: RouteCollection {
             throw Abort(.badRequest, reason: "Export is not ready for download")
         }
 
+        // Exports live 7 days (privacy policy). Past that the link is gone
+        // even if the cleanup job has not reached the file yet.
+        if let expiresAt = export.expiresAt, expiresAt <= Date() {
+            throw Abort(.gone, reason: "EXPORT_EXPIRED")
+        }
+
         let filePath = export.filePath ?? ""
         guard FileManager.default.fileExists(atPath: filePath) else {
             throw Abort(.notFound, reason: "File not found")

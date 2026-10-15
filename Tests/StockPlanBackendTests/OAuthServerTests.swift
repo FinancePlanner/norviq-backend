@@ -177,6 +177,68 @@ struct OAuthServerTests {
         }
     }
 
+    /// Runs /authorize and consent; returns an approved, unredeemed code.
+    private func approvedCode(
+        app: Application, user: (token: String, userId: UUID), clientID: String, challenge: String
+    ) async throws -> String {
+        var flowID = ""
+        try await app.testing().test(.GET, "v1/oauth/authorize?response_type=code&client_id=\(clientID)&redirect_uri=https://client.example/cb&scope=expenses:read&state=s&code_challenge=\(challenge)&code_challenge_method=S256", afterResponse: { res async in
+            flowID = String((res.headers.first(name: .location) ?? "").split(separator: "flow_id=").last ?? "")
+        })
+        var code = ""
+        try await app.testing().test(.POST, "v1/oauth/flows/\(flowID)/approve", beforeRequest: { req in
+            req.headers.bearerAuthorization = .init(token: user.token)
+        }, afterResponse: { res async throws in
+            let body = try decodeRaw(ApproveResponse.self, res)
+            code = String((body.redirectURL.split(separator: "code=").last ?? "").split(separator: "&").first ?? "")
+        })
+        return code
+    }
+
+    private func redeem(app: Application, code: String, clientID: String, verifier: String) async throws -> HTTPStatus {
+        var status: HTTPStatus = .internalServerError
+        try await app.testing().test(.POST, "v1/oauth/token", beforeRequest: { req in
+            try req.content.encode(TokenRequest(
+                grantType: "authorization_code", code: code, redirectURI: "https://client.example/cb",
+                clientID: clientID, codeVerifier: verifier, refreshToken: nil, scope: nil
+            ))
+        }, afterResponse: { res async in
+            status = res.status
+        })
+        return status
+    }
+
+    @Test("Two concurrent redemptions of one code yield exactly one token pair")
+    func concurrentCodeRedemption() async throws {
+        try await withApp { app in
+            let user = try await registerUser(app: app)
+            try await grantPro(app: app, userId: user.userId)
+            let clientID = try await makeClient(app: app)
+            let (verifier, challenge) = pkce()
+            let code = try await approvedCode(app: app, user: user, clientID: clientID, challenge: challenge)
+
+            async let first = redeem(app: app, code: code, clientID: clientID, verifier: verifier)
+            async let second = redeem(app: app, code: code, clientID: clientID, verifier: verifier)
+            let statuses = try await [first, second]
+            #expect(statuses.count(where: { $0 == .ok }) == 1)
+            #expect(try await OAuthToken.query(on: app.db).count() == 1)
+        }
+    }
+
+    @Test("A code approved before a revocation can no longer be redeemed")
+    func revokedCodeCannotBeRedeemed() async throws {
+        try await withApp { app in
+            let user = try await registerUser(app: app)
+            try await grantPro(app: app, userId: user.userId)
+            let clientID = try await makeClient(app: app)
+            let (verifier, challenge) = pkce()
+            let code = try await approvedCode(app: app, user: user, clientID: clientID, challenge: challenge)
+
+            try await app.authRepository.revokeAllTokens(userId: user.userId, sparing: nil, on: app.db)
+            #expect(try await redeem(app: app, code: code, clientID: clientID, verifier: verifier) == .badRequest)
+        }
+    }
+
     @Test("PKCE verifier mismatch is rejected")
     func pkceMismatch() async throws {
         try await withApp { app in

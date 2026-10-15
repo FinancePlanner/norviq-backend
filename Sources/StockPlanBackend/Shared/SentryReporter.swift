@@ -64,7 +64,15 @@ enum SentryReporter {
         return ParsedDSN(ingestURL: ingestURL, publicKey: user)
     }
 
-    private static func buildEventPayload(
+    /// The request path with any query string removed. Query strings carry
+    /// OAuth codes, reset emails and search terms; none of it belongs in Sentry.
+    static func sanitizedPath(_ url: URI) -> String {
+        let path = url.path
+        guard let queryStart = path.firstIndex(where: { $0 == "?" || $0 == "#" }) else { return path }
+        return String(path[..<queryStart])
+    }
+
+    static func buildEventPayload(
         error: any Error,
         request: Request,
         status: HTTPResponseStatus,
@@ -73,6 +81,7 @@ enum SentryReporter {
         userID: String?
     ) -> [String: Any] {
         let eventID = UUID().uuidString.replacingOccurrences(of: "-", with: "").lowercased()
+        let path = sanitizedPath(request.url)
         let message = String(describing: error)
         var payload: [String: Any] = [
             "event_id": eventID,
@@ -86,11 +95,10 @@ enum SentryReporter {
                 "environment": environment,
                 "http.status_code": String(status.code),
                 "http.method": request.method.rawValue,
-                "http.route": request.url.path,
+                "http.route": path,
             ],
             "extra": [
-                "path": request.url.path,
-                "query": request.url.query ?? "",
+                "path": path,
             ],
         ]
 

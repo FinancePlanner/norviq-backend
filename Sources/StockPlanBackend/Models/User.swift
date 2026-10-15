@@ -73,6 +73,25 @@ final class User: Model, Authenticatable, @unchecked Sendable {
     @OptionalField(key: "dca_symbol")
     var dcaSymbol: String?
 
+    /// When the account was proven to control `email`. Null after a password
+    /// sign-up or an email change; see AddEmailVerifiedAtAndPasswordSetAtToUsers.
+    @OptionalField(key: "email_verified_at")
+    var emailVerifiedAt: Date?
+
+    /// When the user last chose their password. Null when the hash is random
+    /// (OAuth-created, or neutralised by the account-takeover guard).
+    @OptionalField(key: "password_set_at")
+    var passwordSetAt: Date?
+
+    /// Session tokens issued before this instant are refused; see
+    /// `AuthRepository.revokeAllTokens` and `SessionToken.isCurrent`.
+    @OptionalField(key: "sessions_valid_after")
+    var sessionsValidAfter: Date?
+
+    /// When the user agreed to send data to third-party AI providers. See `AIConsent`.
+    @OptionalField(key: "ai_data_consent_at")
+    var aiDataConsentAt: Date?
+
     @Timestamp(key: "created_at", on: .create)
     var createdAt: Date?
 

@@ -60,9 +60,11 @@ struct DefaultEntitlementResolver: EntitlementResolver {
             return EntitlementSnapshot(userId: userId, level: "pro")
         }
 
-        // 2. Admin/Premium Email Bypass
+        // 2. Admin/Premium Email Bypass. Only for a verified address: an
+        // unverified account could simply claim a listed email.
         if !premiumEmails.isEmpty,
            let user = try await User.find(userId, on: db),
+           user.emailVerifiedAt != nil,
            premiumEmails.contains(user.email.lowercased())
         {
             return EntitlementSnapshot(userId: userId, level: "pro")

@@ -21,6 +21,7 @@ struct TerminalPositionsAIController: RouteCollection {
     private func advisor(_ req: Request) async throws -> TerminalAIAdvisor {
         let userId = try req.auth.require(SessionToken.self).userId
         try await req.usageCounterService.requirePremium(.terminalPositionAI, userId: userId, on: req.db)
+        try await AIConsent.require(userId: userId, req: req)
         guard let client = req.application.terminalAIClient else {
             throw Abort(.serviceUnavailable, reason: "AI lookup unavailable. Try again later or enter the numbers yourself.")
         }

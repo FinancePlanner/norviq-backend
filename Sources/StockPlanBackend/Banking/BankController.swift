@@ -90,8 +90,7 @@ struct BankController: RouteCollection {
     func disconnect(req: Request) async throws -> HTTPStatus {
         let session = try req.auth.require(SessionToken.self)
         let connection = try await requireConnection(req, userId: session.userId)
-        let provider = try req.bankProviderRegistry.provider(for: BankProviderKind(rawValue: connection.provider) ?? .plaid)
-        try? await provider.disconnect(connection: connection, on: req)
+        await BankConnectionRevoker.revoke(connection, on: req)
         try await connection.delete(on: req.db)
         return .noContent
     }

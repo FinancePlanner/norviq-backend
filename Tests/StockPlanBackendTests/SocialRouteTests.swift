@@ -249,8 +249,9 @@ struct SocialRouteTests {
     @Test("Moderators resolve reports; a suspended user disappears and is locked out")
     func moderation() async throws {
         try await withApp { app in
-            setenv("SOCIAL_MODERATOR_EMAILS", "soc+mod1@example.com", 1)
             let mod = try await register(app, "mod1")
+            setenv("NORVIQ_ADMIN_USER_IDS", mod.userId.uuidString, 1)
+            defer { unsetenv("NORVIQ_ADMIN_USER_IDS") }
             let a = try await register(app, "mod2")
             let b = try await register(app, "mod3")
             #expect(try await status(app, .GET, "v1/admin/social/reports", as: a) == .forbidden)

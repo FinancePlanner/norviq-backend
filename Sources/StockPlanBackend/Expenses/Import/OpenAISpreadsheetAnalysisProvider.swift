@@ -41,7 +41,8 @@ struct OpenAISpreadsheetAnalysisProvider: SpreadsheetAnalysisProvider {
             ],
             temperature: 0,
             maxTokens: 1200,
-            responseFormat: .init(type: "json_object")
+            responseFormat: .init(type: "json_object"),
+            provider: OpenRouterProviderPreferences.forBaseURL(baseURL)
         )
 
         let uri = URI(string: "\(baseURL)/chat/completions")
@@ -60,8 +61,10 @@ struct OpenAISpreadsheetAnalysisProvider: SpreadsheetAnalysisProvider {
 
         guard response.status == .ok else {
             let bodyText = response.body.map { String(buffer: $0) } ?? ""
+            // Same redaction as DefaultOpenAIChatClient: the key can be echoed back.
+            let safeBody = bodyText.contains(apiKey) ? "<redacted: contained the key>" : String(bodyText.prefix(300))
             req.logger.error(
-                "spreadsheet_import_ai_error status=\(response.status.code) body=\(bodyText.prefix(300))"
+                "spreadsheet_import_ai_error status=\(response.status.code) body=\(safeBody)"
             )
             return nil
         }
@@ -101,9 +104,10 @@ private struct ChatRequest: Content {
     var temperature: Double
     var maxTokens: Int
     var responseFormat: ResponseFormat
+    var provider: OpenRouterProviderPreferences?
 
     enum CodingKeys: String, CodingKey {
-        case model, messages, temperature
+        case model, messages, temperature, provider
         case maxTokens = "max_tokens"
         case responseFormat = "response_format"
     }

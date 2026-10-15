@@ -50,6 +50,9 @@ struct ReceiptsController: RouteCollection {
             throw Abort(.serviceUnavailable, reason: "Receipt OCR is not available. Scan a QR code or enter the expense manually.")
         }
 
+        // The photo goes to a third-party vision model.
+        try await AIConsent.require(userId: session.userId, req: req)
+
         // OCR runs a paid vision/OCR call; gate it to Pro/trial.
         try await req.usageCounterService.requirePremium(
             .receiptScan,
@@ -78,6 +81,9 @@ struct ReceiptsController: RouteCollection {
         guard provider.isEnabled else {
             throw Abort(.serviceUnavailable, reason: "Receipt scanning is not available. Scan a QR code or enter the expense manually.")
         }
+
+        // The photos go to a third-party vision model.
+        try await AIConsent.require(userId: session.userId, req: req)
 
         let images = try await readImageUploads(req)
 

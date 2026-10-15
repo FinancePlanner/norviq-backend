@@ -261,7 +261,7 @@ struct InsightsServiceTests {
         }
     }
 
-    @Test("POST /v1/insights/sync is fail-closed when INSIGHTS_ADMIN_EMAILS is unset")
+    @Test("POST /v1/insights/sync is fail-closed when NORVIQ_ADMIN_USER_IDS is unset")
     func syncForbiddenForNonAdmin() async throws {
         try await withApp { app in
             let token = try await registerToken(app: app)

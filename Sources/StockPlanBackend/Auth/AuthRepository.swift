@@ -3,6 +3,14 @@ import Fluent
 import Foundation
 import Vapor
 
+/// The caller's own session, kept alive through a revocation it triggered
+/// (password or email change). Both halves are optional: an older client may
+/// send no refresh token, and a pre-v1.4.1 access token has no `iat`.
+struct SparedSession: Sendable {
+    let refreshTokenHash: String?
+    let accessTokenIssuedAt: Date?
+}
+
 struct OAuthFlowDraft {
     let provider: String
     let state: String
@@ -22,6 +30,8 @@ protocol AuthRepository: Sendable {
         username: String,
         email: String,
         passwordHash: String,
+        passwordSetAt: Date?,
+        emailVerifiedAt: Date?,
         dateOfBirth: Date,
         on db: any Database
     ) async throws -> User
@@ -36,6 +46,16 @@ protocol AuthRepository: Sendable {
     func createRefreshToken(userId: UUID, tokenHash: String, expiresAt: Date, on db: any Database) async throws
     func findValidRefreshToken(tokenHash: String, now: Date, on db: any Database) async throws -> RefreshToken?
     func revokeRefreshToken(_ token: RefreshToken, revokedAt: Date, on db: any Database) async throws
+    /// Ends every session the user has: refresh tokens, personal access (MCP)
+    /// tokens, OAuth server tokens and approved-but-unredeemed OAuth codes,
+    /// and moves `users.sessions_valid_after` forward so access JWTs issued
+    /// before it are refused too.
+    ///
+    /// `sparing` keeps the caller's own session: its refresh token is not
+    /// revoked, and the cutoff becomes its access token's `iat` instead of
+    /// now. JWTs other devices obtained after that `iat` then live out their
+    /// TTL; that is the price of not signing the caller out.
+    func revokeAllTokens(userId: UUID, sparing: SparedSession?, on db: any Database) async throws
 
     func createOAuthFlow(_ draft: OAuthFlowDraft, on db: any Database) async throws -> OAuthFlow
     func findValidOAuthFlow(id: UUID, provider: String, now: Date, on db: any Database) async throws -> OAuthFlow?
@@ -118,6 +138,8 @@ struct DatabaseAuthRepository: AuthRepository {
         username: String = UUID().uuidString.replacingOccurrences(of: "-", with: "_"),
         email: String,
         passwordHash: String,
+        passwordSetAt: Date? = nil,
+        emailVerifiedAt: Date? = nil,
         dateOfBirth: Date = Date(timeIntervalSince1970: 946_684_800),
         on db: any Database
     ) async throws -> User {
@@ -127,6 +149,8 @@ struct DatabaseAuthRepository: AuthRepository {
             username: username,
             dateOfBirth: dateOfBirth
         )
+        user.passwordSetAt = passwordSetAt
+        user.emailVerifiedAt = emailVerifiedAt
         try user.encryptProtectedFields(using: encryptionService)
         try await user.save(on: db)
         try user.hydrateProtectedFields(using: encryptionService)
@@ -189,6 +213,54 @@ struct DatabaseAuthRepository: AuthRepository {
     func revokeRefreshToken(_ token: RefreshToken, revokedAt: Date, on db: any Database) async throws {
         token.revokedAt = revokedAt
         try await token.save(on: db)
+    }
+
+    func revokeAllTokens(userId: UUID, sparing: SparedSession?, on db: any Database) async throws {
+        let now = Date()
+        try await db.transaction { db in
+            let cutoff: Date? = if let sparing {
+                sparing.accessTokenIssuedAt
+            } else {
+                now
+            }
+            if let cutoff, let user = try await User.find(userId, on: db) {
+                // Never move the cutoff back: that would revive tokens an
+                // earlier revocation already ended.
+                let validAfter = max(cutoff, user.sessionsValidAfter ?? .distantPast)
+                try await User.query(on: db)
+                    .filter(\.$id == userId)
+                    .set(\.$sessionsValidAfter, to: validAfter)
+                    .update()
+            }
+
+            let refresh = RefreshToken.query(on: db)
+                .filter(\.$userId == userId)
+                .filter(\.$revokedAt == nil)
+            if let spared = sparing?.refreshTokenHash {
+                refresh.filter(\.$tokenHash != spared)
+            }
+            try await refresh.set(\.$revokedAt, to: now).update()
+
+            try await PersonalAccessToken.query(on: db)
+                .filter(\.$userId == userId)
+                .filter(\.$revokedAt == nil)
+                .set(\.$revokedAt, to: now)
+                .update()
+
+            try await OAuthToken.query(on: db)
+                .filter(\.$userID == userId)
+                .filter(\.$revokedAt == nil)
+                .set(\.$revokedAt, to: now)
+                .update()
+
+            // An approved code is a token in waiting: /token would still
+            // redeem it after everything above was revoked.
+            try await OAuthAuthorizationFlow.query(on: db)
+                .filter(\.$userID == userId)
+                .filter(\.$status == "approved")
+                .set(\.$status, to: "denied")
+                .update()
+        }
     }
 
     func createOAuthFlow(_ draft: OAuthFlowDraft, on db: any Database) async throws -> OAuthFlow {

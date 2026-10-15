@@ -237,6 +237,13 @@ enum MessagingService {
             }
         }
 
+        // Strict: a Telegram turn has no app client behind it, so the
+        // legacy-iOS grace never applies here.
+        guard try await AIConsent.isAllowed(userId: userId, on: req.db) else {
+            req.logger.info("messaging_turn_refused reason=ai_consent_required")
+            return OutboundMessage(text: aiConsentRequiredText)
+        }
+
         do {
             let outcome = try await AIAssistantTurnCoordinator.run(
                 userId: userId,
@@ -256,12 +263,23 @@ enum MessagingService {
                 ]
             )
         } catch let abort as any AbortError {
+            // AI consent is the one refusal whose reason is a code, not a
+            // sentence; the fix lives in the app, so say where.
+            if abort.reason == AIConsent.requiredReason {
+                req.logger.info("messaging_turn_refused reason=ai_consent_required")
+                return OutboundMessage(text: aiConsentRequiredText)
+            }
             // Quota, kill switch and BYO-key failures all arrive here already
             // carrying a sentence written for a person to read.
             req.logger.warning("messaging_turn_refused status=\(abort.status.code)")
             return OutboundMessage(text: abort.reason)
         }
     }
+
+    static let aiConsentRequiredText = """
+    I can't answer that yet: the assistant sends your question and the financial context it needs to an AI provider, \
+    and you haven't allowed that. Open the assistant in the Norviq app to turn on AI data sharing, then ask me again.
+    """
 
     // MARK: - Confirmations
 

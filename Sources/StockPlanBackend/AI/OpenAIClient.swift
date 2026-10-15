@@ -152,12 +152,34 @@ private struct OpenAIChatRequestBody: Content {
     var temperature: Double?
     var maxTokens: Int?
     var responseFormat: OpenAIResponseFormat?
+    var provider: OpenRouterProviderPreferences?
 
     enum CodingKeys: String, CodingKey {
-        case model, messages, tools, temperature
+        case model, messages, tools, temperature, provider
         case toolChoice = "tool_choice"
         case maxTokens = "max_tokens"
         case responseFormat = "response_format"
+    }
+}
+
+/// OpenRouter's per-request routing preferences. `data_collection: deny`
+/// restricts a request to upstream providers that neither store nor train on
+/// prompts. Sent only to OpenRouter; other OpenAI-compatible hosts would
+/// reject or ignore an unknown top-level key.
+struct OpenRouterProviderPreferences: Content, Equatable {
+    var dataCollection: String
+
+    enum CodingKeys: String, CodingKey {
+        case dataCollection = "data_collection"
+    }
+
+    static let denyDataCollection = OpenRouterProviderPreferences(dataCollection: "deny")
+
+    static func forBaseURL(_ baseURL: String) -> OpenRouterProviderPreferences? {
+        guard let host = URL(string: baseURL)?.host?.lowercased(),
+              host == "openrouter.ai" || host.hasSuffix(".openrouter.ai")
+        else { return nil }
+        return .denyDataCollection
     }
 }
 
@@ -457,7 +479,8 @@ struct DefaultOpenAIChatClient: OpenAIChatClient {
             toolChoice: tools.isEmpty ? nil : "auto",
             temperature: 0.3,
             maxTokens: maxTokens,
-            responseFormat: responseFormat.map { OpenAIResponseFormat(type: $0) }
+            responseFormat: responseFormat.map { OpenAIResponseFormat(type: $0) },
+            provider: OpenRouterProviderPreferences.forBaseURL(baseURL)
         )
 
         let uri = URI(string: "\(baseURL)/chat/completions")

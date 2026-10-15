@@ -165,6 +165,12 @@ struct DefaultWhyMovedService: WhyMovedService {
             return WhyMovedAISummary(text: cached.text, generatedAt: cached.generatedAt)
         }
 
+        // Soft-fail like every other refusal here: the movers still render,
+        // only the AI sentence is missing.
+        guard await (try? AIConsent.isAllowed(userId: userId, req: req)) == true else {
+            return nil
+        }
+
         do {
             try await AIDailyCap.enforce(
                 req,

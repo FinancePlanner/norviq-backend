@@ -97,17 +97,25 @@ struct TerminalAIAdvisorTests {
 
     // MARK: - Endpoint
 
-    /// Exclusive lock: BYPASS_BILLING is process-wide (same pattern as MCPTokenAuthTests).
-    private func withApp(pro: Bool, _ test: (Application) async throws -> Void) async throws {
+    /// Exclusive lock: BYPASS_BILLING and the AI consent flags are process-wide
+    /// (same pattern as MCPTokenAuthTests and AIConsentTests).
+    private func withApp(
+        pro: Bool, consentEnforced: Bool = false, legacyIOSGrace: Bool = false,
+        _ test: (Application) async throws -> Void
+    ) async throws {
         try await DatabaseTestLock.withLock {
             let previous = getenv("BYPASS_BILLING").map { String(cString: $0) }
             setenv("BYPASS_BILLING", pro ? "true" : "false", 1)
+            setenv("AI_CONSENT_ENFORCED", consentEnforced ? "true" : "false", 1)
+            setenv("AI_CONSENT_LEGACY_IOS_GRACE", legacyIOSGrace ? "true" : "false", 1)
             defer {
                 if let previous {
                     setenv("BYPASS_BILLING", previous, 1)
                 } else {
                     unsetenv("BYPASS_BILLING")
                 }
+                unsetenv("AI_CONSENT_ENFORCED")
+                unsetenv("AI_CONSENT_LEGACY_IOS_GRACE")
             }
             let app = try await Application.make(.testing)
             do {
@@ -124,9 +132,15 @@ struct TerminalAIAdvisorTests {
         }
     }
 
-    private func post(_ app: Application, token: String, _ check: @escaping (TestingHTTPResponse) async throws -> Void) async throws {
+    private func post(
+        _ app: Application, token: String, headers: HTTPHeaders = [:],
+        _ check: @escaping (TestingHTTPResponse) async throws -> Void
+    ) async throws {
         try await app.testing().test(.POST, "v1/terminal-positions/ai/share-facts", beforeRequest: { req in
             req.headers.bearerAuthorization = BearerAuthorization(token: token)
+            for (name, value) in headers {
+                req.headers.replaceOrAdd(name: name, value: value)
+            }
             try req.content.encode(ShareFactsRequest(ticker: "amzn"), as: .json)
         }, afterResponse: check)
     }
@@ -216,6 +230,59 @@ struct TerminalAIAdvisorTests {
             let users = client.userMessages()
             #expect(users.count == 1)
             #expect(users.first?.contains("EUR") == true)
+        }
+    }
+
+    private static let legacyIOS: HTTPHeaders = ["User-Agent": "Norviq/96 CFNetwork/1568.100.1 Darwin/24.0.0"]
+    private static let currentIOS: HTTPHeaders = [
+        "User-Agent": "Norviq/97 CFNetwork/1568.100.1 Darwin/24.0.0",
+        "X-StockPlan-Client-Capabilities": "mfa-auth-v1, ai-consent-v1",
+    ]
+
+    private func expectConsentRequired(_ res: TestingHTTPResponse) throws {
+        #expect(res.status == .forbidden)
+        let envelope = try JSONDecoder().decode(APIErrorEnvelope.self, from: Data(res.body.string.utf8))
+        #expect(envelope.reason == "AI_CONSENT_REQUIRED")
+    }
+
+    @Test("Enforced consent: both terminal AI routes answer 403 AI_CONSENT_REQUIRED until the user consents")
+    func consentGatesTerminalAI() async throws {
+        try await withApp(pro: true, consentEnforced: true) { app in
+            let user = try await TerminalFixtures.registerUser(app: app)
+            let client = CapturingTerminalChatClient(reply: scenarioJSON)
+            app.terminalAIClient = client
+            try await post(app, token: user.token) { res in try expectConsentRequired(res) }
+            try await postScenario(app, token: user.token, horizon: 10) { res in try expectConsentRequired(res) }
+            #expect(client.userMessages().isEmpty, "no prompt may reach the provider without consent")
+
+            try await app.testing().test(.POST, "v1/users/ai-consent", beforeRequest: { req in
+                req.headers.bearerAuthorization = BearerAuthorization(token: user.token)
+            }, afterResponse: { res async in
+                #expect(res.status == .ok)
+            })
+            try await postScenario(app, token: user.token, horizon: 10) { res in
+                #expect(res.status == .ok)
+            }
+            app.terminalAIClient = ScriptedTerminalChatClient([.success(factsJSON)])
+            try await post(app, token: user.token) { res in
+                #expect(res.status == .ok)
+            }
+        }
+    }
+
+    @Test("Enforced consent with legacy-iOS grace: only an old iOS build is let through, as on the other AI routes")
+    func terminalAILegacyGrace() async throws {
+        try await withApp(pro: true, consentEnforced: true, legacyIOSGrace: true) { app in
+            let user = try await TerminalFixtures.registerUser(app: app)
+            app.terminalAIClient = ScriptedTerminalChatClient([.success(factsJSON)])
+            let before = PrometheusMetrics.shared.aiConsentLegacyGrace.load(ordering: .relaxed)
+            try await post(app, token: user.token, headers: Self.legacyIOS) { res in
+                #expect(res.status == .ok)
+            }
+            #expect(PrometheusMetrics.shared.aiConsentLegacyGrace.load(ordering: .relaxed) > before)
+            for headers in [Self.currentIOS, [:]] {
+                try await post(app, token: user.token, headers: headers) { res in try expectConsentRequired(res) }
+            }
         }
     }
 

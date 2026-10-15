@@ -1,5 +1,6 @@
 import Fluent
 import Foundation
+import SQLKit
 import Vapor
 
 /// OAuth 2.1 authorization-server endpoints for third-party MCP clients.
@@ -152,8 +153,20 @@ struct OAuthServerController: RouteCollection {
             throw Abort(.badRequest, reason: "invalid_grant: PKCE verification failed")
         }
 
-        flow.status = "consumed"
-        try await flow.save(on: req.db)
+        // Claim the code with a conditional update: of two concurrent
+        // redemptions only one sees `approved`, so only one gets tokens. The
+        // same guard stops a code that revokeAllTokens moved to `denied`.
+        guard let sql = req.db as? any SQLDatabase, let flowID = flow.id else {
+            throw Abort(.internalServerError, reason: "OAuth server requires a SQL database")
+        }
+        let claimed = try await sql.raw("""
+        UPDATE \(ident: OAuthAuthorizationFlow.schema) SET status = 'consumed'
+        WHERE id = \(bind: flowID) AND status = 'approved'
+        RETURNING id
+        """).all()
+        guard claimed.count == 1 else {
+            throw Abort(.badRequest, reason: "invalid_grant")
+        }
 
         let issued = try await OAuthServerService.issueTokens(
             clientID: flow.clientID, userID: userID, scopes: flow.scopes, on: req.db

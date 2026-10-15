@@ -60,7 +60,9 @@ struct ExpenseSpreadsheetImportService {
             .map { Self.digestSheet(sheet: $0.sheet, detected: $0.detected) }
 
         var proposal: SpreadsheetAIProposal?
-        if provider.isEnabled {
+        // Without AI consent the sheet never leaves: the heuristic mapping
+        // below stands alone, as it does when the model is down.
+        if provider.isEnabled, try await AIConsent.isAllowed(userId: userId, req: req) {
             let digest = SpreadsheetDigest(
                 sheets: Array(digestSheets),
                 existingCategories: Array(existingCategories.keys),

@@ -124,6 +124,7 @@ func routes(_ app: Application) throws {
     try api.register(collection: NewsController())
     try api.register(collection: DashboardController())
     try api.register(collection: UserProfileController())
+    try api.register(collection: AIConsentController())
     try api.register(collection: OnboardingController())
     try api.register(collection: EarningsController())
     try api.register(collection: FeedbackController())

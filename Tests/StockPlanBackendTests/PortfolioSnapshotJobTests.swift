@@ -175,7 +175,8 @@ struct PortfolioSnapshotJobTests {
     @Test("The unique constraint rejects a duplicate day outright")
     func uniqueConstraintHolds() async throws {
         try await withApp { app in
-            let userId = UUID()
+            // A real owner: `portfolio_value_snapshots.user_id` references users.
+            let userId = try await makeUser(on: app.db)
             let listId = UUID()
             let day = PortfolioSnapshotValuator.startOfDay(Self.friday)
 

@@ -33,11 +33,12 @@ struct FeedbackController: RouteCollection {
 
         try await feedback.save(on: req.db)
 
+        // No email or user id in the alert: Discord is an ops channel, not a
+        // place for account identifiers. The feedback id finds the row.
+        let feedbackRef = feedback.id?.uuidString ?? "unknown"
         Task {
             do {
-                if let user = try await User.find(session.userId, on: req.db) {
-                    try await req.discord.send("📝 New feedback from \(user.email) (Topic: \(topic)):\n```\(message)```", on: req)
-                }
+                try await req.discord.send("📝 New feedback \(feedbackRef) (Topic: \(topic)):\n```\(message)```", on: req)
             } catch {
                 req.logger.debug("Failed to send discord feedback notification")
             }

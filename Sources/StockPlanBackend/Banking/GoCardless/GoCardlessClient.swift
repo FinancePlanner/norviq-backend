@@ -159,9 +159,12 @@ struct GoCardlessClient: Sendable {
     }
 
     func deleteRequisition(id: String, accessToken: String, on req: Request) async throws {
-        _ = try await req.client.delete(URI(string: config.baseURL + "/requisitions/\(id)/")) {
+        let response = try await req.client.delete(URI(string: config.baseURL + "/requisitions/\(id)/")) {
             $0.headers.bearerAuthorization = .init(token: accessToken)
         }
+        // Already gone is the outcome we wanted.
+        guard response.status != .notFound else { return }
+        try Self.ensureOK(response, req: req, path: "/requisitions/{id}/")
     }
 
     func accountDetails(accountId: String, accessToken: String, on req: Request) async throws -> GCAccountDetails {
@@ -183,7 +186,8 @@ struct GoCardlessClient: Sendable {
     private static func ensureOK(_ response: ClientResponse, req: Request, path: String) throws {
         guard (200 ..< 300).contains(response.status.code) else {
             let detail = response.body.map { String(buffer: $0) } ?? ""
-            req.logger.warning("GoCardless \(path) failed status=\(response.status.code) body=\(detail.prefix(300))")
+            // Length only: GoCardless error bodies can echo account details.
+            req.logger.warning("GoCardless \(path) failed status=\(response.status.code) body_bytes=\(detail.utf8.count)")
             throw Abort(.badGateway, reason: "GoCardless request failed.")
         }
     }

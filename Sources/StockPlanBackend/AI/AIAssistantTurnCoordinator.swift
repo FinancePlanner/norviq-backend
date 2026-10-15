@@ -53,6 +53,9 @@ enum AIAssistantTurnCoordinator {
                 intent: intent, userId: userId, conversation: conversation, content: content, req: req
             )
         }
+        // Everything below sends the user's data to a model provider (memos
+        // included). Watch proposals above are classified locally.
+        try await AIConsent.require(userId: userId, req: req)
         if memoAsk != nil {
             // Statements behind a memo are a Pro feature. Check before the
             // quota spend so a free user is not charged a turn for a refusal.
@@ -169,6 +172,10 @@ enum AIAssistantTurnCoordinator {
         prompt: String,
         req: Request
     ) async throws -> String {
+        // Unattended: no client behind it, so no legacy-client grace.
+        guard try await AIConsent.isAllowed(userId: userId, on: req.db) else {
+            throw Abort(.forbidden, reason: AIConsent.requiredReason)
+        }
         let resolved = try await AIAssistantClientResolver.resolve(userId: userId, on: req)
         if !resolved.usesOwnKey {
             try await consumeAssistantTurn(userId: userId, req: req)

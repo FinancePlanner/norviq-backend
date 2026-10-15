@@ -153,14 +153,14 @@ struct IBKROAuthClient {
 
         let rawBody = ibkrOAuthExtractBody(from: tokenResponse)
         guard tokenResponse.status == .ok else {
-            req.logger.warning("IBKR token request failed status=\(tokenResponse.status.code) body=\(rawBody)")
+            req.logger.warning("IBKR token request failed status=\(tokenResponse.status.code) body_bytes=\(rawBody.utf8.count)")
             throw Abort(.badGateway, reason: "IBKR token request failed with status \(tokenResponse.status.code).")
         }
 
         do {
             return try tokenResponse.content.decode(IBKROAuthTokenResponse.self)
         } catch {
-            req.logger.warning("IBKR token response decode failed body=\(rawBody)")
+            req.logger.warning("IBKR token response decode failed body_bytes=\(rawBody.utf8.count)")
             throw Abort(.badGateway, reason: "IBKR token response format was not recognized.")
         }
     }
