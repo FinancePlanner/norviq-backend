@@ -76,7 +76,7 @@ struct MarketBriefRouteTests {
     func disabled() async throws {
         try await MarketBriefFixtures.withApp { app in
             let pat = try await patWithScopes(app, [.marketRead])
-            try await get(app, "v1/market/brief?lang=pt-PT", token: pat) { res in
+            try await get(app, "v1/market/brief?lang=pt-PT", token: pat) { res async throws in
                 #expect(res.status == .ok)
                 let body = try res.content.decode(MarketBriefResponse.self)
                 #expect(body.enabled == false)
@@ -90,7 +90,7 @@ struct MarketBriefRouteTests {
         try await MarketBriefFixtures.withApp { app in
             app.marketBriefEnabled = true
             let pat = try await patWithScopes(app, [.marketRead])
-            try await get(app, "v1/market/brief", token: pat) { res in
+            try await get(app, "v1/market/brief", token: pat) { res async throws in
                 let body = try res.content.decode(MarketBriefResponse.self)
                 #expect(body.enabled)
                 #expect(body.tradingDate == nil)
@@ -104,13 +104,13 @@ struct MarketBriefRouteTests {
             app.marketBriefEnabled = true
             try await seed(app)
             let pat = try await patWithScopes(app, [.marketRead])
-            try await get(app, "v1/market/brief?lang=pt", token: pat) { res in
+            try await get(app, "v1/market/brief?lang=pt", token: pat) { res async throws in
                 #expect(res.headers.first(name: .cacheControl) == "private, max-age=300")
                 let body = try res.content.decode(MarketBriefResponse.self)
                 #expect(body.slot == .evening)
                 #expect(body.language == "pt-PT")
             }
-            try await get(app, "v1/market/brief?lang=de", token: pat) { res in
+            try await get(app, "v1/market/brief?lang=de", token: pat) { res async throws in
                 let body = try res.content.decode(MarketBriefResponse.self)
                 #expect(body.language == "en")
             }
@@ -123,13 +123,31 @@ struct MarketBriefRouteTests {
             app.marketBriefEnabled = true
             try await seed(app)
             let pat = try await patWithScopes(app, [.marketRead])
-            try await get(app, "v1/market/brief?slot=morning&date=2026-10-08", token: pat) { res in
+            try await get(app, "v1/market/brief?slot=morning&date=2026-10-08", token: pat) { res async throws in
                 let body = try res.content.decode(MarketBriefResponse.self)
                 #expect(body.slot == .morning)
             }
             try await get(app, "v1/market/brief?slot=morning&date=2026-10-09", token: pat) { #expect($0.status == .notFound) }
             try await get(app, "v1/market/brief?slot=noon&date=2026-10-08", token: pat) { #expect($0.status == .badRequest) }
             try await get(app, "v1/market/brief?slot=morning&date=08-10-2026", token: pat) { #expect($0.status == .badRequest) }
+        }
+    }
+
+
+    @Test("The latest brief names the one before it; stored payloads never carry it")
+    func latestCarriesPrevious() async throws {
+        try await MarketBriefFixtures.withApp { app in
+            app.marketBriefEnabled = true
+            try await seed(app)
+            let pat = try await patWithScopes(app, [.marketRead])
+            try await get(app, "v1/market/brief?lang=en", token: pat) { res async throws in
+                let brief = try res.content.decode(MarketBriefResponse.self)
+                #expect(brief.slot == .evening)
+                #expect(brief.previous == MarketBriefRef(slot: .morning, tradingDate: "2026-10-08"))
+            }
+            try await get(app, "v1/market/brief?lang=en&slot=morning&date=2026-10-08", token: pat) { res async throws in
+                #expect(try res.content.decode(MarketBriefResponse.self).previous == nil)
+            }
         }
     }
 }
