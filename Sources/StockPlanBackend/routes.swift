@@ -168,6 +168,7 @@ func routes(_ app: Application) throws {
     try api.register(collection: ReportsController())
     try api.register(collection: GoalsController())
     try api.register(collection: TerminalPositionsController())
+    try api.register(collection: RecapController())
     try api.register(collection: UserActivityController())
     try api.register(collection: BadgeController())
     try api.register(collection: AssetsController())
