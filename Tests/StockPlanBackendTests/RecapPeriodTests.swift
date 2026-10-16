@@ -27,6 +27,16 @@ struct RecapPeriodTests {
         #expect(y?.key == "2026")
     }
 
+    @Test("parse rejects years outside 2000...2999")
+    func parseRejectsExtremeYears() {
+        #expect(RecapPeriod.parse(kind: "year", key: "0000") == nil)
+        #expect(RecapPeriod.parse(kind: "month", key: "9999-01") == nil)
+        #expect(RecapPeriod.parse(kind: "year", key: "1999") == nil)
+        #expect(RecapPeriod.parse(kind: "year", key: "3000") == nil)
+        #expect(RecapPeriod.parse(kind: "year", key: "2000") != nil)
+        #expect(RecapPeriod.parse(kind: "month", key: "2999-12") != nil)
+    }
+
     @Test("parse rejects malformed keys")
     func parseInvalid() {
         #expect(RecapPeriod.parse(kind: "month", key: "2026-13") == nil)

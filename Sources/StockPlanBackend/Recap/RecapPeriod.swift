@@ -8,6 +8,9 @@ struct RecapPeriod: Equatable, Sendable {
     let year: Int
     let month: Int?
 
+    /// Years outside this range are rejected so `bounds()` can never overflow.
+    private static let yearRange = 2000 ... 2999
+
     /// Parses `("month", "2026-10")` or `("year", "2026")`. Anything else is nil.
     static func parse(kind: String, key: String) -> RecapPeriod? {
         let digits = CharacterSet.decimalDigits
@@ -18,11 +21,11 @@ struct RecapPeriod: Equatable, Sendable {
         case "month":
             let parts = key.split(separator: "-", omittingEmptySubsequences: false)
             guard parts.count == 2, isDigits(parts[0], count: 4), isDigits(parts[1], count: 2),
-                  let y = Int(parts[0]), let m = Int(parts[1]), (1 ... 12).contains(m)
+                  let y = Int(parts[0]), yearRange.contains(y), let m = Int(parts[1]), (1 ... 12).contains(m)
             else { return nil }
             return RecapPeriod(kind: .month, year: y, month: m)
         case "year":
-            guard isDigits(Substring(key), count: 4), let y = Int(key) else { return nil }
+            guard isDigits(Substring(key), count: 4), let y = Int(key), yearRange.contains(y) else { return nil }
             return RecapPeriod(kind: .year, year: y, month: nil)
         default:
             return nil
