@@ -143,6 +143,31 @@ struct RecapRouteTests {
         }
     }
 
+    /// The house decoders rewrite snake_case keys; the slide payload must still
+    /// decode (the old `"missed_you": {...}` sibling key did not).
+    @Test("A missed-you response decodes with the backendAPI and stockPlanShared decoders")
+    func missedYouDecodesWithHouseDecoders() async throws {
+        try await withFlags {
+            try await RecapFixtures.withUser { app, token, userId in
+                try await makeOld(app, userId)
+                try await send(app, .GET, "v1/recaps/month/\(lastMonthKey())", token: token) { res in
+                    #expect(res.status == .ok)
+                    let body = Data(buffer: res.body)
+                    for decoder in [JSONDecoder.backendAPI, JSONDecoder.stockPlanShared] {
+                        let response = try decoder.decode(RecapResponse.self, from: body)
+                        #expect(response.deck.isMissedYou)
+                        guard response.deck.slides.count == 3, case .missedYou = response.deck.slides[1] else {
+                            Issue.record("expected [intro, missed_you, outro]")
+                            return
+                        }
+                    }
+                    // `res.content` goes through the app's configured decoder (backendAPI).
+                    #expect(try res.content.decode(RecapResponse.self).deck.isMissedYou)
+                }
+            }
+        }
+    }
+
     @Test("Bad kinds, bad keys and unavailable periods are 404")
     func badKeysAre404() async throws {
         try await withFlags {
@@ -150,11 +175,16 @@ struct RecapRouteTests {
                 try await makeOld(app, userId)
                 for path in [
                     "month/2026-13", "week/2026-10", "month/\(currentMonthKey())", "year/0000", "month/9999-01", "year/2026",
+                    // Before the user signed up (created_at is ~70 days ago).
+                    "month/2024-01",
                 ] {
                     try await send(app, .GET, "v1/recaps/\(path)", token: token) { res in
                         #expect(res.status == .notFound, "\(path)")
                     }
                 }
+                // A 404 never stores a deck.
+                let stored = try await RecapRecord.query(on: app.db).filter(\.$userId == userId).count()
+                #expect(stored == 0)
             }
         }
     }
