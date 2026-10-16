@@ -11,8 +11,13 @@ enum PersonalityClassifier {
         (.copycatStrategist, { $0.pilotFollows >= 2 * $1 }),
         (.dividendFarmer, { $0.dividendPayments >= 3 * $1 }),
         (.saver, { $0.goalContributionCount >= 3 * $1 }),
-        // The 2x ratio is deliberately not scaled for the year.
-        (.comebackKid, { $0.activeDaysSecondHalf >= 5 * $1 && $0.activeDaysSecondHalf >= 2 * $0.activeDaysFirstHalf }),
+        // The 2x ratio is deliberately not scaled for the year. A comeback needs
+        // a first-half presence: a user who joined mid-period is not one.
+        (.comebackKid, {
+            $0.activeDaysFirstHalf >= 1
+                && $0.activeDaysSecondHalf >= 5 * $1
+                && $0.activeDaysSecondHalf >= 2 * $0.activeDaysFirstHalf
+        }),
         (.tickerHunter, { $0.researchTouchesBySymbol.count >= 10 * $1 }),
         (.researcher, { $0.notesWritten + $0.targetsSet >= 5 * $1 }),
         (.disciplinedSizer, { $0.targetsSet >= 3 * $1 }),

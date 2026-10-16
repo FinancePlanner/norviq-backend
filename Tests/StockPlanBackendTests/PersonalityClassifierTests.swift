@@ -52,6 +52,14 @@ struct PersonalityClassifierTests {
         #expect(PersonalityClassifier.classify(flat, kind: .year) == .steadyBuilder)
     }
 
+    /// A user who joined mid-period has no first half to come back from.
+    @Test func comebackNeedsFirstHalfPresence() {
+        let joinedMidMonth = RecapFacts(activeDaysFirstHalf: 0, activeDaysSecondHalf: 10)
+        #expect(PersonalityClassifier.classify(joinedMidMonth, kind: .month) != .comebackKid)
+        let returned = RecapFacts(activeDaysFirstHalf: 1, activeDaysSecondHalf: 10)
+        #expect(PersonalityClassifier.classify(returned, kind: .month) == .comebackKid)
+    }
+
     @Test func emptyFactsDefault() {
         #expect(PersonalityClassifier.classify(RecapFacts(), kind: .month) == .steadyBuilder)
         #expect(!RecapFacts().hasAnyActivity)
