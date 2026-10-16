@@ -44,23 +44,37 @@ enum RecapStreaks {
 ///   UTC midnight, so they use the period's calendar days.
 ///
 /// `net_worth_snapshots` is never read: it is global, with no `user_id`.
+///
+/// Only the user's own actions count. Rows written for them by automation are
+/// excluded: trades and dividends in pilot accounts (simulated), `stocks` rows
+/// imported by a provider (pilot, IBKR), and watchlist items or portfolio
+/// snapshots in lists a pilot follow manages.
 struct RecapFactsCollector: Sendable {
     private struct Window {
         let instants: (start: Date, end: Date)
         let days: (start: Date, end: Date)
         let localDates: (first: String, last: String)
         let firstHalfLast: String
+        /// Lists any pilot follow of this user writes into, whatever its status.
+        var pilotPortfolioListIds: [UUID] = []
+        var pilotWatchlistListIds: [UUID] = []
     }
 
     func collect(userId: UUID, period: RecapPeriod, timeZone: TimeZone, on db: any Database) async throws -> RecapFacts {
         let localDates = period.localDateRange()
-        let window = Window(
+        var window = Window(
             instants: period.bounds(in: timeZone),
             days: period.bounds(in: RecapTimeZoneResolver.utc),
             localDates: localDates,
             firstHalfLast: period.month.map { String(format: "%04d-%02d-15", period.year, $0) }
                 ?? String(format: "%04d-06-30", period.year)
         )
+        let pilotLists = try await PilotFollow.query(on: db)
+            .filter(\.$userId == userId)
+            .field(\.$portfolioListId).field(\.$watchlistListId)
+            .all()
+        window.pilotPortfolioListIds = pilotLists.compactMap(\.portfolioListId)
+        window.pilotWatchlistListIds = pilotLists.compactMap(\.watchlistListId)
         var facts = RecapFacts()
         try await collectCheckIns(userId, window, db, into: &facts)
         try await collectTrades(userId, window, db, into: &facts)
@@ -94,6 +108,8 @@ struct RecapFactsCollector: Sendable {
             .join(Account.self, on: \Transaction.$accountId == \Account.$id)
             .join(Instrument.self, on: \Transaction.$instrumentId == \Instrument.$id)
             .filter(Account.self, \.$userId == userId)
+            // Pilot accounts hold simulated trades, not the user's own.
+            .filter(Account.self, \.$broker != PilotAccountResolver.broker)
             // `date` column vs a bound `Date`: assumes the Postgres session TimeZone is UTC.
             .filter(\.$tradeDate >= w.days.start)
             .filter(\.$tradeDate < w.days.end)
@@ -120,11 +136,14 @@ struct RecapFactsCollector: Sendable {
             facts.researchTouchesBySymbol[key, default: 0] += 1
         }
 
-        let watchlist = try await WatchlistItem.query(on: db)
+        let watchlistQuery = WatchlistItem.query(on: db)
             .filter(\.$userId == userId)
             .filter(\.$createdAt >= start).filter(\.$createdAt < end)
-            .field(\.$symbol)
-            .all()
+        if !w.pilotWatchlistListIds.isEmpty {
+            // Items a pilot follow added to its watchlist are not the user's research.
+            watchlistQuery.filter(\.$watchlistListId !~ w.pilotWatchlistListIds)
+        }
+        let watchlist = try await watchlistQuery.field(\.$symbol).all()
         facts.watchlistAdded = watchlist.count
         watchlist.forEach { touch($0.symbol) }
 
@@ -166,8 +185,10 @@ struct RecapFactsCollector: Sendable {
             .all()
         memos.forEach { touch($0.primarySymbol) }
 
+        // Only stocks the user added: provider-imported rows (pilot, IBKR) carry a source_provider.
         let stocks = try await Stock.query(on: db)
             .filter(\.$userId == userId)
+            .filter(\.$sourceProvider == nil)
             .filter(\.$createdAt >= start).filter(\.$createdAt < end)
             .field(\.$symbol)
             .all()
@@ -179,11 +200,15 @@ struct RecapFactsCollector: Sendable {
     /// are skipped). Then start and end values are summed per currency.
     private func collectGrowth(_ userId: UUID, _ w: Window, _ db: any Database, into facts: inout RecapFacts) async throws {
         // `date` column vs a bound `Date`: assumes the Postgres session TimeZone is UTC.
-        let snapshots = try await PortfolioValueSnapshot.query(on: db)
+        let snapshotQuery = PortfolioValueSnapshot.query(on: db)
             .filter(\.$userId == userId)
             .filter(\.$capturedOn >= w.days.start)
             .filter(\.$capturedOn < w.days.end)
-            .all()
+        if !w.pilotPortfolioListIds.isEmpty {
+            // A pilot-managed list's value moves with the pilot, not with the user.
+            snapshotQuery.filter(\.$portfolioListId !~ w.pilotPortfolioListIds)
+        }
+        let snapshots = try await snapshotQuery.all()
         struct ListKey: Hashable { let list: UUID, currency: String }
         var totals: [String: (start: Double, end: Double)] = [:]
         for (key, rows) in Dictionary(grouping: snapshots, by: { ListKey(list: $0.portfolioListId, currency: $0.currency) }) {
@@ -203,6 +228,7 @@ struct RecapFactsCollector: Sendable {
         let dividends = try await Dividend.query(on: db)
             .join(Account.self, on: \Dividend.$accountId == \Account.$id)
             .filter(Account.self, \.$userId == userId)
+            .filter(Account.self, \.$broker != PilotAccountResolver.broker)
             // `date` column vs a bound `Date`: assumes the Postgres session TimeZone is UTC.
             .filter(\.$payDate >= w.days.start)
             .filter(\.$payDate < w.days.end)

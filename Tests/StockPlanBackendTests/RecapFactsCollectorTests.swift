@@ -233,6 +233,93 @@ struct RecapFactsCollectorTests {
         }
     }
 
+    /// Rows automation writes for the user are not the user's activity: pilot
+    /// account trades and dividends, provider-imported stocks, and watchlist
+    /// items or snapshots in lists a pilot follow manages.
+    @Test func automatedRowsAreNotTheUsersActivity() async throws {
+        try await Fx.withUser { app, _, userId in
+            let db = app.db
+            let inOctober = Fx.instant("2026-10-10T12:00:00Z")
+            let pilot = Pilot(
+                kind: .politician, slug: "recap-\(UUID().uuidString.prefix(6))", displayName: "Recap Pilot",
+                chamber: "house", nameAliases: ["Recap Pilot"]
+            )
+            try await pilot.save(on: db)
+
+            // Trades and dividends: own IBKR account counts, pilot account does not.
+            let ownAccount = try await Fx.account(for: userId, on: db)
+            let pilotAccount = Account(
+                userId: userId, externalId: "pilot-\(UUID().uuidString.prefix(8))",
+                broker: PilotAccountResolver.broker, baseCurrency: "USD"
+            )
+            try await pilotAccount.save(on: db)
+            let aapl = try await Fx.instrument(symbol: "AAPL", on: db)
+            let tsla = try await Fx.instrument(symbol: "TSLA", on: db)
+            try await Transaction(
+                accountId: ownAccount, instrumentId: aapl, type: "buy", currency: "USD", tradeDate: Fx.day("2026-10-05")
+            ).save(on: db)
+            try await Transaction(
+                accountId: pilotAccount.requireID(), instrumentId: tsla, type: "buy", currency: "USD",
+                tradeDate: Fx.day("2026-10-06")
+            ).save(on: db)
+            try await Dividend(
+                accountId: ownAccount, instrumentId: aapl, amount: 10, currency: "USD", payDate: Fx.day("2026-10-07")
+            ).save(on: db)
+            try await Dividend(
+                accountId: pilotAccount.requireID(), instrumentId: tsla, amount: 500, currency: "USD",
+                payDate: Fx.day("2026-10-08")
+            ).save(on: db)
+
+            // Stocks: only rows without a source provider are the user's research.
+            let ownList = try await Fx.portfolioList(for: userId, on: db)
+            for (symbol, provider) in [("NVDA", nil), ("META", "pilot"), ("AMZN", "ibkr")] as [(String, String?)] {
+                let stock = Stock(
+                    userId: userId, portfolioListId: ownList, symbol: symbol, shares: 1, buyPrice: 100,
+                    buyDate: inOctober, sourceProvider: provider
+                )
+                try await stock.save(on: db)
+                try await Fx.backdate(table: Stock.schema, id: stock.requireID(), to: inOctober, on: db)
+            }
+
+            // Watchlist: the user's own list counts, a pilot-managed list does not.
+            let ownWatchlist = WatchlistList(userId: userId, name: "Recap \(UUID().uuidString.prefix(8))")
+            try await ownWatchlist.save(on: db)
+            let pilotWatchlist = WatchlistList(userId: userId, name: "Pilot \(UUID().uuidString.prefix(8))")
+            try await pilotWatchlist.save(on: db)
+            try await PilotFollow(
+                userId: userId, pilotId: pilot.requireID(), targetKind: .watchlist,
+                watchlistListId: pilotWatchlist.requireID()
+            ).save(on: db)
+            for (list, symbol) in [(ownWatchlist, "MSFT"), (pilotWatchlist, "GOOG")] {
+                let item = try WatchlistItem(userId: userId, watchlistListId: list.requireID(), symbol: symbol)
+                try await item.save(on: db)
+                try await Fx.backdate(table: WatchlistItem.schema, id: item.requireID(), to: inOctober, on: db)
+            }
+
+            // Growth: snapshots of a pilot-managed portfolio list are excluded.
+            let pilotList = try await Fx.portfolioList(for: userId, on: db)
+            try await PilotFollow(
+                userId: userId, pilotId: pilot.requireID(), targetKind: .portfolio,
+                portfolioListId: pilotList, startingCapital: 10000
+            ).save(on: db)
+            try await Fx.snapshot(userId, list: ownList, on: "2026-10-02", value: 100, db: db)
+            try await Fx.snapshot(userId, list: ownList, on: "2026-10-30", value: 120, db: db)
+            try await Fx.snapshot(userId, list: pilotList, on: "2026-10-02", value: 10000, db: db)
+            try await Fx.snapshot(userId, list: pilotList, on: "2026-10-30", value: 15000, db: db)
+
+            let facts = try await collector.collect(userId: userId, period: Fx.month("2026-10"), timeZone: Fx.utc, on: db)
+            #expect(facts.tradeCount == 1)
+            #expect(facts.buyCount == 1)
+            #expect(facts.tradesBySymbol == ["AAPL": 1])
+            #expect(facts.dividendsReceived == [RecapMoney(amount: 10, currency: "USD")])
+            #expect(facts.dividendPayments == 1)
+            #expect(facts.dividendPayers == 1)
+            #expect(facts.watchlistAdded == 1)
+            #expect(facts.researchTouchesBySymbol == ["NVDA": 1, "MSFT": 1])
+            #expect(facts.growth == [RecapGrowth(currency: "USD", startValue: 100, endValue: 120)])
+        }
+    }
+
     @Test func timeZoneFallback() async throws {
         try await Fx.withUser { app, _, userId in
             let db = app.db
