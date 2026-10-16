@@ -361,15 +361,17 @@ struct InsightsServiceTests {
         symbol: String,
         userId: UUID,
         on db: any Database,
-        category: AssetCategory = .stock
+        category: AssetCategory = .stock,
+        shares: Double = 1,
+        buyPrice: Double = 100
     ) async throws {
         let portfolioListId = try await ensureDefaultPortfolioListId(userId: userId, on: db)
         let stock = Stock(
             userId: userId,
             portfolioListId: portfolioListId,
             symbol: symbol,
-            shares: 1,
-            buyPrice: 100,
+            shares: shares,
+            buyPrice: buyPrice,
             buyDate: Date(timeIntervalSince1970: 1_704_067_200),
             category: category
         )
@@ -423,6 +425,36 @@ struct InsightsServiceTests {
 
             let topOne = try await repo.allTrackedSymbols(limit: 1, on: app.db)
             #expect(topOne == ["AMD"])
+        }
+    }
+
+    @Test("topPositionSymbols keeps each user's largest positions and ranks by holders then cost basis")
+    func topPositionSymbolsRanksBySize() async throws {
+        try await withApp { app in
+            let repo = DatabaseInsightsRepository()
+
+            let (_, userA) = try await registerTestUser(app: app)
+            let (_, userB) = try await registerTestUser(app: app)
+
+            // User A: three positions; with perUserLimit 2 the smallest (TINY) drops out.
+            try await createHolding(symbol: "BIG", userId: userA, on: app.db, shares: 10, buyPrice: 500)
+            try await createHolding(symbol: "amd", userId: userA, on: app.db, shares: 1, buyPrice: 100)
+            try await createHolding(symbol: "TINY", userId: userA, on: app.db, shares: 1, buyPrice: 1)
+            // Two lots of the same symbol are summed: 2 × 300 = 600 beats AMD's 100.
+            try await createHolding(symbol: "LOTS", userId: userB, on: app.db, shares: 1, buyPrice: 300)
+            try await createHolding(symbol: "LOTS", userId: userB, on: app.db, shares: 1, buyPrice: 300)
+            try await createHolding(symbol: "AMD", userId: userB, on: app.db, shares: 1, buyPrice: 100)
+            // Crypto holdings and watchlist items are not positions to rank.
+            try await createHolding(symbol: "BTC", userId: userB, on: app.db, category: .crypto, shares: 1, buyPrice: 90000)
+            try await createWatchlistItem(symbol: "TSLA", userId: userB, on: app.db, status: .active)
+
+            let symbols = try await repo.topPositionSymbols(perUserLimit: 2, limit: 10, on: app.db)
+
+            // AMD is held by both users, so it leads; then BIG (5000) before LOTS (600).
+            #expect(symbols == ["AMD", "BIG", "LOTS"])
+
+            let topTwo = try await repo.topPositionSymbols(perUserLimit: 2, limit: 2, on: app.db)
+            #expect(topTwo == ["AMD", "BIG"])
         }
     }
 
