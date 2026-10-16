@@ -191,6 +191,33 @@ struct RecapServiceTests {
         }
     }
 
+    /// Generate once means served forever: the 13-month bound only gates
+    /// generating a deck, never returning a stored one.
+    @Test func storedRecapOutlivesThirteenMonthWindow() async throws {
+        try await Fx.withUser { app, _, userId in
+            let db = app.db
+            try await Self.signedUp(userId, db: db)
+            try await Self.buy(userId, on: "2026-10-05", db: db)
+            let service = Self.service()
+            let first = try #require(try await service.recap(
+                userId: userId, period: Fx.month("2026-10"), now: Fx.instant("2026-11-02T12:00:00Z"), on: db
+            ))
+
+            let later = Fx.instant("2028-01-02T12:00:00Z")
+            let again = try #require(try await service.recap(userId: userId, period: Fx.month("2026-10"), now: later, on: db))
+            #expect(again.id == first.id)
+            #expect(again.deck == first.deck)
+
+            let stale = try await service.recap(userId: userId, period: Fx.month("2026-09"), now: later, on: db)
+            #expect(stale == nil)
+
+            let list = try await service.list(userId: userId, now: later, on: db)
+            #expect(list.recaps.contains { $0.id == first.id && $0.generated })
+            let rows = try await RecapRecord.query(on: db).filter(\.$userId == userId).count()
+            #expect(rows == 1)
+        }
+    }
+
     @Test func markOpenedOwnership() async throws {
         try await Fx.withUser { app, _, userId in
             let db = app.db

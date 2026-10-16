@@ -31,13 +31,17 @@ struct RecapService: Sendable {
     }
 
     func recap(userId: UUID, period: RecapPeriod, now: Date, on db: any Database) async throws -> RecapResponse? {
-        guard serves(period.kind), let user = try await User.find(userId, on: db) else { return nil }
-        let timeZone = try await RecapTimeZoneResolver.timeZone(for: userId, on: db)
-        guard Self.isAvailable(period, now: now, timeZone: timeZone, user: user) else { return nil }
+        guard serves(period.kind) else { return nil }
 
+        // Generate once: a stored deck is served forever, however old.
+        // Availability only gates generation.
         if let existing = try await repository.find(userId: userId, kind: period.kind, key: period.key, on: db) {
             return try existing.response()
         }
+
+        guard let user = try await User.find(userId, on: db) else { return nil }
+        let timeZone = try await RecapTimeZoneResolver.timeZone(for: userId, on: db)
+        guard Self.isAvailable(period, now: now, timeZone: timeZone, user: user) else { return nil }
 
         let facts = try await collector.collect(userId: userId, period: period, timeZone: timeZone, on: db)
         let deck = RecapDeckBuilder.build(facts: facts, period: period)
@@ -47,7 +51,7 @@ struct RecapService: Sendable {
         return try stored.response()
     }
 
-    /// Stored recaps the user can still open, plus an un-generated entry for
+    /// Every stored recap of a served kind, plus an un-generated entry for
     /// the last closed month (and year, when yearly is on) if none is stored.
     /// Never generates.
     func list(userId: UUID, now: Date, on db: any Database) async throws -> RecapListResponse {
@@ -61,8 +65,7 @@ struct RecapService: Sendable {
         for record in try await repository.list(userId: userId, on: db) {
             guard let kind = RecapPeriodKind(rawValue: record.periodKind),
                   let period = RecapPeriod.parse(kind: kind.rawValue, key: record.periodKey),
-                  serves(kind),
-                  Self.isAvailable(period, now: now, timeZone: timeZone, user: user)
+                  serves(kind)
             else { continue }
             storedKeys.insert("\(kind.rawValue)/\(record.periodKey)")
             stored.append(RecapSummary(
