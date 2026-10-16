@@ -62,6 +62,50 @@ struct RecapDeckBuilderTests {
         #expect(deck.slides[2] == .outro(RecapOutroSlide(isFirstChapter: false, nextPeriodLabel: "November 2026")))
     }
 
+    /// Activity with no eligible middle slide (only XP and AI requests) gets
+    /// the missed-you deck, not an empty first chapter.
+    @Test func activityWithoutEligibleSlideIsMissedYou() {
+        let facts = RecapFacts(xpEarned: 50, aiRequests: 3, bestStreakEverDays: 4, totalBadgesEver: 1)
+        #expect(facts.hasAnyActivity)
+        let deck = RecapDeckBuilder.build(facts: facts, period: october)
+        #expect(types(deck) == [.intro, .missedYou, .outro])
+        #expect(deck.isMissedYou == true)
+        #expect(deck.isFirstChapter == false)
+        #expect(deck.archetype == nil)
+        #expect(deck.slides[1] == .missedYou(RecapMissedYouSlide(bestStreakDays: 4, totalBadges: 1)))
+    }
+
+    struct ActivityRow: Sendable {
+        let name: String
+        let facts: RecapFacts
+        let expected: Bool
+    }
+
+    static let activityRows: [ActivityRow] = [
+        ActivityRow(name: "empty", facts: RecapFacts(), expected: false),
+        ActivityRow(
+            name: "lifetime fields only", facts: RecapFacts(bestStreakEverDays: 30, totalBadgesEver: 8), expected: false
+        ),
+        ActivityRow(name: "active day", facts: RecapFacts(activeDays: 1), expected: true),
+        ActivityRow(name: "trade", facts: RecapFacts(tradeCount: 1), expected: true),
+        ActivityRow(name: "research touch", facts: RecapFacts(researchTouchesBySymbol: ["AAPL": 1]), expected: true),
+        ActivityRow(name: "target hit", facts: RecapFacts(targetsHit: 1), expected: true),
+        ActivityRow(name: "dividend", facts: RecapFacts(dividendPayments: 1), expected: true),
+        ActivityRow(
+            name: "badge", facts: RecapFacts(badgesEarned: [RecapBadge(type: "streak", tier: "bronze")]), expected: true
+        ),
+        ActivityRow(name: "xp", facts: RecapFacts(xpEarned: 10), expected: true),
+        ActivityRow(name: "pilot follow", facts: RecapFacts(pilotFollows: 1), expected: true),
+        ActivityRow(name: "board comment", facts: RecapFacts(boardComments: 1), expected: true),
+        ActivityRow(name: "ai request", facts: RecapFacts(aiRequests: 1), expected: true),
+        ActivityRow(name: "expense", facts: RecapFacts(expensesRecorded: 1), expected: true),
+    ]
+
+    @Test(arguments: activityRows)
+    func hasAnyActivityTable(row: ActivityRow) {
+        #expect(row.facts.hasAnyActivity == row.expected, "\(row.name)")
+    }
+
     @Test func fullDeckOrderAndPersonality() {
         let deck = RecapDeckBuilder.build(facts: richFacts(), period: october)
         #expect(types(deck) == [

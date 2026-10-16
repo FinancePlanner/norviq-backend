@@ -27,7 +27,10 @@ enum RecapDeckBuilder {
             )
         }
 
-        guard facts.hasAnyActivity else {
+        // No activity, or activity with nothing to show (only XP, AI requests,
+        // board posts...): a first chapter needs at least one middle slide.
+        let middle = facts.hasAnyActivity ? middleSlides(facts) : []
+        guard !middle.isEmpty else {
             return deck(archetype: nil, firstChapter: false, missedYou: true, slides: [
                 intro,
                 .missedYou(RecapMissedYouSlide(
@@ -37,7 +40,6 @@ enum RecapDeckBuilder {
             ])
         }
 
-        let middle = middleSlides(facts)
         if middle.count >= minFullDeckSlides, facts.activeDays >= minFullDeckActiveDays {
             let archetype = PersonalityClassifier.classify(facts, kind: period.kind)
             return deck(
