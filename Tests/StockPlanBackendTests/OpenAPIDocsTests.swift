@@ -428,5 +428,20 @@ struct OpenAPIDocsTests {
         ] {
             #expect(body.contains("    \(schema):"), "missing schema \(schema)")
         }
+        // Every slide wrapper carries its payload under the fixed `payload` key.
+        for slide in [
+            "intro", "streak", "top_tickers", "trades", "research", "growth",
+            "dividends", "goals", "badges", "personality", "missed_you", "outro",
+        ] {
+            let wrapper = """
+                RecapSlide_\(slide):
+                  type: object
+                  required: [type, payload]
+                  properties:
+                    type: { type: string, enum: [\(slide)] }
+                    payload:
+            """
+            #expect(body.contains(wrapper), "RecapSlide_\(slide) must require [type, payload]")
+        }
     }
 }

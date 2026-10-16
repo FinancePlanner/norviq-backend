@@ -19399,8 +19399,9 @@ components:
         endValue: { type: number, format: double }
     RecapSlide:
       description: >-
-        Tagged union. `type` names the case and the payload sits under a key of
-        the same name (`top_tickers`, `missed_you` are snake_case).
+        Tagged union. `type` names the case (`top_tickers` and `missed_you` are
+        snake_case values) and the case payload always sits under the fixed key
+        `payload`, whose fields are camelCase.
       oneOf:
         - $ref: '#/components/schemas/RecapSlide_intro'
         - $ref: '#/components/schemas/RecapSlide_streak'
@@ -19431,76 +19432,76 @@ components:
           outro: '#/components/schemas/RecapSlide_outro'
     RecapSlide_intro:
       type: object
-      required: [type, intro]
+      required: [type, payload]
       properties:
         type: { type: string, enum: [intro] }
-        intro: { $ref: '#/components/schemas/RecapIntroSlide' }
+        payload: { $ref: '#/components/schemas/RecapIntroSlide' }
     RecapSlide_streak:
       type: object
-      required: [type, streak]
+      required: [type, payload]
       properties:
         type: { type: string, enum: [streak] }
-        streak: { $ref: '#/components/schemas/RecapStreakSlide' }
+        payload: { $ref: '#/components/schemas/RecapStreakSlide' }
     RecapSlide_top_tickers:
       type: object
-      required: [type, top_tickers]
+      required: [type, payload]
       properties:
         type: { type: string, enum: [top_tickers] }
-        top_tickers: { $ref: '#/components/schemas/RecapTopTickersSlide' }
+        payload: { $ref: '#/components/schemas/RecapTopTickersSlide' }
     RecapSlide_trades:
       type: object
-      required: [type, trades]
+      required: [type, payload]
       properties:
         type: { type: string, enum: [trades] }
-        trades: { $ref: '#/components/schemas/RecapTradesSlide' }
+        payload: { $ref: '#/components/schemas/RecapTradesSlide' }
     RecapSlide_research:
       type: object
-      required: [type, research]
+      required: [type, payload]
       properties:
         type: { type: string, enum: [research] }
-        research: { $ref: '#/components/schemas/RecapResearchSlide' }
+        payload: { $ref: '#/components/schemas/RecapResearchSlide' }
     RecapSlide_growth:
       type: object
-      required: [type, growth]
+      required: [type, payload]
       properties:
         type: { type: string, enum: [growth] }
-        growth: { $ref: '#/components/schemas/RecapGrowthSlide' }
+        payload: { $ref: '#/components/schemas/RecapGrowthSlide' }
     RecapSlide_dividends:
       type: object
-      required: [type, dividends]
+      required: [type, payload]
       properties:
         type: { type: string, enum: [dividends] }
-        dividends: { $ref: '#/components/schemas/RecapDividendsSlide' }
+        payload: { $ref: '#/components/schemas/RecapDividendsSlide' }
     RecapSlide_goals:
       type: object
-      required: [type, goals]
+      required: [type, payload]
       properties:
         type: { type: string, enum: [goals] }
-        goals: { $ref: '#/components/schemas/RecapGoalsSlide' }
+        payload: { $ref: '#/components/schemas/RecapGoalsSlide' }
     RecapSlide_badges:
       type: object
-      required: [type, badges]
+      required: [type, payload]
       properties:
         type: { type: string, enum: [badges] }
-        badges: { $ref: '#/components/schemas/RecapBadgesSlide' }
+        payload: { $ref: '#/components/schemas/RecapBadgesSlide' }
     RecapSlide_personality:
       type: object
-      required: [type, personality]
+      required: [type, payload]
       properties:
         type: { type: string, enum: [personality] }
-        personality: { $ref: '#/components/schemas/RecapPersonalitySlide' }
+        payload: { $ref: '#/components/schemas/RecapPersonalitySlide' }
     RecapSlide_missed_you:
       type: object
-      required: [type, missed_you]
+      required: [type, payload]
       properties:
         type: { type: string, enum: [missed_you] }
-        missed_you: { $ref: '#/components/schemas/RecapMissedYouSlide' }
+        payload: { $ref: '#/components/schemas/RecapMissedYouSlide' }
     RecapSlide_outro:
       type: object
-      required: [type, outro]
+      required: [type, payload]
       properties:
         type: { type: string, enum: [outro] }
-        outro: { $ref: '#/components/schemas/RecapOutroSlide' }
+        payload: { $ref: '#/components/schemas/RecapOutroSlide' }
     RecapIntroSlide:
       type: object
       required: [periodLabel, activeDays]
