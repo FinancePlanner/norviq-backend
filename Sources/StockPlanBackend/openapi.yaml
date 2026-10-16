@@ -18,6 +18,8 @@ tags:
   - name: Auth
   - name: Stocks
   - name: Watchlist
+  - name: Recaps
+    description: Per-user monthly and yearly recap decks, generated once. Gated by `RECAP_ENABLED`; every route returns 404 when it is off.
   - name: Pilots
     description: Simulated copy-trading of politicians and funds. Gated by `PILOTS_ENABLED`; every route returns 404 when it is off.
   - name: Articles
@@ -10358,6 +10360,77 @@ paths:
         '404':
           description: Not found, or the articles feature is disabled (`ARTICLES_ENABLED` off).
 
+  /v1/recaps:
+    get:
+      operationId: listRecaps
+      tags: [Recaps]
+      summary: List recaps
+      description: >-
+        Stored recaps plus the last closed month (and year, when yearly is on) if
+        not generated yet. 404 while `RECAP_ENABLED` is off.
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/RecapListResponse' }
+        '401': { description: Unauthorized }
+        '403': { description: Token lacks planning:read }
+        '404': { description: Recaps are disabled }
+  /v1/recaps/{kind}/{key}:
+    get:
+      operationId: getRecap
+      tags: [Recaps]
+      summary: Get (and generate once) a recap
+      description: >-
+        `kind` is `month` (key `YYYY-MM`) or `year` (key `YYYY`). Generated on
+        first request and returned unchanged afterwards. 404 for a bad kind or
+        key, an unavailable period, or while the feature flag is off.
+      security:
+        - bearerAuth: []
+      parameters:
+        - { name: kind, in: path, required: true, schema: { type: string, enum: [month, year] } }
+        - { name: key, in: path, required: true, schema: { type: string, example: '2026-09' } }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/RecapResponse' }
+        '401': { description: Unauthorized }
+        '403': { description: Token lacks planning:read }
+        '404': { description: Not available }
+  /v1/recaps/{id}/opened:
+    post:
+      operationId: markRecapOpened
+      tags: [Recaps]
+      summary: Mark a recap opened
+      security:
+        - bearerAuth: []
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '204': { description: No content }
+        '401': { description: Unauthorized }
+        '403': { description: Token lacks planning:write }
+        '404': { description: Unknown or foreign recap or recaps disabled }
+  /v1/recaps/{id}/completed:
+    post:
+      operationId: markRecapCompleted
+      tags: [Recaps]
+      summary: Mark a recap completed
+      security:
+        - bearerAuth: []
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '204': { description: No content }
+        '401': { description: Unauthorized }
+        '403': { description: Token lacks planning:write }
+        '404': { description: Unknown or foreign recap or recaps disabled }
+
 components:
   parameters:
     ScenarioResourceID:
@@ -19293,3 +19366,256 @@ components:
       required: [hidden]
       properties:
         hidden: { type: boolean }
+    RecapMoney:
+      type: object
+      required: [amount, currency]
+      properties:
+        amount: { type: number, format: double }
+        currency: { type: string }
+    RecapArchetype:
+      type: string
+      enum: [copycat_strategist, dividend_farmer, saver, comeback_kid, ticker_hunter, researcher, disciplined_sizer, patient_planner, steady_builder]
+    RecapPeriodKind:
+      type: string
+      enum: [month, year]
+    RecapTickerStat:
+      type: object
+      required: [symbol, touches]
+      properties:
+        symbol: { type: string }
+        touches: { type: integer }
+    RecapBadge:
+      type: object
+      required: [type, tier]
+      properties:
+        type: { type: string }
+        tier: { type: string }
+    RecapGrowth:
+      type: object
+      required: [currency, startValue, endValue]
+      properties:
+        currency: { type: string }
+        startValue: { type: number, format: double }
+        endValue: { type: number, format: double }
+    RecapSlide:
+      description: >-
+        Tagged union. `type` names the case and the payload sits under a key of
+        the same name (`top_tickers`, `missed_you` are snake_case).
+      oneOf:
+        - $ref: '#/components/schemas/RecapSlide_intro'
+        - $ref: '#/components/schemas/RecapSlide_streak'
+        - $ref: '#/components/schemas/RecapSlide_top_tickers'
+        - $ref: '#/components/schemas/RecapSlide_trades'
+        - $ref: '#/components/schemas/RecapSlide_research'
+        - $ref: '#/components/schemas/RecapSlide_growth'
+        - $ref: '#/components/schemas/RecapSlide_dividends'
+        - $ref: '#/components/schemas/RecapSlide_goals'
+        - $ref: '#/components/schemas/RecapSlide_badges'
+        - $ref: '#/components/schemas/RecapSlide_personality'
+        - $ref: '#/components/schemas/RecapSlide_missed_you'
+        - $ref: '#/components/schemas/RecapSlide_outro'
+      discriminator:
+        propertyName: type
+        mapping:
+          intro: '#/components/schemas/RecapSlide_intro'
+          streak: '#/components/schemas/RecapSlide_streak'
+          top_tickers: '#/components/schemas/RecapSlide_top_tickers'
+          trades: '#/components/schemas/RecapSlide_trades'
+          research: '#/components/schemas/RecapSlide_research'
+          growth: '#/components/schemas/RecapSlide_growth'
+          dividends: '#/components/schemas/RecapSlide_dividends'
+          goals: '#/components/schemas/RecapSlide_goals'
+          badges: '#/components/schemas/RecapSlide_badges'
+          personality: '#/components/schemas/RecapSlide_personality'
+          missed_you: '#/components/schemas/RecapSlide_missed_you'
+          outro: '#/components/schemas/RecapSlide_outro'
+    RecapSlide_intro:
+      type: object
+      required: [type, intro]
+      properties:
+        type: { type: string, enum: [intro] }
+        intro: { $ref: '#/components/schemas/RecapIntroSlide' }
+    RecapSlide_streak:
+      type: object
+      required: [type, streak]
+      properties:
+        type: { type: string, enum: [streak] }
+        streak: { $ref: '#/components/schemas/RecapStreakSlide' }
+    RecapSlide_top_tickers:
+      type: object
+      required: [type, top_tickers]
+      properties:
+        type: { type: string, enum: [top_tickers] }
+        top_tickers: { $ref: '#/components/schemas/RecapTopTickersSlide' }
+    RecapSlide_trades:
+      type: object
+      required: [type, trades]
+      properties:
+        type: { type: string, enum: [trades] }
+        trades: { $ref: '#/components/schemas/RecapTradesSlide' }
+    RecapSlide_research:
+      type: object
+      required: [type, research]
+      properties:
+        type: { type: string, enum: [research] }
+        research: { $ref: '#/components/schemas/RecapResearchSlide' }
+    RecapSlide_growth:
+      type: object
+      required: [type, growth]
+      properties:
+        type: { type: string, enum: [growth] }
+        growth: { $ref: '#/components/schemas/RecapGrowthSlide' }
+    RecapSlide_dividends:
+      type: object
+      required: [type, dividends]
+      properties:
+        type: { type: string, enum: [dividends] }
+        dividends: { $ref: '#/components/schemas/RecapDividendsSlide' }
+    RecapSlide_goals:
+      type: object
+      required: [type, goals]
+      properties:
+        type: { type: string, enum: [goals] }
+        goals: { $ref: '#/components/schemas/RecapGoalsSlide' }
+    RecapSlide_badges:
+      type: object
+      required: [type, badges]
+      properties:
+        type: { type: string, enum: [badges] }
+        badges: { $ref: '#/components/schemas/RecapBadgesSlide' }
+    RecapSlide_personality:
+      type: object
+      required: [type, personality]
+      properties:
+        type: { type: string, enum: [personality] }
+        personality: { $ref: '#/components/schemas/RecapPersonalitySlide' }
+    RecapSlide_missed_you:
+      type: object
+      required: [type, missed_you]
+      properties:
+        type: { type: string, enum: [missed_you] }
+        missed_you: { $ref: '#/components/schemas/RecapMissedYouSlide' }
+    RecapSlide_outro:
+      type: object
+      required: [type, outro]
+      properties:
+        type: { type: string, enum: [outro] }
+        outro: { $ref: '#/components/schemas/RecapOutroSlide' }
+    RecapIntroSlide:
+      type: object
+      required: [periodLabel, activeDays]
+      properties:
+        periodLabel: { type: string }
+        activeDays: { type: integer }
+    RecapStreakSlide:
+      type: object
+      required: [longestStreakDays, activeDays]
+      properties:
+        longestStreakDays: { type: integer }
+        activeDays: { type: integer }
+    RecapTopTickersSlide:
+      type: object
+      required: [tickers]
+      properties:
+        tickers: { type: array, items: { $ref: '#/components/schemas/RecapTickerStat' } }
+    RecapTradesSlide:
+      type: object
+      required: [tradeCount, buyCount, sellCount]
+      properties:
+        tradeCount: { type: integer }
+        buyCount: { type: integer }
+        sellCount: { type: integer }
+        mostTradedSymbol: { type: string, nullable: true }
+    RecapResearchSlide:
+      type: object
+      required: [notesWritten, watchlistAdded, targetsSet, targetsHit]
+      properties:
+        notesWritten: { type: integer }
+        watchlistAdded: { type: integer }
+        targetsSet: { type: integer }
+        targetsHit: { type: integer }
+    RecapGrowthSlide:
+      type: object
+      required: [growth]
+      properties:
+        growth: { type: array, items: { $ref: '#/components/schemas/RecapGrowth' } }
+    RecapDividendsSlide:
+      type: object
+      required: [received, paymentCount, payerCount]
+      properties:
+        received: { type: array, items: { $ref: '#/components/schemas/RecapMoney' } }
+        paymentCount: { type: integer }
+        payerCount: { type: integer }
+    RecapGoalsSlide:
+      type: object
+      required: [contributed, contributionCount]
+      properties:
+        contributed: { type: array, items: { $ref: '#/components/schemas/RecapMoney' } }
+        contributionCount: { type: integer }
+    RecapBadgesSlide:
+      type: object
+      required: [badges, xpEarned]
+      properties:
+        badges: { type: array, items: { $ref: '#/components/schemas/RecapBadge' } }
+        xpEarned: { type: integer }
+    RecapPersonalitySlide:
+      type: object
+      required: [archetype]
+      properties:
+        archetype: { $ref: '#/components/schemas/RecapArchetype' }
+    RecapMissedYouSlide:
+      type: object
+      required: [bestStreakDays, totalBadges]
+      properties:
+        bestStreakDays: { type: integer }
+        totalBadges: { type: integer }
+    RecapOutroSlide:
+      type: object
+      required: [isFirstChapter, nextPeriodLabel]
+      properties:
+        isFirstChapter: { type: boolean }
+        nextPeriodLabel: { type: string }
+    RecapDeck:
+      type: object
+      required: [kind, key, periodLabel, isFirstChapter, isMissedYou, slides, schemaVersion]
+      properties:
+        kind: { $ref: '#/components/schemas/RecapPeriodKind' }
+        key: { type: string }
+        periodLabel: { type: string }
+        archetype:
+          allOf:
+            - $ref: '#/components/schemas/RecapArchetype'
+          nullable: true
+        isFirstChapter: { type: boolean }
+        isMissedYou: { type: boolean }
+        slides:
+          type: array
+          items: { $ref: '#/components/schemas/RecapSlide' }
+        schemaVersion: { type: integer }
+    RecapResponse:
+      type: object
+      required: [id, deck, generatedAt]
+      properties:
+        id: { type: string, format: uuid }
+        deck: { $ref: '#/components/schemas/RecapDeck' }
+        generatedAt: { type: string, format: date-time }
+        openedAt: { type: string, format: date-time, nullable: true }
+        completedAt: { type: string, format: date-time, nullable: true }
+    RecapSummary:
+      type: object
+      required: [kind, key, periodLabel, generated]
+      properties:
+        kind: { $ref: '#/components/schemas/RecapPeriodKind' }
+        key: { type: string }
+        periodLabel: { type: string }
+        id: { type: string, format: uuid, nullable: true }
+        generated: { type: boolean }
+        openedAt: { type: string, format: date-time, nullable: true }
+        completedAt: { type: string, format: date-time, nullable: true }
+    RecapListResponse:
+      type: object
+      required: [recaps]
+      properties:
+        recaps:
+          type: array
+          items: { $ref: '#/components/schemas/RecapSummary' }

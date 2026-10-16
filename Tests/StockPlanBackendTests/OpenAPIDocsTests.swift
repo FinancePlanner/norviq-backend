@@ -416,4 +416,17 @@ struct OpenAPIDocsTests {
             #expect(body.contains("    \(schema):"), "missing schema \(schema)")
         }
     }
+
+    @Test("Recap routes and schemas are documented")
+    func recapsAreDocumented() throws {
+        let body = try BundledOpenAPISpec.yamlString()
+        for operation in ["listRecaps", "getRecap", "markRecapOpened", "markRecapCompleted"] {
+            #expect(body.contains("operationId: \(operation)"), "missing \(operation)")
+        }
+        for schema in [
+            "RecapListResponse", "RecapSummary", "RecapResponse", "RecapDeck", "RecapSlide", "RecapMoney", "RecapArchetype",
+        ] {
+            #expect(body.contains("    \(schema):"), "missing schema \(schema)")
+        }
+    }
 }
