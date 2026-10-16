@@ -63,6 +63,15 @@ struct RecapRouteTests {
         return String(format: "%04d-%02d", parts.year ?? 0, parts.month ?? 0)
     }
 
+    private func mintPAT(_ app: Application, userId: UUID, scopes: [APIScope]) async throws -> String {
+        let raw = OpaqueToken.generate(prefix: OpaqueToken.patPrefix)
+        try await PersonalAccessToken(
+            userId: userId, name: "recap-test", tokenHash: OpaqueToken.sha256Hex(raw),
+            scopes: scopes.map(\.rawValue), expiresAt: Date().addingTimeInterval(3600)
+        ).save(on: app.db)
+        return raw
+    }
+
     /// Forces the user's `created_at` to two months ago so last month is available.
     private func makeOld(_ app: Application, _ userId: UUID) async throws {
         try await RecapFixtures.backdate(
@@ -73,12 +82,40 @@ struct RecapRouteTests {
     @Test("Flag off answers 404 on every route")
     func disabledIs404() async throws {
         try await withFlags(enabled: nil) {
-            try await RecapFixtures.withUser { app, token, _ in
-                try await send(app, .GET, "v1/recaps", token: token) { #expect($0.status == .notFound) }
-                try await send(app, .GET, "v1/recaps/month/2026-01", token: token) { #expect($0.status == .notFound) }
+            try await RecapFixtures.withUser { app, token, userId in
                 let id = UUID().uuidString
-                try await send(app, .POST, "v1/recaps/\(id)/opened", token: token) { #expect($0.status == .notFound) }
-                try await send(app, .POST, "v1/recaps/\(id)/completed", token: token) { #expect($0.status == .notFound) }
+                let routes: [(HTTPMethod, String)] = [
+                    (.GET, "v1/recaps"), (.GET, "v1/recaps/month/2026-01"),
+                    (.POST, "v1/recaps/\(id)/opened"), (.POST, "v1/recaps/\(id)/completed"),
+                ]
+                // The flag check runs before auth: no token is 404, not 401.
+                for authToken in [token, nil] as [String?] {
+                    for (method, path) in routes {
+                        try await send(app, method, path, token: authToken) { res in
+                            #expect(res.status == .notFound, "\(method) \(path) token: \(authToken != nil)")
+                        }
+                    }
+                }
+                // A read-only token on a write route is 404, not 403.
+                let readOnly = try await mintPAT(app, userId: userId, scopes: [.planningRead])
+                for path in ["v1/recaps/\(id)/opened", "v1/recaps/\(id)/completed"] {
+                    try await send(app, .POST, path, token: readOnly) { res in
+                        #expect(res.status == .notFound, "\(path)")
+                    }
+                }
+            }
+        }
+    }
+
+    @Test("With the flag on a read-only token can read but not write")
+    func readOnlyTokenCannotWrite() async throws {
+        try await withFlags {
+            try await RecapFixtures.withUser { app, _, userId in
+                let readOnly = try await mintPAT(app, userId: userId, scopes: [.planningRead])
+                try await send(app, .GET, "v1/recaps", token: readOnly) { #expect($0.status == .ok) }
+                try await send(app, .POST, "v1/recaps/\(UUID().uuidString)/opened", token: readOnly) { res in
+                    #expect(res.status == .forbidden)
+                }
             }
         }
     }

@@ -5,12 +5,22 @@ import Vapor
 extension RecapListResponse: @retroactive Content {}
 extension RecapResponse: @retroactive Content {}
 
-/// `/v1/recaps`. Every route answers 404 while `RECAP_ENABLED` is off, so a
-/// disabled feature leaks nothing. The flags are read per request.
+/// Answers 404 for every request while `RECAP_ENABLED` is off. It runs ahead
+/// of authentication, so a disabled feature answers 404 rather than 401 or 403.
+struct RecapEnabledMiddleware: AsyncMiddleware {
+    func respond(to request: Request, chainingTo next: any AsyncResponder) async throws -> Response {
+        guard RecapConfig.fromEnvironment().enabled else { throw Abort(.notFound) }
+        return try await next.respond(to: request)
+    }
+}
+
+/// `/v1/recaps`. Every route answers 404 while `RECAP_ENABLED` is off, with or
+/// without a token, so a disabled feature leaks nothing. The flags are read
+/// per request.
 struct RecapController: RouteCollection {
     func boot(routes: any RoutesBuilder) throws {
-        let protected = routes.grouped(ScopedBearerAuthenticator(), SessionToken.guardMiddleware())
-        let recaps = protected.grouped("recaps")
+        let recaps = routes.grouped("recaps")
+            .grouped(RecapEnabledMiddleware(), ScopedBearerAuthenticator(), SessionToken.guardMiddleware())
         let read = recaps.grouped(ScopeRequirementMiddleware(.planningRead))
         let write = recaps.grouped(ScopeRequirementMiddleware(.planningWrite))
         read.get(use: list)
