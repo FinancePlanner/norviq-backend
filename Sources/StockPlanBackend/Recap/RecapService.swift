@@ -52,7 +52,8 @@ struct RecapService: Sendable {
     }
 
     /// Every stored recap of a served kind, plus an un-generated entry for
-    /// the last closed month (and year, when yearly is on) if none is stored.
+    /// the last closed month (and, during January with yearly on, the last
+    /// closed year) if none is stored.
     /// Never generates.
     func list(userId: UUID, now: Date, on db: any Database) async throws -> RecapListResponse {
         guard config.enabled, let user = try await User.find(userId, on: db) else {
@@ -75,7 +76,9 @@ struct RecapService: Sendable {
         }
 
         var candidates = [RecapPeriod.lastClosedMonth(now: now, in: timeZone)]
-        if config.yearlyEnabled {
+        // The un-generated year entry is offered only in January (user's zone);
+        // a stored year row is listed above all year long.
+        if config.yearlyEnabled, Self.isJanuary(now, in: timeZone) {
             candidates.append(RecapPeriod.lastClosedYear(now: now, in: timeZone))
         }
         let pending = candidates
@@ -124,6 +127,12 @@ struct RecapService: Sendable {
         case .month: config.enabled
         case .year: config.enabled && config.yearlyEnabled
         }
+    }
+
+    private static func isJanuary(_ now: Date, in timeZone: TimeZone) -> Bool {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = timeZone
+        return calendar.component(.month, from: now) == 1
     }
 
     /// A nil `createdAt` means no signup bound.

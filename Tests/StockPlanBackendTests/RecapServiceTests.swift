@@ -191,6 +191,29 @@ struct RecapServiceTests {
         }
     }
 
+    /// The un-generated year entry is a January offer; a stored year row stays listed.
+    @Test func pendingYearOnlyListedInJanuary() async throws {
+        try await Fx.withUser { app, _, userId in
+            let db = app.db
+            try await Self.signedUp(userId, db: db)
+            let service = Self.service(yearly: true)
+
+            let march = try await service.list(userId: userId, now: Fx.instant("2027-03-10T12:00:00Z"), on: db)
+            #expect(!march.recaps.contains { $0.kind == .year })
+
+            let januaryTenth = Fx.instant("2027-01-10T12:00:00Z")
+            let january = try await service.list(userId: userId, now: januaryTenth, on: db)
+            let pending = january.recaps.first { $0.kind == .year }
+            #expect(pending?.key == "2026")
+            #expect(pending?.generated == false)
+
+            let year = try #require(RecapPeriod.parse(kind: "year", key: "2026"))
+            let stored = try #require(try await service.recap(userId: userId, period: year, now: januaryTenth, on: db))
+            let marchAgain = try await service.list(userId: userId, now: Fx.instant("2027-03-10T12:00:00Z"), on: db)
+            #expect(marchAgain.recaps.contains { $0.kind == .year && $0.id == stored.id && $0.generated })
+        }
+    }
+
     /// Generate once means served forever: the 13-month bound only gates
     /// generating a deck, never returning a stored one.
     @Test func storedRecapOutlivesThirteenMonthWindow() async throws {
