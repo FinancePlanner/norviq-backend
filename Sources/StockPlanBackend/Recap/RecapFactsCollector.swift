@@ -94,14 +94,16 @@ struct RecapFactsCollector: Sendable {
             .join(Account.self, on: \Transaction.$accountId == \Account.$id)
             .join(Instrument.self, on: \Transaction.$instrumentId == \Instrument.$id)
             .filter(Account.self, \.$userId == userId)
+            // `date` column vs a bound `Date`: assumes the Postgres session TimeZone is UTC.
             .filter(\.$tradeDate >= w.days.start)
             .filter(\.$tradeDate < w.days.end)
-            .filter(\.$type ~~ ["BUY", "SELL"])
+            // Manual and ledger trades store "buy"/"sell"; IBKR stores "BUY"/"SELL".
+            .filter(\.$type ~~ ["BUY", "SELL", "buy", "sell"])
             .all()
         for trade in trades {
             let symbol = try trade.joined(Instrument.self).symbol.uppercased()
             facts.tradeCount += 1
-            if trade.type == "BUY" {
+            if trade.type.uppercased() == "BUY" {
                 facts.buyCount += 1
             } else {
                 facts.sellCount += 1
@@ -172,31 +174,36 @@ struct RecapFactsCollector: Sendable {
         stocks.forEach { touch($0.symbol) }
     }
 
-    /// Per currency: summed market value on the earliest and the latest
-    /// snapshot day in the period. Emitted only when those days differ.
+    /// Per portfolio list: market value on that list's own first and last
+    /// snapshot day in the period (lists with fewer than two distinct days
+    /// are skipped). Then start and end values are summed per currency.
     private func collectGrowth(_ userId: UUID, _ w: Window, _ db: any Database, into facts: inout RecapFacts) async throws {
+        // `date` column vs a bound `Date`: assumes the Postgres session TimeZone is UTC.
         let snapshots = try await PortfolioValueSnapshot.query(on: db)
             .filter(\.$userId == userId)
             .filter(\.$capturedOn >= w.days.start)
             .filter(\.$capturedOn < w.days.end)
             .all()
-        facts.growth = Dictionary(grouping: snapshots, by: \.currency)
+        struct ListKey: Hashable { let list: UUID, currency: String }
+        var totals: [String: (start: Double, end: Double)] = [:]
+        for (key, rows) in Dictionary(grouping: snapshots, by: { ListKey(list: $0.portfolioListId, currency: $0.currency) }) {
+            guard let first = rows.min(by: { $0.capturedOn < $1.capturedOn }),
+                  let last = rows.max(by: { $0.capturedOn < $1.capturedOn }),
+                  first.capturedOn != last.capturedOn
+            else { continue }
+            let running = totals[key.currency] ?? (0, 0)
+            totals[key.currency] = (running.start + first.marketValue, running.end + last.marketValue)
+        }
+        facts.growth = totals
             .sorted { $0.key < $1.key }
-            .compactMap { currency, rows in
-                guard let first = rows.map(\.capturedOn).min(), let last = rows.map(\.capturedOn).max(),
-                      first != last
-                else { return nil }
-                func total(on day: Date) -> Double {
-                    Self.money(rows.filter { $0.capturedOn == day }.reduce(0) { $0 + $1.marketValue })
-                }
-                return RecapGrowth(currency: currency, startValue: total(on: first), endValue: total(on: last))
-            }
+            .map { RecapGrowth(currency: $0.key, startValue: Self.money($0.value.start), endValue: Self.money($0.value.end)) }
     }
 
     private func collectDividends(_ userId: UUID, _ w: Window, _ db: any Database, into facts: inout RecapFacts) async throws {
         let dividends = try await Dividend.query(on: db)
             .join(Account.self, on: \Dividend.$accountId == \Account.$id)
             .filter(Account.self, \.$userId == userId)
+            // `date` column vs a bound `Date`: assumes the Postgres session TimeZone is UTC.
             .filter(\.$payDate >= w.days.start)
             .filter(\.$payDate < w.days.end)
             .all()
@@ -256,6 +263,7 @@ struct RecapFactsCollector: Sendable {
         // `month_start` is the UTC month start, a `date`.
         facts.aiRequests = try await AIAssistantUsage.query(on: db)
             .filter(\.$userId == userId)
+            // `date` column vs a bound `Date`: assumes the Postgres session TimeZone is UTC.
             .filter(\.$monthStart >= w.days.start)
             .filter(\.$monthStart < w.days.end)
             .field(\.$requestCount)
@@ -263,6 +271,7 @@ struct RecapFactsCollector: Sendable {
             .reduce(0) { $0 + $1.requestCount }
         facts.expensesRecorded = try await Expense.query(on: db)
             .filter(\.$user.$id == userId)
+            // `date` column vs a bound `Date`: assumes the Postgres session TimeZone is UTC.
             .filter(\.$occurredOn >= w.days.start)
             .filter(\.$occurredOn < w.days.end)
             .count()

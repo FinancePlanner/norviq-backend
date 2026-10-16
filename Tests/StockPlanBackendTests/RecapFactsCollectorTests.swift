@@ -140,6 +140,59 @@ struct RecapFactsCollectorTests {
         }
     }
 
+    /// Manual and ledger trades store lowercase `TransactionType` raw values.
+    @Test func lowercaseTradeTypesCount() async throws {
+        try await Fx.withUser { app, _, userId in
+            let db = app.db
+            let other = try await Fx.registerUser(app: app).userId
+            let account = try await Fx.account(for: userId, on: db)
+            let otherAccount = try await Fx.account(for: other, on: db)
+            let msft = try await Fx.instrument(symbol: "MSFT", on: db)
+            try await Transaction(
+                accountId: account, instrumentId: msft, type: TransactionType.buy.rawValue,
+                currency: "USD", tradeDate: Fx.day("2026-10-05")
+            ).save(on: db)
+            try await Transaction(
+                accountId: account, instrumentId: msft, type: TransactionType.sell.rawValue,
+                currency: "USD", tradeDate: Fx.day("2026-10-20")
+            ).save(on: db)
+            try await Transaction(
+                accountId: otherAccount, instrumentId: msft, type: TransactionType.buy.rawValue,
+                currency: "USD", tradeDate: Fx.day("2026-10-05")
+            ).save(on: db)
+
+            let facts = try await collector.collect(userId: userId, period: Fx.month("2026-10"), timeZone: Fx.utc, on: db)
+            #expect(facts.buyCount == 1)
+            #expect(facts.sellCount == 1)
+            #expect(facts.tradeCount == 2)
+            #expect(facts.tradesBySymbol["MSFT"] == 2)
+        }
+    }
+
+    /// Each list uses its own first and last day; a list that starts late or
+    /// stops early must not skew the total.
+    @Test func growthPerListFirstAndLast() async throws {
+        try await Fx.withUser { app, _, userId in
+            let db = app.db
+            let other = try await Fx.registerUser(app: app).userId
+            let listA = try await Fx.portfolioList(for: userId, on: db)
+            let listB = try await Fx.portfolioList(for: userId, on: db)
+            let listC = try await Fx.portfolioList(for: userId, on: db)
+            let otherList = try await Fx.portfolioList(for: other, on: db)
+            try await Fx.snapshot(userId, list: listA, on: "2026-10-02", value: 100, db: db)
+            try await Fx.snapshot(userId, list: listA, on: "2026-10-30", value: 150, db: db)
+            try await Fx.snapshot(userId, list: listB, on: "2026-10-15", value: 50, db: db)
+            try await Fx.snapshot(userId, list: listB, on: "2026-10-30", value: 70, db: db)
+            try await Fx.snapshot(userId, list: listC, on: "2026-10-02", value: 40, db: db)
+            try await Fx.snapshot(userId, list: listC, on: "2026-10-10", value: 30, db: db)
+            try await Fx.snapshot(other, list: otherList, on: "2026-10-02", value: 1000, db: db)
+            try await Fx.snapshot(other, list: otherList, on: "2026-10-30", value: 5000, db: db)
+
+            let facts = try await collector.collect(userId: userId, period: Fx.month("2026-10"), timeZone: Fx.utc, on: db)
+            #expect(facts.growth == [RecapGrowth(currency: "USD", startValue: 190, endValue: 250)])
+        }
+    }
+
     @Test func growthNeedsTwoDistinctDates() async throws {
         try await Fx.withUser { app, _, userId in
             let db = app.db
