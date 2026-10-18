@@ -101,6 +101,9 @@ struct BoardsController: RouteCollection {
         guard target != viewer.userId else {
             throw Abort(.badRequest, reason: "You can't block yourself.")
         }
+        guard !DailyBoardIdentity.isSystemUsername(body.username) else {
+            throw Abort(.badRequest, reason: "That account can't be blocked.")
+        }
         try await req.db.transaction { tx in
             let exists = try await SocialBlock.query(on: tx)
                 .filter(\.$blockerId == viewer.userId)
@@ -174,7 +177,17 @@ struct BoardsController: RouteCollection {
 
     @Sendable
     func listBoards(req: Request) async throws -> BoardListResponse {
-        try await BoardsService.listBoards(cursor: req.query[String.self, at: "cursor"], on: req.db)
+        let viewer = try req.communityViewer
+        do {
+            try await DailyBoardIdentity.ensure(on: req)
+        } catch {
+            req.logger.warning("daily_board identity unavailable error=\(String(describing: error))")
+        }
+        return try await BoardsService.listBoards(
+            cursor: req.query[String.self, at: "cursor"],
+            viewer: viewer.userId,
+            on: req.db
+        )
     }
 
     @Sendable

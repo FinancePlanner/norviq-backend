@@ -216,5 +216,8 @@ struct DefaultUserProfileService: UserProfileService {
         if username.range(of: pattern, options: .regularExpression) == nil {
             throw Abort(.badRequest, reason: "Username must be 4-30 characters (letters, numbers, underscore)")
         }
+        if DailyBoardIdentity.isSystemUsername(username) {
+            throw Abort(.badRequest, reason: "That username is reserved.")
+        }
     }
 }

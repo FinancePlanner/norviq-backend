@@ -130,13 +130,15 @@ enum BoardsService {
             participantCount: post.participantCount,
             viewCount: post.viewCount,
             viewerHasVoted: viewerHasVoted,
-            newCommentCount: newCommentCount
+            newCommentCount: newCommentCount,
+            aiGenerated: post.aiGenerated,
+            aiTopic: post.aiTopic.flatMap(BoardAITopic.init(rawValue:))
         )
     }
 
     // MARK: - Listing
 
-    static func listBoards(cursor rawCursor: String?, on db: any Database) async throws -> BoardListResponse {
+    static func listBoards(cursor rawCursor: String?, viewer: UUID, on db: any Database) async throws -> BoardListResponse {
         var query = Board.query(on: db)
             .sort(\.$lastActivityAt, .descending)
             .sort(\.$id, .descending)
@@ -154,7 +156,22 @@ enum BoardsService {
         let next = rows.count > pageSize
             ? try page.last.map { try NotificationListCursor.encode(createdAt: $0.lastActivityAt, id: $0.requireID()) }
             : nil
-        return try await BoardListResponse(items: boardDTOs(page, on: db), nextCursor: next)
+        let daily = rawCursor == nil ? try await currentDailyPost(viewer: viewer, on: db) : nil
+        return try await BoardListResponse(items: boardDTOs(page, on: db), nextCursor: next, dailyPost: daily)
+    }
+
+    /// The newest published daily post, with this viewer's vote state.
+    static func currentDailyPost(viewer: UUID, on db: any Database) async throws -> BoardPostSummary? {
+        guard let board = try await Board.query(on: db).filter(\.$slug == DailyBoardIdentity.slug).first(),
+              let boardId = board.id
+        else { return nil }
+        guard let post = try await BoardPost.query(on: db)
+            .filter(\.$boardId == boardId)
+            .filter(\.$aiGenerated == true)
+            .sort(\.$tradingDate, .descending)
+            .first()
+        else { return nil }
+        return try await summaries([post], boardSlugs: [boardId: board.slug], viewer: viewer, on: db).first
     }
 
     /// `new` and `active` page by keyset on their timestamp; `top` ranks by
@@ -179,6 +196,7 @@ enum BoardsService {
             .from(BoardPost.schema)
             .where("board_id", .equal, SQLBind(boardId))
             .where("deleted_at", .is, SQLLiteral.null)
+            .where("ai_generated", .equal, SQLBind(false))
         if let kind {
             query = query.where("kind", .equal, SQLBind(kind.rawValue))
         }
@@ -236,7 +254,11 @@ enum BoardsService {
             }
         }
 
-        let items = try await summaries(posts, boardSlugs: [boardId: board.slug], viewer: viewer, on: db)
+        var items = try await summaries(posts, boardSlugs: [boardId: board.slug], viewer: viewer, on: db)
+        if board.slug == DailyBoardIdentity.slug, kind == nil, tag == nil, rawCursor == nil,
+           let pinned = try await currentDailyPost(viewer: viewer, on: db) {
+            items.insert(pinned, at: 0)
+        }
         return BoardPostPage(items: items, nextCursor: next)
     }
 

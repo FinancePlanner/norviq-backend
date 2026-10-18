@@ -16,6 +16,7 @@ enum CommunityValidation {
     static let reservedSlugs: Set<String> = [
         "admin", "api", "new", "create", "edit", "settings", "submit", "search",
         "norviq", "official", "support", "help", "mod", "mods", "moderator", "staff",
+        "daily",
         // Static web routes under /boards/.
         "guidelines", "block", "report", "activity",
     ]

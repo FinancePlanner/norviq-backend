@@ -187,6 +187,7 @@ public func configure(_ app: Application) async throws {
         app.logger.info("FEEDS_BASE_URL not configured; news ticker disabled.")
         app.newsTickerService = DisabledNewsTickerService()
     }
+    app.dailyBoardNewsProvider = newsProvider
     app.marketNewsArchiveService = DefaultMarketNewsArchiveService(
         provider: newsProvider,
         fmpProvider: app.marketDataService.fmpProvider
@@ -509,6 +510,7 @@ public func configure(_ app: Application) async throws {
     if app.marketBriefEnabled {
         app.lifecycle.use(MarketBriefJob())
     }
+    app.lifecycle.use(DailyBoardPostJob())
     app.asyncCommands.use(MarketBriefGenerateCommand(), as: "market-brief-generate")
     // Operator-triggered reconstruction of history predating the job above.
     app.asyncCommands.use(PortfolioBackfillCommand(), as: "portfolio-backfill")

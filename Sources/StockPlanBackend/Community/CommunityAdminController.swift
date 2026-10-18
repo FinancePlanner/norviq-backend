@@ -27,6 +27,9 @@ struct CommunityAdminController: RouteCollection {
     @Sendable
     func deleteBoard(req: Request) async throws -> HTTPStatus {
         let board = try await BoardsService.board(slug: req.parameters.get("slug") ?? "", on: req.db)
+        guard board.slug != DailyBoardIdentity.slug else {
+            throw Abort(.badRequest, reason: "The Daily board stays up.")
+        }
         try await board.delete(on: req.db)
         req.logger.notice("boards.admin deleted board slug=\(board.slug)")
         return .noContent
@@ -48,6 +51,9 @@ struct CommunityAdminController: RouteCollection {
     func createSanction(req: Request) async throws -> UserSanction {
         let admin = try req.auth.require(SessionToken.self).userId
         let body = try req.content.decode(CreateSanctionRequest.self)
+        guard !DailyBoardIdentity.isSystemUsername(body.username) else {
+            throw Abort(.badRequest, reason: "That account can't be sanctioned.")
+        }
         let target = try await BoardsService.userId(forUsername: body.username, on: req.db)
         guard let targetUser = try await User.find(target, on: req.db), !AdminGuard.isAdmin(targetUser) else {
             throw Abort(.badRequest, reason: "Admins can't be muted or banned.")

@@ -14,6 +14,7 @@ struct CommunityValidationTests {
         #expect(throws: (any Error).self) { try CommunityValidation.slug("ab") }
         #expect(throws: (any Error).self) { try CommunityValidation.slug("admin") }
         #expect(throws: (any Error).self) { try CommunityValidation.slug("activity") }
+        #expect(throws: (any Error).self) { try CommunityValidation.slug("daily") }
         #expect(throws: (any Error).self) { try CommunityValidation.slug("-lead") }
         #expect(throws: (any Error).self) { try CommunityValidation.slug("no spaces") }
         #expect(throws: (any Error).self) { try CommunityValidation.slug("ação") }
@@ -193,8 +194,9 @@ struct BoardsRouteTests {
             #expect(try await createBoard(app, "admin", as: bob).status == .badRequest)
 
             let boards = try await send(app, .GET, "v1/boards", as: bob).decode(BoardListResponse.self)
-            #expect(boards.items.count == 3)
-            #expect(boards.items.allSatisfy { $0.creatorUsername == "brd_alice" })
+            let members = boards.items.filter { $0.slug != DailyBoardIdentity.slug }
+            #expect(members.count == 3)
+            #expect(members.allSatisfy { $0.creatorUsername == "brd_alice" })
         }
     }
 
@@ -379,6 +381,69 @@ struct BoardsRouteTests {
         }
     }
 
+    @Test("The daily post is pinned and flagged, and its author and board stay put")
+    func dailyPost() async throws {
+        try await withApp { app in
+            let admin = try await register(app, "admin")
+            let alice = try await member(app, "alice")
+
+            var reserved: HTTPStatus?
+            try await app.testing().test(.POST, "v1/auth/register", beforeRequest: { req in
+                try req.content.encode(AuthRegisterRequest(
+                    username: "norviq", password: "Password123!", confirmPassword: "Password123!",
+                    email: "someone@example.com", dateOfBirth: Date(timeIntervalSince1970: 946_684_800)
+                ))
+            }, afterResponse: { res async in
+                reserved = res.status
+            })
+            #expect(reserved == .badRequest)
+
+            let candidate = DailyBoardCandidate(
+                topic: .stock, name: "NVDA", symbol: "NVDA", price: 131.2, changePercent: 4.2, url: nil, headline: nil
+            )
+            let accepted = try #require(DailyBoardValidator.accept(
+                title: "NVDA rose 4.2%",
+                body: "NVDA closed at 131.2, up 4.2%.",
+                grounded: [131.2, 4.2]
+            ))
+            let req = Request(application: app, on: app.eventLoopGroup.next())
+            try await DailyBoardPublisher.insert(
+                tradingDate: "2026-10-16", candidate: candidate, title: accepted.title, body: accepted.body, on: req
+            )
+            try await DailyBoardPublisher.insert(
+                tradingDate: "2026-10-16", candidate: candidate, title: "Second", body: accepted.body, on: req
+            )
+
+            let listed = try await send(app, .GET, "v1/boards", as: alice).decode(BoardListResponse.self)
+            #expect(listed.items.contains { $0.slug == "daily" })
+            let daily = try #require(listed.dailyPost)
+            #expect(daily.aiGenerated)
+            #expect(daily.aiTopic == .stock)
+            #expect(daily.authorUsername == "norviq")
+            #expect(daily.title == "NVDA rose 4.2%")
+
+            let top = try await list(app, "daily/posts?sort=top", as: alice)
+            #expect(top.items.first?.id == daily.id)
+            let mine = try await createPost(app, "daily", as: alice, title: "My own take")
+            #expect(mine.aiGenerated == false)
+            let mixed = try await list(app, "daily/posts", as: alice)
+            #expect(mixed.items.first?.aiGenerated == true)
+            #expect(mixed.items.contains { $0.id == mine.id })
+            let asks = try await list(app, "daily/posts?kind=ask", as: alice)
+            #expect(asks.items.allSatisfy { $0.aiGenerated == false })
+
+            #expect(try await send(app, .POST, "v1/community/blocks", as: alice, body: UserBlockRequest(username: "norviq")).status == .badRequest)
+            #expect(try await send(app, .DELETE, "v1/admin/boards/daily", as: admin).status == .badRequest)
+            #expect(try await sanction(app, "norviq", .mute, as: admin).status == .badRequest)
+
+            let detail = try await send(app, .GET, "v1/board-posts/\(daily.id)", as: alice).decode(BoardPostDetail.self)
+            #expect(detail.body?.contains("Not financial advice.") == true)
+            #expect(detail.post.aiGenerated)
+            #expect(try await comment(app, daily.id, as: alice).status == .ok)
+            #expect(try await send(app, .POST, "v1/board-posts/\(daily.id)/vote", as: alice).status == .ok)
+        }
+    }
+
     @Test("A social suspension removes Boards like a ban, and lifting it restores them")
     func socialSuspensionActsAsBan() async throws {
         try await withApp { app in
@@ -452,7 +517,7 @@ struct BoardsRouteTests {
             // The address stays taken.
             #expect(try await createBoard(app, "doomed", as: alice).status == .conflict)
             let boards = try await send(app, .GET, "v1/boards", as: alice).decode(BoardListResponse.self)
-            #expect(boards.items.map(\.slug) == ["kept"])
+            #expect(boards.items.map(\.slug).filter { $0 != DailyBoardIdentity.slug } == ["kept"])
         }
     }
 
