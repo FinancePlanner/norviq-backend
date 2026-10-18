@@ -52,7 +52,14 @@ struct InsightsController: RouteCollection {
             throw Abort(.forbidden, reason: "Invalid machine token.")
         }
         let limit = Environment.get("HERMES_TRACKED_TICKERS_LIMIT").flatMap(Int.init(_:)) ?? 25
-        let symbols = try await req.application.insightsRepository.allTrackedSymbols(limit: limit, on: req.db)
+        // Hermes pays per scraped symbol, so it gets each user's biggest
+        // positions, not every held/watched symbol (that is allTrackedSymbols).
+        let perUserLimit = Environment.get("HERMES_TRACKED_TICKERS_PER_USER").flatMap(Int.init(_:)) ?? 10
+        let symbols = try await req.application.insightsRepository.topPositionSymbols(
+            perUserLimit: perUserLimit,
+            limit: limit,
+            on: req.db
+        )
         return TrackedSymbolsResponse(symbols: symbols, limit: limit)
     }
 

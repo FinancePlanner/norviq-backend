@@ -137,6 +137,9 @@ struct DefaultAuthService: AuthService {
         }
 
         try validateUsername(normalizedUsername)
+        if DailyBoardIdentity.isSystemUsername(normalizedUsername) {
+            throw Abort(.badRequest, reason: "That username is reserved.")
+        }
         try validateEmail(normalizedEmail)
         try validatePassword(password)
         try validateDateOfBirth(dateOfBirth)
@@ -202,6 +205,9 @@ struct DefaultAuthService: AuthService {
 
         guard let user = try await repo.findUser(email: normalizedEmail, on: req.db) else {
             _ = try? await req.password.async.hash(password).get()
+            throw Abort(.unauthorized, reason: "Invalid email or password")
+        }
+        if DailyBoardIdentity.isSystemEmail(user.email) {
             throw Abort(.unauthorized, reason: "Invalid email or password")
         }
 
@@ -1021,7 +1027,8 @@ struct DefaultAuthService: AuthService {
         try validateEmail(normalizedEmail)
 
         guard let user = try await repo.findUser(email: normalizedEmail, on: req.db),
-              let userId = user.id
+              let userId = user.id,
+              !DailyBoardIdentity.isSystemEmail(user.email)
         else {
             return AuthForgotPasswordResponse(
                 message: "If the account exists, a reset code has been sent.", resetCode: nil

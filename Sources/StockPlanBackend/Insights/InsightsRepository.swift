@@ -13,6 +13,7 @@ protocol InsightsRepository: Sendable {
     func netWorthSnapshots(limit: Int, on db: any Database) async throws -> [NetWorthSnapshot]
     func tickerPosts(symbol: String, since: Date, limit: Int, on db: any Database) async throws -> [TickerSentimentPost]
     func allTrackedSymbols(limit: Int, on db: any Database) async throws -> [String]
+    func topPositionSymbols(perUserLimit: Int, limit: Int, on db: any Database) async throws -> [String]
 }
 
 struct DatabaseInsightsRepository: InsightsRepository {
@@ -155,6 +156,36 @@ struct DatabaseInsightsRepository: InsightsRepository {
             WHERE symbol <> ''
             GROUP BY symbol
             ORDER BY holders DESC, symbol ASC
+            LIMIT \(bind: cappedLimit)
+        """).all()
+        return try rows.map { try $0.decode(column: "symbol", as: String.self) }
+    }
+
+    func topPositionSymbols(perUserLimit: Int, limit: Int, on db: any Database) async throws -> [String] {
+        guard let sql = db as? any SQLDatabase else { return [] }
+        let cappedPerUser = max(1, min(perUserLimit, 100))
+        let cappedLimit = max(1, min(limit, 1000))
+        // Each user's largest equity positions by cost basis (shares × buy_price,
+        // lots of the same symbol summed), then ranked across users by how many
+        // hold it and by combined cost basis. Cost basis is in each position's
+        // own currency and ignores price moves; it is a size proxy, not a value.
+        // Watchlist items are left out: they have no size to rank by.
+        let rows = try await sql.raw("""
+            WITH positions AS (
+                SELECT UPPER(TRIM(symbol)) AS symbol, user_id, SUM(shares * buy_price) AS cost_basis
+                FROM stocks
+                WHERE category = 'stock' AND TRIM(symbol) <> ''
+                GROUP BY UPPER(TRIM(symbol)), user_id
+            ), ranked AS (
+                SELECT symbol, user_id, cost_basis,
+                       ROW_NUMBER() OVER (PARTITION BY user_id ORDER BY cost_basis DESC, symbol ASC) AS position_rank
+                FROM positions
+            )
+            SELECT symbol, COUNT(*) AS holders, SUM(cost_basis) AS total_cost_basis
+            FROM ranked
+            WHERE position_rank <= \(bind: cappedPerUser)
+            GROUP BY symbol
+            ORDER BY holders DESC, total_cost_basis DESC, symbol ASC
             LIMIT \(bind: cappedLimit)
         """).all()
         return try rows.map { try $0.decode(column: "symbol", as: String.self) }

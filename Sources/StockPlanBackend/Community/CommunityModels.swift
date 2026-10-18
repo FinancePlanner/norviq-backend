@@ -47,6 +47,11 @@ final class BoardPost: Model, @unchecked Sendable {
     @Field(key: "participant_count") var participantCount: Int
     @Field(key: "view_count") var viewCount: Int
     @Field(key: "last_activity_at") var lastActivityAt: Date
+    /// Member posts are false. The daily job is the only writer that sets this.
+    @Field(key: "ai_generated") var aiGenerated: Bool
+    @OptionalField(key: "ai_topic") var aiTopic: String?
+    /// Lisbon trading date, `yyyy-MM-dd`, for the one AI post of that day.
+    @OptionalField(key: "trading_date") var tradingDate: String?
     @Timestamp(key: "created_at", on: .create) var createdAt: Date?
     @Timestamp(key: "deleted_at", on: .delete) var deletedAt: Date?
 
@@ -77,7 +82,23 @@ final class BoardPost: Model, @unchecked Sendable {
         participantCount = 1
         viewCount = 0
         lastActivityAt = now
+        aiGenerated = false
     }
+}
+
+/// One row per Lisbon trading date, whether a daily post was published or
+/// skipped. A skip is final for that date so a holiday does not call the
+/// model on every tick.
+final class DailyBoardPostRun: Model, @unchecked Sendable {
+    static let schema = "daily_board_post_runs"
+
+    @ID(custom: "trading_date", generatedBy: .user) var id: String?
+    @Field(key: "status") var status: String
+    @OptionalField(key: "post_id") var postId: UUID?
+    @OptionalField(key: "topic") var topic: String?
+    @Timestamp(key: "created_at", on: .create) var createdAt: Date?
+
+    init() {}
 }
 
 /// Soft-deleted comments stay in the thread as "[deleted]" so their replies

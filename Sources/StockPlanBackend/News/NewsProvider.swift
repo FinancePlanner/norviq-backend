@@ -9,6 +9,8 @@ struct ProviderNewsItem {
     let summary: String?
     let image: String?
     let publishedAt: Date
+    /// Tickers named on the article, when the provider sent them.
+    var relatedSymbols: [String] = []
 }
 
 protocol NewsProvider: Sendable {
@@ -105,7 +107,8 @@ struct FinnhubNewsProvider: NewsProvider {
                 url: article.url,
                 summary: article.summary,
                 image: article.image,
-                publishedAt: article.datetime.map(Date.init(timeIntervalSince1970:)) ?? Date()
+                publishedAt: article.datetime.map(Date.init(timeIntervalSince1970:)) ?? Date(),
+                relatedSymbols: Self.relatedSymbols(article.related)
             )
         }
     }
@@ -124,6 +127,13 @@ struct ExternalAPINewsProvider: NewsProvider {
 }
 
 private extension FinnhubNewsProvider {
+    static func relatedSymbols(_ related: String?) -> [String] {
+        (related ?? "")
+            .split(separator: ",")
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines).uppercased() }
+            .filter { $0.wholeMatch(of: #/[A-Z]{1,5}(?:\.[A-Z]{1,2})?/#) != nil }
+    }
+
     struct CompanyNewsWindow {
         let from: String
         let to: String
