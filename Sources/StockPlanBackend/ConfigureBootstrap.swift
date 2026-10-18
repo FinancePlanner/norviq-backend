@@ -448,6 +448,7 @@ func registerMigrations(_ app: Application) {
     app.migrations.add(CreateMarketBriefNotificationPreferences())
     app.migrations.add(BackfillEmailVerifiedAtAndPasswordSetAt())
     app.migrations.add(CascadeUserOwnedRowsOnDelete())
+    app.migrations.add(CreateRecaps())
     app.migrations.add(AddDailyBoardPosts())
 }
 
