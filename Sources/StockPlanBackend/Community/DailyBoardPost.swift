@@ -53,7 +53,7 @@ enum DailyBoardIdentity {
             if board.deletedAt != nil {
                 try await board.restore(on: req.db)
             }
-            return (userID, try board.requireID())
+            return try (userID, board.requireID())
         }
         let board = Board(
             slug: slug,
@@ -72,7 +72,7 @@ enum DailyBoardIdentity {
         if stored.deletedAt != nil {
             try await stored.restore(on: req.db)
         }
-        return (userID, try stored.requireID())
+        return try (userID, stored.requireID())
     }
 }
 
@@ -190,7 +190,9 @@ enum DailyBoardFacts {
             }
         }
         return counts.sorted { lhs, rhs in
-            if lhs.value != rhs.value { return lhs.value > rhs.value }
+            if lhs.value != rhs.value {
+                return lhs.value > rhs.value
+            }
             return lhs.key < rhs.key
         }
         .prefix(limit)
@@ -238,10 +240,18 @@ enum DailyBoardFacts {
 
     static func prompt(for candidate: DailyBoardCandidate) -> String {
         var facts: [String: String] = ["name": candidate.name]
-        if !candidate.symbol.isEmpty { facts["symbol"] = candidate.symbol }
-        if let price = candidate.price { facts["price"] = format(price) }
-        if let change = candidate.changePercent { facts["changePercent"] = format(change) }
-        if let headline = candidate.headline { facts["headline"] = headline }
+        if !candidate.symbol.isEmpty {
+            facts["symbol"] = candidate.symbol
+        }
+        if let price = candidate.price {
+            facts["price"] = format(price)
+        }
+        if let change = candidate.changePercent {
+            facts["changePercent"] = format(change)
+        }
+        if let headline = candidate.headline {
+            facts["headline"] = headline
+        }
         let encoded = facts.keys.sorted().map { "\($0): \(facts[$0] ?? "")" }.joined(separator: "\n")
         return """
         Topic: \(candidate.topic.rawValue)
@@ -273,7 +283,8 @@ enum DailyBoardFacts {
         if let mapped = fundForIndex[best.symbol],
            let fund = funds[mapped],
            fund.onTradingDate,
-           fund.changePercent.isFinite {
+           fund.changePercent.isFinite
+        {
             return DailyBoardCandidate(
                 topic: .index,
                 name: fundName(mapped),
@@ -326,7 +337,9 @@ enum DailyBoardFacts {
 
     private static func format(_ value: Double) -> String {
         let rounded = round2(value)
-        if rounded == rounded.rounded() { return String(Int(rounded)) }
+        if rounded == rounded.rounded() {
+            return String(Int(rounded))
+        }
         return String(format: "%.2f", locale: Locale(identifier: "en_US_POSIX"), rounded)
     }
 }
@@ -397,7 +410,9 @@ enum DailyBoardPublisher {
     /// Fetches facts, asks the model, and writes one post or a skip row.
     /// A second call on the same date does nothing.
     static func run(tradingDate: String, writer: any DailyBoardWriting, on req: Request) async throws {
-        if try await DailyBoardPostRun.find(tradingDate, on: req.db) != nil { return }
+        if try await DailyBoardPostRun.find(tradingDate, on: req.db) != nil {
+            return
+        }
         let signals = try await gather(tradingDate: tradingDate, on: req)
         let yesterday = try await previousTopic(before: tradingDate, on: req.db)
         guard let candidate = DailyBoardFacts.choose(signals, yesterday: yesterday) else {
@@ -433,7 +448,9 @@ enum DailyBoardPublisher {
         body: String,
         on req: Request
     ) async throws {
-        if try await DailyBoardPostRun.find(tradingDate, on: req.db) != nil { return }
+        if try await DailyBoardPostRun.find(tradingDate, on: req.db) != nil {
+            return
+        }
         let identity = try await DailyBoardIdentity.ensure(on: req)
         let now = Date()
         var url: String?
@@ -452,7 +469,9 @@ enum DailyBoardPublisher {
         }
         let symbolTag = candidate.symbol.lowercased().filter { $0.isLetter || $0.isNumber }
         var tags = [candidate.topic.rawValue]
-        if !symbolTag.isEmpty { tags.append(symbolTag) }
+        if !symbolTag.isEmpty {
+            tags.append(symbolTag)
+        }
         tags.append("ai")
 
         let post = BoardPost(
@@ -481,7 +500,7 @@ enum DailyBoardPublisher {
             try await writeRun(
                 tradingDate: tradingDate,
                 status: "published",
-                postID: try post.requireID(),
+                postID: post.requireID(),
                 topic: candidate.topic.rawValue,
                 on: tx
             )
@@ -578,7 +597,9 @@ enum DailyBoardPublisher {
         topic: String?,
         on db: any Database
     ) async throws {
-        if try await DailyBoardPostRun.find(tradingDate, on: db) != nil { return }
+        if try await DailyBoardPostRun.find(tradingDate, on: db) != nil {
+            return
+        }
         let run = DailyBoardPostRun()
         run.id = tradingDate
         run.status = status
@@ -635,8 +656,12 @@ final class DailyBoardPostJob: LifecycleHandler, @unchecked Sendable {
         await JobLock.runAsLeader(app, name: "daily_board_post") {
             let req = Request(application: app, on: app.eventLoopGroup.next())
             do {
-                if try await DailyBoardPostRun.find(tradingDate, on: app.db) != nil { return }
-                if await self.waitingForBrief(tradingDate, now: now, on: req) { return }
+                if try await DailyBoardPostRun.find(tradingDate, on: app.db) != nil {
+                    return
+                }
+                if await self.waitingForBrief(tradingDate, now: now, on: req) {
+                    return
+                }
                 if self.attempts.failures(for: tradingDate) >= Self.maxAttempts {
                     try await DailyBoardPublisher.skip(tradingDate: tradingDate, topic: nil, on: req)
                     return
