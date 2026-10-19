@@ -177,12 +177,10 @@ struct BoardsController: RouteCollection {
 
     @Sendable
     func listBoards(req: Request) async throws -> BoardListResponse {
+        // The Daily board and its author are created by the first publish
+        // (`DailyBoardPublisher.insert`), so the board stays hidden until
+        // DAILY_BOARD_POST_ENABLED or the operator command writes a post.
         let viewer = try req.communityViewer
-        do {
-            try await DailyBoardIdentity.ensure(on: req)
-        } catch {
-            req.logger.warning("daily_board identity unavailable error=\(String(describing: error))")
-        }
         return try await BoardsService.listBoards(
             cursor: req.query[String.self, at: "cursor"],
             viewer: viewer.userId,

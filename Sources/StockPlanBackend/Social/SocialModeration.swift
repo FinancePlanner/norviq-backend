@@ -156,8 +156,11 @@ struct SocialModerationController: RouteCollection {
     /// Suspending also ends the user's friendships and pending requests, so
     /// lifting a suspension doesn't silently restore contact.
     static func setSuspended(_ userId: UUID, suspended: Bool, on db: any Database) async throws {
-        guard try await User.find(userId, on: db) != nil else {
+        guard let user = try await User.find(userId, on: db) else {
             throw Abort(.notFound, reason: "User not found")
+        }
+        guard !suspended || !DailyBoardIdentity.isSystemEmail(user.email) else {
+            throw Abort(.badRequest, reason: "That account can't be suspended.")
         }
         try await db.transaction { tx in
             let record = try await SocialSettingsRecord.query(on: tx).filter(\.$userId == userId).first()
