@@ -410,9 +410,10 @@ struct BoardsRouteTests {
             try await DailyBoardPublisher.insert(
                 tradingDate: "2026-10-16", candidate: candidate, title: accepted.title, body: accepted.body, on: req
             )
-            try await DailyBoardPublisher.insert(
+            let second = try await DailyBoardPublisher.insert(
                 tradingDate: "2026-10-16", candidate: candidate, title: "Second", body: accepted.body, on: req
             )
+            #expect(second == .alreadyRun(status: "published"))
 
             let listed = try await send(app, .GET, "v1/boards", as: alice).decode(BoardListResponse.self)
             #expect(listed.items.contains { $0.slug == "daily" })
@@ -441,6 +442,17 @@ struct BoardsRouteTests {
             #expect(detail.post.aiGenerated)
             #expect(try await comment(app, daily.id, as: alice).status == .ok)
             #expect(try await send(app, .POST, "v1/board-posts/\(daily.id)/vote", as: alice).status == .ok)
+
+            // --replace clears the date, so the same day can be written again.
+            try await DailyBoardPublisher.reset(tradingDate: "2026-10-16", on: app.db)
+            let cleared = try await send(app, .GET, "v1/boards", as: alice).decode(BoardListResponse.self)
+            #expect(cleared.dailyPost == nil)
+            let rewritten = try await DailyBoardPublisher.insert(
+                tradingDate: "2026-10-16", candidate: candidate, title: "Rewritten", body: accepted.body, on: req
+            )
+            #expect(rewritten == .published(topic: .stock))
+            let relisted = try await send(app, .GET, "v1/boards", as: alice).decode(BoardListResponse.self)
+            #expect(relisted.dailyPost?.title == "Rewritten")
         }
     }
 

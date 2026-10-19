@@ -38,6 +38,10 @@ struct DailyBoardPostTests {
         let hot = DailyBoardFacts.signals(stocks: [stock], indexes: [index], funds: [:], headlines: [headline])
         #expect(DailyBoardFacts.choose(hot, yesterday: nil)?.topic == .stock)
         #expect(DailyBoardFacts.choose(hot, yesterday: .stock)?.topic == .index)
+        // The headline that named the ticker is the post's "why".
+        #expect(hot.stock?.headline == "Chips rally")
+        let unnamed = DailyBoardFacts.signals(stocks: [stock], indexes: [], funds: [:], headlines: [])
+        #expect(unnamed.stock?.headline == nil)
 
         let withFund = DailyBoardFacts.signals(stocks: [], indexes: [index], funds: ["SPY": fund], headlines: [])
         let chosen = DailyBoardFacts.choose(withFund, yesterday: nil)

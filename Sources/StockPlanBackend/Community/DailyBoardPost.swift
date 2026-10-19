@@ -212,7 +212,7 @@ enum DailyBoardFacts {
         headlines: [Headline]
     ) -> DailyBoardSignals {
         DailyBoardSignals(
-            stock: stockCandidate(stocks),
+            stock: stockCandidate(stocks, headlines: headlines),
             index: indexCandidate(indexes, funds: funds),
             news: newsCandidate(headlines)
         )
@@ -259,11 +259,15 @@ enum DailyBoardFacts {
         """
     }
 
-    private static func stockCandidate(_ stocks: [StockQuote]) -> DailyBoardCandidate? {
+    /// The headline that named the ticker rides along, so the post can say
+    /// why it moved instead of only that it did.
+    private static func stockCandidate(_ stocks: [StockQuote], headlines: [Headline]) -> DailyBoardCandidate? {
         guard let best = stocks
             .filter({ $0.onTradingDate && $0.changePercent.isFinite && abs($0.changePercent) >= minimumStockMove })
             .max(by: { abs($0.changePercent) < abs($1.changePercent) })
         else { return nil }
+        let symbol = best.symbol.uppercased()
+        let story = headlines.first { $0.tickers.contains { $0.uppercased() == symbol } }
         return DailyBoardCandidate(
             topic: .stock,
             name: best.symbol,
@@ -271,7 +275,7 @@ enum DailyBoardFacts {
             price: round2(best.price),
             changePercent: round2(best.changePercent),
             url: nil,
-            headline: nil
+            headline: story?.title
         )
     }
 
@@ -404,29 +408,53 @@ struct OpenAIDailyBoardWriter: DailyBoardWriting {
 
 // MARK: - Publish
 
+enum DailyBoardOutcome: Equatable, CustomStringConvertible {
+    case alreadyRun(status: String)
+    case skipped(reason: String)
+    case published(topic: DailyBoardTopic)
+
+    var description: String {
+        switch self {
+        case let .alreadyRun(status): "already \(status)"
+        case let .skipped(reason): "skipped (\(reason))"
+        case let .published(topic): "published \(topic.rawValue)"
+        }
+    }
+}
+
+enum DailyBoardPostError: Error, CustomStringConvertible {
+    /// The draft cited a number that was not fetched. Thrown, not skipped, so
+    /// the job asks again with the same prompt on its next tick.
+    case ungrounded
+
+    var description: String {
+        "draft cited a number that is not in the facts"
+    }
+}
+
 enum DailyBoardPublisher {
     private static let quotes = YahooChartQuoteProvider()
 
     /// Fetches facts, asks the model, and writes one post or a skip row.
     /// A second call on the same date does nothing.
-    static func run(tradingDate: String, writer: any DailyBoardWriting, on req: Request) async throws {
-        if try await DailyBoardPostRun.find(tradingDate, on: req.db) != nil {
-            return
+    @discardableResult
+    static func run(tradingDate: String, writer: any DailyBoardWriting, on req: Request) async throws -> DailyBoardOutcome {
+        if let run = try await DailyBoardPostRun.find(tradingDate, on: req.db) {
+            return .alreadyRun(status: run.status)
         }
         let signals = try await gather(tradingDate: tradingDate, on: req)
         let yesterday = try await previousTopic(before: tradingDate, on: req.db)
         guard let candidate = DailyBoardFacts.choose(signals, yesterday: yesterday) else {
             try await skip(tradingDate: tradingDate, topic: nil, on: req)
-            return
+            return .skipped(reason: "no grounded stock, index, or headline")
         }
         let grounded = DailyBoardFacts.grounded(candidate)
         let draft = try await writer.draft(prompt: DailyBoardFacts.prompt(for: candidate), on: req)
         guard let accepted = DailyBoardValidator.accept(title: draft.title, body: draft.body, grounded: grounded) else {
-            req.logger.info("daily_board_post skipped reason=ungrounded date=\(tradingDate)")
-            try await skip(tradingDate: tradingDate, topic: candidate.topic, on: req)
-            return
+            req.logger.info("daily_board_post draft_rejected reason=ungrounded date=\(tradingDate)")
+            throw DailyBoardPostError.ungrounded
         }
-        try await insert(
+        return try await insert(
             tradingDate: tradingDate,
             candidate: candidate,
             title: accepted.title,
@@ -441,15 +469,16 @@ enum DailyBoardPublisher {
 
     /// Inserts the post and the run row. Used by the job and by tests that
     /// already have a validated draft.
+    @discardableResult
     static func insert(
         tradingDate: String,
         candidate: DailyBoardCandidate,
         title: String,
         body: String,
         on req: Request
-    ) async throws {
-        if try await DailyBoardPostRun.find(tradingDate, on: req.db) != nil {
-            return
+    ) async throws -> DailyBoardOutcome {
+        if let run = try await DailyBoardPostRun.find(tradingDate, on: req.db) {
+            return .alreadyRun(status: run.status)
         }
         let identity = try await DailyBoardIdentity.ensure(on: req)
         let now = Date()
@@ -464,7 +493,7 @@ enum DailyBoardPublisher {
                 kind = BoardPostKind.link.rawValue
             } catch {
                 try await skip(tradingDate: tradingDate, topic: candidate.topic, on: req)
-                return
+                return .skipped(reason: "headline link rejected")
             }
         }
         let symbolTag = candidate.symbol.lowercased().filter { $0.isLetter || $0.isNumber }
@@ -504,6 +533,28 @@ enum DailyBoardPublisher {
                 topic: candidate.topic.rawValue,
                 on: tx
             )
+        }
+        return .published(topic: candidate.topic)
+    }
+
+    /// Clears a date so it can be written again: drops the run row and
+    /// soft-deletes that date's AI post, if one is still up.
+    static func reset(tradingDate: String, on db: any Database) async throws {
+        try await db.transaction { tx in
+            let posts = try await BoardPost.query(on: tx)
+                .filter(\.$aiGenerated == true)
+                .filter(\.$tradingDate == tradingDate)
+                .all()
+            for post in posts {
+                try await post.delete(on: tx)
+                guard let sql = tx as? any SQLDatabase else {
+                    throw Abort(.internalServerError, reason: "Boards need a SQL database")
+                }
+                try await sql.raw("""
+                UPDATE boards SET post_count = GREATEST(post_count - 1, 0) WHERE id = \(bind: post.boardId)
+                """).run()
+            }
+            try await DailyBoardPostRun.query(on: tx).filter(\.$id == tradingDate).delete()
         }
     }
 
