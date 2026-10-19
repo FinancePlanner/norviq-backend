@@ -1003,9 +1003,15 @@ struct StockPlanBackendTests {
                 forSymbols: ["AAPL"]
             )
             await fmpState.setPressureHistory(makePressureHistory(symbol: "AAPL", sessions: 40, volume: 1_000_000, spikeLast: 3_000_000))
+            // Relative to today so both trades stay inside the 90-day insider window.
+            let formatter = DateFormatter()
+            formatter.locale = Locale(identifier: "en_US_POSIX")
+            formatter.timeZone = TimeZone(identifier: "UTC")
+            formatter.dateFormat = "yyyy-MM-dd"
+            let daysAgo = { (days: Int) in formatter.string(from: Date().addingTimeInterval(Double(-days) * 86400)) }
             await fmpState.setPressureInsiders([
-                FMPInsiderTrade(symbol: "AAPL", filingDate: nil, transactionDate: "2026-07-20", transactionType: "S-Sale", securitiesTransacted: 50000, securitiesOwned: nil, price: nil, reportingName: "Jane Exec", typeOfOwner: "officer", acquisitionOrDisposition: "D", url: nil),
-                FMPInsiderTrade(symbol: "AAPL", filingDate: nil, transactionDate: "2026-07-21", transactionType: "P-Purchase", securitiesTransacted: 10000, securitiesOwned: nil, price: nil, reportingName: "Sam Director", typeOfOwner: "director", acquisitionOrDisposition: "A", url: nil),
+                FMPInsiderTrade(symbol: "AAPL", filingDate: nil, transactionDate: daysAgo(10), transactionType: "S-Sale", securitiesTransacted: 50000, securitiesOwned: nil, price: nil, reportingName: "Jane Exec", typeOfOwner: "officer", acquisitionOrDisposition: "D", url: nil),
+                FMPInsiderTrade(symbol: "AAPL", filingDate: nil, transactionDate: daysAgo(9), transactionType: "P-Purchase", securitiesTransacted: 10000, securitiesOwned: nil, price: nil, reportingName: "Sam Director", typeOfOwner: "director", acquisitionOrDisposition: "A", url: nil),
             ])
             app.marketDataService = makeTestMarketService(
                 state: state,
