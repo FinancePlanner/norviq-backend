@@ -256,7 +256,8 @@ enum BoardsService {
 
         var items = try await summaries(posts, boardSlugs: [boardId: board.slug], viewer: viewer, on: db)
         if board.slug == DailyBoardIdentity.slug, kind == nil, tag == nil, rawCursor == nil,
-           let pinned = try await currentDailyPost(viewer: viewer, on: db) {
+           let pinned = try await currentDailyPost(viewer: viewer, on: db)
+        {
             items.insert(pinned, at: 0)
         }
         return BoardPostPage(items: items, nextCursor: next)
