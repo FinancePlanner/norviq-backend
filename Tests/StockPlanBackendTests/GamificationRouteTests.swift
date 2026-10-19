@@ -46,6 +46,9 @@ struct XPMathTests {
         let percent = try #require(LeaderboardReturns.timeWeightedPercent(points, periodStart: day(0)))
         #expect(abs(percent - 10) < 0.001)
         #expect(LeaderboardReturns.timeWeightedPercent(Array(points.prefix(1)), periodStart: day(0)) == nil)
+        // On the period's first day, that day is measured against the one before.
+        let firstDay = try #require(LeaderboardReturns.timeWeightedPercent(Array(points.prefix(2)), periodStart: day(1)))
+        #expect(abs(firstDay - 10) < 0.001)
     }
 }
 

@@ -161,12 +161,14 @@ enum LeaderboardReturns {
         }
     }
 
-    /// Chained daily returns from the last day on or before `periodStart` (or
-    /// the first day after it) to the latest day. Nil when nothing measurable.
+    /// Chained daily returns from the last day before `periodStart` (or the
+    /// first recorded day) to the latest day. A day's snapshot is its closing
+    /// value, so the period's own first day is measured, not used as the base.
+    /// Nil when nothing measurable.
     static func timeWeightedPercent(_ points: [Point], periodStart: Date) -> Double? {
         guard points.count >= 2 else { return nil }
         let start = PortfolioSnapshotValuator.startOfDay(periodStart)
-        let baseIndex = points.lastIndex { $0.day <= start } ?? 0
+        let baseIndex = points.lastIndex { $0.day < start } ?? 0
         guard baseIndex < points.count - 1 else { return nil }
 
         var growth = 1.0
