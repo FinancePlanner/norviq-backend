@@ -160,7 +160,17 @@ struct GroupMessagesController: RouteCollection {
             }
             return try await GroupsService.messageDTO(existing, usernames: names).encodeResponse(status: .ok, for: req)
         }
-        return try await GroupsService.messageDTO(message, usernames: names).encodeResponse(status: .created, for: req)
+        let dto = try GroupsService.messageDTO(message, usernames: names)
+        await GroupsRealtime.publish(
+            GroupRealtimeEvent(type: .messageCreated, groupId: groupId, channelId: channelId, message: dto),
+            toMembersOf: groupId,
+            authorId: viewer.userId,
+            on: req
+        )
+        GroupNotifier.messageCreated(
+            dto, groupName: group.name, channelName: channel.name, authorUsername: viewer.username, app: req.application
+        )
+        return try await dto.encodeResponse(status: .created, for: req)
     }
 
     /// Moves the viewer's read marker forward; a lower seq is ignored.
@@ -178,6 +188,12 @@ struct GroupMessagesController: RouteCollection {
         SET last_read_seq = GREATEST(group_channel_reads.last_read_seq, EXCLUDED.last_read_seq),
             updated_at = EXCLUDED.updated_at
         """).run()
+        // The viewer's other devices clear their badge.
+        try await GroupsRealtime.publish(
+            GroupRealtimeEvent(type: .channelRead, groupId: group.requireID(), channelId: channelId, seq: seq),
+            to: [viewer.userId],
+            on: req
+        )
         return .noContent
     }
 
@@ -197,6 +213,17 @@ struct GroupMessagesController: RouteCollection {
             message.deletedAt = Date()
             message.deletedBy = viewer.userId
             try await message.save(on: req.db)
+            try await GroupsRealtime.publish(
+                GroupRealtimeEvent(
+                    type: .messageDeleted,
+                    groupId: message.groupId,
+                    channelId: message.channelId,
+                    messageId: message.requireID(),
+                    seq: message.seq
+                ),
+                toMembersOf: message.groupId,
+                on: req
+            )
         }
         return .noContent
     }

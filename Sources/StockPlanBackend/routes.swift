@@ -97,6 +97,8 @@ func routes(_ app: Application) throws {
     try api.register(collection: CommunityAdminController())
     try api.register(collection: GroupsController())
     try api.register(collection: GroupMessagesController())
+    try api.register(collection: RealtimeStreamController())
+    app.lifecycle.use(RealtimeShutdown())
     try api.register(collection: ArticlesController())
     // Simulating prices every leg, so one request fans out to as many upstream
     // quote lookups as the simulation has positions. Without a limiter an

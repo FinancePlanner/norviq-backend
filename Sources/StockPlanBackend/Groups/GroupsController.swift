@@ -252,6 +252,7 @@ struct GroupsController: RouteCollection {
             group.visibility = visibility.rawValue
         }
         try await group.save(on: req.db)
+        try await announce(.groupUpdated, group.requireID(), on: req)
         return try await GroupsService.detail(group, viewer: viewer, on: req.db)
     }
 
@@ -263,7 +264,11 @@ struct GroupsController: RouteCollection {
         if !viewer.isAdmin {
             try await GroupsService.requireOwner(GroupsService.requireMember(group, viewer: viewer, on: req.db))
         }
+        let memberIds = try await GroupMemberRecord.query(on: req.db).filter(\.$groupId == group.requireID()).all().map(\.userId)
         try await group.delete(on: req.db)
+        try await GroupsRealtime.publish(
+            GroupRealtimeEvent(type: .membershipRemoved, groupId: group.requireID(), reason: .deleted), to: Set(memberIds), on: req
+        )
         return .noContent
     }
 
@@ -287,6 +292,7 @@ struct GroupsController: RouteCollection {
                 try await GroupsService.addMember(group, userId: viewer.userId, role: .member, pushEnabled: false, on: tx)
             }
         }
+        try await announce(.groupUpdated, group.requireID(), on: req)
         return try await GroupsService.detail(group, viewer: viewer, on: req.db)
     }
 
@@ -313,11 +319,14 @@ struct GroupsController: RouteCollection {
                 )
             }
             try await group.delete(on: req.db)
+            await removed(viewer.userId, from: groupId, reason: .deleted, on: req)
             return .noContent
         }
         try await req.db.transaction { tx in
             try await GroupsService.removeMember(groupId: groupId, userId: viewer.userId, on: tx)
         }
+        await removed(viewer.userId, from: groupId, reason: .left, on: req)
+        await announce(.groupUpdated, groupId, on: req)
         return .noContent
     }
 
@@ -383,6 +392,7 @@ struct GroupsController: RouteCollection {
         }
         target.role = role.rawValue
         try await target.save(on: req.db)
+        try await announce(.groupUpdated, group.requireID(), on: req)
         return .noContent
     }
 
@@ -395,6 +405,8 @@ struct GroupsController: RouteCollection {
         try await req.db.transaction { tx in
             try await GroupsService.removeMember(groupId: target.groupId, userId: target.userId, on: tx)
         }
+        await removed(target.userId, from: target.groupId, reason: .kicked, on: req)
+        await announce(.groupUpdated, target.groupId, on: req)
         return .noContent
     }
 
@@ -418,6 +430,7 @@ struct GroupsController: RouteCollection {
             group.ownerId = userId
             try await group.save(on: tx)
         }
+        try await announce(.groupUpdated, group.requireID(), on: req)
         return .noContent
     }
 
@@ -481,6 +494,8 @@ struct GroupsController: RouteCollection {
                 .set(\.$revokedAt, to: Date())
                 .update()
         }
+        await removed(body.userId, from: groupId, reason: .banned, on: req)
+        await announce(.groupUpdated, groupId, on: req)
         return .noContent
     }
 
@@ -529,6 +544,7 @@ struct GroupsController: RouteCollection {
             position: (existing.map(\.position).max() ?? -1) + 1
         )
         try await channel.create(on: req.db)
+        try await announce(.channelCreated, groupId, channelId: channel.requireID(), on: req)
         return try GroupsService.channelDTO(channel, read: nil)
     }
 
@@ -563,6 +579,7 @@ struct GroupsController: RouteCollection {
         let read = try await GroupsService.readState(
             channelIds: [channel.requireID()], userId: viewer.userId, hidden: hidden, on: req.db
         )
+        try await announce(.channelUpdated, channel.groupId, channelId: channel.requireID(), on: req)
         return try GroupsService.channelDTO(channel, read: channel.id.flatMap { read[$0] })
     }
 
@@ -576,6 +593,7 @@ struct GroupsController: RouteCollection {
             throw CodedAbort(status: .conflict, code: "last_channel", reason: "A group needs at least one channel.")
         }
         try await channel.delete(on: req.db)
+        try await announce(.channelDeleted, channel.groupId, channelId: channel.requireID(), on: req)
         return .noContent
     }
 
@@ -691,6 +709,7 @@ struct GroupsController: RouteCollection {
             }
             try await GroupsService.addMember(group, userId: viewer.userId, role: .member, pushEnabled: true, on: tx)
         }
+        try await announce(.groupUpdated, group.requireID(), on: req)
         return try await GroupsService.detail(group, viewer: viewer, on: req.db)
     }
 
@@ -745,6 +764,10 @@ struct GroupsController: RouteCollection {
                 ).create(on: tx)
             }
         }
+        try await GroupsRealtime.publish(
+            GroupRealtimeEvent(type: .invitationReceived, groupId: group.requireID()), to: Set(targets), on: req
+        )
+        GroupNotifier.invited(targets, groupId: groupId, groupName: group.name, inviterUsername: viewer.username, app: req.application)
         return GroupDirectInvitationResponse(invitedUserIds: targets)
     }
 
@@ -781,6 +804,7 @@ struct GroupsController: RouteCollection {
                 try await GroupsService.addMember(group, userId: viewer.userId, role: .member, pushEnabled: true, on: tx)
             }
         }
+        try await announce(.groupUpdated, group.requireID(), on: req)
         return try await GroupsService.detail(group, viewer: viewer, on: req.db)
     }
 
@@ -875,6 +899,17 @@ struct GroupsController: RouteCollection {
             throw Abort(.notFound, reason: "Invitation not found")
         }
         return invite
+    }
+
+    /// Tells every member something about the group changed; clients refetch.
+    private func announce(_ type: GroupRealtimeEventType, _ groupId: UUID, channelId: UUID? = nil, on req: Request) async {
+        await GroupsRealtime.publish(GroupRealtimeEvent(type: type, groupId: groupId, channelId: channelId), toMembersOf: groupId, on: req)
+    }
+
+    private func removed(_ userId: UUID, from groupId: UUID, reason: GroupMembershipRemovalReason, on req: Request) async {
+        await GroupsRealtime.publish(
+            GroupRealtimeEvent(type: .membershipRemoved, groupId: groupId, reason: reason), to: [userId], on: req
+        )
     }
 
     static func uuid(_ name: String, on req: Request) throws -> UUID {
