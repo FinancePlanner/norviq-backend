@@ -413,6 +413,14 @@ struct BoardsRouteTests {
             )
             #expect(second == .alreadyRun(status: "published"))
 
+            // A board left with an older build's wording is brought up to date.
+            let board = try #require(try await Board.query(on: app.db).filter(\.$slug == DailyBoardIdentity.slug).first())
+            board.description = "One post each trading day about a stock, an index, or the news."
+            try await board.save(on: app.db)
+            _ = try await DailyBoardIdentity.ensure(on: req)
+            let refreshed = try await Board.query(on: app.db).filter(\.$slug == DailyBoardIdentity.slug).first()
+            #expect(refreshed?.description == DailyBoardIdentity.description)
+
             let listed = try await send(app, .GET, "v1/boards", as: alice).decode(BoardListResponse.self)
             #expect(listed.items.contains { $0.slug == "daily" })
             let daily = try #require(listed.dailyPost)
