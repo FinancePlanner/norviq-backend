@@ -1,3 +1,4 @@
+import Algorithms
 import Fluent
 import Foundation
 import StockPlanShared
@@ -330,14 +331,12 @@ struct DefaultSentimentQueryService: SentimentQuerying {
     // MARK: - Mapping
 
     static func normalize(_ symbols: [String]) -> [String] {
-        var seen = Set<String>()
-        var ordered: [String] = []
-        for symbol in symbols {
-            let cleaned = symbol.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
-            guard !cleaned.isEmpty, seen.insert(cleaned).inserted else { continue }
-            ordered.append(cleaned)
-        }
-        return ordered
+        Array(
+            symbols
+                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines).uppercased() }
+                .filter { !$0.isEmpty }
+                .uniqued()
+        )
     }
 
     static func response(from row: SymbolSentimentDaily, includeThemes: Bool) -> SymbolSentimentResponse {

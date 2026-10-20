@@ -1,3 +1,4 @@
+import Algorithms
 import Fluent
 import Foundation
 import Vapor
@@ -70,7 +71,9 @@ struct DefaultSentimentAggregationService: SentimentAggregationServing {
             guard let entries = byTier[tier], !entries.isEmpty else { continue }
             let symbols = entries.map(\.symbol)
 
-            for chunk in symbols.chunked(into: batchSize) {
+            // A non-positive batch size sends the whole tier in one call.
+            let chunks = batchSize > 0 ? symbols.chunks(ofCount: batchSize).map(Array.init) : [symbols]
+            for chunk in chunks {
                 let batches: [SymbolPostBatch]
                 do {
                     batches = try await provider.fetchSymbolPosts(
@@ -274,14 +277,5 @@ struct DefaultSentimentAggregationService: SentimentAggregationServing {
         }
 
         return (generated, skipped)
-    }
-}
-
-extension Array {
-    func chunked(into size: Int) -> [[Element]] {
-        guard size > 0 else { return [self] }
-        return stride(from: 0, to: count, by: size).map {
-            Array(self[$0 ..< Swift.min($0 + size, count)])
-        }
     }
 }

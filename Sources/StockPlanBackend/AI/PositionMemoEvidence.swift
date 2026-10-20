@@ -1,3 +1,4 @@
+import Algorithms
 import Fluent
 import Foundation
 import StockPlanShared
@@ -63,7 +64,7 @@ enum PositionMemoEvidence {
             askedSymbol: ask.askedSymbol,
             primarySymbol: primary,
             listings: listings,
-            quotes: [askedQuote, primaryQuote].compactMap(\.self).uniquedBySymbol(),
+            quotes: [askedQuote, primaryQuote].compactMap(\.self).uniqued(on: { $0.symbol.uppercased() }),
             fx: fx,
             profile: profile.map(mapProfile),
             income: income.map(mapIncome),
@@ -419,12 +420,5 @@ enum PositionMemoEvidence {
         let month = parts.month ?? 0
         let day = parts.day ?? 0
         return String(format: "%04d-%02d-%02d", year, month, day)
-    }
-}
-
-private extension [PositionMemoPack.Quote] {
-    func uniquedBySymbol() -> [PositionMemoPack.Quote] {
-        var seen: Set<String> = []
-        return filter { seen.insert($0.symbol.uppercased()).inserted }
     }
 }

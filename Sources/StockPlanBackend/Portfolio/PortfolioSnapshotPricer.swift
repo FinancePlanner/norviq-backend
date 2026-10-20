@@ -1,3 +1,4 @@
+import Algorithms
 import Fluent
 import Foundation
 import StockPlanShared
@@ -149,8 +150,7 @@ struct PortfolioSnapshotPricer: Sendable {
     private func fetchQuotes(symbols: [String], req: Request) async -> [String: QuoteResponse] {
         guard !symbols.isEmpty else { return [:] }
         var result: [String: QuoteResponse] = [:]
-        for start in stride(from: 0, to: symbols.count, by: 10) {
-            let chunk = Array(symbols[start ..< min(start + 10, symbols.count)])
+        for chunk in symbols.chunks(ofCount: 10) {
             let application = req.application
             let values = await withTaskGroup(of: QuoteResponse?.self) { group in
                 for symbol in chunk {

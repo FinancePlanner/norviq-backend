@@ -1,3 +1,4 @@
+import Algorithms
 import Fluent
 import Foundation
 import StockPlanShared
@@ -415,8 +416,7 @@ struct GoalPlanningService {
         let start = goal.createdAt ?? now
         let totalMonths = max(1, Self.months(from: start, to: targetDate, calendar: calendar))
         let elapsed = max(0, Self.months(from: start, to: now, calendar: calendar))
-        let snapshotByMonth = Dictionary(grouping: snapshots) { Self.monthKey($0.calculatedAt) }
-            .compactMapValues { $0.last }
+        let snapshotByMonth = snapshots.keyed(by: { Self.monthKey($0.calculatedAt) })
         return (0 ... totalMonths).map { month in
             let date = calendar.date(byAdding: .month, value: month, to: start) ?? start
             let planned = PlanningEngine.futureValue(

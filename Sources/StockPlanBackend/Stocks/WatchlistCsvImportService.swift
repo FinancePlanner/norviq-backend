@@ -1,3 +1,4 @@
+import Algorithms
 import Fluent
 import Foundation
 import StockPlanShared
@@ -67,11 +68,11 @@ struct WatchlistCsvImportService {
 
         let invalidLines = Set(preview.errors.map(\.line))
         let validItems = preview.items.filter { !invalidLines.contains($0.line) }
-        let groupedItems = Dictionary(grouping: validItems, by: { $0.symbol })
-        let uniqueItems: [WatchlistCsvImportPreviewItem] = groupedItems.compactMap { _, rows in
-            rows.sorted { $0.line < $1.line }.last
-        }
-        .sorted { $0.symbol < $1.symbol }
+        // Per symbol, the row on the highest line wins (the later row on a tie).
+        let uniqueItems: [WatchlistCsvImportPreviewItem] = validItems
+            .keyed(by: \.symbol, resolvingConflictsWith: { _, old, new in new.line >= old.line ? new : old })
+            .values
+            .sorted { $0.symbol < $1.symbol }
 
         let existingItems = try await WatchlistItem.query(on: req.db)
             .filter(\.$userId == userId)
@@ -166,15 +167,7 @@ private extension WatchlistCsvImportService {
     }
 
     func dedupeErrors(_ errors: [CsvImportPreviewError]) -> [CsvImportPreviewError] {
-        var seen = Set<String>()
-        var result: [CsvImportPreviewError] = []
-        for error in errors {
-            let key = "\(error.line)|\(error.message)"
-            if seen.insert(key).inserted {
-                result.append(error)
-            }
-        }
-        return result.sorted { lhs, rhs in
+        errors.uniqued(on: { "\($0.line)|\($0.message)" }).sorted { lhs, rhs in
             if lhs.line == rhs.line {
                 return lhs.message < rhs.message
             }

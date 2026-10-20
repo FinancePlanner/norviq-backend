@@ -1,3 +1,4 @@
+import Algorithms
 import Fluent
 import Foundation
 import StockPlanShared
@@ -558,17 +559,7 @@ struct PortfolioController: RouteCollection {
     }
 
     private func uniqueSymbols(_ values: [String]) -> [String] {
-        var seen = Set<String>()
-        var result: [String] = []
-
-        for value in values {
-            let normalized = normalizeSymbol(value)
-            guard !normalized.isEmpty, !seen.contains(normalized) else { continue }
-            seen.insert(normalized)
-            result.append(normalized)
-        }
-
-        return result
+        Array(values.map(normalizeSymbol).filter { !$0.isEmpty }.uniqued())
     }
 
     private func normalizeSymbol(_ raw: String) -> String {

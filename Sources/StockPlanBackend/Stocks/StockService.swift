@@ -1,3 +1,4 @@
+import Algorithms
 import Fluent
 import Foundation
 import Vapor
@@ -596,15 +597,13 @@ struct StockServiceImpl: StockService {
             .all()
             .map { $0.symbol.uppercased() }
 
-        var seen: Set<String> = [primarySymbol]
-        var ordered: [String] = []
-        ordered.reserveCapacity(watchlistSymbols.count + holdingSymbols.count)
-
-        for symbol in watchlistSymbols + holdingSymbols {
-            guard seen.insert(symbol).inserted else { continue }
-            ordered.append(symbol)
-        }
-        return Array(ordered.prefix(8))
+        return Array(
+            (watchlistSymbols + holdingSymbols)
+                .lazy
+                .filter { $0 != primarySymbol }
+                .uniqued()
+                .prefix(8)
+        )
     }
 
     private func comparisonMetricsMap(from metrics: StockAnalysisMetricsResponse) -> [String: Double] {

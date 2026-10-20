@@ -1,3 +1,4 @@
+import Algorithms
 import Fluent
 import Foundation
 import StockPlanShared
@@ -646,19 +647,14 @@ private extension CsvPortfolioImportService {
     }
 
     func dedupeErrors(_ errors: [CsvImportPreviewError]) -> [CsvImportPreviewError] {
-        var seen = Set<String>()
-        var output: [CsvImportPreviewError] = []
-        for error in errors.sorted(by: { lhs, rhs in
-            if lhs.line == rhs.line {
-                return lhs.message < rhs.message
+        errors
+            .sorted { lhs, rhs in
+                if lhs.line == rhs.line {
+                    return lhs.message < rhs.message
+                }
+                return lhs.line < rhs.line
             }
-            return lhs.line < rhs.line
-        }) {
-            let key = "\(error.line)::\(error.message)"
-            guard seen.insert(key).inserted else { continue }
-            output.append(error)
-        }
-        return output
+            .uniqued(on: { "\($0.line)::\($0.message)" })
     }
 }
 

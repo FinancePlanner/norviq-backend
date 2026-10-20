@@ -1,3 +1,4 @@
+import Algorithms
 import Fluent
 import Foundation
 import Vapor
@@ -173,7 +174,7 @@ private extension DefaultInsightsService {
         upserted += 1
 
         let summary = try await provider.fetchSummary(days: windowDays, on: req)
-        let topics = (summary.byTopic ?? [:]).keys.sorted().prefix(20)
+        let topics = (summary.byTopic ?? [:]).keys.min(count: 20)
         for topic in topics {
             do {
                 let sentiment = try await provider.fetchSentiment(topic: topic, days: windowDays, on: req)
@@ -219,11 +220,7 @@ private extension DefaultInsightsService {
         var symbols: [String] = []
         do {
             let dynamic = try await repo.allTrackedSymbols(limit: tickerLimit, on: req.db)
-            var seen = Set<String>()
-            for s in pinnedTickers + dynamic where seen.insert(s).inserted {
-                symbols.append(s)
-            }
-            symbols = Array(symbols.prefix(tickerLimit))
+            symbols = Array((pinnedTickers + dynamic).uniqued().prefix(tickerLimit))
         } catch {
             req.logger.warning("insights.sync tracked symbols failed error=\(String(describing: error)); using pinned only")
             symbols = pinnedTickers

@@ -1,3 +1,4 @@
+import Algorithms
 import Foundation
 import StockPlanShared
 
@@ -68,8 +69,7 @@ struct MarketBriefFacts: Encodable, Sendable, Equatable {
             },
             headlines: news
                 .filter { now.timeIntervalSince($0.publishedAt) <= headlineMaxAge }
-                .sorted { $0.publishedAt > $1.publishedAt }
-                .prefix(maxHeadlines)
+                .min(count: maxHeadlines, sortedBy: { $0.publishedAt > $1.publishedAt })
                 .map { Headline(title: $0.headline, source: $0.source, url: $0.url, publishedAt: iso.string(from: $0.publishedAt)) },
             earnings: earnings.prefix(maxEarnings).compactMap { item in
                 guard let symbol = item.symbol, !symbol.isEmpty else { return nil }

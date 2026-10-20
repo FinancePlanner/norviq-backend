@@ -1,3 +1,4 @@
+import Algorithms
 import Fluent
 import FluentSQL
 import Foundation
@@ -77,8 +78,7 @@ struct DatabaseDashboardRepository: DashboardRepository {
         let totalUnrealizedPnl = totalMarketValue - totalCostBasis
 
         let topHoldings = rows
-            .sorted { $0.marketValue > $1.marketValue }
-            .prefix(5)
+            .min(count: 5, sortedBy: { $0.marketValue > $1.marketValue })
             .map { row in
                 let weight = totalMarketValue > 0 ? (row.marketValue / totalMarketValue) * 100 : 0
                 return DashboardSnapshotModel.Holding(
