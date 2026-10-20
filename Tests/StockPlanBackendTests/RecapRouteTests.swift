@@ -6,7 +6,12 @@ import Testing
 import Vapor
 import VaporTesting
 
-@Suite("Recap routes", .serialized)
+/// `.databaseLocked`: `withFlags` writes `RECAP_ENABLED` with `setenv`, so each
+/// test must hold the environment exclusively. Without it the write landed
+/// outside the gate, and a concurrent exclusive scope's restore — snapshotted
+/// before the flag existed — `unsetenv`'d it mid-test, turning every route
+/// into a 404 (the intermittent `readOnlyTokenCannotWrite` failure).
+@Suite("Recap routes", .serialized, .databaseLocked)
 struct RecapRouteTests {
     private struct SlideProbe: Decodable { let type: String }
     private struct DeckProbe: Decodable { let slides: [SlideProbe] }
