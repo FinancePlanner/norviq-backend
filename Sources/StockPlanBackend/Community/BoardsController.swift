@@ -533,4 +533,5 @@ struct BoardsController: RouteCollection {
 enum CommunityReportTarget {
     static let post = "board_post"
     static let comment = "board_comment"
+    static let groupMessage = "group_message"
 }

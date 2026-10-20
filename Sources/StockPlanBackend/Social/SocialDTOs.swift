@@ -152,6 +152,9 @@ struct SocialConfigDTO: Content, Equatable {
     let facebookImport: Bool
     let leaderboards: Bool
     let messaging: Bool
+    /// Groups (Discord-style chat). `groupsPublic` adds the public directory.
+    let groups: Bool
+    let groupsPublic: Bool
     /// Present when contact matching is on. The pepper is not a secret: it
     /// only stops precomputed tables; rate limits and opt-in do the rest.
     let contactHashVersion: Int?

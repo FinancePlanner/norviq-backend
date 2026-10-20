@@ -40,13 +40,16 @@ struct SocialConfiguration: Sendable {
     }
 
     var dto: SocialConfigDTO {
-        SocialConfigDTO(
+        let groups = GroupsConfiguration.fromEnvironment()
+        return SocialConfigDTO(
             enabled: enabled,
             contactsDiscovery: contactsDiscovery,
             xImport: xImport,
             facebookImport: facebookImport,
             leaderboards: leaderboards,
             messaging: false,
+            groups: groups.enabled,
+            groupsPublic: groups.publicDirectory,
             contactHashVersion: contactsDiscovery ? Self.contactHashVersion : nil,
             contactPepper: contactsDiscovery ? contactPepper : nil
         )
