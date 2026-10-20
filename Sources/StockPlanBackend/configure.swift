@@ -510,8 +510,14 @@ public func configure(_ app: Application) async throws {
     if app.marketBriefEnabled {
         app.lifecycle.use(MarketBriefJob())
     }
-    app.lifecycle.use(DailyBoardPostJob())
+    // Daily AI post on Boards, written after the evening brief. Off by default:
+    // DAILY_BOARD_POST_ENABLED gates only the scheduled job, so the operator
+    // command can check a draft on staging before the job is switched on.
+    if envBool("DAILY_BOARD_POST_ENABLED", default: false) {
+        app.lifecycle.use(DailyBoardPostJob())
+    }
     app.asyncCommands.use(MarketBriefGenerateCommand(), as: "market-brief-generate")
+    app.asyncCommands.use(DailyBoardPostGenerateCommand(), as: "daily-board-post-generate")
     // Operator-triggered reconstruction of history predating the job above.
     app.asyncCommands.use(PortfolioBackfillCommand(), as: "portfolio-backfill")
     // Nil (feature answers 503) unless the provider is OpenRouter or TERMINAL_AI_MODEL is set:

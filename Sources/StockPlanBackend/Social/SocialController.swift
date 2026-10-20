@@ -279,8 +279,13 @@ struct SocialController: RouteCollection {
         guard target != userId else {
             throw Abort(.badRequest, reason: "You can't block yourself.")
         }
-        guard try await User.find(target, on: req.db) != nil else {
+        guard let blocked = try await User.find(target, on: req.db) else {
             throw Abort(.notFound, reason: "User not found")
+        }
+        // Same rule as the Boards block: a block would hide the Daily post
+        // from the list while it stays pinned on the directory.
+        guard !DailyBoardIdentity.isSystemEmail(blocked.email) else {
+            throw Abort(.badRequest, reason: "That account can't be blocked.")
         }
         try await req.db.transaction { tx in
             let exists = try await SocialBlock.query(on: tx)

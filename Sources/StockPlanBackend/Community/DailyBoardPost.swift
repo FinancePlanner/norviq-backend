@@ -58,7 +58,7 @@ enum DailyBoardIdentity {
         let board = Board(
             slug: slug,
             name: "Daily",
-            description: "One post each trading day about a stock, an index, or the news. Members can post here too.",
+            description: "One post every day: a Mag 7 stock, a hot stock, inflation, an ETF, or the week in markets. Members can post here too.",
             creatorId: userID
         )
         do {
@@ -90,90 +90,50 @@ extension Application {
 // MARK: - When
 
 enum DailyBoardSchedule {
-    /// The latest weekday whose evening window has opened. Monday morning is
-    /// still Friday. Before 22:30 Lisbon, today is not due yet.
+    /// Weekend posts look back on the week or ahead to the next one, so they
+    /// go out in the morning.
+    static let weekendStart = 10 * 60
+
+    /// The latest day whose window has opened: weekdays at 22:30 Lisbon,
+    /// after the evening brief, and weekends at 10:00. A day missed until the
+    /// next one opens is not written late.
     static func latestDueDate(now: Date) -> String? {
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = MarketBriefSchedule.timeZone
-        for offset in 0 ..< 8 {
+        for offset in 0 ..< 2 {
             guard let day = calendar.date(byAdding: .day, value: -offset, to: now) else { return nil }
-            let weekday = calendar.component(.weekday, from: day)
-            guard (2 ... 6).contains(weekday) else { continue }
-            if offset == 0, MarketBriefSchedule.localMinutes(now) < MarketBriefSchedule.eveningStart {
-                continue
+            if offset == 0 {
+                let weekday = calendar.component(.weekday, from: day)
+                let opens = (2 ... 6).contains(weekday) ? MarketBriefSchedule.eveningStart : weekendStart
+                if MarketBriefSchedule.localMinutes(now) < opens {
+                    continue
+                }
             }
             return MarketBriefSchedule.localDate(day)
         }
         return nil
     }
 
-    /// A quote counts for `tradingDate` when its exchange timestamp falls on
-    /// that Lisbon calendar date.
-    static func isOnTradingDate(_ timestamp: Double, tradingDate: String) -> Bool {
-        guard timestamp.isFinite, timestamp > 0 else { return false }
+    /// The Lisbon calendar date of an exchange timestamp, in seconds or
+    /// milliseconds.
+    static func sessionDate(_ timestamp: Double) -> String? {
+        guard timestamp.isFinite, timestamp > 0 else { return nil }
         let seconds = timestamp > 10_000_000_000 ? timestamp / 1000 : timestamp
-        return MarketBriefSchedule.localDate(Date(timeIntervalSince1970: seconds)) == tradingDate
+        return MarketBriefSchedule.localDate(Date(timeIntervalSince1970: seconds))
     }
 }
 
-// MARK: - What to write about
-
-enum DailyBoardTopic: String, Equatable, Sendable {
-    case stock
-    case index
-    case news
-}
-
-struct DailyBoardCandidate: Equatable, Sendable {
-    var topic: DailyBoardTopic
-    var name: String
-    var symbol: String
-    var price: Double?
-    var changePercent: Double?
-    var url: String?
-    /// Set for a news post so numbers in the headline stay grounded.
-    var headline: String?
-}
-
-struct DailyBoardSignals: Equatable, Sendable {
-    var stock: DailyBoardCandidate?
-    var index: DailyBoardCandidate?
-    var news: DailyBoardCandidate?
-}
+// MARK: - Hot stock
 
 enum DailyBoardFacts {
-    /// A smaller move than this is not "hot" and must not crowd out the index.
+    /// A smaller move than this is not "hot".
     static let minimumStockMove = 1.0
-
-    static let eveningIndexes: Set<String> = ["^GSPC", "^NDX", "^DJI", "^GDAXI", "^FCHI", "^STOXX50E"]
-
-    /// Index symbol to the fund we quote separately. The post cites the fund
-    /// only when that quote is from the trading day.
-    static let fundForIndex: [String: String] = [
-        "^GSPC": "SPY",
-        "^NDX": "QQQ",
-        "^STOXX50E": "EXW1.DE",
-    ]
 
     struct StockQuote: Equatable, Sendable {
         var symbol: String
         var price: Double
         var changePercent: Double
-        var onTradingDate: Bool
-    }
-
-    struct IndexMove: Equatable, Sendable {
-        var symbol: String
-        var name: String
-        var price: Double
-        var changePercent: Double
-    }
-
-    struct FundQuote: Equatable, Sendable {
-        var symbol: String
-        var price: Double
-        var changePercent: Double
-        var onTradingDate: Bool
+        var sessionDate: String
     }
 
     struct Headline: Equatable, Sendable {
@@ -205,160 +165,297 @@ enum DailyBoardFacts {
         return ticker.wholeMatch(of: #/[A-Z]{1,5}(?:\.[A-Z]{1,2})?/#) != nil
     }
 
-    static func signals(
-        stocks: [StockQuote],
-        indexes: [IndexMove],
-        funds: [String: FundQuote],
-        headlines: [Headline]
-    ) -> DailyBoardSignals {
-        DailyBoardSignals(
-            stock: stockCandidate(stocks),
-            index: indexCandidate(indexes, funds: funds),
-            news: newsCandidate(headlines)
+    /// The biggest same-day move of at least 1% among stocks the news named,
+    /// Mag 7 left to Monday, with the headline that named it as the "why".
+    static func hotStock(_ stocks: [StockQuote], headlines: [Headline], day: String) -> (StockQuote, Headline?)? {
+        let mag7 = Set(DailyBoardCatalog.mag7)
+        guard let best = stocks
+            .filter({ stock in
+                stock.sessionDate == day && !mag7.contains(stock.symbol.uppercased())
+                    && stock.changePercent.isFinite && abs(stock.changePercent) >= minimumStockMove
+            })
+            .max(by: { abs($0.changePercent) < abs($1.changePercent) })
+        else { return nil }
+        let symbol = best.symbol.uppercased()
+        return (best, headlines.first { $0.tickers.contains { $0.uppercased() == symbol } })
+    }
+}
+
+// MARK: - Sources
+
+/// Everything the daily post reads from outside the database. A protocol so
+/// tests run without a network or a key. Every call degrades to nil or empty.
+protocol DailyBoardSources: Sendable {
+    func headlines(on req: Request) async -> [DailyBoardFacts.Headline]
+    func quote(_ symbol: String, on req: Request) async -> DailyBoardFacts.StockQuote?
+    func metrics(_ symbol: String, on req: Request) async -> [String: Double]
+    func earnings(from: String, to: String, symbol: String?, on req: Request) async -> [DailyBoardBuilders.Earnings]
+    func bars(_ symbol: String, on req: Request) async -> DailyBarSeries?
+    func macro(country: String, key: String, on req: Request) async -> DailyBoardBuilders.MacroReading?
+}
+
+struct LiveDailyBoardSources: DailyBoardSources {
+    private static let yahoo = YahooDailyBarsProvider()
+
+    func headlines(on req: Request) async -> [DailyBoardFacts.Headline] {
+        guard let news = req.application.dailyBoardNewsProvider else { return [] }
+        do {
+            let items = try await news.fetchGeneral(on: req)
+            let now = Date()
+            return items
+                .filter { now.timeIntervalSince($0.publishedAt) <= MarketBriefFacts.headlineMaxAge }
+                .sorted { $0.publishedAt > $1.publishedAt }
+                .prefix(MarketBriefFacts.maxHeadlines)
+                .map { item in
+                    let related = item.relatedSymbols.filter(DailyBoardFacts.isStockTicker)
+                    let named = MarketBriefValidator.tickers([item.headline]).filter(DailyBoardFacts.isStockTicker)
+                    return DailyBoardFacts.Headline(title: item.headline, url: item.url, tickers: related + named)
+                }
+        } catch {
+            req.logger.warning("daily_board_post news_failed error=\(String(describing: error))")
+            return []
+        }
+    }
+
+    func quote(_ symbol: String, on req: Request) async -> DailyBoardFacts.StockQuote? {
+        guard let quote = try? await req.application.marketDataService.quote(symbol: symbol, on: req),
+              let change = quote.percentChange, change.isFinite,
+              let session = DailyBoardSchedule.sessionDate(quote.timestamp)
+        else { return nil }
+        return DailyBoardFacts.StockQuote(
+            symbol: quote.symbol, price: quote.currentPrice, changePercent: change, sessionDate: session
         )
     }
 
-    static func choose(_ signals: DailyBoardSignals, yesterday: DailyBoardTopic?) -> DailyBoardCandidate? {
-        let ordered = [signals.stock, signals.index, signals.news].compactMap(\.self)
-        let fresh = ordered.filter { $0.topic != yesterday }
-        return (fresh.isEmpty ? ordered : fresh).first
+    func metrics(_ symbol: String, on req: Request) async -> [String: Double] {
+        guard let response = try? await req.application.marketDataService.basicFinancials(symbol: symbol, on: req) else {
+            return [:]
+        }
+        var values: [String: Double] = [:]
+        for (key, value) in response.metric {
+            if case let .number(number) = value, number.isFinite {
+                values[key] = number
+            }
+        }
+        return values
     }
 
-    static func grounded(_ candidate: DailyBoardCandidate) -> [Double] {
-        var numbers: [Double] = []
-        if let price = candidate.price, price.isFinite {
-            numbers.append(price)
+    func earnings(from: String, to: String, symbol: String?, on req: Request) async -> [DailyBoardBuilders.Earnings] {
+        do {
+            let rows = try await req.application.earningsService.getCalendar(
+                query: EarningsQueryRequest(from: from, to: to, symbol: symbol),
+                on: req
+            )
+            return rows.compactMap { row in
+                guard let symbol = row.symbol, let date = row.date else { return nil }
+                return DailyBoardBuilders.Earnings(
+                    symbol: symbol.uppercased(),
+                    date: date,
+                    hour: row.hour,
+                    epsEstimate: row.epsEstimate,
+                    revenueEstimate: row.revenueEstimate
+                )
+            }
+        } catch {
+            req.logger.warning("daily_board_post earnings_failed error=\(String(describing: error))")
+            return []
         }
-        if let change = candidate.changePercent, change.isFinite {
-            numbers.append(contentsOf: [change, abs(change)])
-        }
-        if let headline = candidate.headline {
-            numbers.append(contentsOf: MarketBriefNumbers.tokens(in: headline).flatMap(\.readings))
-        }
-        return numbers
     }
 
-    static func prompt(for candidate: DailyBoardCandidate) -> String {
-        var facts: [String: String] = ["name": candidate.name]
-        if !candidate.symbol.isEmpty {
-            facts["symbol"] = candidate.symbol
-        }
-        if let price = candidate.price {
-            facts["price"] = format(price)
-        }
-        if let change = candidate.changePercent {
-            facts["changePercent"] = format(change)
-        }
-        if let headline = candidate.headline {
-            facts["headline"] = headline
-        }
-        let encoded = facts.keys.sorted().map { "\($0): \(facts[$0] ?? "")" }.joined(separator: "\n")
-        return """
-        Topic: \(candidate.topic.rawValue)
-        \(encoded)
+    func bars(_ symbol: String, on req: Request) async -> DailyBarSeries? {
+        await Self.yahoo.series(symbol: symbol, on: req)
+    }
+
+    /// The latest period and the one before it, within the last half year.
+    func macro(country: String, key: String, on req: Request) async -> DailyBoardBuilders.MacroReading? {
+        let since = DailyBoardDays.adding(-190, to: MarketBriefSchedule.localDate(Date()))
+        guard let points = try? await req.application.macroRepository.series(
+            country: country, seriesKey: key, from: since, to: nil, limit: 2, on: req.db
+        ), let latest = points.last
+        else { return nil }
+        let prior = points.count > 1 ? points[points.count - 2].value : nil
+        return DailyBoardBuilders.MacroReading(period: latest.periodDate, value: latest.value, prior: prior)
+    }
+}
+
+// MARK: - Style
+
+enum DailyBoardStyle {
+    /// Phrases that mark a text as machine-written. Shown to the model and
+    /// enforced by the validator, from this one list.
+    static let bannedPhrases = [
+        "delve", "landscape", "navigate", "navigating", "in today's", "dive in", "dive into", "deep dive",
+        "buckle up", "rollercoaster", "roller coaster", "game-changer", "game changer", "only time will tell",
+        "it's worth noting", "it is worth noting", "remains to be seen", "testament", "tapestry",
+        "unprecedented", "in conclusion", "let's", "what do you think",
+    ]
+
+    /// Wording that tells the reader what to do with their money.
+    static let advicePatterns = [
+        #"\b(you|investors|traders|readers|members)\s+(should|must|need to|ought to|may want to|might want to)\b"#,
+        #"\b(consider|start|time to)\s+(buying|selling|adding|trimming|accumulating|shorting)\b"#,
+        #"\b(buy|sell)\s+(now|the dip)\b"#,
+        #"\bthis is a (buy|sell)\b"#,
+    ]
+
+    static var system: String {
+        """
+        You write the daily post for the Norviq community board, read by retail investors in Europe and the US. \
+        One topic per post, explained well enough that members want to argue about it in the comments.
+
+        Use only the facts in the user message. Every number you write must appear in the facts, with the same \
+        precision. Never compute a new number, never round differently, and never add a price, percentage, date \
+        or ticker that is not listed. Write dates as words if you like (Monday, October 26).
+
+        Return JSON with keys title and body.
+        Title: under 110 characters. State the main fact, with its number when there is one. No question, \
+        no clickbait.
+        Body: 120 to 220 words of plain text in 3 or 4 short paragraphs separated by a blank line.
+        1. What happened, with the key figures.
+        2. Context: two or three more figures from the facts that put it in perspective.
+        3. Why it could matter, as a possibility, not a prediction.
+        4. One specific question members can disagree about, tied to a figure in the post. For example: \
+        "Is 31.4x trailing earnings still cheap for a company growing this fast?" Never a generic \
+        "What do you think?".
+
+        Write like a sharp analyst talking to peers: concrete, plain words, short sentences. No advice: never \
+        tell the reader to buy, sell, hold or consider anything. No markdown, hashtags, emoji, exclamation marks \
+        or em dashes. Do not use these words or phrases: \(bannedPhrases.joined(separator: ", ")).
         """
     }
 
-    private static func stockCandidate(_ stocks: [StockQuote]) -> DailyBoardCandidate? {
-        guard let best = stocks
-            .filter({ $0.onTradingDate && $0.changePercent.isFinite && abs($0.changePercent) >= minimumStockMove })
-            .max(by: { abs($0.changePercent) < abs($1.changePercent) })
-        else { return nil }
-        return DailyBoardCandidate(
-            topic: .stock,
-            name: best.symbol,
-            symbol: best.symbol,
-            price: round2(best.price),
-            changePercent: round2(best.changePercent),
-            url: nil,
-            headline: nil
-        )
-    }
-
-    private static func indexCandidate(_ indexes: [IndexMove], funds: [String: FundQuote]) -> DailyBoardCandidate? {
-        guard let best = indexes
-            .filter({ eveningIndexes.contains($0.symbol) && $0.changePercent.isFinite })
-            .max(by: { abs($0.changePercent) < abs($1.changePercent) })
-        else { return nil }
-        if let mapped = fundForIndex[best.symbol],
-           let fund = funds[mapped],
-           fund.onTradingDate,
-           fund.changePercent.isFinite
-        {
-            return DailyBoardCandidate(
-                topic: .index,
-                name: fundName(mapped),
-                symbol: mapped,
-                price: round2(fund.price),
-                changePercent: round2(fund.changePercent),
-                url: nil,
-                headline: nil
-            )
-        }
-        return DailyBoardCandidate(
-            topic: .index,
-            name: best.name,
-            symbol: best.symbol,
-            price: round2(best.price),
-            changePercent: round2(best.changePercent),
-            url: nil,
-            headline: nil
-        )
-    }
-
-    private static func newsCandidate(_ headlines: [Headline]) -> DailyBoardCandidate? {
-        guard let lead = headlines.first(where: { item in
-            !item.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                && item.url?.hasPrefix("https://") == true
-        }) else { return nil }
-        return DailyBoardCandidate(
-            topic: .news,
-            name: lead.title,
-            symbol: "",
-            price: nil,
-            changePercent: nil,
-            url: lead.url,
-            headline: lead.title
-        )
-    }
-
-    private static func fundName(_ symbol: String) -> String {
-        switch symbol {
-        case "SPY": "SPY, the S&P 500 ETF"
-        case "QQQ": "QQQ, the Nasdaq 100 ETF"
-        case "EXW1.DE": "EXW1.DE, the Euro Stoxx 50 ETF"
-        default: symbol
+    static func describe(_ candidate: DailyBoardCandidate) -> String {
+        switch candidate.topic {
+        case .mag7:
+            "\(candidate.name), one of the Magnificent Seven: what its recent move and valuation say"
+        case .stock:
+            "\(candidate.name), the stock the news named most today, and why it moved"
+        case .etf:
+            "\(candidate.name), a widely held ETF: what it tracks, what it costs and how it has done"
+        case .weekRecap:
+            "how the major stock indexes moved over the week that just ended"
+        case .weekAhead:
+            "the central-bank decisions, inflation releases and big earnings reports due in the next seven days"
+        case .macro:
+            switch candidate.angle {
+            case "inflation": "the latest inflation figures for the US and the euro area"
+            case "rates": "Fed and ECB policy rates measured against inflation"
+            case "core_gap": "the gap between core and headline inflation"
+            default: "inflation in the US compared with the euro area"
+            }
+        case .index, .news:
+            candidate.name
         }
     }
 
-    private static func round2(_ value: Double) -> Double {
-        (value * 100).rounded(.toNearestOrAwayFromZero) / 100
-    }
-
-    private static func format(_ value: Double) -> String {
-        let rounded = round2(value)
-        if rounded == rounded.rounded() {
-            return String(Int(rounded))
-        }
-        return String(format: "%.2f", locale: Locale(identifier: "en_US_POSIX"), rounded)
+    static func prompt(for candidate: DailyBoardCandidate, day: String) -> String {
+        let facts = candidate.facts.map { "- \($0.label): \($0.value)" }.joined(separator: "\n")
+        return """
+        Post date: \(DailyBoardDays.withWeekday(day))
+        Topic: \(describe(candidate))
+        Facts:
+        \(facts)
+        """
     }
 }
 
 enum DailyBoardValidator {
-    static let disclosure = "Written by Norviq AI from today's market data. Not financial advice."
-    static let maxBodyLength = 600
+    static let disclosure = "Written by Norviq AI from the latest market data. Not financial advice."
+    static let maxTitleLength = 120
+    static let maxBodyLength = 1600
+    static let wordRange = 80 ... 260
+    static let minimumFigures = 3
 
-    /// Returns the title and the body with the disclosure already appended.
-    /// Nil when the draft invents a number or ignores the length limits.
-    static func accept(title rawTitle: String, body rawBody: String, grounded: [Double]) -> (title: String, body: String)? {
+    enum Rejection: Error, Equatable, CustomStringConvertible {
+        case title
+        case length(words: Int)
+        case figures(Int)
+        case ungrounded
+        case phrase(String)
+        case advice(String)
+        case noQuestion
+
+        /// Read back to the model when it gets a second try.
+        var description: String {
+            switch self {
+            case .title: "the title was empty, too long, or had an exclamation mark"
+            case let .length(words): "the body was \(words) words; it must be 120 to 220"
+            case let .figures(count): "the body cited only \(count) figures from the facts; cite at least 3"
+            case .ungrounded: "it cited a number that is not in the facts, or rounded one differently"
+            case let .phrase(phrase): "it used \"\(phrase)\", which is not allowed"
+            case let .advice(text): "\"\(text)\" reads as investment advice"
+            case .noQuestion: "the last paragraph must end with one specific question for members"
+            }
+        }
+    }
+
+    /// The cleaned title and the body with the disclosure appended, or why
+    /// the draft cannot run.
+    static func check(
+        title rawTitle: String,
+        body rawBody: String,
+        grounded: [Double]
+    ) -> Result<(title: String, body: String), Rejection> {
         let title = rawTitle.split(whereSeparator: \.isWhitespace).joined(separator: " ")
-        let body = rawBody.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard (3 ... CommunityValidation.maxTitleLength).contains(title.count),
-              !body.isEmpty,
-              body.count <= maxBodyLength
-        else { return nil }
-        guard MarketBriefValidator.isGrounded(title + "\n" + body, grounded: grounded) else { return nil }
-        return (title, body + "\n\n" + disclosure)
+        let body = clean(rawBody)
+        guard (3 ... maxTitleLength).contains(title.count), !title.contains("!") else { return .failure(.title) }
+        let words = body.split(whereSeparator: \.isWhitespace).count
+        guard wordRange.contains(words), body.count <= maxBodyLength else { return .failure(.length(words: words)) }
+        let text = (title + "\n" + body).replacingOccurrences(of: "\u{2019}", with: "'")
+        if let phrase = bannedPhrase(in: text) {
+            return .failure(.phrase(phrase))
+        }
+        if let advice = advice(in: text) {
+            return .failure(.advice(advice))
+        }
+        let figures = MarketBriefNumbers.tokens(in: body).count
+        guard figures >= minimumFigures else { return .failure(.figures(figures)) }
+        guard MarketBriefValidator.isGrounded(title + "\n" + body, grounded: grounded) else {
+            return .failure(.ungrounded)
+        }
+        let last = body.components(separatedBy: "\n\n").last { !$0.trimmingCharacters(in: .whitespaces).isEmpty }
+        guard last?.contains("?") == true else { return .failure(.noQuestion) }
+        return .success((title, body + "\n\n" + disclosure))
+    }
+
+    static func accept(title: String, body: String, grounded: [Double]) -> (title: String, body: String)? {
+        try? check(title: title, body: body, grounded: grounded).get()
+    }
+
+    /// Dashes become commas rather than a rejection; blank lines collapse to
+    /// one so paragraphs survive.
+    static func clean(_ raw: String) -> String {
+        var text = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+            .replacingOccurrences(of: "\r\n", with: "\n")
+            .replacingOccurrences(of: " \u{2014} ", with: ", ")
+            .replacingOccurrences(of: "\u{2014}", with: ", ")
+            .replacingOccurrences(of: " \u{2013} ", with: ", ")
+        while text.contains("\n\n\n") {
+            text = text.replacingOccurrences(of: "\n\n\n", with: "\n\n")
+        }
+        return text
+    }
+
+    private static func bannedPhrase(in text: String) -> String? {
+        if text.contains("!") {
+            return "!"
+        }
+        if text.unicodeScalars.contains(where: \.properties.isEmojiPresentation) {
+            return "emoji"
+        }
+        return DailyBoardStyle.bannedPhrases.first { phrase in
+            let pattern = #"\b"# + NSRegularExpression.escapedPattern(for: phrase)
+            return text.range(of: pattern, options: [.regularExpression, .caseInsensitive]) != nil
+        }
+    }
+
+    private static func advice(in text: String) -> String? {
+        for pattern in DailyBoardStyle.advicePatterns {
+            if let range = text.range(of: pattern, options: [.regularExpression, .caseInsensitive]) {
+                return String(text[range])
+            }
+        }
+        return nil
     }
 }
 
@@ -369,18 +466,10 @@ protocol DailyBoardWriting: Sendable {
 }
 
 struct OpenAIDailyBoardWriter: DailyBoardWriting {
-    static let system = """
-    You write one short English post for a finance community board. \
-    Use only the facts in the user message. Do not add a price, percentage, date, or ticker that is not listed. \
-    Return JSON with keys title and body. The title is under 120 characters. \
-    The body is two to four sentences and under 600 characters. \
-    No disclaimer, no markdown, no hashtags.
-    """
-
     func draft(prompt: String, on req: Request) async throws -> (title: String, body: String) {
         let reply = try await req.application.openAIChatClient.chat(
             messages: [
-                OpenAIMessage(role: "system", content: Self.system),
+                OpenAIMessage(role: "system", content: DailyBoardStyle.system),
                 OpenAIMessage(role: "user", content: prompt),
             ],
             tools: [],
@@ -404,29 +493,56 @@ struct OpenAIDailyBoardWriter: DailyBoardWriting {
 
 // MARK: - Publish
 
-enum DailyBoardPublisher {
-    private static let quotes = YahooChartQuoteProvider()
+enum DailyBoardOutcome: Equatable, CustomStringConvertible {
+    case alreadyRun(status: String)
+    case skipped(reason: String)
+    case published(topic: DailyBoardTopic)
 
-    /// Fetches facts, asks the model, and writes one post or a skip row.
-    /// A second call on the same date does nothing.
-    static func run(tradingDate: String, writer: any DailyBoardWriting, on req: Request) async throws {
-        if try await DailyBoardPostRun.find(tradingDate, on: req.db) != nil {
-            return
+    var description: String {
+        switch self {
+        case let .alreadyRun(status): "already \(status)"
+        case let .skipped(reason): "skipped (\(reason))"
+        case let .published(topic): "published \(topic.rawValue)"
         }
-        let signals = try await gather(tradingDate: tradingDate, on: req)
-        let yesterday = try await previousTopic(before: tradingDate, on: req.db)
-        guard let candidate = DailyBoardFacts.choose(signals, yesterday: yesterday) else {
+    }
+}
+
+enum DailyBoardPostError: Error, CustomStringConvertible {
+    /// Both drafts failed the validator. Thrown, not skipped, so the job asks
+    /// again on its next tick.
+    case rejected(DailyBoardValidator.Rejection)
+
+    var description: String {
+        switch self {
+        case let .rejected(reason): "draft rejected: \(reason)"
+        }
+    }
+}
+
+enum DailyBoardPublisher {
+    /// One draft, and one more with the first one's fault named.
+    static let draftsPerAttempt = 2
+
+    /// Builds the day's facts, asks the model, and writes one post. Skips the
+    /// day when no topic has enough data. A second call on the same date
+    /// does nothing.
+    @discardableResult
+    static func run(
+        tradingDate: String,
+        writer: any DailyBoardWriting,
+        sources: any DailyBoardSources = LiveDailyBoardSources(),
+        topic: DailyBoardTopic? = nil,
+        on req: Request
+    ) async throws -> DailyBoardOutcome {
+        if let run = try await DailyBoardPostRun.find(tradingDate, on: req.db) {
+            return .alreadyRun(status: run.status)
+        }
+        guard let candidate = try await compose(day: tradingDate, topic: topic, sources: sources, on: req) else {
             try await skip(tradingDate: tradingDate, topic: nil, on: req)
-            return
+            return .skipped(reason: "no topic had enough data")
         }
-        let grounded = DailyBoardFacts.grounded(candidate)
-        let draft = try await writer.draft(prompt: DailyBoardFacts.prompt(for: candidate), on: req)
-        guard let accepted = DailyBoardValidator.accept(title: draft.title, body: draft.body, grounded: grounded) else {
-            req.logger.info("daily_board_post skipped reason=ungrounded date=\(tradingDate)")
-            try await skip(tradingDate: tradingDate, topic: candidate.topic, on: req)
-            return
-        }
-        try await insert(
+        let accepted = try await write(candidate, day: tradingDate, writer: writer, on: req)
+        return try await insert(
             tradingDate: tradingDate,
             candidate: candidate,
             title: accepted.title,
@@ -435,21 +551,216 @@ enum DailyBoardPublisher {
         )
     }
 
+    /// The first topic in the day's rotation, or the one asked for, that has
+    /// enough facts behind it.
+    static func compose(
+        day: String,
+        topic: DailyBoardTopic?,
+        sources: any DailyBoardSources,
+        on req: Request
+    ) async throws -> DailyBoardCandidate? {
+        let history = try await history(before: day, on: req.db)
+        for next in topic.map({ [$0] }) ?? DailyBoardRotation.topics(for: day) {
+            if let candidate = await candidate(next, day: day, history: history, sources: sources, on: req) {
+                return candidate
+            }
+            req.logger.info("daily_board_post topic_unavailable topic=\(next.rawValue) date=\(day)")
+        }
+        return nil
+    }
+
+    /// Drafts until the validator accepts, telling the model what was wrong
+    /// the first time.
+    static func write(
+        _ candidate: DailyBoardCandidate,
+        day: String,
+        writer: any DailyBoardWriting,
+        on req: Request
+    ) async throws -> (title: String, body: String) {
+        let prompt = DailyBoardStyle.prompt(for: candidate, day: day)
+        var rejection: DailyBoardValidator.Rejection?
+        for _ in 0 ..< draftsPerAttempt {
+            let text = rejection.map {
+                prompt + "\n\nYour previous draft was rejected because \($0). Write it again and fix that."
+            } ?? prompt
+            let draft = try await writer.draft(prompt: text, on: req)
+            switch DailyBoardValidator.check(title: draft.title, body: draft.body, grounded: candidate.grounded) {
+            case let .success(accepted):
+                return accepted
+            case let .failure(reason):
+                req.logger.info("daily_board_post draft_rejected date=\(day) reason=\(reason)")
+                rejection = reason
+            }
+        }
+        throw DailyBoardPostError.rejected(rejection ?? .ungrounded)
+    }
+
+    static func candidate(
+        _ topic: DailyBoardTopic,
+        day: String,
+        history: DailyBoardHistory,
+        sources: any DailyBoardSources,
+        on req: Request
+    ) async -> DailyBoardCandidate? {
+        switch topic {
+        case .mag7:
+            var snapshots: [DailyBoardBuilders.StockSnapshot] = []
+            for symbol in DailyBoardCatalog.mag7 {
+                guard let quote = await sources.quote(symbol, on: req) else { continue }
+                await snapshots.append(snapshot(quote, metrics: sources.metrics(symbol, on: req)))
+            }
+            guard var pick = DailyBoardBuilders.pickMag7(snapshots, history: history) else { return nil }
+            pick.nextEarnings = await nextEarnings(pick.symbol, day: day, sources: sources, on: req)
+            return DailyBoardBuilders.stock(pick, topic: .mag7)
+
+        case .stock:
+            let headlines = await sources.headlines(on: req)
+            var quotes: [DailyBoardFacts.StockQuote] = []
+            for symbol in DailyBoardFacts.rankedTickers(headlines, limit: 8) {
+                if let quote = await sources.quote(symbol, on: req) {
+                    quotes.append(quote)
+                }
+            }
+            guard let (best, story) = DailyBoardFacts.hotStock(quotes, headlines: headlines, day: day) else { return nil }
+            var pick = await snapshot(best, metrics: sources.metrics(best.symbol, on: req))
+            pick.headline = story
+            pick.nextEarnings = await nextEarnings(best.symbol, day: day, sources: sources, on: req)
+            return DailyBoardBuilders.stock(pick, topic: .stock)
+
+        case .etf:
+            for fund in DailyBoardBuilders.etfOrder(history: history).prefix(3) {
+                if let series = await sources.bars(fund.symbol, on: req),
+                   let candidate = DailyBoardBuilders.etf(fund, series: series)
+                {
+                    return candidate
+                }
+            }
+            return nil
+
+        case .macro:
+            let inputs = await macroInputs(day: day, sources: sources, on: req)
+            let preferred = DailyBoardBuilders.macroAngle(day: day, history: history)
+            let angles = [preferred] + (["inflation"] + DailyBoardBuilders.rotatingAngles).filter { $0 != preferred }
+            for angle in angles {
+                if let candidate = DailyBoardBuilders.macro(angle: angle, inputs) {
+                    return candidate
+                }
+            }
+            return nil
+
+        case .weekRecap:
+            var indexes: [(name: String, series: DailyBarSeries)] = []
+            for index in DailyBoardCatalog.recapIndexes {
+                if let series = await sources.bars(index.symbol, on: req) {
+                    indexes.append((index.name, series))
+                }
+            }
+            var mag7: [DailyBarSeries] = []
+            for symbol in DailyBoardCatalog.mag7 {
+                if let series = await sources.bars(symbol, on: req) {
+                    mag7.append(series)
+                }
+            }
+            return DailyBoardBuilders.weekRecap(day: day, indexes: indexes, mag7: mag7)
+
+        case .weekAhead:
+            guard let from = DailyBoardDays.adding(1, to: day), let through = DailyBoardDays.adding(7, to: day) else {
+                return nil
+            }
+            return await DailyBoardBuilders.weekAhead(
+                day: day,
+                events: WorldMacroCalendar.events(from: from, through: through),
+                earnings: sources.earnings(from: from, to: through, symbol: nil, on: req),
+                macro: macroInputs(day: day, sources: sources, on: req)
+            )
+
+        case .index, .news:
+            return nil
+        }
+    }
+
+    private static func snapshot(
+        _ quote: DailyBoardFacts.StockQuote,
+        metrics: [String: Double]
+    ) -> DailyBoardBuilders.StockSnapshot {
+        DailyBoardBuilders.StockSnapshot(
+            symbol: quote.symbol.uppercased(),
+            price: quote.price,
+            changePercent: quote.changePercent,
+            sessionDate: quote.sessionDate,
+            metrics: metrics
+        )
+    }
+
+    private static func nextEarnings(
+        _ symbol: String,
+        day: String,
+        sources: any DailyBoardSources,
+        on req: Request
+    ) async -> String? {
+        guard let from = DailyBoardDays.adding(1, to: day), let to = DailyBoardDays.adding(30, to: day) else { return nil }
+        let dates = await sources.earnings(from: from, to: to, symbol: symbol, on: req)
+            .filter { $0.symbol == symbol.uppercased() && $0.date >= from }
+            .map(\.date)
+        return dates.min().map(DailyBoardDays.withWeekday)
+    }
+
+    static func macroInputs(
+        day: String,
+        sources: any DailyBoardSources,
+        on req: Request
+    ) async -> DailyBoardBuilders.MacroInputs {
+        func next(_ dates: [String]) -> String? {
+            dates.filter { $0 > day }.min().map(DailyBoardDays.withWeekday)
+        }
+        return await DailyBoardBuilders.MacroInputs(
+            usCPI: sources.macro(country: "us", key: "headline_cpi", on: req),
+            usCore: sources.macro(country: "us", key: "core_cpi", on: req),
+            eaCPI: sources.macro(country: "ea", key: "headline_cpi", on: req),
+            eaCore: sources.macro(country: "ea", key: "core_cpi", on: req),
+            fedRate: sources.macro(country: "us", key: "policy_rate", on: req),
+            ecbRate: sources.macro(country: "ea", key: "policy_rate", on: req),
+            nextUSCPI: next(BLSCPIReleaseCalendar.releaseDates),
+            nextHICPFlash: next(WorldMacroCalendar.hicpFlash),
+            nextFOMC: next(FOMCCalendar.meetings.map(\.endDate)),
+            nextECB: next(WorldMacroCalendar.ecbDecisions)
+        )
+    }
+
+    /// The last 60 daily posts before `day`, newest first.
+    static func history(before day: String, on db: any Database) async throws -> DailyBoardHistory {
+        let posts = try await BoardPost.query(on: db)
+            .filter(\.$aiGenerated == true)
+            .filter(\.$tradingDate < day)
+            .sort(\.$tradingDate, .descending)
+            .limit(60)
+            .all()
+        return DailyBoardHistory(entries: posts.compactMap { post in
+            guard let date = post.tradingDate else { return nil }
+            return DailyBoardHistory.Entry(
+                day: date,
+                topic: post.aiTopic.flatMap(DailyBoardTopic.init(rawValue:)),
+                tags: post.tags
+            )
+        })
+    }
+
     static func skip(tradingDate: String, topic: DailyBoardTopic?, on req: Request) async throws {
         try await writeRun(tradingDate: tradingDate, status: "skipped", postID: nil, topic: topic?.rawValue, on: req.db)
     }
 
     /// Inserts the post and the run row. Used by the job and by tests that
     /// already have a validated draft.
+    @discardableResult
     static func insert(
         tradingDate: String,
         candidate: DailyBoardCandidate,
         title: String,
         body: String,
         on req: Request
-    ) async throws {
-        if try await DailyBoardPostRun.find(tradingDate, on: req.db) != nil {
-            return
+    ) async throws -> DailyBoardOutcome {
+        if let run = try await DailyBoardPostRun.find(tradingDate, on: req.db) {
+            return .alreadyRun(status: run.status)
         }
         let identity = try await DailyBoardIdentity.ensure(on: req)
         let now = Date()
@@ -464,15 +775,9 @@ enum DailyBoardPublisher {
                 kind = BoardPostKind.link.rawValue
             } catch {
                 try await skip(tradingDate: tradingDate, topic: candidate.topic, on: req)
-                return
+                return .skipped(reason: "headline link rejected")
             }
         }
-        let symbolTag = candidate.symbol.lowercased().filter { $0.isLetter || $0.isNumber }
-        var tags = [candidate.topic.rawValue]
-        if !symbolTag.isEmpty {
-            tags.append(symbolTag)
-        }
-        tags.append("ai")
 
         let post = BoardPost(
             boardId: identity.boardID,
@@ -482,7 +787,7 @@ enum DailyBoardPublisher {
             url: url,
             domain: domain,
             body: body,
-            tags: tags,
+            tags: candidate.tags,
             now: now
         )
         post.aiGenerated = true
@@ -505,89 +810,28 @@ enum DailyBoardPublisher {
                 on: tx
             )
         }
+        return .published(topic: candidate.topic)
     }
 
-    private static func gather(tradingDate: String, on req: Request) async throws -> DailyBoardSignals {
-        let due = MarketBriefSchedule.Due(tradingDate: tradingDate, slot: .evening)
-        let symbols = MarketBriefCatalog.groups(for: .evening).flatMap(\.instruments).map(\.symbol)
-        let rawQuotes = await quotes.quotes(symbols: symbols, now: Date(), on: req)
-        let indexes = MarketBriefGenerator.currentQuotes(rawQuotes, for: due).map { quote in
-            DailyBoardFacts.IndexMove(
-                symbol: quote.symbol,
-                name: MarketBriefCatalog.instrument(symbol: quote.symbol)?.name ?? quote.symbol,
-                price: quote.price,
-                changePercent: quote.changePercent
-            )
-        }
-
-        var funds: [String: DailyBoardFacts.FundQuote] = [:]
-        for symbol in Set(DailyBoardFacts.fundForIndex.values) {
-            if let fund = await fundQuote(symbol, tradingDate: tradingDate, on: req) {
-                funds[symbol] = fund
-            }
-        }
-
-        let headlines = await loadHeadlines(on: req)
-        var stocks: [DailyBoardFacts.StockQuote] = []
-        for symbol in DailyBoardFacts.rankedTickers(headlines) {
-            if let stock = await stockQuote(symbol, tradingDate: tradingDate, on: req) {
-                stocks.append(stock)
-            }
-        }
-        return DailyBoardFacts.signals(stocks: stocks, indexes: indexes, funds: funds, headlines: headlines)
-    }
-
-    private static func loadHeadlines(on req: Request) async -> [DailyBoardFacts.Headline] {
-        guard let news = req.application.dailyBoardNewsProvider else { return [] }
-        do {
-            let items = try await news.fetchGeneral(on: req)
-            let now = Date()
-            return items
-                .filter { now.timeIntervalSince($0.publishedAt) <= MarketBriefFacts.headlineMaxAge }
-                .sorted { $0.publishedAt > $1.publishedAt }
-                .prefix(MarketBriefFacts.maxHeadlines)
-                .map { item in
-                    let related = item.relatedSymbols.filter(DailyBoardFacts.isStockTicker)
-                    let named = MarketBriefValidator.tickers([item.headline]).filter(DailyBoardFacts.isStockTicker)
-                    return DailyBoardFacts.Headline(title: item.headline, url: item.url, tickers: related + named)
+    /// Clears a date so it can be written again: drops the run row and
+    /// soft-deletes that date's AI post, if one is still up.
+    static func reset(tradingDate: String, on db: any Database) async throws {
+        try await db.transaction { tx in
+            let posts = try await BoardPost.query(on: tx)
+                .filter(\.$aiGenerated == true)
+                .filter(\.$tradingDate == tradingDate)
+                .all()
+            for post in posts {
+                try await post.delete(on: tx)
+                guard let sql = tx as? any SQLDatabase else {
+                    throw Abort(.internalServerError, reason: "Boards need a SQL database")
                 }
-        } catch {
-            req.logger.warning("daily_board_post news_failed error=\(String(describing: error))")
-            return []
+                try await sql.raw("""
+                UPDATE boards SET post_count = GREATEST(post_count - 1, 0) WHERE id = \(bind: post.boardId)
+                """).run()
+            }
+            try await DailyBoardPostRun.query(on: tx).filter(\.$id == tradingDate).delete()
         }
-    }
-
-    private static func stockQuote(_ symbol: String, tradingDate: String, on req: Request) async -> DailyBoardFacts.StockQuote? {
-        guard let quote = try? await req.application.marketDataService.quote(symbol: symbol, on: req),
-              let change = quote.percentChange, change.isFinite
-        else { return nil }
-        return DailyBoardFacts.StockQuote(
-            symbol: quote.symbol,
-            price: quote.currentPrice,
-            changePercent: change,
-            onTradingDate: DailyBoardSchedule.isOnTradingDate(quote.timestamp, tradingDate: tradingDate)
-        )
-    }
-
-    private static func fundQuote(_ symbol: String, tradingDate: String, on req: Request) async -> DailyBoardFacts.FundQuote? {
-        guard let quote = try? await req.application.marketDataService.quote(symbol: symbol, on: req),
-              let change = quote.percentChange, change.isFinite
-        else { return nil }
-        return DailyBoardFacts.FundQuote(
-            symbol: quote.symbol,
-            price: quote.currentPrice,
-            changePercent: change,
-            onTradingDate: DailyBoardSchedule.isOnTradingDate(quote.timestamp, tradingDate: tradingDate)
-        )
-    }
-
-    private static func previousTopic(before tradingDate: String, on db: any Database) async throws -> DailyBoardTopic? {
-        guard let run = try await DailyBoardPostRun.query(on: db)
-            .filter(\.$id < tradingDate)
-            .sort(\.$id, .descending)
-            .first()
-        else { return nil }
-        return run.topic.flatMap(DailyBoardTopic.init(rawValue:))
     }
 
     private static func writeRun(

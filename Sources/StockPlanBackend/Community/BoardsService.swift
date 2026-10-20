@@ -190,13 +190,20 @@ enum BoardsService {
         }
         let boardId = try board.requireID()
         let hidden = try await SocialService.blockedEitherWay(for: viewer, on: db)
+        // The newest daily post is pinned on the unfiltered first page, so it
+        // is left out of the list itself. Older daily posts list like any
+        // other, so their comment threads stay reachable.
+        let pinsDaily = board.slug == DailyBoardIdentity.slug && kind == nil && tag == nil
+        let pinned = pinsDaily ? try await currentDailyPost(viewer: viewer, on: db) : nil
 
         var query = sql.select()
             .column("id")
             .from(BoardPost.schema)
             .where("board_id", .equal, SQLBind(boardId))
             .where("deleted_at", .is, SQLLiteral.null)
-            .where("ai_generated", .equal, SQLBind(false))
+        if let pinned {
+            query = query.where("id", .notEqual, SQLBind(pinned.id))
+        }
         if let kind {
             query = query.where("kind", .equal, SQLBind(kind.rawValue))
         }
@@ -255,9 +262,7 @@ enum BoardsService {
         }
 
         var items = try await summaries(posts, boardSlugs: [boardId: board.slug], viewer: viewer, on: db)
-        if board.slug == DailyBoardIdentity.slug, kind == nil, tag == nil, rawCursor == nil,
-           let pinned = try await currentDailyPost(viewer: viewer, on: db)
-        {
+        if rawCursor == nil, let pinned {
             items.insert(pinned, at: 0)
         }
         return BoardPostPage(items: items, nextCursor: next)

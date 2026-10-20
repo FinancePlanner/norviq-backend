@@ -88,7 +88,7 @@ final class BoardPost: Model, @unchecked Sendable {
 
 /// One row per Lisbon trading date, whether a daily post was published or
 /// skipped. A skip is final for that date so a holiday does not call the
-/// model on every tick.
+/// model on every tick; `daily-board-post-generate --replace` clears it.
 final class DailyBoardPostRun: Model, @unchecked Sendable {
     static let schema = "daily_board_post_runs"
 
