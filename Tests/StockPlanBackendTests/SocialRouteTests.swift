@@ -278,6 +278,22 @@ struct SocialRouteTests {
         }
     }
 
+    @Test("The Daily board author can't be blocked or suspended through Social")
+    func dailyBoardAuthorIsProtected() async throws {
+        try await withApp { app in
+            let mod = try await register(app, "mod4")
+            setenv("NORVIQ_ADMIN_USER_IDS", mod.userId.uuidString, 1)
+            defer { unsetenv("NORVIQ_ADMIN_USER_IDS") }
+            let a = try await register(app, "mod5")
+            let system = try await DailyBoardIdentity.ensure(on: Request(application: app, on: app.eventLoopGroup.next()))
+
+            #expect(try await status(app, .POST, "v1/social/blocks/\(system.userID)", as: a) == .badRequest)
+            #expect(try await status(app, .POST, "v1/admin/social/users/\(system.userID)/suspend", as: mod) == .badRequest)
+            // Lifting a suspension that never happened stays allowed.
+            #expect(try await status(app, .DELETE, "v1/admin/social/users/\(system.userID)/suspend", as: mod) == .noContent)
+        }
+    }
+
     @Test("Reports are accepted for review")
     func report() async throws {
         try await withApp { app in

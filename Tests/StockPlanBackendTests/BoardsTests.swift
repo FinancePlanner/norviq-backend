@@ -398,21 +398,20 @@ struct BoardsRouteTests {
             })
             #expect(reserved == .badRequest)
 
-            let candidate = DailyBoardCandidate(
-                topic: .stock, name: "NVDA", symbol: "NVDA", price: 131.2, changePercent: 4.2, url: nil, headline: nil
-            )
-            let accepted = try #require(DailyBoardValidator.accept(
-                title: "NVDA rose 4.2%",
-                body: "NVDA closed at 131.2, up 4.2%.",
-                grounded: [131.2, 4.2]
-            ))
+            let candidate = DailyBoardCandidate(topic: .stock, name: "NVDA", symbol: "NVDA")
+            let accepted = (title: "NVDA rose 4.2%", body: "NVDA closed at 131.2, up 4.2%.\n\n" + DailyBoardValidator.disclosure)
             let req = Request(application: app, on: app.eventLoopGroup.next())
+            let older = DailyBoardCandidate(topic: .etf, name: "SPY", symbol: "SPY")
+            try await DailyBoardPublisher.insert(
+                tradingDate: "2026-10-15", candidate: older, title: "SPY is up 9.1% this year", body: accepted.body, on: req
+            )
             try await DailyBoardPublisher.insert(
                 tradingDate: "2026-10-16", candidate: candidate, title: accepted.title, body: accepted.body, on: req
             )
-            try await DailyBoardPublisher.insert(
+            let second = try await DailyBoardPublisher.insert(
                 tradingDate: "2026-10-16", candidate: candidate, title: "Second", body: accepted.body, on: req
             )
+            #expect(second == .alreadyRun(status: "published"))
 
             let listed = try await send(app, .GET, "v1/boards", as: alice).decode(BoardListResponse.self)
             #expect(listed.items.contains { $0.slug == "daily" })
@@ -427,8 +426,13 @@ struct BoardsRouteTests {
             let mine = try await createPost(app, "daily", as: alice, title: "My own take")
             #expect(mine.aiGenerated == false)
             let mixed = try await list(app, "daily/posts", as: alice)
-            #expect(mixed.items.first?.aiGenerated == true)
+            #expect(mixed.items.first?.id == daily.id)
             #expect(mixed.items.contains { $0.id == mine.id })
+            // Yesterday's post stays in the feed; today's appears once, pinned.
+            #expect(mixed.items.contains { $0.title == "SPY is up 9.1% this year" && $0.aiGenerated })
+            #expect(mixed.items.filter { $0.id == daily.id }.count == 1)
+            let newest = try await list(app, "daily/posts?sort=new", as: alice)
+            #expect(newest.items.filter { $0.id == daily.id }.count == 1)
             let asks = try await list(app, "daily/posts?kind=ask", as: alice)
             #expect(asks.items.allSatisfy { $0.aiGenerated == false })
 
@@ -441,6 +445,18 @@ struct BoardsRouteTests {
             #expect(detail.post.aiGenerated)
             #expect(try await comment(app, daily.id, as: alice).status == .ok)
             #expect(try await send(app, .POST, "v1/board-posts/\(daily.id)/vote", as: alice).status == .ok)
+
+            // --replace clears the date, so the same day can be written again.
+            try await DailyBoardPublisher.reset(tradingDate: "2026-10-16", on: app.db)
+            let cleared = try await send(app, .GET, "v1/boards", as: alice).decode(BoardListResponse.self)
+            // With the 16th cleared, the 15th's post is the newest again.
+            #expect(cleared.dailyPost?.title == "SPY is up 9.1% this year")
+            let rewritten = try await DailyBoardPublisher.insert(
+                tradingDate: "2026-10-16", candidate: candidate, title: "Rewritten", body: accepted.body, on: req
+            )
+            #expect(rewritten == .published(topic: .stock))
+            let relisted = try await send(app, .GET, "v1/boards", as: alice).decode(BoardListResponse.self)
+            #expect(relisted.dailyPost?.title == "Rewritten")
         }
     }
 
