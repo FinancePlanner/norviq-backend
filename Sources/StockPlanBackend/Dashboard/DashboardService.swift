@@ -1,3 +1,4 @@
+import Algorithms
 import Fluent
 import Foundation
 import StockPlanShared
@@ -35,12 +36,10 @@ struct DefaultDashboardService: DashboardService {
             dailyChange: dailyChange,
             dailyChangePercent: dailyChangePercent,
             topPerformers: summaries
-                .sorted(by: descendingPerformerOrder)
-                .prefix(5)
+                .min(count: 5, sortedBy: descendingPerformerOrder)
                 .map(makePerformer),
             bottomPerformers: summaries
-                .sorted(by: ascendingPerformerOrder)
-                .prefix(5)
+                .min(count: 5, sortedBy: ascendingPerformerOrder)
                 .map(makePerformer),
             sectorAllocation: overview.importedStocks.sectorAllocations.map {
                 DashboardAllocationDTO(

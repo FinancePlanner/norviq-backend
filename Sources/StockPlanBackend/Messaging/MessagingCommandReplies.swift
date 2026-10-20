@@ -1,3 +1,4 @@
+import Algorithms
 import Fluent
 import Foundation
 import StockPlanShared
@@ -174,8 +175,7 @@ enum MessagingCommandReplies {
         var lines = ["**News**"]
         if summary.totalEvents > 0 {
             let topics = summary.byTopic
-                .sorted { $0.value > $1.value }
-                .prefix(3)
+                .min(count: 3, sortedBy: { $0.value > $1.value })
                 .map { "\($0.key) (\($0.value))" }
                 .joined(separator: ", ")
             lines.append("")

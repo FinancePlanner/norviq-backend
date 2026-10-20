@@ -1,3 +1,4 @@
+import Algorithms
 import Fluent
 import Foundation
 import SQLKit
@@ -47,11 +48,10 @@ struct CusipSymbolResolver: Sendable {
         }
 
         let missing = wanted.filter { !known.contains($0) }
-        for (index, start) in stride(from: 0, to: missing.count, by: Self.batchSize).enumerated() {
+        for (index, batch) in missing.chunks(ofCount: Self.batchSize).enumerated() {
             if index > 0 {
                 await pause()
             }
-            let batch = Array(missing[start ..< min(start + Self.batchSize, missing.count)])
             let response = try await post(JSONEncoder().encode(batch.map { Job(idValue: $0) }))
             let results = try JSONDecoder().decode([Result].self, from: response)
             for (cusip, result) in zip(batch, results) {

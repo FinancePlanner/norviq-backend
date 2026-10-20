@@ -1,3 +1,4 @@
+import Algorithms
 import Fluent
 import Foundation
 import SQLKit
@@ -371,15 +372,7 @@ struct PortfolioSnapshotValuator: Sendable {
     // MARK: - Helpers
 
     static func uniqueSymbols(_ values: [String]) -> [String] {
-        var seen = Set<String>()
-        var result: [String] = []
-        for value in values {
-            let symbol = normalizePortfolioSymbol(value)
-            guard !symbol.isEmpty, !seen.contains(symbol) else { continue }
-            seen.insert(symbol)
-            result.append(symbol)
-        }
-        return result
+        Array(values.map(normalizePortfolioSymbol).filter { !$0.isEmpty }.uniqued())
     }
 
     static func startOfDay(_ date: Date) -> Date {

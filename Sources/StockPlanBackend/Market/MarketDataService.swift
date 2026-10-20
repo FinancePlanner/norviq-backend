@@ -1,3 +1,4 @@
+import Algorithms
 import Fluent
 import Foundation
 import Redis
@@ -336,11 +337,7 @@ struct DefaultMarketDataService: MarketDataService {
     func quoteBatch(symbols rawSymbols: [String], on req: Request) async throws
         -> QuoteBatchResponse
     {
-        var seen: Set<String> = []
-        let normalized =
-            try rawSymbols
-                .map(normalizeSymbol)
-                .filter { seen.insert($0).inserted }
+        let normalized = try Array(rawSymbols.map(normalizeSymbol).uniqued())
 
         guard !normalized.isEmpty else {
             throw Abort(.badRequest, reason: "At least one symbol is required.")
@@ -354,12 +351,10 @@ struct DefaultMarketDataService: MarketDataService {
         indexedQuotes.reserveCapacity(normalized.count)
         let application = req.application
 
-        for chunkStart in stride(from: 0, to: normalized.count, by: 10) {
-            let chunkEnd = min(chunkStart + 10, normalized.count)
-            let chunk = Array(normalized[chunkStart ..< chunkEnd])
+        for chunk in normalized.chunks(ofCount: 10) {
             let chunkResults = try await withThrowingTaskGroup(of: (Int, QuoteResponse).self) { group in
-                for (offset, symbol) in chunk.enumerated() {
-                    let index = chunkStart + offset
+                // Slices keep the parent array's indices, which the results are sorted back by.
+                for (index, symbol) in chunk.indexed() {
                     group.addTask {
                         let childRequest = Request(
                             application: application,
@@ -1083,10 +1078,7 @@ struct DefaultMarketDataService: MarketDataService {
         range: String,
         on req: Request
     ) async throws -> PriceChartComparisonResponse {
-        var seen: Set<String> = []
-        let normalized = try rawSymbols
-            .map(normalizeSymbol)
-            .filter { seen.insert($0).inserted }
+        let normalized = try Array(rawSymbols.map(normalizeSymbol).uniqued())
 
         guard !normalized.isEmpty else {
             throw Abort(.badRequest, reason: "At least one symbol is required.")

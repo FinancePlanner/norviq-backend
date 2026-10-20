@@ -1,3 +1,4 @@
+import Algorithms
 import Foundation
 import StockPlanShared
 import Vapor
@@ -187,8 +188,7 @@ struct FREDMacroProvider: MacroProvider {
             ))
         }
         let topMovers = moverCandidates
-            .sorted { $0.magnitude > $1.magnitude }
-            .prefix(6)
+            .min(count: 6, sortedBy: { $0.magnitude > $1.magnitude })
             .map(\.mover)
 
         for item in MacroItemsCatalog.items(for: .us) {

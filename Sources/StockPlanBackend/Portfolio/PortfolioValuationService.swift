@@ -1,3 +1,4 @@
+import Algorithms
 import Fluent
 import Foundation
 import StockPlanShared
@@ -71,10 +72,9 @@ struct DefaultPortfolioValuationService: PortfolioValuationService {
         // must not break valuation — price-dependent fields degrade to nil instead.
         var quotesBySymbol: [String: QuoteResponse] = [:]
         let batchLimit = 100
-        for chunkStart in stride(from: 0, to: symbolOrder.count, by: batchLimit) {
-            let chunk = Array(symbolOrder[chunkStart ..< min(chunkStart + batchLimit, symbolOrder.count)])
+        for chunk in symbolOrder.chunks(ofCount: batchLimit) {
             do {
-                let batch = try await req.application.marketDataService.quoteBatch(symbols: chunk, on: req)
+                let batch = try await req.application.marketDataService.quoteBatch(symbols: Array(chunk), on: req)
                 for quote in batch.quotes {
                     quotesBySymbol[normalizePortfolioSymbol(quote.symbol)] = quote
                 }

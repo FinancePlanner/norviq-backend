@@ -1,3 +1,4 @@
+import Algorithms
 import Foundation
 import Vapor
 
@@ -44,8 +45,7 @@ struct JSONFeedNewsProvider: NewsProvider {
         }
         var items: [ProviderNewsItem] = []
         let urls = symbolByFeedURL.keys.sorted()
-        for chunk in stride(from: 0, to: urls.count, by: HTTPFeedsClient.maxFeedsPerCall) {
-            let batch = Array(urls[chunk ..< min(chunk + HTTPFeedsClient.maxFeedsPerCall, urls.count)])
+        for batch in urls.chunks(ofCount: HTTPFeedsClient.maxFeedsPerCall).map(Array.init) {
             let limit = min(200, batch.count * (maxArticlesPerSymbol ?? 25))
             let doc = try await client.items(feeds: batch, limit: limit, on: req)
             items.append(contentsOf: JSONFeedMapping.providerItems(

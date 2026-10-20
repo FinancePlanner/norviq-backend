@@ -1,3 +1,4 @@
+import Algorithms
 import Fluent
 import Foundation
 import Vapor
@@ -27,12 +28,7 @@ struct SentimentUniverseResolver: Sendable {
     func resolve(on db: any Database) async throws -> [Resolved] {
         let tracked = try await insightsRepo.allTrackedSymbols(limit: userTierLimit, on: db)
 
-        var userTier: [String] = []
-        var seen = Set<String>()
-        for symbol in pinnedSymbols + tracked where seen.insert(symbol).inserted {
-            userTier.append(symbol)
-        }
-        userTier = Array(userTier.prefix(userTierLimit))
+        let userTier = Array((pinnedSymbols + tracked).uniqued().prefix(userTierLimit))
 
         try await sentimentRepo.replaceUniverseTier(.user, symbols: userTier, on: db)
 

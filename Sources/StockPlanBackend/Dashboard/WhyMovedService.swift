@@ -1,3 +1,4 @@
+import Algorithms
 import Fluent
 import Foundation
 import Vapor
@@ -39,13 +40,11 @@ struct DefaultWhyMovedService: WhyMovedService {
 
         let gainers = changed
             .filter { ($0.dailyChangePercent ?? 0) > 0 }
-            .sorted { absoluteDailyChange(for: $0) > absoluteDailyChange(for: $1) }
-            .prefix(Self.moversPerSide)
+            .min(count: Self.moversPerSide, sortedBy: { absoluteDailyChange(for: $0) > absoluteDailyChange(for: $1) })
         let losers = changed
             .filter { ($0.dailyChangePercent ?? 0) < 0 }
-            .sorted { absoluteDailyChange(for: $0) < absoluteDailyChange(for: $1) }
-            .prefix(Self.moversPerSide)
-        let selected = Array(gainers) + Array(losers)
+            .min(count: Self.moversPerSide, sortedBy: { absoluteDailyChange(for: $0) < absoluteDailyChange(for: $1) })
+        let selected = gainers + losers
 
         var movers: [WhyMovedMover] = []
         for summary in selected {
@@ -137,8 +136,7 @@ struct DefaultWhyMovedService: WhyMovedService {
         }
         if let summary = try? await req.application.insightsService.summary(days: Self.sentimentDays, on: req.db) {
             topics = summary.byTopic
-                .sorted { $0.value > $1.value }
-                .prefix(3)
+                .min(count: 3, sortedBy: { $0.value > $1.value })
                 .map { WhyMovedTopic(topic: $0.key, count: $0.value) }
         }
         return WhyMovedContext(indices: indices, topics: topics)

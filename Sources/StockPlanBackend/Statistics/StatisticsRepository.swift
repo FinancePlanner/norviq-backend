@@ -1,3 +1,4 @@
+import Algorithms
 import Fluent
 import FluentSQL
 import Foundation
@@ -564,8 +565,7 @@ private extension DatabaseStatisticsRepository {
             let change = percentChange(current: current, reference: previous) ?? 0
             return MarketHeatmapPoint(symbol: symbol, changePercent: round2(change))
         }
-        .sorted(by: { abs($0.changePercent) > abs($1.changePercent) })
-        .prefix(max(1, top))
+        .min(count: max(1, top), sortedBy: { abs($0.changePercent) > abs($1.changePercent) })
 
         return MarketStatisticsView(
             benchmarkSymbol: benchmark,
@@ -573,7 +573,7 @@ private extension DatabaseStatisticsRepository {
             benchmarkChange1W: benchmark1W.map(round2),
             benchmarkChange1M: benchmark1M.map(round2),
             benchmarkChangeYtd: benchmarkYTD.map(round2),
-            heatmap: Array(heatmap)
+            heatmap: heatmap
         )
     }
 
@@ -821,11 +821,8 @@ private extension DatabaseStatisticsRepository {
     }
 
     func trimForContributions(_ model: StatisticsViewModel, top: Int) -> StatisticsViewModel {
-        let topSummaries = Array(
-            model.importedStocks.stockSummaries
-                .sorted(by: { abs($0.unrealizedPnl) > abs($1.unrealizedPnl) })
-                .prefix(max(1, top))
-        )
+        let topSummaries = model.importedStocks.stockSummaries
+            .min(count: max(1, top), sortedBy: { abs($0.unrealizedPnl) > abs($1.unrealizedPnl) })
         let imported = ImportedStocksStatisticsView(
             totalPositions: model.importedStocks.totalPositions,
             totalMarketValue: model.importedStocks.totalMarketValue,
@@ -876,11 +873,8 @@ private extension DatabaseStatisticsRepository {
     }
 
     func trimForVolatility(_ model: StatisticsViewModel, top: Int) -> StatisticsViewModel {
-        let volatile = Array(
-            model.market.heatmap
-                .sorted(by: { abs($0.changePercent) > abs($1.changePercent) })
-                .prefix(max(1, top))
-        )
+        let volatile = model.market.heatmap
+            .min(count: max(1, top), sortedBy: { abs($0.changePercent) > abs($1.changePercent) })
         let market = MarketStatisticsView(
             benchmarkSymbol: model.market.benchmarkSymbol,
             benchmarkChange1D: model.market.benchmarkChange1D,
@@ -958,15 +952,7 @@ private extension DatabaseStatisticsRepository {
     }
 
     func uniqueSymbols(from values: [String]) -> [String] {
-        var seen = Set<String>()
-        var result: [String] = []
-        for value in values {
-            let symbol = normalizeSymbol(value)
-            guard !symbol.isEmpty, !seen.contains(symbol) else { continue }
-            seen.insert(symbol)
-            result.append(symbol)
-        }
-        return result
+        Array(values.map(normalizeSymbol).filter { !$0.isEmpty }.uniqued())
     }
 
     func resolveSector(symbol: String, profile: ProfileCache?, notes: [ResearchNote]) -> String {

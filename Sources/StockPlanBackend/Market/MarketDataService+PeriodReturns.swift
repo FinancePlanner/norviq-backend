@@ -1,3 +1,4 @@
+import Algorithms
 import Foundation
 import Vapor
 
@@ -30,10 +31,7 @@ extension DefaultMarketDataService {
     func periodReturnsBatch(symbols rawSymbols: [String], on req: Request) async throws
         -> StockPeriodReturnsBatchResponse
     {
-        var seen: Set<String> = []
-        let normalized = try rawSymbols
-            .map(normalizeSymbol)
-            .filter { seen.insert($0).inserted }
+        let normalized = try Array(rawSymbols.map(normalizeSymbol).uniqued())
 
         guard !normalized.isEmpty else {
             throw Abort(.badRequest, reason: "At least one symbol is required.")

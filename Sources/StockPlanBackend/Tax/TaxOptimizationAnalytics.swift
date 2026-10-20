@@ -1,3 +1,4 @@
+import Algorithms
 import Fluent
 import Foundation
 import StockPlanShared
@@ -278,7 +279,8 @@ struct TaxGoalImpactCalculator: Sendable {
             .filter(\.$goal.$id ~~ goalIDs)
             .sort(\.$calculatedAt, .descending)
             .all()
-        let latestSnapshot = Dictionary(grouping: snapshots, by: { $0.$goal.id }).compactMapValues { $0.first }
+        // Snapshots come newest first, so the first one per goal wins.
+        let latestSnapshot = snapshots.keyed(by: { $0.$goal.id }, resolvingConflictsWith: { _, old, _ in old })
         return goals.compactMap { goal -> TaxGoalImpact? in
             guard let goalID = goal.id else { return nil }
             let allocation = (allocationByGoal[goalID] ?? []).reduce(0) {
