@@ -33,6 +33,12 @@ final class BankAccount: Model, @unchecked Sendable {
     @OptionalField(key: "balance_as_of")
     var balanceAsOf: Date?
 
+    /// Provider's cross-session account fingerprint (Enable Banking
+    /// `identification_hash`). The provider account id is session-scoped there,
+    /// so re-consent re-matches accounts by this.
+    @OptionalField(key: "identification_hash")
+    var identificationHash: String?
+
     @Timestamp(key: "created_at", on: .create)
     var createdAt: Date?
 

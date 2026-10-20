@@ -34,7 +34,7 @@ struct BankController: RouteCollection {
     func listInstitutions(req: Request) async throws -> [BankInstitutionResponse] {
         _ = try req.auth.require(SessionToken.self)
         let country = req.query[String.self, at: "country"] ?? "GB"
-        let provider = try req.bankProviderRegistry.provider(for: providerKind(req))
+        let provider = try req.bankProviderRegistry.provider(for: providerKind(req, hosted: true))
         return try await provider.listInstitutions(country: country, on: req)
     }
 
@@ -42,12 +42,13 @@ struct BankController: RouteCollection {
     func createLinkSession(req: Request) async throws -> BankLinkSessionResponse {
         let session = try req.auth.require(SessionToken.self)
         try await req.usageCounterService.requirePremium(.bankSync, userId: session.userId, on: req.db)
-        let kind = try providerKind(req)
-        let provider = try req.bankProviderRegistry.provider(for: kind)
+        // Hosted providers need an institution + redirect; Plaid returns a link
+        // token with no prior selection.
+        let hosted = (try? req.content.decode(BankHostedLinkRequest.self)).flatMap { $0.institutionId.isEmpty ? nil : $0 }
+        let provider = try req.bankProviderRegistry.provider(for: providerKind(req, hosted: hosted != nil))
 
-        // GoCardless needs an institution + redirect for its hosted flow; Plaid
-        // returns a link token with no prior selection.
-        if let hosted = try? req.content.decode(BankHostedLinkRequest.self), !hosted.institutionId.isEmpty {
+        if let hosted {
+            try Self.validateRedirectURI(hosted.redirectURI)
             return try await provider.createHostedLink(
                 userId: session.userId,
                 institutionId: hosted.institutionId,
@@ -143,12 +144,35 @@ struct BankController: RouteCollection {
 
     // MARK: - Helpers
 
-    private func providerKind(_ req: Request) throws -> BankProviderKind {
-        let raw = req.query[String.self, at: "provider"] ?? BankProviderKind.plaid.rawValue
+    /// An explicit `provider` query wins. Otherwise hosted-link calls go to the
+    /// configured EU aggregator and the rest to Plaid, so clients need not name
+    /// a vendor.
+    private func providerKind(_ req: Request, hosted: Bool = false) throws -> BankProviderKind {
+        guard let raw = req.query[String.self, at: "provider"] else {
+            return hosted ? req.bankProviderRegistry.preferredHostedKind : .plaid
+        }
         guard let kind = BankProviderKind(rawValue: raw.lowercased()) else {
             throw Abort(.badRequest, reason: "Unknown bank provider.")
         }
         return kind
+    }
+
+    /// The callback 303s to this URI with the outcome, so it must be one of
+    /// ours: an unchecked value would make the callback an open redirect.
+    static func validateRedirectURI(
+        _ redirectURI: String,
+        allowList: String? = Environment.get("BANK_ALLOWED_REDIRECT_URIS")
+    ) throws {
+        let allowed = (allowList ?? "")
+            .split(separator: ",")
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        guard !allowed.isEmpty else {
+            throw Abort(.serviceUnavailable, reason: "Bank redirect allowlist is not configured.")
+        }
+        guard allowed.contains(redirectURI.trimmingCharacters(in: .whitespacesAndNewlines)) else {
+            throw Abort(.badRequest, reason: "Bank redirect URI is not allowed.")
+        }
     }
 
     private func requireConnection(_ req: Request, userId: UUID) async throws -> BankConnection {

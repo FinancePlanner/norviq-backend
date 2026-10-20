@@ -3,24 +3,29 @@ import Foundation
 import StockPlanShared
 import Vapor
 
-/// Handles the GoCardless hosted-link redirect. GoCardless sends the user here
-/// after consent; we confirm the requisition, create the connection, and bounce
-/// the user back to the app/web via the stored redirect URI. Unauthenticated
-/// (the request originates from the bank redirect), so it relies on the
-/// single-use, time-limited BankLinkFlow reference.
+/// Handles the hosted-link redirects (GoCardless, Enable Banking). The
+/// aggregator sends the user here after consent; we confirm it, create the
+/// connection, and bounce the user back to the app/web via the stored redirect
+/// URI. Unauthenticated (the request originates from the bank redirect), so it
+/// relies on the single-use, time-limited BankLinkFlow reference.
 struct BankCallbackController: RouteCollection {
     func boot(routes: any RoutesBuilder) throws {
-        routes.grouped("v1", "banks", "gocardless").get("callback", use: callback)
+        routes.grouped("v1", "banks", "gocardless").get("callback") { req in
+            try await callback(req: req, kind: .gocardless, referenceKey: "ref")
+        }
+        routes.grouped("v1", "banks", "enablebanking").get("callback") { req in
+            try await callback(req: req, kind: .enablebanking, referenceKey: "state")
+        }
     }
 
-    @Sendable
-    func callback(req: Request) async throws -> Response {
-        let reference = (req.query[String.self, at: "ref"] ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+    func callback(req: Request, kind: BankProviderKind, referenceKey: String) async throws -> Response {
+        let reference = (req.query[String.self, at: referenceKey] ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
         let providerError = req.query[String.self, at: "error"]?.trimmingCharacters(in: .whitespacesAndNewlines)
 
         guard !reference.isEmpty,
               let flow = try await BankLinkFlow.query(on: req.db)
               .filter(\.$reference == reference)
+              .filter(\.$provider == kind.rawValue)
               .first()
         else {
             throw Abort(.badRequest, reason: "Unknown bank link reference.")
@@ -32,7 +37,7 @@ struct BankCallbackController: RouteCollection {
         }
 
         do {
-            let provider = try req.bankProviderRegistry.provider(for: .gocardless)
+            let provider = try req.bankProviderRegistry.provider(for: kind)
             _ = try await provider.completeHostedLink(reference: reference, on: req)
             return redirect(to: appURL(base: base, status: "connected", message: nil))
         } catch {
