@@ -2,8 +2,10 @@ import Foundation
 import StockPlanShared
 import Vapor
 
-/// 2026 FOMC meeting dates. Source: federalreserve.gov meeting calendar —
-/// refresh this table annually alongside the BLS calendar below.
+/// FOMC meeting dates. Source: federalreserve.gov meeting calendar —
+/// refresh this table annually alongside the BLS calendar below. 2027 copied
+/// from https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm on
+/// 2026-10-19; the Fed calls each date tentative until the meeting before it.
 enum FOMCCalendar {
     struct Meeting: Equatable {
         let startDate: String // yyyy-MM-dd
@@ -21,7 +23,20 @@ enum FOMCCalendar {
         Meeting(startDate: "2026-12-08", endDate: "2026-12-09"),
     ]
 
-    static func nextMeeting(after date: Date, calendar meetings: [Meeting] = meetings2026) -> FOMCMeetingDTO? {
+    static let meetings2027: [Meeting] = [
+        Meeting(startDate: "2027-01-26", endDate: "2027-01-27"),
+        Meeting(startDate: "2027-03-16", endDate: "2027-03-17"),
+        Meeting(startDate: "2027-04-27", endDate: "2027-04-28"),
+        Meeting(startDate: "2027-06-08", endDate: "2027-06-09"),
+        Meeting(startDate: "2027-07-27", endDate: "2027-07-28"),
+        Meeting(startDate: "2027-09-14", endDate: "2027-09-15"),
+        Meeting(startDate: "2027-10-26", endDate: "2027-10-27"),
+        Meeting(startDate: "2027-12-07", endDate: "2027-12-08"),
+    ]
+
+    static let meetings = meetings2026 + meetings2027
+
+    static func nextMeeting(after date: Date, calendar meetings: [Meeting] = meetings) -> FOMCMeetingDTO? {
         let formatter = Self.dayFormatter
         let today = formatter.string(from: date)
         guard let next = meetings.first(where: { $0.endDate >= today }) else { return nil }
@@ -55,6 +70,15 @@ enum BLSCPIReleaseCalendar {
         "2026-05-12", "2026-06-10", "2026-07-14", "2026-08-12",
         "2026-09-11", "2026-10-14", "2026-11-10", "2026-12-10",
     ]
+
+    /// Copied from https://www.bls.gov/schedule/news_release/cpi.htm on 2026-10-19.
+    static let releaseDates2027: [String] = [
+        "2027-01-13", "2027-02-11", "2027-03-10", "2027-04-13",
+        "2027-05-12", "2027-06-10", "2027-07-14", "2027-08-11",
+        "2027-09-14", "2027-10-14", "2027-11-10", "2027-12-10",
+    ]
+
+    static let releaseDates = releaseDates2026 + releaseDates2027
 
     static func nextPrint(after date: Date, lastOfficial: Double?, on req: Request) async -> NextPrintDTO? {
         do {
@@ -102,7 +126,7 @@ enum BLSCPIReleaseCalendar {
             .sorted()
     }
 
-    static func nextPrint(after date: Date, lastOfficial: Double?, releases: [String] = releaseDates2026) -> NextPrintDTO? {
+    static func nextPrint(after date: Date, lastOfficial: Double?, releases: [String] = releaseDates) -> NextPrintDTO? {
         let formatter = FOMCCalendar.dayFormatter
         let today = formatter.string(from: date)
         guard let next = releases.first(where: { $0 >= today }),
@@ -116,5 +140,74 @@ enum BLSCPIReleaseCalendar {
             streetConsensus: nil,
             lastOfficial: lastOfficial
         )
+    }
+}
+
+/// Release and meeting days outside the US, for the Daily board's week-ahead
+/// post. Every date is copied from the official calendar named above its
+/// table on 2026-10-19, never projected. A table that has run out yields no
+/// row: the post leaves that event out rather than guess.
+enum WorldMacroCalendar {
+    struct Event: Equatable, Sendable {
+        let date: String // yyyy-MM-dd, local to the institution
+        let name: String
+    }
+
+    /// ECB Governing Council monetary policy decisions (day 2, press
+    /// conference). https://www.ecb.europa.eu/press/calendars/mgcgc/html/index.en.html
+    static let ecbDecisions = [
+        "2026-10-29", "2026-12-17",
+        "2027-02-04", "2027-03-18", "2027-04-29", "2027-06-10",
+        "2027-07-22", "2027-09-09", "2027-10-28", "2027-12-16",
+    ]
+
+    /// Euro-area HICP flash estimate. 2027 not published yet.
+    /// https://ec.europa.eu/eurostat/news/release-calendar
+    static let hicpFlash = [
+        "2026-01-07", "2026-02-04", "2026-03-03", "2026-03-31", "2026-04-30", "2026-06-02",
+        "2026-07-01", "2026-07-31", "2026-09-01", "2026-10-02", "2026-11-04", "2026-12-01",
+    ]
+
+    /// Bank of Japan Monetary Policy Meeting, last day (the decision).
+    /// https://www.boj.or.jp/en/mopo/mpmsche_minu/index.htm
+    static let bojDecisions = [
+        "2026-01-23", "2026-03-19", "2026-04-28", "2026-06-16",
+        "2026-07-31", "2026-09-18", "2026-10-30", "2026-12-18",
+        "2027-01-22", "2027-03-18", "2027-04-28", "2027-06-11",
+        "2027-07-22", "2027-09-22", "2027-10-29", "2027-12-17",
+    ]
+
+    /// Japan national CPI. Published through the February 2027 survey month.
+    /// https://www.stat.go.jp/english/data/cpi/1582.html
+    static let japanCPI = [
+        "2026-01-23", "2026-02-20", "2026-03-24", "2026-04-24", "2026-05-22", "2026-06-19",
+        "2026-07-24", "2026-08-21", "2026-09-18", "2026-10-23", "2026-11-20", "2026-12-18",
+        "2027-01-22", "2027-02-19", "2027-03-19",
+    ]
+
+    /// China CPI (NBS). NBS calls the dates preliminary; 2027 not published yet.
+    /// https://www.stats.gov.cn/english/PressRelease/ReleaseCalendar/202512/t20251226_1962154.html
+    static let chinaCPI = [
+        "2026-01-09", "2026-02-11", "2026-03-09", "2026-04-10", "2026-05-11", "2026-06-10",
+        "2026-07-09", "2026-08-09", "2026-09-09", "2026-10-14", "2026-11-09", "2026-12-09",
+    ]
+
+    /// Every known event from `from` through `through`, both yyyy-MM-dd and
+    /// inclusive, US ones included, in date order.
+    static func events(from: String, through: String) -> [Event] {
+        let tables: [(String, [String])] = [
+            ("US CPI release", BLSCPIReleaseCalendar.releaseDates),
+            ("Fed rate decision (FOMC)", FOMCCalendar.meetings.map(\.endDate)),
+            ("ECB rate decision", ecbDecisions),
+            ("Euro-area inflation flash (HICP)", hicpFlash),
+            ("Bank of Japan rate decision", bojDecisions),
+            ("Japan CPI release", japanCPI),
+            ("China CPI release", chinaCPI),
+        ]
+        return tables
+            .flatMap { name, dates in
+                dates.filter { $0 >= from && $0 <= through }.map { Event(date: $0, name: name) }
+            }
+            .sorted { ($0.date, $0.name) < ($1.date, $1.name) }
     }
 }
