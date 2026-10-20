@@ -450,6 +450,7 @@ func registerMigrations(_ app: Application) {
     app.migrations.add(CascadeUserOwnedRowsOnDelete())
     app.migrations.add(CreateRecaps())
     app.migrations.add(AddDailyBoardPosts())
+    app.migrations.add(AddBankAccountIdentificationHash())
 }
 
 func envBool(_ key: String, default defaultValue: Bool) -> Bool {

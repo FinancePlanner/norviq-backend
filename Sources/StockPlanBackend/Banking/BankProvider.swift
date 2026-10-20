@@ -100,6 +100,12 @@ struct BankProviderRegistry: Sendable {
     var configuredKinds: [BankProviderKind] {
         Array(providers.keys)
     }
+
+    /// The EU hosted-link aggregator to use when a client doesn't name one:
+    /// Enable Banking when configured, else GoCardless.
+    var preferredHostedKind: BankProviderKind {
+        providers[.enablebanking] != nil ? .enablebanking : .gocardless
+    }
 }
 
 extension Application {

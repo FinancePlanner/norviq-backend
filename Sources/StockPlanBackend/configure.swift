@@ -589,8 +589,8 @@ public func configure(_ app: Application) async throws {
     try routes(app)
 }
 
-/// Registers the read-only bank aggregators. Plaid (US) and GoCardless (EU)
-/// each enable only when their credentials are configured.
+/// Registers the read-only bank aggregators. Plaid (US), GoCardless and
+/// Enable Banking (EU) each enable only when their credentials are configured.
 private func configureBankProviders(_ app: Application) {
     var bankProviders: [any BankProvider] = []
     if let plaidConfig = PlaidConfiguration.fromEnvironment() {
@@ -603,6 +603,11 @@ private func configureBankProviders(_ app: Application) {
         bankProviders.append(GoCardlessProvider(client: GoCardlessClient(config: gcConfig)))
     } else {
         app.logger.warning("GoCardless is disabled. Configure GOCARDLESS_SECRET_ID and GOCARDLESS_SECRET_KEY to enable EU bank sync.")
+    }
+    if let ebConfig = EnableBankingConfiguration.fromEnvironment() {
+        bankProviders.append(EnableBankingProvider(client: EnableBankingClient(config: ebConfig)))
+    } else {
+        app.logger.warning("Enable Banking is disabled. Configure ENABLEBANKING_APP_ID and ENABLEBANKING_PRIVATE_KEY_PEM to enable EU bank sync.")
     }
     app.bankProviderRegistry = BankProviderRegistry(providers: bankProviders)
 }
