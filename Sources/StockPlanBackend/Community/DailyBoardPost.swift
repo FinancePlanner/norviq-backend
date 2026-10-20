@@ -13,6 +13,7 @@ enum DailyBoardIdentity {
     static let username = "norviq"
     static let email = "daily-board@system.norviq.invalid"
     static let slug = "daily"
+    static let description = "One post every day: a Mag 7 stock, a hot stock, inflation, an ETF, or the week in markets. Members can post here too."
 
     static func isSystemUsername(_ raw: String) -> Bool {
         raw.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == username
@@ -53,14 +54,15 @@ enum DailyBoardIdentity {
             if board.deletedAt != nil {
                 try await board.restore(on: req.db)
             }
+            // Boards created by an older build keep its wording until updated
+            // here. A board someone else made under this slug is left alone.
+            if board.creatorId == userID, board.description != description {
+                board.description = description
+                try await board.save(on: req.db)
+            }
             return try (userID, board.requireID())
         }
-        let board = Board(
-            slug: slug,
-            name: "Daily",
-            description: "One post every day: a Mag 7 stock, a hot stock, inflation, an ETF, or the week in markets. Members can post here too.",
-            creatorId: userID
-        )
+        let board = Board(slug: slug, name: "Daily", description: description, creatorId: userID)
         do {
             try await board.create(on: req.db)
         } catch let error as any DatabaseError where error.isConstraintFailure {
@@ -159,6 +161,17 @@ enum DailyBoardFacts {
         .map(\.key)
     }
 
+    /// Tickers the news named, then the biggest large-cap movers, Mag 7 left
+    /// to Monday.
+    static func hotStockCandidates(headlines: [Headline], movers: [String], limit: Int = 12) -> [String] {
+        let mag7 = Set(DailyBoardCatalog.mag7)
+        var seen = Set<String>()
+        return (rankedTickers(headlines, limit: 8) + movers.map { $0.uppercased() })
+            .filter { isStockTicker($0) && !mag7.contains($0) && seen.insert($0).inserted }
+            .prefix(limit)
+            .map(\.self)
+    }
+
     static func isStockTicker(_ symbol: String) -> Bool {
         let ticker = symbol.uppercased()
         guard !ticker.hasPrefix("^"), !ticker.contains("="), ticker != "GENERAL" else { return false }
@@ -187,6 +200,8 @@ enum DailyBoardFacts {
 /// tests run without a network or a key. Every call degrades to nil or empty.
 protocol DailyBoardSources: Sendable {
     func headlines(on req: Request) async -> [DailyBoardFacts.Headline]
+    /// Today's biggest movers among the largest US companies, biggest move first.
+    func largeCapMovers(on req: Request) async -> [String]
     func quote(_ symbol: String, on req: Request) async -> DailyBoardFacts.StockQuote?
     func metrics(_ symbol: String, on req: Request) async -> [String: Double]
     func earnings(from: String, to: String, symbol: String?, on req: Request) async -> [DailyBoardBuilders.Earnings]
@@ -213,6 +228,17 @@ struct LiveDailyBoardSources: DailyBoardSources {
                 }
         } catch {
             req.logger.warning("daily_board_post news_failed error=\(String(describing: error))")
+            return []
+        }
+    }
+
+    func largeCapMovers(on req: Request) async -> [String] {
+        do {
+            return try await req.application.marketDataService.marketOverview(on: req).heatmap
+                .sorted { abs($0.changePct) > abs($1.changePct) }
+                .map(\.symbol)
+        } catch {
+            req.logger.warning("daily_board_post movers_failed error=\(String(describing: error))")
             return []
         }
     }
@@ -616,7 +642,10 @@ enum DailyBoardPublisher {
         case .stock:
             let headlines = await sources.headlines(on: req)
             var quotes: [DailyBoardFacts.StockQuote] = []
-            for symbol in DailyBoardFacts.rankedTickers(headlines, limit: 8) {
+            // General news rarely tags tickers, so the day's biggest large-cap
+            // movers are candidates too.
+            let movers = await sources.largeCapMovers(on: req)
+            for symbol in DailyBoardFacts.hotStockCandidates(headlines: headlines, movers: movers) {
                 if let quote = await sources.quote(symbol, on: req) {
                     quotes.append(quote)
                 }
@@ -713,13 +742,15 @@ enum DailyBoardPublisher {
         func next(_ dates: [String]) -> String? {
             dates.filter { $0 > day }.min().map(DailyBoardDays.withWeekday)
         }
+        // The macro tables store MacroCountry raw values ("US", "EA").
+        let us = MacroCountry.us.rawValue, ea = MacroCountry.ea.rawValue
         return await DailyBoardBuilders.MacroInputs(
-            usCPI: sources.macro(country: "us", key: "headline_cpi", on: req),
-            usCore: sources.macro(country: "us", key: "core_cpi", on: req),
-            eaCPI: sources.macro(country: "ea", key: "headline_cpi", on: req),
-            eaCore: sources.macro(country: "ea", key: "core_cpi", on: req),
-            fedRate: sources.macro(country: "us", key: "policy_rate", on: req),
-            ecbRate: sources.macro(country: "ea", key: "policy_rate", on: req),
+            usCPI: sources.macro(country: us, key: MacroSeriesKey.headlineCPI.rawValue, on: req),
+            usCore: sources.macro(country: us, key: MacroSeriesKey.coreCPI.rawValue, on: req),
+            eaCPI: sources.macro(country: ea, key: MacroSeriesKey.headlineCPI.rawValue, on: req),
+            eaCore: sources.macro(country: ea, key: MacroSeriesKey.coreCPI.rawValue, on: req),
+            fedRate: sources.macro(country: us, key: MacroSeriesKey.policyRate.rawValue, on: req),
+            ecbRate: sources.macro(country: ea, key: MacroSeriesKey.policyRate.rawValue, on: req),
             nextUSCPI: next(BLSCPIReleaseCalendar.releaseDates),
             nextHICPFlash: next(WorldMacroCalendar.hicpFlash),
             nextFOMC: next(FOMCCalendar.meetings.map(\.endDate)),

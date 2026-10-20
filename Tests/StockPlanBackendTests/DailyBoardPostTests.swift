@@ -70,6 +70,15 @@ struct DailyBoardPostTests {
         #expect(DailyBoardFacts.rankedTickers(headlines) == ["NVDA", "AAPL"])
     }
 
+    @Test("Hot stock candidates: news tickers first, then large-cap movers, no Mag 7 or repeats")
+    func hotStockCandidates() {
+        let headlines = [DailyBoardFacts.Headline(title: "AMD and Nvidia", url: nil, tickers: ["AMD", "NVDA"])]
+        let movers = ["tsla", "AMD", "UNH", "BRK.B", "^VIX"]
+        #expect(DailyBoardFacts.hotStockCandidates(headlines: headlines, movers: movers) == ["AMD", "UNH", "BRK.B"])
+        #expect(DailyBoardFacts.hotStockCandidates(headlines: [], movers: movers) == ["AMD", "UNH", "BRK.B"])
+        #expect(DailyBoardFacts.hotStockCandidates(headlines: [], movers: ["A", "B", "C"], limit: 2) == ["A", "B"])
+    }
+
     private func entry(_ day: String, _ topic: DailyBoardTopic, _ tags: String...) -> DailyBoardHistory.Entry {
         DailyBoardHistory.Entry(day: day, topic: topic, tags: [topic.rawValue] + tags + ["ai"])
     }
@@ -303,6 +312,59 @@ struct DailyBoardPostTests {
         #expect(reason(body, title: "Nvidia fell 4.3%!") == .title)
         let noFigures = String(repeating: "The chip maker had a rough week and the mood turned. ", count: 9) + "\n\nIs the mood about to turn?"
         #expect(reason(noFigures) == .figures(0))
+    }
+
+    // MARK: - Macro lookups
+
+    /// Answers only the keys the macro tables actually store.
+    private struct StoredMacroSources: DailyBoardSources {
+        func headlines(on _: Request) async -> [DailyBoardFacts.Headline] {
+            []
+        }
+
+        func largeCapMovers(on _: Request) async -> [String] {
+            []
+        }
+
+        func quote(_: String, on _: Request) async -> DailyBoardFacts.StockQuote? {
+            nil
+        }
+
+        func metrics(_: String, on _: Request) async -> [String: Double] {
+            [:]
+        }
+
+        func earnings(from _: String, to _: String, symbol _: String?, on _: Request) async -> [DailyBoardBuilders.Earnings] {
+            []
+        }
+
+        func bars(_: String, on _: Request) async -> DailyBarSeries? {
+            nil
+        }
+
+        func macro(country: String, key: String, on _: Request) async -> DailyBoardBuilders.MacroReading? {
+            guard ["US", "EA"].contains(country), ["headline_cpi", "core_cpi", "policy_rate"].contains(key) else { return nil }
+            return DailyBoardBuilders.MacroReading(period: "2026-09-01", value: 2.9, prior: 2.7)
+        }
+    }
+
+    @Test("Macro inputs ask for the country codes the macro tables store")
+    func macroInputsUseStoredCountryCodes() async throws {
+        let app = try await Application.make(.testing)
+        do {
+            let req = Request(application: app, on: app.eventLoopGroup.next())
+            let inputs = await DailyBoardPublisher.macroInputs(day: "2026-10-21", sources: StoredMacroSources(), on: req)
+            #expect(inputs.usCPI != nil)
+            #expect(inputs.usCore != nil)
+            #expect(inputs.eaCPI != nil)
+            #expect(inputs.eaCore != nil)
+            #expect(inputs.fedRate != nil)
+            #expect(inputs.ecbRate != nil)
+        } catch {
+            try await app.asyncShutdown()
+            throw error
+        }
+        try await app.asyncShutdown()
     }
 
     // MARK: - Retry
