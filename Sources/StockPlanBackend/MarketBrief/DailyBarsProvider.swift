@@ -7,7 +7,7 @@ struct DailyBar: Equatable, Sendable {
     let close: Double
 }
 
-/// A year of closes, oldest first. Returns are worked out here, from the
+/// Up to two years of closes, oldest first. Returns are worked out here, from the
 /// bars, so a post never asks the model to do arithmetic.
 struct DailyBarSeries: Equatable, Sendable {
     let symbol: String
@@ -67,8 +67,9 @@ protocol DailyBarsProvider: Sendable {
     func series(symbol: String, on req: Request) async -> DailyBarSeries?
 }
 
-/// The same Yahoo chart endpoint as `YahooChartQuoteProvider`, over a year
-/// of daily bars. Only the bars are read: with any range over one day,
+/// The same Yahoo chart endpoint as `YahooChartQuoteProvider`, over two years
+/// of daily bars: one year is not enough for a one-year change, which needs
+/// the close from before the window opened. Only the bars are read: with any range over one day,
 /// `meta.chartPreviousClose` is the close before the window, not yesterday's.
 ///
 /// No freshness cutoff here, unlike the quote provider. Weekend and holiday
@@ -83,7 +84,7 @@ struct YahooDailyBarsProvider: DailyBarsProvider {
     func series(symbol: String, on req: Request) async -> DailyBarSeries? {
         let encoded = symbol.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? symbol
         do {
-            let response = try await req.client.get(URI(string: "\(baseURL)\(encoded)?range=1y&interval=1d")) { clientRequest in
+            let response = try await req.client.get(URI(string: "\(baseURL)\(encoded)?range=2y&interval=1d")) { clientRequest in
                 clientRequest.headers.replaceOrAdd(name: .userAgent, value: YahooChartQuoteProvider.userAgent)
                 clientRequest.headers.replaceOrAdd(name: .accept, value: "application/json")
                 clientRequest.timeout = .seconds(8)

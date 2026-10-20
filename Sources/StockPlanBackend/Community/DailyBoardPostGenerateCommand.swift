@@ -18,7 +18,7 @@ struct DailyBoardPostGenerateCommand: AsyncCommand {
         @Option(name: "topic", help: "Write this topic instead of the day's rotation slot: mag7, stock, macro, etf, week_recap, week_ahead.")
         var topic: String?
 
-        @Flag(name: "dry-run", help: "Print the facts, the draft and the validator's verdict. Writes nothing.")
+        @Flag(name: "dry-run", help: "Print the facts, the draft and the validator's verdict. Writes nothing. Without an AI key, prints the facts only.")
         var dryRun: Bool
 
         @Flag(name: "replace", help: "Delete the date's run row and AI post, then write it again.")
@@ -29,7 +29,8 @@ struct DailyBoardPostGenerateCommand: AsyncCommand {
 
     func run(using context: CommandContext, signature: Signature) async throws {
         let app = context.application
-        guard AIProviderConfiguration.load().isConfigured else {
+        let hasModel = AIProviderConfiguration.load().isConfigured
+        guard hasModel || signature.dryRun else {
             throw Abort(.serviceUnavailable, reason: "no AI provider key is configured")
         }
         let day = signature.date ?? MarketBriefSchedule.localDate(Date())
@@ -53,6 +54,10 @@ struct DailyBoardPostGenerateCommand: AsyncCommand {
             }
             context.console.print(DailyBoardStyle.prompt(for: candidate, day: day))
             context.console.print("")
+            guard hasModel else {
+                context.console.print("No AI provider key is configured: facts only, no draft.")
+                return
+            }
             do {
                 let accepted = try await DailyBoardPublisher.write(candidate, day: day, writer: EchoWriter(inner: writer), on: req)
                 context.console.print("ACCEPTED\n\n\(accepted.title)\n\n\(accepted.body)")
