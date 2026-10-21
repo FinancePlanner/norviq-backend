@@ -70,6 +70,15 @@ struct DailyBoardPostTests {
         #expect(DailyBoardFacts.rankedTickers(headlines) == ["NVDA", "AAPL"])
     }
 
+    @Test("The large-cap fallback list holds unique stock tickers outside the Mag 7")
+    func largeCaps() {
+        let caps = DailyBoardCatalog.largeCaps
+        #expect(Set(caps).count == caps.count)
+        #expect(caps.allSatisfy(DailyBoardFacts.isStockTicker))
+        #expect(Set(caps).isDisjoint(with: DailyBoardCatalog.mag7))
+        #expect(DailyBoardFacts.hotStockCandidates(headlines: [], movers: caps).count == 12)
+    }
+
     @Test("Hot stock candidates: news tickers first, then large-cap movers, no Mag 7 or repeats")
     func hotStockCandidates() {
         let headlines = [DailyBoardFacts.Headline(title: "AMD and Nvidia", url: nil, tickers: ["AMD", "NVDA"])]

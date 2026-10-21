@@ -234,13 +234,26 @@ struct LiveDailyBoardSources: DailyBoardSources {
 
     func largeCapMovers(on req: Request) async -> [String] {
         do {
-            return try await req.application.marketDataService.marketOverview(on: req).heatmap
-                .sorted { abs($0.changePct) > abs($1.changePct) }
-                .map(\.symbol)
+            let heatmap = try await req.application.marketDataService.marketOverview(on: req).heatmap
+            if !heatmap.isEmpty {
+                return heatmap
+                    .sorted { abs($0.changePct) > abs($1.changePct) }
+                    .map(\.symbol)
+            }
         } catch {
             req.logger.warning("daily_board_post movers_failed error=\(String(describing: error))")
-            return []
         }
+        // The overview runs on FMP, whose daily request cap is often spent by
+        // evening. Quotes come from the main provider, so rank a fixed list.
+        var quotes: [DailyBoardFacts.StockQuote] = []
+        for symbol in DailyBoardCatalog.largeCaps {
+            if let quote = await quote(symbol, on: req) {
+                quotes.append(quote)
+            }
+        }
+        return quotes
+            .sorted { abs($0.changePercent) > abs($1.changePercent) }
+            .map(\.symbol)
     }
 
     func quote(_ symbol: String, on req: Request) async -> DailyBoardFacts.StockQuote? {

@@ -97,6 +97,17 @@ enum DailyBoardDays {
 enum DailyBoardCatalog {
     static let mag7 = ["AAPL", "MSFT", "GOOGL", "AMZN", "META", "NVDA", "TSLA"]
 
+    /// Large US companies outside the Mag 7, ranked by the day's move when
+    /// the market overview is unavailable. US listings only, so every quote
+    /// provider covers them.
+    static let largeCaps = [
+        "AVGO", "AMD", "ORCL", "NFLX", "PLTR", "CRM", "ADBE", "INTC", "QCOM", "MU",
+        "JPM", "BAC", "GS", "V", "MA", "BRK.B",
+        "LLY", "UNH", "JNJ", "MRK", "ABBV",
+        "WMT", "COST", "HD", "KO", "PEP", "NKE", "DIS",
+        "XOM", "CVX", "BA", "UBER", "COIN",
+    ]
+
     struct Fund: Equatable, Sendable {
         let symbol: String
         let name: String
