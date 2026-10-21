@@ -339,6 +339,8 @@ struct DailyBoardFactSheet {
 /// Pure: turns fetched data into a candidate, or nil when there is too
 /// little to say. A post needs at least `minimumFigures` numbers behind it.
 enum DailyBoardBuilders {
+    static let headlineLabel = "Headline that named it"
+
     static let minimumFigures = 4
 
     // MARK: Stocks
@@ -374,7 +376,7 @@ enum DailyBoardBuilders {
         sheet.marketCap("Market cap", millions: snapshot.metrics["marketCapitalization"])
         sheet.multiple("Price to trailing earnings (P/E)", snapshot.metrics["peTTM"])
         sheet.text("Next earnings report", snapshot.nextEarnings)
-        sheet.text("Headline that named it", snapshot.headline?.title)
+        sheet.text(headlineLabel, snapshot.headline?.title)
         if let headline = snapshot.headline?.title {
             sheet.ground(MarketBriefNumbers.tokens(in: headline).flatMap(\.readings))
         }

@@ -327,6 +327,7 @@ enum DailyBoardStyle {
         "buckle up", "rollercoaster", "roller coaster", "game-changer", "game changer", "only time will tell",
         "it's worth noting", "it is worth noting", "remains to be seen", "testament", "tapestry",
         "unprecedented", "in conclusion", "let's", "what do you think",
+        "the facts i have", "the facts provided", "the data provided", "based on the data", "as an ai",
     ]
 
     /// Wording that tells the reader what to do with their money.
@@ -357,6 +358,9 @@ enum DailyBoardStyle {
         "Is 31.4x trailing earnings still cheap for a company growing this fast?" Never a generic \
         "What do you think?".
 
+        If the facts give no reason for a move, say plainly that no single cause is known yet. Never mention \
+        the facts, the data you were given, or yourself.
+
         Write like a sharp analyst talking to peers: concrete, plain words, short sentences. No advice: never \
         tell the reader to buy, sell, hold or consider anything. No markdown, hashtags, emoji, exclamation marks \
         or em dashes. Do not use these words or phrases: \(bannedPhrases.joined(separator: ", ")).
@@ -368,7 +372,11 @@ enum DailyBoardStyle {
         case .mag7:
             "\(candidate.name), one of the Magnificent Seven: what its recent move and valuation say"
         case .stock:
-            "\(candidate.name), the stock the news named most today, and why it moved"
+            if candidate.facts.contains(where: { $0.label == DailyBoardBuilders.headlineLabel }) {
+                "\(candidate.name), a stock in the news today, and why it moved"
+            } else {
+                "\(candidate.name), one of the biggest movers among large US companies today"
+            }
         case .etf:
             "\(candidate.name), a widely held ETF: what it tracks, what it costs and how it has done"
         case .weekRecap:

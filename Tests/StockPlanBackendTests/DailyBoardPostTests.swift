@@ -70,6 +70,17 @@ struct DailyBoardPostTests {
         #expect(DailyBoardFacts.rankedTickers(headlines) == ["NVDA", "AAPL"])
     }
 
+    @Test("A hot stock is framed as news only when a headline named it")
+    func stockFraming() {
+        let mover = DailyBoardCandidate(topic: .stock, name: "ADBE", symbol: "ADBE")
+        #expect(DailyBoardStyle.describe(mover) == "ADBE, one of the biggest movers among large US companies today")
+        let named = DailyBoardCandidate(
+            topic: .stock, name: "ADBE", symbol: "ADBE",
+            facts: [DailyBoardFact(label: DailyBoardBuilders.headlineLabel, value: "Adobe rallies on AI deal")]
+        )
+        #expect(DailyBoardStyle.describe(named) == "ADBE, a stock in the news today, and why it moved")
+    }
+
     @Test("The large-cap fallback list holds unique stock tickers outside the Mag 7")
     func largeCaps() {
         let caps = DailyBoardCatalog.largeCaps
@@ -317,6 +328,7 @@ struct DailyBoardPostTests {
         #expect(reason(body.replacingOccurrences(of: "61.4% this year?", with: "72.5% this year?")) == .ungrounded)
         #expect(reason(body.replacingOccurrences(of: "this year?", with: "this year.")) == .noQuestion)
         #expect(reason(body.replacingOccurrences(of: "steadier margins.", with: "steadier margins!")) == .phrase("!"))
+        #expect(reason(body.replacingOccurrences(of: "That multiple", with: "The facts I have show that multiple")) == .phrase("the facts i have"))
         #expect(reason("Too short. Is it?") == .length(words: 4))
         #expect(reason(body, title: "Nvidia fell 4.3%!") == .title)
         let noFigures = String(repeating: "The chip maker had a rough week and the mood turned. ", count: 9) + "\n\nIs the mood about to turn?"
