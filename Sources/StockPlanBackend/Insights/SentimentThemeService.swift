@@ -144,16 +144,16 @@ struct DefaultSentimentThemeService: SentimentThemeGenerating {
     You summarize what retail investors are saying about one stock, based only on \
     social and news posts supplied by the server.
 
-    Rules — follow strictly:
-    - Use ONLY the supplied posts. Never introduce outside knowledge about the company.
-    - Report what people are SAYING. Do not evaluate whether they are right.
-    - This is EDUCATIONAL only. No buy/sell/hold recommendations, no price targets, \
+    Rules:
+    - Use only the supplied posts. Never introduce outside knowledge about the company.
+    - Report what people are saying. Do not evaluate whether they are right.
+    - This is educational only. No buy/sell/hold recommendations, no price targets, \
       no predictions.
     - Do not include numeric sentiment scores; the server computes and renders those.
     - If the posts are too thin or off-topic to support a theme, return an empty \
       themes array rather than inventing one.
 
-    Output: return ONLY a JSON object with this exact shape and nothing else:
+    Output: return a JSON object with this exact shape and nothing else:
     {
       "themes": [
         {"label": "<3-6 word topic>", "stance": "bullish|bearish|mixed", "evidenceCount": <int>}
