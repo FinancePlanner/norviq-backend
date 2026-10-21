@@ -36,7 +36,7 @@ struct CommunityViewer: Sendable {
             throw CodedAbort(
                 status: .forbidden,
                 code: "community_muted",
-                reason: "You're muted on Norviq Boards and can't post, comment or vote right now.",
+                reason: "You're muted in the Norviq community and can't post, comment, vote or chat right now.",
                 details: details.isEmpty ? nil : details
             )
         }
@@ -113,7 +113,7 @@ struct CommunityAccessMiddleware: AsyncMiddleware {
             throw CodedAbort(
                 status: .forbidden,
                 code: "community_banned",
-                reason: "Your access to Norviq Boards has been removed."
+                reason: "Your access to the Norviq community has been removed."
             )
         }
         return try await next.respond(to: request)

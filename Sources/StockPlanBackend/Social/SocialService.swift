@@ -265,10 +265,7 @@ enum SocialService {
         if let existing = try await SocialInvite.query(on: db).filter(\.$userId == userId).first() {
             return inviteDTO(existing.code, config: config)
         }
-        // Collisions over 62^10 are not a practical concern; the unique index
-        // is the backstop, and a retry from the client picks a fresh code.
-        let alphabet = Array("ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789")
-        let code = String((0 ..< 10).map { _ in alphabet.randomElement() ?? "x" })
+        let code = InviteCode.generate()
         try await SocialInvite(userId: userId, code: code).save(on: db)
         return inviteDTO(code, config: config)
     }

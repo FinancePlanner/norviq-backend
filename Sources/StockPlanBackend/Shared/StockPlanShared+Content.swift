@@ -413,6 +413,37 @@ extension UserSanctionListResponse: @retroactive Content {}
 extension BoardReportItem: @retroactive Content {}
 extension BoardReportListResponse: @retroactive Content {}
 
+// MARK: - Groups
+
+extension GroupSummary: @retroactive Content {}
+extension GroupDetail: @retroactive Content {}
+extension GroupChannel: @retroactive Content {}
+extension GroupMembership: @retroactive Content {}
+extension GroupListResponse: @retroactive Content {}
+extension GroupDirectoryPage: @retroactive Content {}
+extension GroupUnreadCount: @retroactive Content {}
+extension CreateGroupRequest: @retroactive Content {}
+extension UpdateGroupRequest: @retroactive Content {}
+extension GroupNotificationSettingsRequest: @retroactive Content {}
+extension GroupMemberPage: @retroactive Content {}
+extension UpdateGroupMemberRequest: @retroactive Content {}
+extension TransferGroupOwnershipRequest: @retroactive Content {}
+extension GroupBanRequest: @retroactive Content {}
+extension CreateGroupChannelRequest: @retroactive Content {}
+extension UpdateGroupChannelRequest: @retroactive Content {}
+extension GroupMessage: @retroactive Content {}
+extension GroupMessagePage: @retroactive Content {}
+extension SendGroupMessageRequest: @retroactive Content {}
+extension MarkGroupChannelReadRequest: @retroactive Content {}
+extension GroupMessageReportRequest: @retroactive Content {}
+extension GroupInviteLink: @retroactive Content {}
+extension GroupInviteLinkList: @retroactive Content {}
+extension CreateGroupInviteRequest: @retroactive Content {}
+extension GroupInvitePreview: @retroactive Content {}
+extension GroupDirectInvitationRequest: @retroactive Content {}
+extension GroupDirectInvitationResponse: @retroactive Content {}
+extension GroupInvitationList: @retroactive Content {}
+
 // MARK: - Articles
 
 extension ArticleWriteRequest: @retroactive Content {}

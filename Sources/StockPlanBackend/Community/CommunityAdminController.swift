@@ -104,7 +104,7 @@ struct CommunityAdminController: RouteCollection {
     @Sendable
     func listReports(req: Request) async throws -> BoardReportListResponse {
         let reports = try await SocialReport.query(on: req.db)
-            .filter(\.$targetType ~~ [CommunityReportTarget.post, CommunityReportTarget.comment])
+            .filter(\.$targetType ~~ [CommunityReportTarget.post, CommunityReportTarget.comment, CommunityReportTarget.groupMessage])
             .filter(\.$status == "open")
             .sort(\.$createdAt, .descending)
             .limit(200)
@@ -115,17 +115,40 @@ struct CommunityAdminController: RouteCollection {
         let postIds = ids + comments.map(\.postId)
         let posts = try await BoardPost.query(on: req.db).withDeleted().filter(\.$id ~~ postIds).all()
         let boards = try await Board.query(on: req.db).withDeleted().filter(\.$id ~~ posts.map(\.boardId)).all()
+        // Group messages keep their body after deletion, so the queue can show it.
+        let messages = try await GroupMessageRecord.query(on: req.db).filter(\.$id ~~ ids).all()
+        let groups = try await GroupRecord.query(on: req.db).withDeleted().filter(\.$id ~~ messages.map(\.groupId)).all()
+        let messageById = Dictionary(messages.compactMap { m in m.id.map { ($0, m) } }, uniquingKeysWith: { a, _ in a })
+        let groupNameById = Dictionary(groups.compactMap { g in g.id.map { ($0, g.name) } }, uniquingKeysWith: { a, _ in a })
 
         let commentById = Dictionary(comments.compactMap { c in c.id.map { ($0, c) } }, uniquingKeysWith: { a, _ in a })
         let postById = Dictionary(posts.compactMap { p in p.id.map { ($0, p) } }, uniquingKeysWith: { a, _ in a })
         let slugById = Dictionary(boards.compactMap { b in b.id.map { ($0, b.slug) } }, uniquingKeysWith: { a, _ in a })
         let names = try await BoardsService.usernames(
-            for: reports.map(\.reporterId) + posts.map(\.authorId) + comments.map(\.authorId),
+            for: reports.map(\.reporterId) + posts.map(\.authorId) + comments.map(\.authorId) + messages.map(\.authorId),
             on: req.db
         )
 
         let items = try reports.map { report -> BoardReportItem in
             let targetId = UUID(uuidString: report.targetId)
+            if report.targetType == CommunityReportTarget.groupMessage {
+                let message = targetId.flatMap { messageById[$0] }
+                return try BoardReportItem(
+                    id: report.requireID(),
+                    reporterUsername: names[report.reporterId],
+                    postId: nil,
+                    commentId: nil,
+                    boardSlug: nil,
+                    excerpt: String((message?.body ?? "(gone)").prefix(280)),
+                    targetAuthorUsername: message.flatMap { names[$0.authorId] },
+                    reason: BoardReportReason(rawValue: report.reason) ?? .other,
+                    note: report.note,
+                    createdAt: report.createdAt ?? Date(),
+                    groupId: message?.groupId,
+                    groupMessageId: message?.id,
+                    groupName: message.flatMap { groupNameById[$0.groupId] }
+                )
+            }
             let isComment = report.targetType == CommunityReportTarget.comment
             let comment = isComment ? targetId.flatMap { commentById[$0] } : nil
             let post = isComment ? comment.flatMap { postById[$0.postId] } : targetId.flatMap { postById[$0] }
