@@ -85,6 +85,12 @@ protocol PushNotificationSending: Sendable {
         devices: [PushDevice],
         req: Request
     ) async -> TargetPushSendSummary
+
+    func sendGroupEvent(
+        message: GroupPushMessage,
+        devices: [PushDevice],
+        req: Request
+    ) async -> TargetPushSendSummary
 }
 
 /// A friend request, or a request that was accepted. The app routes both
@@ -115,6 +121,34 @@ struct BoardPushMessage: Sendable {
 
     var deepLink: String {
         "financeplan://boards/\(boardSlug)/posts/\(postId.uuidString)"
+    }
+}
+
+/// A new message in a group channel, or a direct invitation to a group. The
+/// app opens the channel, or its invitations list.
+struct GroupPushMessage: Sendable {
+    enum Kind: String, Sendable {
+        case message = "group_message"
+        case invite = "group_invite"
+    }
+
+    let kind: Kind
+    let title: String
+    let body: String
+    let groupId: UUID
+    let channelId: UUID?
+    let messageId: UUID?
+
+    var deepLink: String {
+        if kind == .message, let channelId {
+            return "financeplan://groups/\(groupId.uuidString)/channels/\(channelId.uuidString)"
+        }
+        return "financeplan://groups/invitations"
+    }
+
+    /// One notification thread per channel, so a busy channel groups.
+    var threadID: String {
+        channelId.map { "group-channel-\($0.uuidString)" } ?? "group-invites"
     }
 }
 
@@ -166,6 +200,15 @@ extension PushNotificationSending {
 
     func sendMarketBrief(
         message _: MarketBriefPushMessage,
+        devices: [PushDevice],
+        req _: Request
+    ) async -> TargetPushSendSummary {
+        .init(delivered: 0, failed: devices.count)
+    }
+
+    /// Same reasoning as `sendAssistantMessage`: test doubles deliver nothing.
+    func sendGroupEvent(
+        message _: GroupPushMessage,
         devices: [PushDevice],
         req _: Request
     ) async -> TargetPushSendSummary {
@@ -416,6 +459,59 @@ struct APNSPushNotificationSender: PushNotificationSending {
                 failed += 1
                 req.logger.warning(
                     "push.notifications send failed board_event error_type=\(String(reflecting: type(of: error)))"
+                )
+                if isInvalidTokenError(error) {
+                    try? await req.pushDeviceService.deactivate(deviceToken: device.deviceToken, on: req.db)
+                }
+            }
+        }
+        return .init(delivered: delivered, failed: failed)
+    }
+
+    struct GroupEventPayload: Codable {
+        let schemaVersion: Int
+        let type: String
+        let groupId: String
+        let channelId: String?
+        let messageId: String?
+        let deepLink: String
+    }
+
+    func sendGroupEvent(
+        message: GroupPushMessage,
+        devices: [PushDevice],
+        req: Request
+    ) async -> TargetPushSendSummary {
+        guard devices.isEmpty == false else { return .init(delivered: 0, failed: 0) }
+        let notification = APNSAlertNotification(
+            alert: .init(title: .raw(message.title), body: .raw(message.body)),
+            expiration: .immediately,
+            priority: .immediately,
+            topic: topic,
+            payload: GroupEventPayload(
+                schemaVersion: 1,
+                type: message.kind.rawValue,
+                groupId: message.groupId.uuidString,
+                channelId: message.channelId?.uuidString,
+                messageId: message.messageId?.uuidString,
+                deepLink: message.deepLink
+            ),
+            threadID: message.threadID,
+            category: message.kind.rawValue
+        )
+        var delivered = 0
+        var failed = 0
+        for device in devices {
+            do {
+                _ = try await client(for: device, req: req).sendAlertNotification(
+                    notification,
+                    deviceToken: device.deviceToken
+                )
+                delivered += 1
+            } catch {
+                failed += 1
+                req.logger.warning(
+                    "push.notifications send failed group_event error_type=\(String(reflecting: type(of: error)))"
                 )
                 if isInvalidTokenError(error) {
                     try? await req.pushDeviceService.deactivate(deviceToken: device.deviceToken, on: req.db)

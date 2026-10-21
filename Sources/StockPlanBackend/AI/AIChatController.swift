@@ -91,9 +91,7 @@ struct AIChatController: RouteCollection {
         encodedData: String,
         to writer: any AsyncBodyStreamWriter
     ) async throws {
-        var buffer = ByteBufferAllocator().buffer(capacity: event.utf8.count + encodedData.utf8.count + 16)
-        buffer.writeString("event: \(event)\ndata: \(encodedData)\n\n")
-        try await writer.writeBuffer(buffer)
+        try await SSE.writeFrame(event: event, encodedData: encodedData, to: writer)
     }
 }
 
