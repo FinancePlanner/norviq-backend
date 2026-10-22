@@ -15,6 +15,12 @@ struct AchievementContext: Sendable {
     var inTransaction = false
 }
 
+/// Metric values by key, and the keys whose metric failed (absent from `values`).
+struct AchievementMeasurement: Sendable {
+    let values: [String: Int]
+    let failedKeys: Set<String>
+}
+
 /// Turns catalogue keys into numbers for one user. Each value is compared
 /// against the key's tier thresholds; yes/no metrics are 0 or 1. Performance
 /// metrics are only ever 0 or 1 — no return, value or amount is produced here.
@@ -42,16 +48,24 @@ enum AchievementMetrics {
     /// Each metric is isolated: one that fails is logged and left out, so it
     /// can't block the others' unlocks.
     static func measure(userId: UUID, keys: Set<String>, ctx: AchievementContext) async throws -> [String: Int] {
+        try await measurement(userId: userId, keys: keys, ctx: ctx).values
+    }
+
+    /// `measure`, plus the keys whose metric failed (logged and left out of
+    /// `values`). Evaluation needs them: a backfill with a failed metric must
+    /// stay pending, or that key would later unlock as news.
+    static func measurement(userId: UUID, keys: Set<String>, ctx: AchievementContext) async throws -> AchievementMeasurement {
         var result: [String: Int] = [:]
-        guard let sql = ctx.db as? any SQLDatabase else { return result }
+        var failed: Set<String> = []
+        guard let sql = ctx.db as? any SQLDatabase else { return AchievementMeasurement(values: result, failedKeys: failed) }
 
         for key in keys.sorted() {
             guard let query = countQuery(for: key, userId: userId, now: ctx.now) else { continue }
-            result[key] = await isolated([key], sql: sql, ctx: ctx) { try await scalar(query, on: sql) }
+            result[key] = await isolated([key], sql: sql, ctx: ctx, failed: &failed) { try await scalar(query, on: sql) }
         }
 
         let wantedCheckIns = keys.intersection(checkInKeys)
-        if !wantedCheckIns.isEmpty, let longest = await isolated(wantedCheckIns, sql: sql, ctx: ctx, {
+        if !wantedCheckIns.isEmpty, let longest = await isolated(wantedCheckIns, sql: sql, ctx: ctx, failed: &failed, {
             let days = try await XPService.checkInDays(for: [userId], on: ctx.db)[userId] ?? []
             return XPService.longestStreak(days: days)
         }) {
@@ -61,33 +75,35 @@ enum AchievementMetrics {
         }
 
         if keys.contains("craft.diversified") {
-            result["craft.diversified"] = await isolated(["craft.diversified"], sql: sql, ctx: ctx) {
+            result["craft.diversified"] = await isolated(["craft.diversified"], sql: sql, ctx: ctx, failed: &failed) {
                 try await knownSectorCount(userId: userId, ctx: ctx)
             }
         }
 
         if keys.contains("discipline.recap_regular") {
-            result["discipline.recap_regular"] = await isolated(["discipline.recap_regular"], sql: sql, ctx: ctx) {
+            result["discipline.recap_regular"] = await isolated(["discipline.recap_regular"], sql: sql, ctx: ctx, failed: &failed) {
                 try await openedMonthlyRecapStreak(userId: userId, on: sql)
             }
         }
 
         let wantedPerformance = keys.intersection(performanceKeys)
-        if !wantedPerformance.isEmpty, let flags = await isolated(wantedPerformance, sql: sql, ctx: ctx, {
+        if !wantedPerformance.isEmpty, let flags = await isolated(wantedPerformance, sql: sql, ctx: ctx, failed: &failed, {
             try await performance(userId: userId, keys: wantedPerformance, ctx: ctx)
         }) {
             for key in wantedPerformance {
                 result[key] = flags.contains(key) ? 1 : 0
             }
         }
-        return result
+        return AchievementMeasurement(values: result, failedKeys: failed)
     }
 
-    /// Runs one metric. A failure is logged (keys and error type only) and
-    /// returns nil. Inside a transaction the metric runs in a savepoint: in
-    /// Postgres a failed statement would otherwise abort the whole evaluation.
+    /// Runs one metric. A failure is logged (keys and error type only), its
+    /// keys added to `failed`, and returns nil. Inside a transaction the metric
+    /// runs in a savepoint: in Postgres a failed statement would otherwise
+    /// abort the whole evaluation.
     private static func isolated<T>(
-        _ keys: Set<String>, sql: any SQLDatabase, ctx: AchievementContext, _ body: () async throws -> T
+        _ keys: Set<String>, sql: any SQLDatabase, ctx: AchievementContext, failed: inout Set<String>,
+        _ body: () async throws -> T
     ) async -> T? {
         do {
             if ctx.inTransaction {
@@ -98,6 +114,7 @@ enum AchievementMetrics {
             ctx.logger.warning(
                 "achievements.metric failed key=\(keys.sorted().joined(separator: ",")) error=\(String(reflecting: type(of: error)))"
             )
+            failed.formUnion(keys)
             return nil
         }
     }

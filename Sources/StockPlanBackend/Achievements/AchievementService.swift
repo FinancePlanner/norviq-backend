@@ -70,9 +70,10 @@ enum AchievementService {
             let definitions = AchievementCatalogue.all.filter { effectiveScope == .sweep || !$0.sweepOnly }
 
             let txCtx = AchievementContext(db: tx, logger: ctx.logger, app: ctx.app, now: ctx.now, inTransaction: true)
-            let metrics = try await AchievementMetrics.measure(
+            let measurement = try await AchievementMetrics.measurement(
                 userId: userId, keys: Set(definitions.map(\.key)), ctx: txCtx
             )
+            let metrics = measurement.values
             let held = try await UserAchievement.query(on: tx)
                 .filter(\.$user.$id == userId)
                 .all()
@@ -104,12 +105,19 @@ enum AchievementService {
                 }
             }
 
+            // A backfill with a failed metric stays pending (and unswept), so
+            // the next run retries it as backfill; what did unlock is kept and
+            // skipped next time. Clearing it would let the failed keys unlock
+            // later as live news with leaderboard XP.
+            let backfillPending = needsBackfill && !measurement.failedKeys.isEmpty
             var update = AchievementEvaluation.query(on: tx)
                 .filter(\.$userId == userId)
-                .set(\.$needsBackfill, to: false)
                 .set(\.$lastEvaluatedAt, to: ctx.now)
-            if effectiveScope == .sweep {
-                update = update.set(\.$lastSweptAt, to: ctx.now)
+            if !backfillPending {
+                update = update.set(\.$needsBackfill, to: false)
+                if effectiveScope == .sweep {
+                    update = update.set(\.$lastSweptAt, to: ctx.now)
+                }
             }
             try await update.update()
             return inserted

@@ -389,4 +389,58 @@ struct AchievementServiceTests {
             #expect(evaluation.lastSweptAt != nil)
         }
     }
+
+    @Test("A metric failure during backfill leaves the backfill pending until it succeeds")
+    func failedMetricKeepsBackfillPending() async throws {
+        try await withApp(activated: false) { app in
+            let user = try await register(app, "bfretry")
+            try await addStock(app, userId: user.userId)
+            // start.first_goal measures 1 from onboarding state, once its query
+            // (which also reads `goals`) can run.
+            let onboarding = try await OnboardingState.query(on: app.db).filter(\.$userId == user.userId).first()
+                ?? { let state = OnboardingState(); state.userId = user.userId; return state }()
+            onboarding.firstGoalAt = Date()
+            try await onboarding.save(on: app.db)
+            let sql = try #require(app.db as? any SQLDatabase)
+            let now = Date().addingTimeInterval(1)
+
+            // The user predates activation (first evaluation), so this is a backfill.
+            // Break every metric that reads `goals`, start.first_goal among them.
+            try await sql.raw("ALTER TABLE goals RENAME TO goals_hidden").run()
+            let firstRun: Result<[UserAchievement], any Error>
+            do {
+                firstRun = try await .success(AchievementService.evaluate(
+                    userId: user.userId, scope: .live, ctx: context(app, now: now)
+                ))
+            } catch {
+                firstRun = .failure(error)
+            }
+            try await sql.raw("ALTER TABLE goals_hidden RENAME TO goals").run()
+
+            let first = try firstRun.get()
+            #expect(first.contains { $0.achievementKey == "start.first_holding" })
+            #expect(!first.contains { $0.achievementKey == "start.first_goal" })
+            #expect(first.allSatisfy { $0.source == AchievementSource.backfill.rawValue && $0.seenAt != nil })
+            let pending = try #require(try await AchievementEvaluation.query(on: app.db)
+                .filter(\.$userId == user.userId).first())
+            #expect(pending.needsBackfill == true)
+            #expect(pending.lastSweptAt == nil)
+
+            // Table back: the retry is still a backfill and finishes it.
+            let second = try await AchievementService.evaluate(
+                userId: user.userId, scope: .live, ctx: context(app, now: now.addingTimeInterval(60))
+            )
+            #expect(!second.contains { $0.achievementKey == "start.first_holding" })
+            let goal = try #require(second.first { $0.achievementKey == "start.first_goal" })
+            #expect(goal.source == AchievementSource.backfill.rawValue)
+            #expect(goal.seenAt != nil)
+            let xp = try #require(try await xpEvents(app, userId: user.userId)
+                .first { $0.dedupeKey == "achievement:start.first_goal:" })
+            #expect(xp.excludeFromLeaderboard == true)
+            let done = try #require(try await AchievementEvaluation.query(on: app.db)
+                .filter(\.$userId == user.userId).first())
+            #expect(done.needsBackfill == false)
+            #expect(done.lastSweptAt != nil)
+        }
+    }
 }
