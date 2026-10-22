@@ -280,7 +280,7 @@ struct DigestRunnerTests {
             let other = try await registerUser(app)
             _ = try await runner(app).runDue(now: sundayEvening, on: Request(application: app, on: app.eventLoopGroup.next()))
             let digest = try #require(try await WeeklyDigest.query(on: app.db).filter(\.$userId == owner.id).first())
-            let path = "v1/digests/\(try digest.requireID())"
+            let path = try "v1/digests/\(digest.requireID())"
 
             try await app.testing().test(.GET, path, beforeRequest: { req in
                 req.headers.bearerAuthorization = .init(token: owner.token)

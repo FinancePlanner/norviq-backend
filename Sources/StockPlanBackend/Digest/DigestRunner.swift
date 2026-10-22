@@ -40,9 +40,7 @@ struct DigestRunner: Sendable {
                   let timeZone = TimeZone(identifier: preference.timezone),
                   let period = DigestSchedule.duePeriod(
                       now: now, timeZone: timeZone, weekday: preference.weekday, localHour: preference.localHour
-                  )
-            else { continue }
-            guard try await DigestFactsCollector.isEligible(userId: preference.userId, on: req.db) else { continue }
+                  ), try await DigestFactsCollector.isEligible(userId: preference.userId, on: req.db) else { continue }
             switch try await run(preference: preference, period: period, on: req) {
             case .alreadyClaimed:
                 continue
@@ -106,10 +104,7 @@ struct DigestRunner: Sendable {
         on req: Request
     ) async -> Bool {
         do {
-            guard let deliveryId = try await claimDelivery(digestId: digestId, channel: .email, on: req.db) else {
-                return false
-            }
-            guard let user = try await User.find(preference.userId, on: req.db) else { return false }
+            guard let deliveryId = try await claimDelivery(digestId: digestId, channel: .email, on: req.db), let user = try await User.find(preference.userId, on: req.db) else { return false }
             // Unverified addresses bounce, and bounces cost the domain that
             // also delivers MFA codes.
             guard user.emailVerifiedAt != nil else {
@@ -168,7 +163,9 @@ struct DigestRunner: Sendable {
         guard let delivery = try await WeeklyDigestDelivery.find(id, on: db) else { return }
         delivery.status = status.rawValue
         delivery.error = error.map { String($0.prefix(500)) }
-        if status == .sent { delivery.sentAt = Date() }
+        if status == .sent {
+            delivery.sentAt = Date()
+        }
         try await delivery.save(on: db)
     }
 

@@ -105,7 +105,9 @@ struct DigestFactsCollector: Sendable {
     /// Whether the user has anything a digest could describe.
     static func isEligible(userId: UUID, on db: any Database) async throws -> Bool {
         let holds = try await Stock.query(on: db).filter(\.$userId == userId).filter(\.$shares > 0).count() > 0
-        if holds { return true }
+        if holds {
+            return true
+        }
         return try await BankConnection.query(on: db)
             .filter(\.$userId == userId)
             .filter(\.$status == BankConnectionStatus.active.rawValue)

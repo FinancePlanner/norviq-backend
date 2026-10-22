@@ -17,45 +17,45 @@ struct DigestScheduleTests {
     @Test("Due on the chosen weekday once the local hour has passed")
     func dueAfterLocalHour() throws {
         // 2026-10-18 is a Sunday; Lisbon is UTC+1 (summer time), so 18:00 local = 17:00Z.
-        let due = DigestSchedule.duePeriod(now: try utc(2026, 10, 18, 17, 5), timeZone: lisbon, weekday: 7, localHour: 18)
+        let due = try DigestSchedule.duePeriod(now: utc(2026, 10, 18, 17, 5), timeZone: lisbon, weekday: 7, localHour: 18)
         #expect(due == .init(start: "2026-10-12", end: "2026-10-18"))
-        #expect(DigestSchedule.duePeriod(now: try utc(2026, 10, 18, 16, 59), timeZone: lisbon, weekday: 7, localHour: 18) == nil)
+        #expect(try DigestSchedule.duePeriod(now: utc(2026, 10, 18, 16, 59), timeZone: lisbon, weekday: 7, localHour: 18) == nil)
     }
 
     @Test("Not due on other weekdays")
     func otherWeekday() throws {
         // Monday 2026-10-19, 18:30 Lisbon.
-        #expect(DigestSchedule.duePeriod(now: try utc(2026, 10, 19, 17, 30), timeZone: lisbon, weekday: 7, localHour: 18) == nil)
+        #expect(try DigestSchedule.duePeriod(now: utc(2026, 10, 19, 17, 30), timeZone: lisbon, weekday: 7, localHour: 18) == nil)
     }
 
     @Test("Lisbon autumn DST Sunday: 18:00 local is 18:00Z")
     func lisbonAutumnDST() throws {
         // Clocks go back at 02:00 on Sunday 2026-10-25; from then on Lisbon is UTC+0.
-        #expect(DigestSchedule.duePeriod(now: try utc(2026, 10, 25, 17, 59), timeZone: lisbon, weekday: 7, localHour: 18) == nil)
-        let due = DigestSchedule.duePeriod(now: try utc(2026, 10, 25, 18, 0), timeZone: lisbon, weekday: 7, localHour: 18)
+        #expect(try DigestSchedule.duePeriod(now: utc(2026, 10, 25, 17, 59), timeZone: lisbon, weekday: 7, localHour: 18) == nil)
+        let due = try DigestSchedule.duePeriod(now: utc(2026, 10, 25, 18, 0), timeZone: lisbon, weekday: 7, localHour: 18)
         #expect(due == .init(start: "2026-10-19", end: "2026-10-25"))
     }
 
     @Test("Lisbon spring DST Sunday: 18:00 local is 17:00Z")
     func lisbonSpringDST() throws {
         // Clocks go forward at 01:00Z on Sunday 2027-03-28; from then on Lisbon is UTC+1.
-        #expect(DigestSchedule.duePeriod(now: try utc(2027, 3, 28, 16, 59), timeZone: lisbon, weekday: 7, localHour: 18) == nil)
-        let due = DigestSchedule.duePeriod(now: try utc(2027, 3, 28, 17, 0), timeZone: lisbon, weekday: 7, localHour: 18)
+        #expect(try DigestSchedule.duePeriod(now: utc(2027, 3, 28, 16, 59), timeZone: lisbon, weekday: 7, localHour: 18) == nil)
+        let due = try DigestSchedule.duePeriod(now: utc(2027, 3, 28, 17, 0), timeZone: lisbon, weekday: 7, localHour: 18)
         #expect(due == .init(start: "2027-03-22", end: "2027-03-28"))
     }
 
     @Test("New York DST end: 18:00 EST is 23:00Z")
     func newYorkDST() throws {
         // US clocks go back on Sunday 2026-11-01.
-        #expect(DigestSchedule.duePeriod(now: try utc(2026, 11, 1, 22, 59), timeZone: newYork, weekday: 7, localHour: 18) == nil)
-        #expect(DigestSchedule.duePeriod(now: try utc(2026, 11, 1, 23, 0), timeZone: newYork, weekday: 7, localHour: 18) != nil)
+        #expect(try DigestSchedule.duePeriod(now: utc(2026, 11, 1, 22, 59), timeZone: newYork, weekday: 7, localHour: 18) == nil)
+        #expect(try DigestSchedule.duePeriod(now: utc(2026, 11, 1, 23, 0), timeZone: newYork, weekday: 7, localHour: 18) != nil)
     }
 
     @Test("Stops being due six hours after the send time")
     func lateness() throws {
-        let zone = TimeZone(identifier: "UTC")!
-        #expect(DigestSchedule.duePeriod(now: try utc(2026, 10, 18, 16, 0), timeZone: zone, weekday: 7, localHour: 10) != nil)
-        #expect(DigestSchedule.duePeriod(now: try utc(2026, 10, 18, 16, 1), timeZone: zone, weekday: 7, localHour: 10) == nil)
+        let zone = try #require(TimeZone(identifier: "UTC"))
+        #expect(try DigestSchedule.duePeriod(now: utc(2026, 10, 18, 16, 0), timeZone: zone, weekday: 7, localHour: 10) != nil)
+        #expect(try DigestSchedule.duePeriod(now: utc(2026, 10, 18, 16, 1), timeZone: zone, weekday: 7, localHour: 10) == nil)
     }
 
     @Test("Day shifting crosses month and year boundaries")

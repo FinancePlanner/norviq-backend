@@ -20,9 +20,7 @@ enum DigestSchedule {
     static func duePeriod(now: Date, timeZone: TimeZone, weekday: Int, localHour: Int) -> Period? {
         let calendar = calendar(in: timeZone)
         let parts = calendar.dateComponents([.weekday, .hour], from: now)
-        guard let calendarWeekday = parts.weekday, let hour = parts.hour else { return nil }
-        guard isoWeekday(fromCalendarWeekday: calendarWeekday) == weekday, hour >= localHour else { return nil }
-        guard let sendAt = calendar.date(bySettingHour: localHour, minute: 0, second: 0, of: now),
+        guard let calendarWeekday = parts.weekday, let hour = parts.hour, isoWeekday(fromCalendarWeekday: calendarWeekday) == weekday, hour >= localHour, let sendAt = calendar.date(bySettingHour: localHour, minute: 0, second: 0, of: now),
               now.timeIntervalSince(sendAt) <= maxLateness
         else { return nil }
         return period(endingOn: now, timeZone: timeZone)

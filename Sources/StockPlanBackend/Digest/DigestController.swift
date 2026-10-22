@@ -89,13 +89,27 @@ struct DigestController: RouteCollection {
         try Self.validate(update)
         let row = try await DigestPreference.query(on: req.db).filter(\.$userId == session.userId).first()
             ?? DigestPreference(userId: session.userId)
-        if let value = update.emailEnabled { row.emailEnabled = value }
-        if let value = update.pushEnabled { row.pushEnabled = value }
-        if let value = update.telegramEnabled { row.telegramEnabled = value }
-        if let value = update.sentimentAlertsEnabled { row.sentimentAlertsEnabled = value }
-        if let value = update.weekday { row.weekday = value }
-        if let value = update.localHour { row.localHour = value }
-        if let value = update.timezone { row.timezone = value }
+        if let value = update.emailEnabled {
+            row.emailEnabled = value
+        }
+        if let value = update.pushEnabled {
+            row.pushEnabled = value
+        }
+        if let value = update.telegramEnabled {
+            row.telegramEnabled = value
+        }
+        if let value = update.sentimentAlertsEnabled {
+            row.sentimentAlertsEnabled = value
+        }
+        if let value = update.weekday {
+            row.weekday = value
+        }
+        if let value = update.localHour {
+            row.localHour = value
+        }
+        if let value = update.timezone {
+            row.timezone = value
+        }
         if let value = update.country {
             row.country = value.isEmpty ? nil : MacroCountry(query: value)?.rawValue
         }

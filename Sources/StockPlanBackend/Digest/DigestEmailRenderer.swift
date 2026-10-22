@@ -74,7 +74,9 @@ struct DigestEmailRenderer: Sendable {
         if !payload.holdings.isEmpty {
             var lines = payload.holdings.map { move in
                 var line = "\(DigestComposer.signedMoney(move.change, currency: move.currency))"
-                if let pct = move.changePercent { line += " (\(DigestComposer.signedPercent(pct)))" }
+                if let pct = move.changePercent {
+                    line += " (\(DigestComposer.signedPercent(pct)))"
+                }
                 return line + ", now \(DigestComposer.money(move.endValue, currency: move.currency))"
             }
             if payload.pricedPositions < payload.totalPositions {
@@ -86,7 +88,9 @@ struct DigestEmailRenderer: Sendable {
             let lines = payload.movers.map { mover in
                 var line = "\(mover.symbol) \(DigestComposer.signedPercent(mover.changePercent)): "
                     + "\(DigestComposer.signedMoney(mover.contribution, currency: mover.currency))"
-                if let why = mover.why, !why.isEmpty { line += ". \(why)" }
+                if let why = mover.why, !why.isEmpty {
+                    line += ". \(why)"
+                }
                 return line
             }
             result.append(Section(anchor: "movers", title: "Top movers", lines: lines))
