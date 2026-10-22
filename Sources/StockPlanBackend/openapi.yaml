@@ -10529,6 +10529,124 @@ paths:
         '403': { description: Token lacks planning:write }
         '404': { description: Unknown or foreign recap or recaps disabled }
 
+  /v1/digests:
+    get:
+      operationId: listDigests
+      tags: [Digest]
+      summary: The user's recent weekly digests
+      description: Newest first, at most 12. Only digests that were composed.
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DigestListResponse'
+        '401':
+          description: Unauthorized
+        '403':
+          description: Token lacks the portfolio:read scope
+        '404':
+          description: Weekly digest is not enabled
+  /v1/digests/{digestId}:
+    get:
+      operationId: getDigest
+      tags: [Digest]
+      summary: One weekly digest
+      description: Another user's digest answers 404, the same as a missing one.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: digestId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DigestResponse'
+        '401':
+          description: Unauthorized
+        '404':
+          description: Not found, or weekly digest is not enabled
+  /v1/digest-preferences:
+    get:
+      operationId: getDigestPreferences
+      tags: [Digest, Notifications]
+      summary: Weekly digest channels and schedule
+      description: >-
+        `decided` is false until the user has saved preferences once; clients
+        show the opt-in card while it is false.
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DigestPreferences'
+        '401':
+          description: Unauthorized
+        '403':
+          description: Token lacks the notifications:read scope
+        '404':
+          description: Weekly digest is not enabled
+    put:
+      operationId: updateDigestPreferences
+      tags: [Digest, Notifications]
+      summary: Change weekly digest channels or schedule
+      description: Only the fields sent are changed. Clients send the device time zone.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DigestPreferencesUpdate'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DigestPreferences'
+        '400':
+          description: Invalid weekday, hour, time zone or country
+        '401':
+          description: Unauthorized
+        '403':
+          description: Token lacks the notifications:write scope
+        '404':
+          description: Weekly digest is not enabled
+  /v1/digest/unsubscribe:
+    post:
+      operationId: unsubscribeDigest
+      tags: [Digest]
+      summary: One-click unsubscribe (RFC 8058)
+      description: >-
+        Public; the token from the email is the only credential. Turns off the
+        email channel only. Always answers 200, whether or not the token matched.
+      parameters:
+        - name: token
+          in: query
+          required: true
+          schema: { type: string, maxLength: 128 }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DigestUnsubscribeResponse'
+        '400':
+          description: Missing token
 components:
   parameters:
     ScenarioResourceID:
@@ -14974,6 +15092,141 @@ components:
           type: string
           format: date
       required: [slot, tradingDate]
+    DigestPreferences:
+      type: object
+      properties:
+        decided: { type: boolean }
+        emailEnabled: { type: boolean }
+        pushEnabled: { type: boolean }
+        telegramEnabled: { type: boolean }
+        sentimentAlertsEnabled: { type: boolean }
+        weekday: { type: integer, minimum: 1, maximum: 7, description: 'ISO weekday, 7 = Sunday' }
+        localHour: { type: integer, minimum: 0, maximum: 23 }
+        timezone: { type: string, description: IANA identifier }
+        country: { type: string, nullable: true, description: 'Personal-inflation country; null skips that section' }
+      required: [decided, emailEnabled, pushEnabled, telegramEnabled, sentimentAlertsEnabled, weekday, localHour, timezone]
+    DigestPreferencesUpdate:
+      type: object
+      properties:
+        emailEnabled: { type: boolean }
+        pushEnabled: { type: boolean }
+        telegramEnabled: { type: boolean }
+        sentimentAlertsEnabled: { type: boolean }
+        weekday: { type: integer, minimum: 1, maximum: 7 }
+        localHour: { type: integer, minimum: 0, maximum: 23 }
+        timezone: { type: string }
+        country: { type: string, description: 'Empty string clears it' }
+    DigestSummary:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        periodStart: { type: string, description: yyyy-MM-dd }
+        periodEnd: { type: string, description: yyyy-MM-dd }
+        status: { type: string, enum: [pending, composed, sent, failed] }
+        headline: { type: string }
+      required: [id, periodStart, periodEnd, status, headline]
+    DigestListResponse:
+      type: object
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/DigestSummary' }
+      required: [items]
+    DigestResponse:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        periodStart: { type: string }
+        periodEnd: { type: string }
+        status: { type: string, enum: [pending, composed, sent, failed] }
+        headline: { type: string }
+        payload: { $ref: '#/components/schemas/DigestPayload' }
+        narrative: { type: string, nullable: true }
+        createdAt: { type: string, format: date-time, nullable: true }
+      required: [id, periodStart, periodEnd, status, headline, payload]
+    DigestPayload:
+      type: object
+      description: Every number in the digest, computed server-side from closing prices and the budget.
+      properties:
+        schemaVersion: { type: integer }
+        periodStart: { type: string }
+        periodEnd: { type: string }
+        holdings:
+          type: array
+          items: { $ref: '#/components/schemas/DigestCurrencyMove' }
+        pricedPositions: { type: integer }
+        totalPositions: { type: integer }
+        movers:
+          type: array
+          items: { $ref: '#/components/schemas/DigestMover' }
+        budget: { $ref: '#/components/schemas/DigestBudget' }
+        inflation: { $ref: '#/components/schemas/DigestInflation' }
+        inflationAsOfSeen: { type: string, nullable: true }
+        earnings:
+          type: array
+          items: { $ref: '#/components/schemas/DigestEarning' }
+      required: [schemaVersion, periodStart, periodEnd, holdings, pricedPositions, totalPositions, movers, earnings]
+    DigestCurrencyMove:
+      type: object
+      properties:
+        currency: { type: string }
+        startValue: { type: number, format: double }
+        endValue: { type: number, format: double }
+        change: { type: number, format: double }
+        changePercent: { type: number, format: double, nullable: true }
+      required: [currency, startValue, endValue, change]
+    DigestMover:
+      type: object
+      properties:
+        symbol: { type: string }
+        currency: { type: string }
+        shares: { type: number, format: double }
+        startPrice: { type: number, format: double }
+        endPrice: { type: number, format: double }
+        contribution: { type: number, format: double }
+        changePercent: { type: number, format: double }
+        why: { type: string, nullable: true }
+      required: [symbol, currency, shares, startPrice, endPrice, contribution, changePercent]
+    DigestBudget:
+      type: object
+      nullable: true
+      properties:
+        monthStart: { type: string }
+        currency: { type: string }
+        lines:
+          type: array
+          items: { $ref: '#/components/schemas/DigestBudgetLine' }
+      required: [monthStart, currency, lines]
+    DigestBudgetLine:
+      type: object
+      properties:
+        title: { type: string }
+        target: { type: number, format: double }
+        actual: { type: number, format: double }
+        drift: { type: number, format: double, description: 'actual - target; positive is over budget' }
+        driftPercent: { type: number, format: double, nullable: true }
+      required: [title, target, actual, drift]
+    DigestInflation:
+      type: object
+      nullable: true
+      properties:
+        country: { type: string }
+        asOf: { type: string }
+        personalRate: { type: number, format: double }
+        officialRate: { type: number, format: double }
+      required: [country, asOf, personalRate, officialRate]
+    DigestEarning:
+      type: object
+      properties:
+        symbol: { type: string }
+        date: { type: string }
+        hour: { type: string, nullable: true }
+      required: [symbol, date]
+    DigestUnsubscribeResponse:
+      type: object
+      properties:
+        unsubscribed: { type: boolean }
+      required: [unsubscribed]
     MarketBriefNotificationPreferences:
       type: object
       properties:

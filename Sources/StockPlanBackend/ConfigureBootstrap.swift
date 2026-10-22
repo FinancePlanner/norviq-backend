@@ -453,6 +453,7 @@ func registerMigrations(_ app: Application) {
     app.migrations.add(AddBankAccountIdentificationHash())
     app.migrations.add(CreateGroupsTables())
     app.migrations.add(CreateAchievementTables())
+    app.migrations.add(CreateDigestTables())
 }
 
 func envBool(_ key: String, default defaultValue: Bool) -> Bool {

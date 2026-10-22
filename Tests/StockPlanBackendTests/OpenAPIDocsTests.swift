@@ -417,6 +417,20 @@ struct OpenAPIDocsTests {
         }
     }
 
+    @Test("Weekly digest routes and schemas are documented")
+    func digestIsDocumented() throws {
+        let body = try BundledOpenAPISpec.yamlString()
+        for operation in ["listDigests", "getDigest", "getDigestPreferences", "updateDigestPreferences", "unsubscribeDigest"] {
+            #expect(body.contains("operationId: \(operation)"), "missing \(operation)")
+        }
+        for schema in [
+            "DigestPreferences", "DigestPreferencesUpdate", "DigestListResponse", "DigestSummary", "DigestResponse",
+            "DigestPayload", "DigestCurrencyMove", "DigestMover", "DigestBudget", "DigestInflation", "DigestEarning",
+        ] {
+            #expect(body.contains("    \(schema):"), "missing schema \(schema)")
+        }
+    }
+
     @Test("Recap routes and schemas are documented")
     func recapsAreDocumented() throws {
         let body = try BundledOpenAPISpec.yamlString()
