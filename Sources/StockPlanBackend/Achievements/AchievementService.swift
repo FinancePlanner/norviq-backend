@@ -105,19 +105,19 @@ enum AchievementService {
                 }
             }
 
-            // A backfill with a failed metric stays pending (and unswept), so
-            // the next run retries it as backfill; what did unlock is kept and
-            // skipped next time. Clearing it would let the failed keys unlock
-            // later as live news with leaderboard XP.
+            // A backfill with a failed metric stays pending, so the next run
+            // (the next daily sweep or live evaluation) retries it as backfill;
+            // what did unlock is kept and skipped next time. Clearing it would
+            // let the failed keys unlock later as live news with leaderboard XP.
+            // The run is still stamped as swept: otherwise a metric broken for
+            // everyone would keep the same users first in the sweep every hour.
             let backfillPending = needsBackfill && !measurement.failedKeys.isEmpty
             var update = AchievementEvaluation.query(on: tx)
                 .filter(\.$userId == userId)
+                .set(\.$needsBackfill, to: backfillPending)
                 .set(\.$lastEvaluatedAt, to: ctx.now)
-            if !backfillPending {
-                update = update.set(\.$needsBackfill, to: false)
-                if effectiveScope == .sweep {
-                    update = update.set(\.$lastSweptAt, to: ctx.now)
-                }
+            if effectiveScope == .sweep {
+                update = update.set(\.$lastSweptAt, to: ctx.now)
             }
             try await update.update()
             return inserted

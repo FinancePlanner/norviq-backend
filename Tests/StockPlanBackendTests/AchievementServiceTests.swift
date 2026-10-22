@@ -424,9 +424,13 @@ struct AchievementServiceTests {
             let pending = try #require(try await AchievementEvaluation.query(on: app.db)
                 .filter(\.$userId == user.userId).first())
             #expect(pending.needsBackfill == true)
-            #expect(pending.lastSweptAt == nil)
+            // Stamped as swept anyway, so the sweep isn't starved; the retry
+            // comes from the next daily sweep or live evaluation.
+            #expect(pending.lastSweptAt != nil)
+            #expect(pending.lastEvaluatedAt != nil)
 
-            // Table back: the retry is still a backfill and finishes it.
+            // Table back: needs_backfill forces sweep scope, so the retry is
+            // still a backfill and finishes it.
             let second = try await AchievementService.evaluate(
                 userId: user.userId, scope: .live, ctx: context(app, now: now.addingTimeInterval(60))
             )
