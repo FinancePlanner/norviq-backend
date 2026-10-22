@@ -62,13 +62,15 @@ struct AchievementSweepJobTests {
     @Test("Sweeps due users in batches")
     func runOnceSweepsDueUsers() async throws {
         try await withApp { app in
-            let ids = [try await register(app, "b1"), try await register(app, "b2"), try await register(app, "b3")]
+            let ids = try await [register(app, "b1"), register(app, "b2"), register(app, "b3")]
             // Everyone else is fresh, so only our three are due.
             try await AchievementEvaluation.query(on: app.db).set(\.$lastSweptAt, to: Date()).update()
             try await AchievementEvaluation.query(on: app.db).filter(\.$userId ~~ ids).set(\.$lastSweptAt, to: nil).update()
             await AchievementSweepJob(batchSize: 2).runOnce(app)
             var swept = 0
-            for id in ids where try await evaluation(app, id)?.lastSweptAt != nil { swept += 1 }
+            for id in ids where try await evaluation(app, id)?.lastSweptAt != nil {
+                swept += 1
+            }
             #expect(swept == 2)
             await AchievementSweepJob(batchSize: 2).runOnce(app)
             for id in ids {

@@ -246,7 +246,9 @@ enum AchievementCatalogue {
     private static let byKey: [String: AchievementDefinition] =
         Dictionary(uniqueKeysWithValues: all.map { ($0.key, $0) })
 
-    static func definition(_ key: String) -> AchievementDefinition? { byKey[key] }
+    static func definition(_ key: String) -> AchievementDefinition? {
+        byKey[key]
+    }
 
     private static let legacyPT: [BadgeType: (String, String)] = [
         .firstPurchase: ("Primeira compra", "Compra a tua primeira ação"),
@@ -262,7 +264,7 @@ enum AchievementCatalogue {
         let legacy = BadgeDefinitions.definition(for: badge)
         let xp = [XPRules.badge(.bronze), XPRules.badge(.silver), XPRules.badge(.gold)]
         let thresholds = [legacy.bronzeThreshold, legacy.silverThreshold, legacy.goldThreshold]
-        let specs = (0..<3).map {
+        let specs = (0 ..< 3).map {
             AchievementTierSpec(tier: tierNames[$0], threshold: thresholds[$0], xp: xp[$0])
         }
         let pt = legacyPT[badge] ?? (legacy.title, legacy.description)

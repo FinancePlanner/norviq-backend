@@ -12,7 +12,11 @@ import VaporTesting
 struct AchievementRouteTests {
     private func withApp(enabled: Bool = true, _ test: (Application) async throws -> Void) async throws {
         try await DatabaseTestLock.withLock {
-            if enabled { setenv("ACHIEVEMENTS_ENABLED", "1", 1) } else { unsetenv("ACHIEVEMENTS_ENABLED") }
+            if enabled {
+                setenv("ACHIEVEMENTS_ENABLED", "1", 1)
+            } else {
+                unsetenv("ACHIEVEMENTS_ENABLED")
+            }
             setenv("SOCIAL_ENABLED", "1", 1)
             defer {
                 unsetenv("ACHIEVEMENTS_ENABLED")
@@ -67,11 +71,17 @@ struct AchievementRouteTests {
         var out: T?
         try await app.testing().test(method, path, beforeRequest: { req in
             req.headers.bearerAuthorization = .init(token: token)
-            if let language { req.headers.replaceOrAdd(name: .acceptLanguage, value: language) }
-            if let body { try req.content.encode(body) }
+            if let language {
+                req.headers.replaceOrAdd(name: .acceptLanguage, value: language)
+            }
+            if let body {
+                try req.content.encode(body)
+            }
         }, afterResponse: { res async throws in
             #expect(res.status == status)
-            if res.status == .ok { out = try res.content.decode(T.self) }
+            if res.status == .ok {
+                out = try res.content.decode(T.self)
+            }
         })
         return try #require(out)
     }
@@ -82,14 +92,18 @@ struct AchievementRouteTests {
         var result: HTTPStatus = .internalServerError
         try await app.testing().test(method, path, beforeRequest: { req in
             req.headers.bearerAuthorization = .init(token: token)
-            if let body { try req.content.encode(body) }
+            if let body {
+                try req.content.encode(body)
+            }
         }, afterResponse: { res async throws in result = res.status })
         return result
     }
 
     private func insert(_ app: Application, userId: UUID, key: String, tier: String = "", source: AchievementSource = .live, seen: Bool = false, at: Date = Date()) async throws {
         let row = UserAchievement(userId: userId, achievementKey: key, tier: tier, unlockedAt: at, source: source)
-        if seen { row.seenAt = at }
+        if seen {
+            row.seenAt = at
+        }
         try await row.save(on: app.db)
     }
 
@@ -126,7 +140,9 @@ struct AchievementRouteTests {
             #expect(founding.state == "earned")
             #expect(founding.title == "Founding Member")
 
-            for perf in list.achievements where perf.isPerformance { #expect(perf.progress == nil) }
+            for perf in list.achievements where perf.isPerformance {
+                #expect(perf.progress == nil)
+            }
             #expect(!list.categories.contains { $0.key == "classic" })
             #expect(!list.achievements.contains { $0.key.hasPrefix("legacy.") })
             #expect(list.summary.unlocked >= 1)
@@ -186,7 +202,7 @@ struct AchievementRouteTests {
 
             let one = try #require(unseen.first?.id)
             #expect(try await status(app, .POST, "v1/achievements/seen", token: user.token,
-                                     body: AchievementSeenBody(ids: [one, try #require(otherRow.id)])) == .noContent)
+                                     body: AchievementSeenBody(ids: [one, #require(otherRow.id)])) == .noContent)
             let after = try await call(app, .GET, "v1/achievements/unseen", token: user.token, as: [AchievementUnlockDTO].self)
             #expect(after.map(\.key) == ["start.first_budget"])
 
@@ -231,7 +247,13 @@ struct AchievementRouteTests {
             )
             func ranks(_ list: AchievementsResponseDTO) -> [String: Int] {
                 var out: [String: Int] = [:]
-                for item in list.achievements { for tier in item.tiers { if let rank = tier.showcaseRank { out[item.key] = rank } } }
+                for item in list.achievements {
+                    for tier in item.tiers {
+                        if let rank = tier.showcaseRank {
+                            out[item.key] = rank
+                        }
+                    }
+                }
                 return out
             }
             #expect(ranks(result) == ["start.first_budget": 1, "start.first_holding": 2])

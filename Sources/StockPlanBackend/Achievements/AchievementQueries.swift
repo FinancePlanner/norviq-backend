@@ -11,7 +11,9 @@ extension AchievementService {
 
     /// Definition for a stored key, including `legacy.<BadgeType>` keys.
     private static func definition(forKey key: String) -> AchievementDefinition? {
-        if let found = AchievementCatalogue.definition(key) { return found }
+        if let found = AchievementCatalogue.definition(key) {
+            return found
+        }
         guard key.hasPrefix("legacy."), let badge = BadgeType(rawValue: String(key.dropFirst("legacy.".count))) else { return nil }
         return AchievementCatalogue.legacyDefinition(for: badge)
     }
@@ -23,11 +25,15 @@ extension AchievementService {
     static func list(userId: UUID, language: AchievementLanguage, ctx: AchievementContext) async throws -> AchievementsResponseDTO {
         let rows = try await UserAchievement.query(on: ctx.db).filter(\.$user.$id == userId).all()
         var rowsByKey: [String: [String: UserAchievement]] = [:]
-        for row in rows { rowsByKey[row.achievementKey, default: [:]][row.tier] = row }
+        for row in rows {
+            rowsByKey[row.achievementKey, default: [:]][row.tier] = row
+        }
 
         let hasLegacy = rows.contains { $0.achievementKey.hasPrefix("legacy.") }
         var definitions = AchievementCatalogue.all
-        if hasLegacy { definitions += BadgeType.allCases.map { AchievementCatalogue.legacyDefinition(for: $0) } }
+        if hasLegacy {
+            definitions += BadgeType.allCases.map { AchievementCatalogue.legacyDefinition(for: $0) }
+        }
 
         func earnedCount(_ definition: AchievementDefinition) -> Int {
             definition.tiers.filter { rowsByKey[definition.key]?[$0.tier] != nil }.count
@@ -57,7 +63,9 @@ extension AchievementService {
                 total += definition.tiers.count
                 unlocked += earned
             }
-            if definition.isHidden, !maxed { hiddenRemaining += 1 }
+            if definition.isHidden, !maxed {
+                hiddenRemaining += 1
+            }
 
             if definition.isHidden, earned == 0 {
                 dtos.append(AchievementDTO(
@@ -76,7 +84,8 @@ extension AchievementService {
             let heldTiers = definition.tiers.filter { rowsByKey[definition.key]?[$0.tier] != nil }
             var progress: AchievementProgressDTO?
             if !maxed, !definition.isPerformance, !definition.isHidden, let metric,
-               let next = definition.tiers.first(where: { rowsByKey[definition.key]?[$0.tier] == nil }) {
+               let next = definition.tiers.first(where: { rowsByKey[definition.key]?[$0.tier] == nil })
+            {
                 progress = AchievementProgressDTO(current: min(metric, next.threshold), target: next.threshold)
             }
             let text = copy(definition, language)
@@ -169,7 +178,9 @@ extension AchievementService {
         return try await list(userId: userId, language: language, ctx: ctx)
     }
 
-    private static func hiddenTitle(_ language: AchievementLanguage) -> String { "???" }
+    private static func hiddenTitle(_: AchievementLanguage) -> String {
+        "???"
+    }
 
     private static func hiddenDescription(_ language: AchievementLanguage) -> String {
         language == .pt ? "Continua a explorar." : "Keep exploring."

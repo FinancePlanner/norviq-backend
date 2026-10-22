@@ -152,7 +152,7 @@ struct AchievementServiceTests {
             let again = try await AchievementService.evaluate(userId: user.userId, scope: .live, ctx: context(app))
             #expect(again.isEmpty)
             #expect(try await xpEvents(app, userId: user.userId).count(where: { $0.dedupeKey.hasPrefix("achievement:") })
-                == (try await achievements(app, userId: user.userId)).count)
+                == achievements(app, userId: user.userId).count)
         }
     }
 
@@ -229,7 +229,7 @@ struct AchievementServiceTests {
             try await addStock(app, userId: user.userId, boughtDaysAgo: 400)
 
             try await AchievementService.evaluate(userId: user.userId, scope: .live, ctx: context(app))
-            #expect(!(try await achievements(app, userId: user.userId)).contains { $0.achievementKey == "craft.patient_capital" })
+            #expect(try await !achievements(app, userId: user.userId).contains { $0.achievementKey == "craft.patient_capital" })
 
             let inserted = try await AchievementService.evaluate(userId: user.userId, scope: .sweep, ctx: context(app))
             #expect(inserted.contains { $0.achievementKey == "craft.patient_capital" })
@@ -376,7 +376,7 @@ struct AchievementServiceTests {
             try await sql.raw("ALTER TABLE article_views RENAME TO article_views_hidden").run()
             let result: Result<[UserAchievement], any Error>
             do {
-                result = .success(try await AchievementService.evaluate(userId: user.userId, scope: .sweep, ctx: context(app)))
+                result = try await .success(AchievementService.evaluate(userId: user.userId, scope: .sweep, ctx: context(app)))
             } catch {
                 result = .failure(error)
             }
