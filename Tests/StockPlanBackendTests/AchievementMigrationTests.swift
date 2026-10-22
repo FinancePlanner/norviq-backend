@@ -54,16 +54,19 @@ struct AchievementMigrationTests {
         return try #require(response)
     }
 
-    @Test("Existing users are marked for backfill")
-    func existingUsersAreMarkedForBackfill() async throws {
+    @Test("The migration queues no backfill and can run twice")
+    func migrationQueuesNoBackfillAndIsRerunnable() async throws {
         try await withApp { app in
             let user = try await register(app, "backfill")
             try await CreateAchievementTables().revert(on: app.db)
             try await CreateAchievementTables().prepare(on: app.db)
-            let row = try await AchievementEvaluation.query(on: app.db)
-                .filter(\.$userId == user.userId)
-                .first()
-            #expect(row?.needsBackfill == true)
+            try await CreateAchievementTables().prepare(on: app.db)
+            // Backfill is decided at activation, not here.
+            #expect(try await AchievementEvaluation.query(on: app.db).filter(\.$userId == user.userId).count() == 0)
+            let sql = try #require(app.db as? any SQLDatabase)
+            let settings = try await sql.raw("SELECT COUNT(*)::int AS n FROM achievement_settings").first()?
+                .decode(column: "n", as: Int.self)
+            #expect(settings == 0)
         }
     }
 
@@ -75,6 +78,7 @@ struct AchievementMigrationTests {
             try await UserBadge(userId: user.userId, badgeType: .firstPurchase, tier: .silver, earnedAt: earned)
                 .save(on: app.db)
             try await CreateAchievementTables().revert(on: app.db)
+            try await CreateAchievementTables().prepare(on: app.db)
             try await CreateAchievementTables().prepare(on: app.db)
             let rows = try await UserAchievement.query(on: app.db)
                 .filter(\.$user.$id == user.userId)
@@ -100,6 +104,19 @@ struct AchievementMigrationTests {
             let byUser = try await XPService.xpByUser([user.userId], in: interval, on: app.db)
             #expect(byUser[user.userId] == 10)
             let summary = try await XPService.summary(for: user.userId, now: Date(), timeZone: GamificationCalendar.utc, on: app.db)
+            #expect(summary.total == 110)
+        }
+    }
+
+    @Test("This week's XP ignores leaderboard-excluded XP")
+    func weekXPIgnoresExcludedXP() async throws {
+        try await withApp { app in
+            let user = try await register(app, "week")
+            try await XPService.award(.badgeEarned, points: 100, to: user.userId, dedupeKey: "w:excluded",
+                                      excludeFromLeaderboard: true, on: app.db)
+            try await XPService.award(.badgeEarned, points: 10, to: user.userId, dedupeKey: "w:counted", on: app.db)
+            let summary = try await XPService.summary(for: user.userId, now: Date(), timeZone: GamificationCalendar.utc, on: app.db)
+            #expect(summary.weekXP == 10)
             #expect(summary.total == 110)
         }
     }

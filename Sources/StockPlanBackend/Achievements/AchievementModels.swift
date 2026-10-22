@@ -44,9 +44,10 @@ final class UserAchievement: Model, @unchecked Sendable {
     }
 }
 
-/// Evaluation bookkeeping, one row per user. Users that existed when the
-/// migration ran start with `needsBackfill`; later users have no row and are
-/// evaluated live.
+/// Evaluation bookkeeping, one row per user, created on the user's first
+/// evaluation (or failed sweep). `needsBackfill` starts true exactly when the
+/// user was created before achievements were activated
+/// (`AchievementService.backfillRule`); later users are evaluated live.
 final class AchievementEvaluation: Model, @unchecked Sendable {
     static let schema = "achievement_evaluations"
 

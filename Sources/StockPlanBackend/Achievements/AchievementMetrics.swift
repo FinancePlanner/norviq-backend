@@ -5,12 +5,14 @@ import StockPlanShared
 import Vapor
 
 /// What a metric query needs: the database, a logger, the app (for registered
-/// repositories) and the evaluation clock.
+/// repositories) and the evaluation clock. `inTransaction` is true when `db`
+/// is a transaction, so a failing metric can be rolled back to a savepoint.
 struct AchievementContext: Sendable {
     let db: any Database
     let logger: Logger
     let app: Application
     let now: Date
+    var inTransaction = false
 }
 
 /// Turns catalogue keys into numbers for one user. Each value is compared
@@ -36,40 +38,68 @@ enum AchievementMetrics {
 
     /// Metric value per catalogue key, for definitions in scope. Booleans are 0/1.
     /// Keys it doesn't know are left out; missing data measures 0.
+    ///
+    /// Each metric is isolated: one that fails is logged and left out, so it
+    /// can't block the others' unlocks.
     static func measure(userId: UUID, keys: Set<String>, ctx: AchievementContext) async throws -> [String: Int] {
         var result: [String: Int] = [:]
         guard let sql = ctx.db as? any SQLDatabase else { return result }
 
-        for key in keys {
+        for key in keys.sorted() {
             guard let query = countQuery(for: key, userId: userId, now: ctx.now) else { continue }
-            result[key] = try await scalar(query, on: sql)
+            result[key] = await isolated([key], sql: sql, ctx: ctx) { try await scalar(query, on: sql) }
         }
 
         let wantedCheckIns = keys.intersection(checkInKeys)
-        if !wantedCheckIns.isEmpty {
+        if !wantedCheckIns.isEmpty, let longest = await isolated(wantedCheckIns, sql: sql, ctx: ctx, {
             let days = try await XPService.checkInDays(for: [userId], on: ctx.db)[userId] ?? []
-            let longest = XPService.longestStreak(days: days)
+            return XPService.longestStreak(days: days)
+        }) {
             for key in wantedCheckIns {
                 result[key] = longest
             }
         }
 
         if keys.contains("craft.diversified") {
-            result["craft.diversified"] = try await knownSectorCount(userId: userId, ctx: ctx)
+            result["craft.diversified"] = await isolated(["craft.diversified"], sql: sql, ctx: ctx) {
+                try await knownSectorCount(userId: userId, ctx: ctx)
+            }
         }
 
         if keys.contains("discipline.recap_regular") {
-            result["discipline.recap_regular"] = try await openedMonthlyRecapStreak(userId: userId, on: sql)
+            result["discipline.recap_regular"] = await isolated(["discipline.recap_regular"], sql: sql, ctx: ctx) {
+                try await openedMonthlyRecapStreak(userId: userId, on: sql)
+            }
         }
 
         let wantedPerformance = keys.intersection(performanceKeys)
-        if !wantedPerformance.isEmpty {
-            let flags = try await performance(userId: userId, keys: wantedPerformance, ctx: ctx)
+        if !wantedPerformance.isEmpty, let flags = await isolated(wantedPerformance, sql: sql, ctx: ctx, {
+            try await performance(userId: userId, keys: wantedPerformance, ctx: ctx)
+        }) {
             for key in wantedPerformance {
                 result[key] = flags.contains(key) ? 1 : 0
             }
         }
         return result
+    }
+
+    /// Runs one metric. A failure is logged (keys and error type only) and
+    /// returns nil. Inside a transaction the metric runs in a savepoint: in
+    /// Postgres a failed statement would otherwise abort the whole evaluation.
+    private static func isolated<T>(
+        _ keys: Set<String>, sql: any SQLDatabase, ctx: AchievementContext, _ body: () async throws -> T
+    ) async -> T? {
+        do {
+            if ctx.inTransaction {
+                return try await AchievementService.savepoint(sql, name: "achievement_metric", body)
+            }
+            return try await body()
+        } catch {
+            ctx.logger.warning(
+                "achievements.metric failed key=\(keys.sorted().joined(separator: ",")) error=\(String(reflecting: type(of: error)))"
+            )
+            return nil
+        }
     }
 
     // MARK: - SQL metrics

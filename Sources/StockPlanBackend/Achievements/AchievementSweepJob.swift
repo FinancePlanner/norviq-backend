@@ -54,6 +54,12 @@ final class AchievementSweepJob: LifecycleHandler, @unchecked Sendable {
         guard AchievementsConfiguration.fromEnvironment().enabled else { return }
         let batchSize = batchSize
         await JobLock.runAsLeader(app, name: Self.lockName) {
+            do {
+                try await AchievementService.ensureActivated(at: now, on: app.db)
+            } catch {
+                app.logger.warning("achievement_sweep activation failed error=\(String(reflecting: type(of: error)))")
+                return
+            }
             await Self.sweep(app, now: now, batchSize: batchSize)
         }
     }
@@ -104,13 +110,16 @@ final class AchievementSweepJob: LifecycleHandler, @unchecked Sendable {
 
     /// evaluate stamps `last_swept_at` only on success. After a failure, stamp
     /// it here so one permanently broken user is retried daily rather than on
-    /// every tick. Best effort: a failure to stamp is logged and ignored.
-    private static func stampSwept(userId: UUID, now: Date, app: Application) async {
+    /// every tick. A row created here follows the same backfill rule as a first
+    /// evaluation. Best effort: a failure to stamp is logged and ignored.
+    static func stampSwept(userId: UUID, now: Date, app: Application) async {
         guard let sql = app.db as? any SQLDatabase else { return }
         do {
             try await sql.raw("""
             INSERT INTO achievement_evaluations (id, user_id, needs_backfill, last_swept_at)
-            VALUES (\(bind: UUID()), \(bind: userId), false, \(bind: now))
+            SELECT \(bind: UUID()), u.id, \(unsafeRaw: AchievementService.backfillRule), \(bind: now)
+            FROM users u \(unsafeRaw: AchievementService.activationJoin)
+            WHERE u.id = \(bind: userId)
             ON CONFLICT (user_id) DO UPDATE SET last_swept_at = EXCLUDED.last_swept_at
             """).run()
         } catch {

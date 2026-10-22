@@ -111,4 +111,27 @@ struct AchievementSweepJobTests {
             #expect(try await UserAchievement.query(on: app.db).filter(\.$user.$id == id).count() == 0)
         }
     }
+
+    @Test("A row created by a failed sweep follows the activation rule")
+    func stampSweptRespectsActivation() async throws {
+        try await withApp { app in
+            let early = try await register(app, "e1")
+            let activation = Date()
+            try await AchievementService.ensureActivated(at: activation, on: app.db)
+            let late = try await register(app, "e2")
+            #expect(try await evaluation(app, early) == nil)
+            #expect(try await evaluation(app, late) == nil)
+
+            let now = activation.addingTimeInterval(60)
+            await AchievementSweepJob.stampSwept(userId: early, now: now, app: app)
+            await AchievementSweepJob.stampSwept(userId: late, now: now, app: app)
+
+            let earlyRow = try #require(try await evaluation(app, early))
+            #expect(earlyRow.needsBackfill == true)
+            #expect(earlyRow.lastSweptAt != nil)
+            let lateRow = try #require(try await evaluation(app, late))
+            #expect(lateRow.needsBackfill == false)
+            #expect(lateRow.lastSweptAt != nil)
+        }
+    }
 }

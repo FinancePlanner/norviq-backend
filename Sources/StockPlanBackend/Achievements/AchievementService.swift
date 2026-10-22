@@ -18,11 +18,43 @@ enum AchievementScope: Sendable {
 /// `needsBackfill` is read and cleared under the lock: a caller racing the
 /// first evaluation of an existing user waits, then finds the backfill done
 /// and the unlocks already present, and can never relabel them `live`.
+///
+/// Backfill is keyed to activation, not to the migration: the first time
+/// achievements run with the flag on (first sweep tick or first evaluation)
+/// stores `activated_at`, and a user without an evaluation row is backfilled
+/// exactly when they were created before it (`backfillRule`).
 enum AchievementService {
+    /// `achievement_settings` key of the activation timestamp.
+    static let activationKey = "activated_at"
+
+    /// SQL boolean: should the user `u` (joined with the activation row as
+    /// `a`) start with a backfill? True when achievements are active and the
+    /// user predates activation; a user with no `created_at` predates it.
+    static let backfillRule = "(a.value_at IS NOT NULL AND (u.created_at IS NULL OR u.created_at < a.value_at))"
+
+    /// Joins the activation row as `a`; pair with `backfillRule`.
+    static let activationJoin = "LEFT JOIN achievement_settings a ON a.key = 'activated_at'"
+
+    /// Records that achievements are running, at `now`, the first time it is
+    /// called; later calls keep the first value. Callers are only reached with
+    /// the flag on (the sweep, the gated routes and `evaluateBestEffort`).
+    static func ensureActivated(at now: Date, on db: any Database) async throws {
+        guard let sql = db as? any SQLDatabase else { return }
+        try await sql.raw("""
+        INSERT INTO achievement_settings (key, value_at) VALUES (\(bind: activationKey), \(bind: now))
+        ON CONFLICT (key) DO NOTHING
+        """).run()
+    }
+
     /// Returns newly inserted unlocks. Idempotent. Never pays XP twice.
+    ///
+    /// Must be called outside any caller transaction: it opens its own
+    /// transaction and holds the user's row lock for the whole evaluation, and
+    /// relies on savepoints of that transaction to survive failed statements.
     @discardableResult
     static func evaluate(userId: UUID, scope: AchievementScope, ctx: AchievementContext) async throws -> [UserAchievement] {
         guard ctx.db is any SQLDatabase else { return [] }
+        try await ensureActivated(at: ctx.now, on: ctx.db)
         try await ensureEvaluationRow(userId: userId, on: ctx.db)
 
         return try await ctx.db.transaction { tx in
@@ -37,7 +69,7 @@ enum AchievementService {
             let source: AchievementSource = needsBackfill ? .backfill : (scope == .sweep ? .sweep : .live)
             let definitions = AchievementCatalogue.all.filter { effectiveScope == .sweep || !$0.sweepOnly }
 
-            let txCtx = AchievementContext(db: tx, logger: ctx.logger, app: ctx.app, now: ctx.now)
+            let txCtx = AchievementContext(db: tx, logger: ctx.logger, app: ctx.app, now: ctx.now, inTransaction: true)
             let metrics = try await AchievementMetrics.measure(
                 userId: userId, keys: Set(definitions.map(\.key)), ctx: txCtx
             )
@@ -85,6 +117,9 @@ enum AchievementService {
     }
 
     /// Hooks call this (PR B). Swallows errors; no-op when flag off.
+    ///
+    /// Like `evaluate`, must be called outside any caller transaction — after
+    /// the caller's own write has committed, never inside it.
     static func evaluateBestEffort(userId: UUID, ctx: AchievementContext) async {
         guard AchievementsConfiguration.fromEnvironment().enabled else { return }
         do {
@@ -121,12 +156,18 @@ enum AchievementService {
         let tier: String
     }
 
-    /// Users created after the migration have no row; they start without a
-    /// backfill. A concurrent first evaluation may insert it first, which is fine.
+    /// A user's first evaluation creates their row, backfilled exactly when
+    /// they predate activation (`backfillRule`). A concurrent first evaluation
+    /// may insert it first, which is fine.
     private static func ensureEvaluationRow(userId: UUID, on db: any Database) async throws {
-        let existing = try await AchievementEvaluation.query(on: db).filter(\.$userId == userId).first()
-        guard existing == nil else { return }
-        _ = try await XPService.insertIgnoringDuplicate(AchievementEvaluation(userId: userId, needsBackfill: false), on: db)
+        guard let sql = db as? any SQLDatabase else { return }
+        try await sql.raw("""
+        INSERT INTO achievement_evaluations (id, user_id, needs_backfill)
+        SELECT \(bind: UUID()), u.id, \(unsafeRaw: backfillRule)
+        FROM users u \(unsafeRaw: activationJoin)
+        WHERE u.id = \(bind: userId)
+        ON CONFLICT (user_id) DO NOTHING
+        """).run()
     }
 
     /// `XPService.insertIgnoringDuplicate` inside a savepoint: in Postgres a
@@ -162,14 +203,18 @@ enum AchievementService {
 
     /// Runs `body` so that any error (including one that aborted the
     /// statement) is rolled back to a savepoint and rethrown, leaving the
-    /// surrounding transaction usable.
-    private static func savepoint<T>(_ sql: any SQLDatabase, _ body: () async throws -> T) async throws {
-        try await sql.raw("SAVEPOINT achievement_step").run()
+    /// surrounding transaction usable. Only valid inside a transaction.
+    @discardableResult
+    static func savepoint<T>(
+        _ sql: any SQLDatabase, name: String = "achievement_step", _ body: () async throws -> T
+    ) async throws -> T {
+        try await sql.raw("SAVEPOINT \(unsafeRaw: name)").run()
         do {
-            _ = try await body()
-            try await sql.raw("RELEASE SAVEPOINT achievement_step").run()
+            let value = try await body()
+            try await sql.raw("RELEASE SAVEPOINT \(unsafeRaw: name)").run()
+            return value
         } catch {
-            try await sql.raw("ROLLBACK TO SAVEPOINT achievement_step").run()
+            try await sql.raw("ROLLBACK TO SAVEPOINT \(unsafeRaw: name)").run()
             throw error
         }
     }

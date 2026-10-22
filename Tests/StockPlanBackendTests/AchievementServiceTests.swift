@@ -1,4 +1,5 @@
 import Fluent
+import FluentSQL
 import Foundation
 @testable import StockPlanBackend
 import StockPlanShared
@@ -10,7 +11,9 @@ import VaporTesting
 /// tiers, sweep-only definitions, races and the legacy badge dual-write.
 @Suite("Achievement service", .serialized)
 struct AchievementServiceTests {
-    private func withApp(leaderboards: Bool = true, _ test: (Application) async throws -> Void) async throws {
+    private func withApp(
+        leaderboards: Bool = true, activated: Bool = true, _ test: (Application) async throws -> Void
+    ) async throws {
         try await DatabaseTestLock.withLock {
             setenv("SOCIAL_ENABLED", "1", 1)
             setenv("SOCIAL_LEADERBOARDS_ENABLED", leaderboards ? "1" : "0", 1)
@@ -22,6 +25,10 @@ struct AchievementServiceTests {
             do {
                 try await configure(app)
                 try await app.autoMigrate()
+                if activated {
+                    // Achievements went live long ago, so a freshly registered user is live.
+                    try await AchievementService.ensureActivated(at: Date(timeIntervalSince1970: 0), on: app.db)
+                }
                 try await test(app)
                 try await app.autoRevert()
             } catch {
@@ -60,7 +67,7 @@ struct AchievementServiceTests {
         ).save(on: app.db)
     }
 
-    /// Marks a user the way the migration marks users that already existed.
+    /// Marks a user the way a first evaluation marks a user that predates activation.
     private func markForBackfill(_ app: Application, userId: UUID) async throws {
         try await AchievementEvaluation(userId: userId, needsBackfill: true).save(on: app.db)
     }
@@ -118,7 +125,7 @@ struct AchievementServiceTests {
         }
     }
 
-    @Test("A user registered after the migration is evaluated live")
+    @Test("A user registered after activation is evaluated live")
     func newUserIsLive() async throws {
         try await withApp { app in
             let user = try await register(app, "live")
@@ -294,6 +301,92 @@ struct AchievementServiceTests {
             defer { unsetenv("ACHIEVEMENTS_ENABLED") }
             await AchievementService.evaluateBestEffort(userId: user.userId, ctx: context(app))
             #expect(try await achievements(app, userId: user.userId).contains { $0.achievementKey == "start.first_holding" })
+        }
+    }
+
+    // MARK: - Activation-keyed backfill
+
+    private func activatedAt(_ app: Application) async throws -> Date? {
+        let sql = try #require(app.db as? any SQLDatabase)
+        return try await sql.raw("SELECT value_at FROM achievement_settings WHERE key = 'activated_at'")
+            .first()?.decode(column: "value_at", as: Date.self)
+    }
+
+    @Test("A user created before activation is backfilled on first evaluation")
+    func userBeforeActivationIsBackfilled() async throws {
+        try await withApp(activated: false) { app in
+            let user = try await register(app, "preact")
+            try await addStock(app, userId: user.userId)
+            #expect(try await AchievementEvaluation.query(on: app.db).filter(\.$userId == user.userId).count() == 0)
+
+            // The first evaluation is the activation; this user predates it.
+            try await AchievementService.evaluate(userId: user.userId, scope: .live, ctx: context(app, now: Date().addingTimeInterval(1)))
+
+            let row = try #require(try await achievements(app, userId: user.userId)
+                .first { $0.achievementKey == "start.first_holding" })
+            #expect(row.source == AchievementSource.backfill.rawValue)
+            #expect(row.seenAt != nil)
+            let xp = try #require(try await xpEvents(app, userId: user.userId)
+                .first { $0.dedupeKey == "achievement:start.first_holding:" })
+            #expect(xp.excludeFromLeaderboard == true)
+            #expect(try await activatedAt(app) != nil)
+        }
+    }
+
+    @Test("A user created after activation is evaluated live")
+    func userAfterActivationIsLive() async throws {
+        try await withApp(activated: false) { app in
+            let early = try await register(app, "act_first")
+            try await AchievementService.evaluate(userId: early.userId, scope: .live, ctx: context(app))
+            let activation = try #require(try await activatedAt(app))
+
+            let user = try await register(app, "act_after")
+            try await addStock(app, userId: user.userId)
+            try await AchievementService.evaluate(userId: user.userId, scope: .live, ctx: context(app))
+
+            let row = try #require(try await achievements(app, userId: user.userId)
+                .first { $0.achievementKey == "start.first_holding" })
+            #expect(row.source == AchievementSource.live.rawValue)
+            #expect(row.seenAt == nil)
+            #expect(try await activatedAt(app) == activation)
+        }
+    }
+
+    @Test("Activation is written once")
+    func activationWrittenOnce() async throws {
+        try await withApp(activated: false) { app in
+            let user = try await register(app, "act_once")
+            let first = Date(timeIntervalSince1970: 1_800_000_000)
+            try await AchievementService.evaluate(userId: user.userId, scope: .live, ctx: context(app, now: first))
+            try await AchievementService.evaluate(userId: user.userId, scope: .sweep, ctx: context(app, now: first.addingTimeInterval(86400)))
+            let stored = try #require(try await activatedAt(app))
+            #expect(abs(stored.timeIntervalSince(first)) < 1)
+        }
+    }
+
+    // MARK: - Metric isolation
+
+    @Test("One failing metric does not block other unlocks")
+    func failingMetricIsIsolated() async throws {
+        try await withApp { app in
+            let user = try await register(app, "metricfail")
+            try await addStock(app, userId: user.userId)
+            let sql = try #require(app.db as? any SQLDatabase)
+            // learn.articles reads article_views; make that query fail.
+            try await sql.raw("ALTER TABLE article_views RENAME TO article_views_hidden").run()
+            let result: Result<[UserAchievement], any Error>
+            do {
+                result = .success(try await AchievementService.evaluate(userId: user.userId, scope: .sweep, ctx: context(app)))
+            } catch {
+                result = .failure(error)
+            }
+            try await sql.raw("ALTER TABLE article_views_hidden RENAME TO article_views").run()
+
+            let inserted = try result.get()
+            #expect(inserted.contains { $0.achievementKey == "start.first_holding" })
+            let evaluation = try #require(try await AchievementEvaluation.query(on: app.db)
+                .filter(\.$userId == user.userId).first())
+            #expect(evaluation.lastSweptAt != nil)
         }
     }
 }
