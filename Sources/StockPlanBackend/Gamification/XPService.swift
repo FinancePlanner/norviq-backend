@@ -188,9 +188,11 @@ enum XPService {
             .all(\.$points)
             .reduce(0, +)
         let week = GamificationCalendar.period(.week, containing: now, in: timeZone)
+        // Backfilled achievement XP counts towards the total, not this week.
         let weekXP = try await GamificationXPEvent.query(on: db)
             .filter(\.$userId == userId)
             .filter(\.$createdAt >= week.start)
+            .filter(\.$excludeFromLeaderboard == false)
             .all(\.$points)
             .reduce(0, +)
         return XPSummaryDTO(

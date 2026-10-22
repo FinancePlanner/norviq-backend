@@ -263,9 +263,11 @@ struct RecapFactsCollector: Sendable {
             .map { RecapBadge(type: $0.badgeType.rawValue, tier: $0.tier.rawValue) }
 
         // Summed in Swift: SUM over a bigint column comes back as NUMERIC.
+        // Backfilled achievement XP is history, not this period's activity.
         facts.xpEarned = try await GamificationXPEvent.query(on: db)
             .filter(\.$userId == userId)
             .filter(\.$createdAt >= start).filter(\.$createdAt < end)
+            .filter(\.$excludeFromLeaderboard == false)
             .field(\.$points)
             .all()
             .reduce(0) { $0 + $1.points }
