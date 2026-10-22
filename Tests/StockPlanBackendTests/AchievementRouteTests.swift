@@ -142,12 +142,18 @@ struct AchievementRouteTests {
             defer { AchievementMetrics.foundingLimit = original }
             let user = try await register(app, "hidden")
             let list = try await call(app, .GET, "v1/achievements", token: user.token, as: AchievementsResponseDTO.self)
-            let founding = try #require(list.achievements.first { $0.key == "hidden.founding_member" })
-            #expect(founding.state == "hidden")
+            #expect(!list.achievements.contains { $0.key == "hidden.founding_member" })
+            #expect(!list.achievements.contains { $0.key.contains("founding") })
+            let founding = try #require(list.achievements.first { $0.state == "hidden" })
+            #expect(founding.key == "hidden.1")
             #expect(founding.title == "???")
             #expect(founding.iconKey == "lock")
             #expect(founding.progress == nil)
-            #expect(founding.tiers.allSatisfy { $0.threshold == nil })
+            #expect(founding.tiers.allSatisfy { $0.threshold == nil && $0.xp == 0 })
+            // The opaque key is not a showcase handle.
+            let rejected = try await status(app, .PUT, "v1/achievements/showcase", token: user.token,
+                                            body: AchievementShowcaseBody(items: [.init(key: "hidden.1", tier: "")]))
+            #expect(rejected == .badRequest)
             #expect(list.summary.hiddenRemaining >= 1)
         }
     }

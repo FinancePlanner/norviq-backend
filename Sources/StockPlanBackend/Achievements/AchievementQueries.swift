@@ -41,7 +41,13 @@ extension AchievementService {
         }.map(\.key))
         let metrics = measureKeys.isEmpty ? [:] : try await AchievementMetrics.measure(userId: userId, keys: measureKeys, ctx: ctx)
 
+        // An unearned hidden achievement is listed under an opaque key: the
+        // real key would give away what it is.
+        let hiddenOrdinals = Dictionary(uniqueKeysWithValues: AchievementCatalogue.all.filter(\.isHidden)
+            .enumerated().map { ($1.key, $0 + 1) })
+
         var dtos: [AchievementDTO] = []
+        // Hidden achievements stay out of `unlocked`/`total`, earned or not.
         var unlocked = 0, total = 0, hiddenRemaining = 0
         for definition in definitions {
             let isLegacy = definition.key.hasPrefix("legacy.")
@@ -55,11 +61,11 @@ extension AchievementService {
 
             if definition.isHidden, earned == 0 {
                 dtos.append(AchievementDTO(
-                    key: definition.key, category: definition.category.rawValue,
+                    key: "hidden.\(hiddenOrdinals[definition.key] ?? 0)", category: definition.category.rawValue,
                     title: hiddenTitle(language), description: hiddenDescription(language), iconKey: "lock",
                     state: "hidden", currentTier: nil, progress: nil, isPerformance: definition.isPerformance,
                     tiers: definition.tiers.map {
-                        AchievementTierDTO(tier: $0.tier, threshold: nil, xp: $0.xp, unlockId: nil, unlockedAt: nil, showcaseRank: nil)
+                        AchievementTierDTO(tier: $0.tier, threshold: nil, xp: 0, unlockId: nil, unlockedAt: nil, showcaseRank: nil)
                     }
                 ))
                 continue

@@ -940,7 +940,7 @@ paths:
       operationId: setAchievementShowcase
       tags: [Achievements]
       summary: Replace the profile showcase
-      description: Up to 3 earned (key, tier) items, ranked 1 to n in order. An empty list clears the showcase.
+      description: Up to 3 earned (key, tier) items, ranked 1 to n in order, by real achievement key (an opaque `hidden.<n>` key is never accepted). An empty list clears the showcase.
       security:
         - bearerAuth: []
       requestBody:
@@ -12494,7 +12494,7 @@ components:
       properties:
         tier: { type: string, description: 'bronze, silver, gold, or empty for a single-tier achievement.' }
         threshold: { type: integer, nullable: true, description: Null while the achievement is hidden. }
-        xp: { type: integer }
+        xp: { type: integer, description: '0 while the achievement is hidden.' }
         unlockId: { type: string, format: uuid, nullable: true }
         unlockedAt: { type: string, format: date-time, nullable: true }
         showcaseRank: { type: integer, nullable: true }
@@ -12508,7 +12508,12 @@ components:
     Achievement:
       type: object
       properties:
-        key: { type: string }
+        key:
+          type: string
+          description: >-
+            Catalogue key. While `state` is `hidden` this is an opaque `hidden.<n>`
+            (1-based position among hidden achievements), not the real key; the
+            real key appears once the achievement is earned.
         category: { type: string }
         title: { type: string }
         description: { type: string }
@@ -12534,9 +12539,9 @@ components:
     AchievementSummary:
       type: object
       properties:
-        unlocked: { type: integer }
-        total: { type: integer }
-        hiddenRemaining: { type: integer }
+        unlocked: { type: integer, description: 'Earned tiers of non-hidden, non-legacy achievements; earned hidden achievements are not counted.' }
+        total: { type: integer, description: 'All tiers of non-hidden, non-legacy achievements.' }
+        hiddenRemaining: { type: integer, description: Hidden achievements not yet fully earned. }
       required: [unlocked, total, hiddenRemaining]
     AchievementsResponse:
       type: object
