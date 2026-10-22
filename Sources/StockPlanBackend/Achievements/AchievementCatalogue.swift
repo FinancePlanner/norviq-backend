@@ -117,9 +117,9 @@ enum AchievementCatalogue {
             en: ("Tracker", "Log expenses on different days."), pt: ("Registo diário", "Regista despesas em dias diferentes.")
         ),
         AchievementDefinition(
-            key: "discipline.recap_regular", category: .discipline, iconKey: "doc.text.fill", tiers: single(4, xp: 25),
+            key: "discipline.recap_regular", category: .discipline, iconKey: "doc.text.fill", tiers: single(3, xp: 25),
             sweepOnly: false, isPerformance: false, isHidden: false,
-            en: ("Reflective", "Open your weekly recap four weeks in a row."), pt: ("Reflexivo", "Abre o teu resumo semanal quatro semanas seguidas.")
+            en: ("Reflective", "Open your monthly recap three months in a row."), pt: ("Reflexivo", "Abre o teu resumo mensal três meses seguidos.")
         ),
         AchievementDefinition(
             key: "craft.thesis", category: .craft, iconKey: "pencil.and.outline", tiers: tiered([1, 10, 50]),

@@ -128,6 +128,75 @@ struct AchievementMetricsTests {
         }
     }
 
+    private func recap(_ userId: UUID, kind: String = "month", key: String, opened: Bool) -> RecapRecord {
+        let record = RecapRecord()
+        record.userId = userId
+        record.periodKind = kind
+        record.periodKey = key
+        record.payload = "{}"
+        record.schemaVersion = 1
+        record.generatedAt = Date()
+        record.openedAt = opened ? Date() : nil
+        return record
+    }
+
+    @Test("Recap streak is the longest run of consecutive opened monthly recaps")
+    func recapStreak() async throws {
+        try await withApp { app in
+            let steady = try await register(app, "recap1")
+            for key in ["2025-12", "2026-01", "2026-02"] {
+                try await recap(steady.userId, key: key, opened: true).save(on: app.db)
+            }
+            // A yearly recap is not a month and doesn't extend the run.
+            try await recap(steady.userId, kind: "year", key: "2025", opened: true).save(on: app.db)
+
+            let gappy = try await register(app, "recap2")
+            for key in ["2026-01", "2026-02", "2026-04"] {
+                try await recap(gappy.userId, key: key, opened: true).save(on: app.db)
+            }
+            // Generated but never opened: breaks the run instead of joining it.
+            try await recap(gappy.userId, key: "2026-03", opened: false).save(on: app.db)
+
+            let keys: Set = ["discipline.recap_regular"]
+            let steadyValues = try await AchievementMetrics.measure(userId: steady.userId, keys: keys, ctx: context(app))
+            let gappyValues = try await AchievementMetrics.measure(userId: gappy.userId, keys: keys, ctx: context(app))
+            #expect(steadyValues["discipline.recap_regular"] == 3)
+            #expect(gappyValues["discipline.recap_regular"] == 2)
+        }
+    }
+
+    @Test("Articles count distinct articles from the views the articles route writes")
+    func articleViews() async throws {
+        try await ArticleTestKit.withApp { app in
+            let author = try await ArticleTestKit.member(app, "achm_author")
+            let reader = try await ArticleTestKit.member(app, "achm_reader")
+            let first = try await ArticleTestKit.publish(app, as: author)
+            let second = try await ArticleTestKit.publish(app, as: author, ArticleTestKit.input(title: "A second look at NextDecade"))
+
+            // The real writer, so the viewer key is whatever it builds.
+            for code in [first.article.code, first.article.code, second.article.code] {
+                let reply = try await ArticleTestKit.send(app, .POST, "v1/articles/\(code)/view", as: reader)
+                #expect(reply.status == .noContent)
+            }
+            // The route counts one row per viewer per day; add a second day for the
+            // first article under the key the route wrote.
+            let firstId = first.article.id
+            let written = try #require(try await ArticleView.query(on: app.db).filter(\.$articleId == firstId).first())
+            let laterDay = ArticleView()
+            laterDay.articleId = written.articleId
+            laterDay.viewerKey = written.viewerKey
+            laterDay.day = "2000-01-01"
+            try await laterDay.save(on: app.db)
+            #expect(try await ArticleView.query(on: app.db).count() == 3)
+
+            let keys: Set = ["learn.articles"]
+            let readerValues = try await AchievementMetrics.measure(userId: reader.userId, keys: keys, ctx: context(app))
+            let authorValues = try await AchievementMetrics.measure(userId: author.userId, keys: keys, ctx: context(app))
+            #expect(readerValues["learn.articles"] == 2)
+            #expect(authorValues["learn.articles"] == 0)
+        }
+    }
+
     @Test("No snapshots means every performance key is 0")
     func performanceWithoutSnapshots() async throws {
         try await withApp { app in

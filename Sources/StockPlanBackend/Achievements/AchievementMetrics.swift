@@ -58,10 +58,8 @@ enum AchievementMetrics {
             result["craft.diversified"] = try await knownSectorCount(userId: userId, ctx: ctx)
         }
 
-        // Recaps are monthly and yearly only (`RecapPeriodKind`); there is no
-        // weekly recap to open yet, so this stays 0 until one exists.
         if keys.contains("discipline.recap_regular") {
-            result["discipline.recap_regular"] = 0
+            result["discipline.recap_regular"] = try await openedMonthlyRecapStreak(userId: userId, on: sql)
         }
 
         let wantedPerformance = keys.intersection(performanceKeys)
@@ -188,6 +186,26 @@ enum AchievementMetrics {
     private static func scalar(_ query: SQLQueryString, on sql: any SQLDatabase) async throws -> Int {
         guard let row = try await sql.raw(query).first() else { return 0 }
         return try row.decode(column: "n", as: Int?.self) ?? 0
+    }
+
+    // MARK: - Recaps
+
+    /// Longest run of consecutive calendar months whose monthly recap was opened.
+    /// Months are read from `period_key` ("2026-10") through `RecapPeriod.parse`;
+    /// a month generated but never opened breaks the run.
+    private static func openedMonthlyRecapStreak(userId: UUID, on sql: any SQLDatabase) async throws -> Int {
+        let rows = try await sql.raw("""
+        SELECT period_key FROM recaps
+        WHERE user_id = \(bind: userId) AND period_kind = \(bind: RecapPeriodKind.month.rawValue) AND opened_at IS NOT NULL
+        """).all()
+        let months = Set(rows.compactMap { row -> Int? in
+            guard let key = try? row.decode(column: "period_key", as: String.self),
+                  let period = RecapPeriod.parse(kind: RecapPeriodKind.month.rawValue, key: key),
+                  let month = period.month
+            else { return nil }
+            return period.year * 12 + (month - 1)
+        })
+        return XPService.longestStreak(days: months)
     }
 
     // MARK: - Diversified
