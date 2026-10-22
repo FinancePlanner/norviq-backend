@@ -155,6 +155,8 @@ struct SocialConfigDTO: Content, Equatable {
     /// Groups (Discord-style chat). `groupsPublic` adds the public directory.
     let groups: Bool
     let groupsPublic: Bool
+    /// Achievements engine (`ACHIEVEMENTS_ENABLED`).
+    let achievements: Bool
     /// Present when contact matching is on. The pepper is not a secret: it
     /// only stops precomputed tables; rate limits and opt-in do the rest.
     let contactHashVersion: Int?

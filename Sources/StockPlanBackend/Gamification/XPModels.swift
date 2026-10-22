@@ -12,15 +12,18 @@ final class GamificationXPEvent: Model, @unchecked Sendable {
     @Field(key: "type") var type: String
     @Field(key: "points") var points: Int
     @Field(key: "dedupe_key") var dedupeKey: String
+    /// Counted in the XP total and level, but not in friends leaderboards.
+    @Field(key: "exclude_from_leaderboard") var excludeFromLeaderboard: Bool
     @Timestamp(key: "created_at", on: .create) var createdAt: Date?
 
     init() {}
 
-    init(userId: UUID, type: XPEventTypeDTO, points: Int, dedupeKey: String) {
+    init(userId: UUID, type: XPEventTypeDTO, points: Int, dedupeKey: String, excludeFromLeaderboard: Bool = false) {
         self.userId = userId
         self.type = type.rawValue
         self.points = points
         self.dedupeKey = dedupeKey
+        self.excludeFromLeaderboard = excludeFromLeaderboard
     }
 }
 
