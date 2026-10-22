@@ -18,6 +18,8 @@ tags:
   - name: Auth
   - name: Stocks
   - name: Watchlist
+  - name: Achievements
+    description: The caller's own achievements, tiers, unseen unlocks and profile showcase. Gated by `ACHIEVEMENTS_ENABLED`; every route returns 404 when it is off. Copy follows `Accept-Language` (en, pt-PT). No money is ever exposed.
   - name: Recaps
     description: Per-user monthly and yearly recap decks, generated once. Gated by `RECAP_ENABLED`; every route returns 404 when it is off.
   - name: Pilots
@@ -866,6 +868,102 @@ paths:
                 $ref: '#/components/schemas/BadgesListResponse'
         '401':
           description: Unauthorized
+
+  /v1/achievements:
+    get:
+      operationId: listAchievements
+      tags: [Achievements]
+      summary: List achievements for the authenticated user
+      description: Re-evaluates the user first unless the last evaluation is under 60 seconds old. Performance achievements never carry progress; hidden ones stay masked until earned.
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Achievements, categories and summary.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AchievementsResponse'
+        '401':
+          description: Unauthorized
+        '404':
+          description: Achievements are disabled.
+
+  /v1/achievements/unseen:
+    get:
+      operationId: listUnseenAchievements
+      tags: [Achievements]
+      summary: Unlocks not yet shown to the user
+      description: Live and sweep unlocks with no seen timestamp, oldest first, at most 20. Backfilled unlocks never appear.
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Unseen unlocks.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/AchievementUnlock'
+        '401':
+          description: Unauthorized
+        '404':
+          description: Achievements are disabled.
+
+  /v1/achievements/seen:
+    post:
+      operationId: markAchievementsSeen
+      tags: [Achievements]
+      summary: Mark unlocks as seen
+      description: Ids that belong to other users are silently ignored.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AchievementSeenBody'
+      responses:
+        '204':
+          description: Marked.
+        '401':
+          description: Unauthorized
+        '404':
+          description: Achievements are disabled.
+        '429':
+          description: Rate limited.
+
+  /v1/achievements/showcase:
+    put:
+      operationId: setAchievementShowcase
+      tags: [Achievements]
+      summary: Replace the profile showcase
+      description: Up to 3 earned (key, tier) items, ranked 1 to n in order. An empty list clears the showcase.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AchievementShowcaseBody'
+      responses:
+        '200':
+          description: Updated achievements listing.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AchievementsResponse'
+        '400':
+          description: More than 3 items, duplicates, or an item the caller has not earned.
+        '401':
+          description: Unauthorized
+        '404':
+          description: Achievements are disabled.
+        '429':
+          description: Rate limited.
 
   /v1/feedback:
     post:
@@ -12390,6 +12488,104 @@ components:
         totalAvailableTiers:
           type: integer
       required: [badges, totalEarnedTiers, totalAvailableTiers]
+
+    AchievementTier:
+      type: object
+      properties:
+        tier: { type: string, description: 'bronze, silver, gold, or empty for a single-tier achievement.' }
+        threshold: { type: integer, nullable: true, description: Null while the achievement is hidden. }
+        xp: { type: integer }
+        unlockId: { type: string, format: uuid, nullable: true }
+        unlockedAt: { type: string, format: date-time, nullable: true }
+        showcaseRank: { type: integer, nullable: true }
+      required: [tier, xp]
+    AchievementProgress:
+      type: object
+      properties:
+        current: { type: integer }
+        target: { type: integer }
+      required: [current, target]
+    Achievement:
+      type: object
+      properties:
+        key: { type: string }
+        category: { type: string }
+        title: { type: string }
+        description: { type: string }
+        iconKey: { type: string }
+        state: { type: string, enum: [earned, inProgress, locked, hidden] }
+        currentTier: { type: string, nullable: true, description: 'Highest earned tier; empty string for an earned single-tier achievement.' }
+        progress:
+          nullable: true
+          allOf:
+            - $ref: '#/components/schemas/AchievementProgress'
+        isPerformance: { type: boolean }
+        tiers:
+          type: array
+          items:
+            $ref: '#/components/schemas/AchievementTier'
+      required: [key, category, title, description, iconKey, state, isPerformance, tiers]
+    AchievementCategory:
+      type: object
+      properties:
+        key: { type: string }
+        title: { type: string }
+      required: [key, title]
+    AchievementSummary:
+      type: object
+      properties:
+        unlocked: { type: integer }
+        total: { type: integer }
+        hiddenRemaining: { type: integer }
+      required: [unlocked, total, hiddenRemaining]
+    AchievementsResponse:
+      type: object
+      properties:
+        summary:
+          $ref: '#/components/schemas/AchievementSummary'
+        categories:
+          type: array
+          items:
+            $ref: '#/components/schemas/AchievementCategory'
+        achievements:
+          type: array
+          items:
+            $ref: '#/components/schemas/Achievement'
+      required: [summary, categories, achievements]
+    AchievementUnlock:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        key: { type: string }
+        tier: { type: string }
+        title: { type: string }
+        description: { type: string }
+        iconKey: { type: string }
+        xp: { type: integer }
+        unlockedAt: { type: string, format: date-time }
+      required: [id, key, tier, title, description, iconKey, xp, unlockedAt]
+    AchievementSeenBody:
+      type: object
+      properties:
+        ids:
+          type: array
+          items: { type: string, format: uuid }
+      required: [ids]
+    AchievementShowcaseItem:
+      type: object
+      properties:
+        key: { type: string }
+        tier: { type: string }
+      required: [key, tier]
+    AchievementShowcaseBody:
+      type: object
+      properties:
+        items:
+          type: array
+          maxItems: 3
+          items:
+            $ref: '#/components/schemas/AchievementShowcaseItem'
+      required: [items]
 
     CryptoAssetResponse:
       type: object

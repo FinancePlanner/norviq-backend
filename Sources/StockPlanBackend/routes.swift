@@ -175,6 +175,7 @@ func routes(_ app: Application) throws {
     try api.register(collection: RecapController())
     try api.register(collection: UserActivityController())
     try api.register(collection: BadgeController())
+    try api.register(collection: AchievementController())
     try api.register(collection: AssetsController())
     try api.register(collection: TaxController())
     try api.register(collection: PushNotificationsController())

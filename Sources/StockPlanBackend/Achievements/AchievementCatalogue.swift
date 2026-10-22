@@ -273,3 +273,21 @@ enum AchievementCatalogue {
         )
     }
 }
+
+extension AchievementCategory {
+    /// Localized category heading.
+    func title(_ language: AchievementLanguage) -> String {
+        let pt = language == .pt
+        switch self {
+        case .gettingStarted: return pt ? "Primeiros passos" : "Getting started"
+        case .discipline: return pt ? "Disciplina" : "Discipline"
+        case .craft: return pt ? "Ofício" : "Craft"
+        case .planning: return pt ? "Planeamento" : "Planning"
+        case .learning: return pt ? "Aprendizagem" : "Learning"
+        case .community: return pt ? "Comunidade" : "Community"
+        case .performance: return pt ? "Desempenho" : "Performance"
+        case .hidden: return pt ? "Segredos" : "Secrets"
+        case .classic: return pt ? "Clássicos" : "Classic"
+        }
+    }
+}
