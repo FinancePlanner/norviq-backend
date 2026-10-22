@@ -37,9 +37,9 @@ final class MarketHistoryIngestionJob: LifecycleHandler, @unchecked Sendable {
 
     private func sweep(_ app: Application) async {
         do {
-            let holdingSymbols = try await Stock.query(on: app.db).all().map { $0.symbol.uppercased() }
-            let proxies = try await HoldingRiskProfileModel.query(on: app.db).all().compactMap { $0.benchmarkProxy?.uppercased() }
-            for symbol in Set(holdingSymbols + proxies).sorted() {
+            let holdingSymbols = try await Stock.query(on: app.db).all().map(\.symbol)
+            let proxies = try await HoldingRiskProfileModel.query(on: app.db).all().compactMap(\.benchmarkProxy)
+            for symbol in Self.sweepSymbols(holdings: holdingSymbols, proxies: proxies) {
                 do {
                     try await ingest(symbol: symbol, app: app)
                 } catch let error as MarketDataProviderRateLimitedError {
@@ -55,6 +55,13 @@ final class MarketHistoryIngestionJob: LifecycleHandler, @unchecked Sendable {
                 }
             }
         } catch { app.logger.warning("scenario_history_ingestion failed error=\(error)") }
+    }
+
+    /// Symbols one sweep ingests: every held symbol, every benchmark proxy, and
+    /// the achievements benchmark (`perf.beat_benchmark` reads its bars locally
+    /// and is never true without them). Uppercased, deduplicated, sorted.
+    static func sweepSymbols(holdings: [String], proxies: [String]) -> [String] {
+        Set((holdings + proxies + [AchievementMetrics.benchmarkSymbol]).map { $0.uppercased() }).sorted()
     }
 
     /// First day to request. A symbol with stored bars only needs the days

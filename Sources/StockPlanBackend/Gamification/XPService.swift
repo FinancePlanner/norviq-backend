@@ -119,6 +119,7 @@ enum XPService {
         points: Int,
         to userId: UUID,
         dedupeKey: String,
+        excludeFromLeaderboard: Bool = false,
         on db: any Database
     ) async throws -> Int {
         guard points > 0 else { return 0 }
@@ -128,7 +129,10 @@ enum XPService {
             .first()
         guard existing == nil else { return 0 }
         let saved = try await insertIgnoringDuplicate(
-            GamificationXPEvent(userId: userId, type: kind, points: points, dedupeKey: dedupeKey),
+            GamificationXPEvent(
+                userId: userId, type: kind, points: points, dedupeKey: dedupeKey,
+                excludeFromLeaderboard: excludeFromLeaderboard
+            ),
             on: db
         )
         // Not saved: a concurrent request paid this key first.
@@ -159,12 +163,16 @@ enum XPService {
         points: Int,
         to userId: UUID,
         dedupeKey: String,
+        excludeFromLeaderboard: Bool = false,
         on db: any Database,
         logger: Logger
     ) async {
         guard SocialConfiguration.fromEnvironment().leaderboards else { return }
         do {
-            try await award(kind, points: points, to: userId, dedupeKey: dedupeKey, on: db)
+            try await award(
+                kind, points: points, to: userId, dedupeKey: dedupeKey,
+                excludeFromLeaderboard: excludeFromLeaderboard, on: db
+            )
         } catch {
             logger.warning("xp.award failed type=\(kind.rawValue) error=\(String(reflecting: type(of: error)))")
         }
@@ -180,9 +188,11 @@ enum XPService {
             .all(\.$points)
             .reduce(0, +)
         let week = GamificationCalendar.period(.week, containing: now, in: timeZone)
+        // Backfilled achievement XP counts towards the total, not this week.
         let weekXP = try await GamificationXPEvent.query(on: db)
             .filter(\.$userId == userId)
             .filter(\.$createdAt >= week.start)
+            .filter(\.$excludeFromLeaderboard == false)
             .all(\.$points)
             .reduce(0, +)
         return XPSummaryDTO(
@@ -219,6 +229,7 @@ enum XPService {
         guard !userIds.isEmpty else { return [:] }
         let rows = try await GamificationXPEvent.query(on: db)
             .filter(\.$userId ~~ userIds)
+            .filter(\.$excludeFromLeaderboard == false)
             .filter(\.$createdAt >= interval.start)
             .filter(\.$createdAt < interval.end)
             .all()

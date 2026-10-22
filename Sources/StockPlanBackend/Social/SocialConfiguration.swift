@@ -50,6 +50,7 @@ struct SocialConfiguration: Sendable {
             messaging: false,
             groups: groups.enabled,
             groupsPublic: groups.publicDirectory,
+            achievements: AchievementsConfiguration.fromEnvironment().enabled,
             contactHashVersion: contactsDiscovery ? Self.contactHashVersion : nil,
             contactPepper: contactsDiscovery ? contactPepper : nil
         )

@@ -47,4 +47,10 @@ struct MarketHistoryIngestionJobTests {
 
         #expect(MarketHistoryIngestionJob.fetchStart(lastDate: nil, fallbackStart: fallback, calendar: calendar) == fallback)
     }
+
+    @Test("The sweep always ingests the achievements benchmark, once and uppercased")
+    func sweepSymbolsIncludeBenchmark() {
+        #expect(MarketHistoryIngestionJob.sweepSymbols(holdings: [], proxies: []) == ["SPY"])
+        #expect(MarketHistoryIngestionJob.sweepSymbols(holdings: ["aapl", "spy"], proxies: ["SPY", "qqq"]) == ["AAPL", "QQQ", "SPY"])
+    }
 }

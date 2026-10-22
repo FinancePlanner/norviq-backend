@@ -359,6 +359,12 @@ struct RecapFactsCollectorTests {
             let otherXP = GamificationXPEvent(userId: other, type: .checkIn, points: 70, dedupeKey: "recap-c")
             try await otherXP.save(on: db)
             try await Fx.backdate(table: GamificationXPEvent.schema, id: otherXP.requireID(), to: inOctober, on: db)
+            // Achievement backfill XP is history, not this month's activity.
+            let backfillXP = GamificationXPEvent(
+                userId: userId, type: .badgeEarned, points: 1000, dedupeKey: "recap-d", excludeFromLeaderboard: true
+            )
+            try await backfillXP.save(on: db)
+            try await Fx.backdate(table: GamificationXPEvent.schema, id: backfillXP.requireID(), to: inOctober, on: db)
 
             try await UserBadge(
                 userId: userId, badgeType: .investor, tier: .bronze, earnedAt: Fx.instant("2026-09-01T12:00:00Z")

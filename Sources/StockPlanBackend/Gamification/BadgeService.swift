@@ -114,6 +114,9 @@ struct DefaultBadgeService: BadgeService {
                         on: db,
                         logger: req.logger
                     )
+                    await AchievementService.recordLegacyBadge(
+                        userId: userId, badge: badge.badgeType, tier: badge.tier, earnedAt: badge.earnedAt, on: db
+                    )
                 } catch {
                     let reflected = String(reflecting: error)
                     if reflected.contains("user_badges_user_id_badge_type_tier")

@@ -10,16 +10,20 @@ import VaporTesting
 @Suite("Ops hardening", .serialized)
 struct OpsHardeningTests {
     private func withApp(_ test: (Application) async throws -> Void) async throws {
-        // One event loop: every `app.db` call lands on the same connection pool,
-        // the worst case for contention and the one CI hits by chance.
-        let loops = MultiThreadedEventLoopGroup(numberOfThreads: 1)
-        do {
-            try await runApp(on: loops, test)
-        } catch {
-            try? await loops.shutdownGracefully()
-            throw error
+        // Exclusive: runApp writes DATABASE_MAX_CONNECTIONS_PER_EVENT_LOOP with
+        // setenv, and a concurrent getenv elsewhere in the process SIGSEGVs.
+        try await DatabaseTestLock.withLock {
+            // One event loop: every `app.db` call lands on the same connection pool,
+            // the worst case for contention and the one CI hits by chance.
+            let loops = MultiThreadedEventLoopGroup(numberOfThreads: 1)
+            do {
+                try await runApp(on: loops, test)
+            } catch {
+                try? await loops.shutdownGracefully()
+                throw error
+            }
+            try await loops.shutdownGracefully()
         }
-        try await loops.shutdownGracefully()
     }
 
     private func runApp(on loops: MultiThreadedEventLoopGroup, _ test: (Application) async throws -> Void) async throws {

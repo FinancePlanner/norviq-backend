@@ -418,6 +418,9 @@ public func configure(_ app: Application) async throws {
     app.lifecycle.use(BankSyncJob())
     let apnsAlertPollSeconds = Environment.get("APNS_ALERT_POLL_SECONDS").flatMap(Int64.init(_:)) ?? 300
     app.lifecycle.use(TargetAlertPoller(intervalSeconds: apnsAlertPollSeconds))
+    if app.environment != .testing {
+        app.lifecycle.use(AchievementSweepJob())
+    }
     if envBool("REBALANCING_ALERTS_ENABLED", default: true) {
         let interval = Environment.get("REBALANCING_ALERT_POLL_SECONDS").flatMap(Int64.init(_:)) ?? 300
         app.lifecycle.use(RebalancingAlertPoller(intervalSeconds: interval))
