@@ -152,7 +152,7 @@ struct RebalancingController: RouteCollection {
         try requireEnabled()
         let session = try req.auth.require(SessionToken.self)
         let payload = try? req.content.decode(RebalancePlanCompletionRequest.self)
-        return try await req.rebalancingService.transitionPlan(
+        let plan = try await req.rebalancingService.transitionPlan(
             portfolioId: parameter(req, "portfolioId"),
             planId: parameter(req, "planId"),
             userId: session.userId,
@@ -160,6 +160,10 @@ struct RebalancingController: RouteCollection {
             note: payload?.note,
             req: req
         )
+        if plan.status == .completed {
+            req.scheduleAchievementCheck(for: session.userId)
+        }
+        return plan
     }
 
     @Sendable

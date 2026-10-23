@@ -64,9 +64,11 @@ struct RecapController: RouteCollection {
     func opened(req: Request) async throws -> HTTPStatus {
         let service = try service(req)
         let id = try recapId(req)
-        guard try await service.markOpened(id: id, userId: userId(req), now: Date(), on: req.db) else {
+        let user = try userId(req)
+        guard try await service.markOpened(id: id, userId: user, now: Date(), on: req.db) else {
             throw Abort(.notFound)
         }
+        req.scheduleAchievementCheck(for: user)
         return .noContent
     }
 

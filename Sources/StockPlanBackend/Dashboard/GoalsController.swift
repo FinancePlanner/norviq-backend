@@ -138,6 +138,9 @@ struct GoalsController: RouteCollection {
         goal.completedAt = requestDTO.status == .completed ? Date() : nil
 
         try await goal.save(on: req.db)
+        if goal.completedAt != nil {
+            req.scheduleAchievementCheck(for: session.userId)
+        }
         return goal.toDTO()
     }
 

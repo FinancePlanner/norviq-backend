@@ -146,6 +146,7 @@ struct GroupsController: RouteCollection {
             ).create(on: tx)
             try await GroupsService.addMember(group, userId: viewer.userId, role: .owner, pushEnabled: true, on: tx)
         }
+        req.scheduleAchievementCheck(for: viewer.userId)
         req.logger.info("groups.created visibility=\(body.visibility.rawValue) topic=\(body.topic.rawValue)")
         return try await GroupsService.detail(GroupsService.group(group.requireID(), on: req.db), viewer: viewer, on: req.db)
     }
@@ -291,6 +292,7 @@ struct GroupsController: RouteCollection {
             try await req.db.transaction { tx in
                 try await GroupsService.addMember(group, userId: viewer.userId, role: .member, pushEnabled: false, on: tx)
             }
+            req.scheduleAchievementCheck(for: viewer.userId)
         }
         try await announce(.groupUpdated, group.requireID(), on: req)
         return try await GroupsService.detail(group, viewer: viewer, on: req.db)
@@ -709,6 +711,7 @@ struct GroupsController: RouteCollection {
             }
             try await GroupsService.addMember(group, userId: viewer.userId, role: .member, pushEnabled: true, on: tx)
         }
+        req.scheduleAchievementCheck(for: viewer.userId)
         try await announce(.groupUpdated, group.requireID(), on: req)
         return try await GroupsService.detail(group, viewer: viewer, on: req.db)
     }
@@ -804,6 +807,7 @@ struct GroupsController: RouteCollection {
                 try await GroupsService.addMember(group, userId: viewer.userId, role: .member, pushEnabled: true, on: tx)
             }
         }
+        req.scheduleAchievementCheck(for: viewer.userId)
         try await announce(.groupUpdated, group.requireID(), on: req)
         return try await GroupsService.detail(group, viewer: viewer, on: req.db)
     }

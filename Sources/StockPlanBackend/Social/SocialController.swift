@@ -145,6 +145,7 @@ struct SocialController: RouteCollection {
             let summaries = try await SocialService.summaries(for: [userId, target], viewer: userId, on: req.db)
             let dto = SocialService.dto(for: reverse, summaries: summaries)
             try await SocialService.befriend(userId, target, on: req.db)
+            req.scheduleAchievementCheck(for: userId, target)
             await Self.push(.friendAccepted, to: target, about: userId, on: req)
             guard let dto else { throw Abort(.internalServerError, reason: "Friend request missing") }
             return dto
@@ -174,6 +175,7 @@ struct SocialController: RouteCollection {
         let userId = try req.auth.require(SessionToken.self).userId
         let request = try await Self.incomingRequest(on: req, to: userId)
         try await SocialService.befriend(userId, request.fromUserId, on: req.db)
+        req.scheduleAchievementCheck(for: userId, request.fromUserId)
         await Self.push(.friendAccepted, to: request.fromUserId, about: userId, on: req)
         return .noContent
     }
@@ -217,14 +219,20 @@ struct SocialController: RouteCollection {
     @Sendable
     func redeemInvite(req: Request) async throws -> SocialInviteRedeemResponse {
         let userId = try req.auth.require(SessionToken.self).userId
-        let inviter = try await SocialService.inviter(code: Self.codeParameter(on: req), viewer: userId, on: req.db)
+        let code = try Self.codeParameter(on: req)
+        let inviter = try await SocialService.inviter(code: code, viewer: userId, on: req.db)
         guard inviter != userId else {
             throw Abort(.badRequest, reason: "That's your own invite link.")
         }
         let alreadyFriends = try await SocialService.areFriends(userId, inviter, on: req.db)
         if !alreadyFriends {
             try await SocialService.befriend(userId, inviter, on: req.db)
+            req.scheduleAchievementCheck(for: userId, inviter)
             await Self.push(.friendAccepted, to: inviter, about: userId, on: req)
+        }
+        // A new account joining through the link credits the inviter (social.inviter).
+        if let credited = try await SocialService.recordInviteRedemption(code: code, invitee: userId, now: Date(), on: req.db) {
+            req.scheduleAchievementCheck(for: credited)
         }
         return try await SocialInviteRedeemResponse(inviter: SocialService.summary(of: inviter, viewer: userId, on: req.db))
     }

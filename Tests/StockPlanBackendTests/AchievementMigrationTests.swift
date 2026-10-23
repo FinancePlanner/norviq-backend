@@ -54,13 +54,22 @@ struct AchievementMigrationTests {
         return try #require(response)
     }
 
+    /// Reverts the achievement tables and runs their migration twice. The
+    /// social activity tables reference `user_achievements`, so they go first
+    /// and come back last.
+    private func rerunAchievementMigration(_ app: Application) async throws {
+        try await CreateSocialActivityTables().revert(on: app.db)
+        try await CreateAchievementTables().revert(on: app.db)
+        try await CreateAchievementTables().prepare(on: app.db)
+        try await CreateAchievementTables().prepare(on: app.db)
+        try await CreateSocialActivityTables().prepare(on: app.db)
+    }
+
     @Test("The migration queues no backfill and can run twice")
     func migrationQueuesNoBackfillAndIsRerunnable() async throws {
         try await withApp { app in
             let user = try await register(app, "backfill")
-            try await CreateAchievementTables().revert(on: app.db)
-            try await CreateAchievementTables().prepare(on: app.db)
-            try await CreateAchievementTables().prepare(on: app.db)
+            try await rerunAchievementMigration(app)
             // Backfill is decided at activation, not here.
             #expect(try await AchievementEvaluation.query(on: app.db).filter(\.$userId == user.userId).count() == 0)
             let sql = try #require(app.db as? any SQLDatabase)
@@ -77,9 +86,7 @@ struct AchievementMigrationTests {
             let earned = Date(timeIntervalSince1970: 1_700_000_000)
             try await UserBadge(userId: user.userId, badgeType: .firstPurchase, tier: .silver, earnedAt: earned)
                 .save(on: app.db)
-            try await CreateAchievementTables().revert(on: app.db)
-            try await CreateAchievementTables().prepare(on: app.db)
-            try await CreateAchievementTables().prepare(on: app.db)
+            try await rerunAchievementMigration(app)
             let rows = try await UserAchievement.query(on: app.db)
                 .filter(\.$user.$id == user.userId)
                 .all()

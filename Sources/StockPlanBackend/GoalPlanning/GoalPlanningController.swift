@@ -232,6 +232,7 @@ struct GoalPlanningController: RouteCollection {
             occurredAt: occurredAt, note: input.note?.trimmingCharacters(in: .whitespacesAndNewlines)
         )
         try await contribution.save(on: req.db)
+        req.scheduleAchievementCheck(for: userId)
         return Self.contributionDTO(contribution)
     }
 

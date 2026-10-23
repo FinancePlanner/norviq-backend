@@ -26,6 +26,7 @@ extension AIAssistantController {
         guard let id = req.parameters.get("id", as: UUID.self) else { throw Abort(.badRequest) }
         let body = try req.content.decode(PositionMemoBookmarkRequest.self)
         let card = try await PositionMemoService.setBookmarked(id: id, userId: userId, bookmarked: body.bookmarked, on: req)
+        req.scheduleAchievementCheck(for: userId)
         return try json(card)
     }
 

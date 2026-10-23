@@ -66,6 +66,8 @@ struct RetirementController: RouteCollection {
         record.ruleVersion = payload.ruleVersion ?? RetirementRuleRegistry.currentVersion
         record.inputJSON = inputJSON
         try await record.save(on: req.db)
+        // The metric counts plans by portfolio owner, who may not be the editor.
+        req.scheduleAchievementCheck(for: context.portfolio.userId)
         return try makePlan(record, portfolioId: portfolioId)
     }
 

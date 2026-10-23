@@ -71,6 +71,7 @@ struct AIAssistantController: RouteCollection {
                                      titleEncrypted: req.userPIIEncryptionService.encryptString(title),
                                      expiresAt: Date().addingTimeInterval(30 * 86400))
         try await row.create(on: req.db)
+        req.scheduleAchievementCheck(for: userId)
         // Starting fresh in the app starts fresh everywhere. The alternative --
         // leaving a linked Telegram chat on the thread the user just walked away
         // from -- is the incoherence the stored pairing exists to remove.

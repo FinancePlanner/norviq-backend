@@ -93,6 +93,8 @@ struct DefaultTargetAlertEvaluator: TargetAlertEvaluating {
             req.logger.warning("target-alert state update failed symbol=\(target.symbol)")
             return
         }
+        // alert_triggered_at is set (and committed) now: craft.target_hit can move.
+        AchievementHooks.shared.schedule(target.userId, app: req.application)
 
         req.logger.info("target-alert push delivered symbol=\(target.symbol) currentPrice=\(currentPrice)")
     }

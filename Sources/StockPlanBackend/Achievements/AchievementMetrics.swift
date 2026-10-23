@@ -207,6 +207,9 @@ enum AchievementMetrics {
             """
         case "social.group":
             return exists("group_members", userId: userId)
+        case "social.inviter":
+            // New accounts that joined through the user's invite link.
+            return count("social_invite_redemptions", userId: userId, column: "inviter_id")
         case "hidden.founding_member":
             // Rank by created_at, ties broken by id; a user without created_at never qualifies.
             return """

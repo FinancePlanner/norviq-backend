@@ -1,4 +1,5 @@
 import Fluent
+import FluentSQL
 import Foundation
 import Vapor
 
@@ -273,6 +274,36 @@ enum SocialService {
     static func inviteDTO(_ code: String, config: SocialConfiguration) -> SocialInviteLinkDTO {
         let base = config.inviteBaseURL.hasSuffix("/") ? String(config.inviteBaseURL.dropLast()) : config.inviteBaseURL
         return SocialInviteLinkDTO(code: code, url: "\(base)/i/\(code)", expiresAt: nil)
+    }
+
+    /// How new an account must be for redeeming an invite to credit the inviter.
+    static let inviteRedemptionWindow: TimeInterval = 7 * 86400
+
+    /// Credits the inviter behind `code` when `invitee` is someone else and
+    /// their account was created within `inviteRedemptionWindow` before `now`.
+    /// An invitee is credited once, to the first inviter. Returns the inviter
+    /// credited by this call, or nil.
+    static func recordInviteRedemption(
+        code: String,
+        invitee: UUID,
+        now: Date,
+        on db: any Database
+    ) async throws -> UUID? {
+        guard let sql = db as? any SQLDatabase else { return nil }
+        let cutoff = now.addingTimeInterval(-inviteRedemptionWindow)
+        let row = try await sql.raw("""
+        INSERT INTO social_invite_redemptions (id, invite_id, inviter_id, invitee_id, redeemed_at)
+        SELECT \(bind: UUID()), si.id, si.user_id, u.id, \(bind: now)
+        FROM social_invites si
+        JOIN users u ON u.id = \(bind: invitee)
+        WHERE si.code = \(bind: code)
+          AND si.user_id <> u.id
+          AND u.created_at IS NOT NULL
+          AND u.created_at >= \(bind: cutoff)
+        ON CONFLICT (invitee_id) DO NOTHING
+        RETURNING inviter_id
+        """).first()
+        return try row?.decode(column: "inviter_id", as: UUID.self)
     }
 
     /// The inviter behind `code`, unless either side blocked the other.

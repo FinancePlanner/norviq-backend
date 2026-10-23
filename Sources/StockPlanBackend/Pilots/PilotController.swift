@@ -86,6 +86,7 @@ struct PilotController: RouteCollection {
         let entitlement = try await req.entitlementResolver.resolve(userId: session.userId, on: req.db)
         let follow = try await PilotFollowService(mirror: PilotWiring.mirror(req.application))
             .create(payload, userId: session.userId, entitlement: entitlement, now: Date(), on: req.db)
+        req.scheduleAchievementCheck(for: session.userId)
         return try await response(follow, on: req.db).encodeResponse(status: .created, for: req)
     }
 
