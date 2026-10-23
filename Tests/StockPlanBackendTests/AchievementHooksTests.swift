@@ -148,6 +148,33 @@ struct AchievementHooksTests {
         }
     }
 
+    @Test("A run that wakes after the app shut down evaluates nothing and still goes idle")
+    func shutdownSkipsPendingRun() async throws {
+        try await DatabaseTestLock.withLock {
+            setenv("ACHIEVEMENTS_ENABLED", "1", 1)
+            let previousDelay = AchievementHooks.delay
+            AchievementHooks.delay = .milliseconds(300)
+            defer {
+                AchievementHooks.delay = previousDelay
+                unsetenv("ACHIEVEMENTS_ENABLED")
+            }
+            let app = try await Application.make(.testing)
+            do {
+                try await configure(app)
+            } catch {
+                try await app.asyncShutdown()
+                throw error
+            }
+            let before = AchievementHooks.shared.evaluationsRun
+
+            AchievementHooks.shared.schedule(UUID(), app: app)
+            try await app.asyncShutdown()
+            await AchievementHooks.shared.waitUntilIdle()
+
+            #expect(AchievementHooks.shared.evaluationsRun == before)
+        }
+    }
+
     @Test("Request.scheduleAchievementCheck schedules every user given")
     func requestSchedulesEachUser() async throws {
         try await withApp { app in

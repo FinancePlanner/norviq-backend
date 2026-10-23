@@ -94,13 +94,20 @@ actor AchievementHooks {
     private nonisolated func launch(_ userId: UUID, app: Application) {
         Task.detached {
             try? await Task.sleep(for: Self.delay)
+            // The app shut down while this run waited: its database is gone.
+            // Skip the evaluation but keep the bookkeeping so waiters resolve.
+            let live = !app.didShutdown
             self.state.withLockedValue { state in
                 state.pending.remove(userId)
                 state.running.insert(userId)
-                state.evaluationsRun += 1
+                if live {
+                    state.evaluationsRun += 1
+                }
             }
-            let ctx = AchievementContext(db: app.db, logger: app.logger, app: app, now: Date())
-            await AchievementService.evaluateBestEffort(userId: userId, ctx: ctx)
+            if live {
+                let ctx = AchievementContext(db: app.db, logger: app.logger, app: app, now: Date())
+                await AchievementService.evaluateBestEffort(userId: userId, ctx: ctx)
+            }
             self.finish(userId, app: app)
         }
     }
