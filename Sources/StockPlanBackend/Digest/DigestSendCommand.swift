@@ -8,7 +8,8 @@ import Vapor
 ///
 /// `--dry-run` prints the email and writes nothing. Without it, the digest is
 /// claimed and sent like a scheduled one, so it cannot be sent twice for the
-/// same week. Works with `DIGEST_ENABLED` off, which is how staging is checked
+/// same week. Refuses users the scheduled job would skip (nothing held, no
+/// bank connection). Works with `DIGEST_ENABLED` off, which is how staging is checked
 /// before the job is switched on; `DIGEST_EMAIL_ENABLED` still gates sending.
 struct DigestSendCommand: AsyncCommand {
     struct Signature: CommandSignature {
@@ -27,9 +28,7 @@ struct DigestSendCommand: AsyncCommand {
             throw Abort(.badRequest, reason: "--user must be a user id")
         }
         let req = Request(application: app, on: app.eventLoopGroup.next())
-        guard let preference = try await DigestPreference.query(on: req.db).filter(\.$userId == userId).first() else {
-            throw Abort(.notFound, reason: "User has no digest preferences; PUT /v1/digest-preferences first.")
-        }
+        let preference = try await Self.sendablePreference(userId: userId, on: req.db)
         let timeZone = TimeZone(identifier: preference.timezone) ?? TimeZone(identifier: "UTC")!
         let period = DigestSchedule.period(endingOn: Date(), timeZone: timeZone)
 
@@ -45,5 +44,18 @@ struct DigestSendCommand: AsyncCommand {
         let outcome = try await DigestRunner(config: app.digestConfig, sources: app.digestDataSources)
             .run(preference: preference, period: period, on: req)
         context.console.print("digest-send \(userId) \(period.start)…\(period.end): \(outcome)")
+    }
+
+    /// The user's preferences, provided the scheduled job would send to them too.
+    /// Without the eligibility check a manual send to an account with nothing
+    /// connected emails an empty digest and spends that week's claim.
+    static func sendablePreference(userId: UUID, on db: any Database) async throws -> DigestPreference {
+        guard let preference = try await DigestPreference.query(on: db).filter(\.$userId == userId).first() else {
+            throw Abort(.notFound, reason: "User has no digest preferences; PUT /v1/digest-preferences first.")
+        }
+        guard try await DigestFactsCollector.isEligible(userId: userId, on: db) else {
+            throw Abort(.conflict, reason: "User holds no positions and has no active bank connection; the digest would be empty.")
+        }
+        return preference
     }
 }
