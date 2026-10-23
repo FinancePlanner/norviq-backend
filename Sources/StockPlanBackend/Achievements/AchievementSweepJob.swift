@@ -1,6 +1,7 @@
 import Fluent
 import FluentSQL
 import Foundation
+import NIOConcurrencyHelpers
 import NIOCore
 import Vapor
 
@@ -53,6 +54,7 @@ final class AchievementSweepJob: LifecycleHandler, @unchecked Sendable {
     func runOnce(_ app: Application, now: Date = Date()) async {
         guard AchievementsConfiguration.fromEnvironment().enabled else { return }
         let batchSize = batchSize
+        let unlocked = NIOLockedValueBox<[(UUID, [UserAchievement])]>([])
         await JobLock.runAsLeader(app, name: Self.lockName) {
             do {
                 try await AchievementService.ensureActivated(at: now, on: app.db)
@@ -60,28 +62,40 @@ final class AchievementSweepJob: LifecycleHandler, @unchecked Sendable {
                 app.logger.warning("achievement_sweep activation failed error=\(String(reflecting: type(of: error)))")
                 return
             }
-            await Self.sweep(app, now: now, batchSize: batchSize)
+            let found = await Self.sweep(app, now: now, batchSize: batchSize)
+            unlocked.withLockedValue { $0 = found }
+        }
+        // Pushed only after the leader lock's pooled connection is released:
+        // the notifier needs a connection of its own, and with one connection
+        // per event loop it can otherwise wait on the one the lock holds.
+        for (userId, unlocks) in unlocked.withLockedValue({ $0 }) where !app.didShutdown {
+            await AchievementNotifier.notifyUnlocks(unlocks, userId: userId, app: app)
         }
     }
 
-    private static func sweep(_ app: Application, now: Date, batchSize: Int) async {
+    /// Evaluates the due users and returns each one's new unlocks, for the
+    /// caller to announce once the leader lock is released.
+    private static func sweep(_ app: Application, now: Date, batchSize: Int) async -> [(UUID, [UserAchievement])] {
         let userIds: [UUID]
         do {
             userIds = try await dueUsers(app, now: now, limit: batchSize)
         } catch {
             app.logger.warning("achievement_sweep select failed error=\(String(reflecting: type(of: error)))")
-            return
+            return []
         }
-        guard !userIds.isEmpty else { return }
+        guard !userIds.isEmpty else { return [] }
 
         // One user at a time, outside any transaction: evaluate opens its own
         // transaction and row lock.
         let ctx = AchievementContext(db: app.db, logger: app.logger, app: app, now: now)
         var failed = 0
+        var unlocked: [(UUID, [UserAchievement])] = []
         for userId in userIds {
             do {
                 let unlocks = try await AchievementService.evaluate(userId: userId, scope: .sweep, ctx: ctx)
-                await AchievementNotifier.notifyUnlocks(unlocks, userId: userId, app: app)
+                if !unlocks.isEmpty {
+                    unlocked.append((userId, unlocks))
+                }
             } catch {
                 failed += 1
                 app.logger.warning(
@@ -91,6 +105,7 @@ final class AchievementSweepJob: LifecycleHandler, @unchecked Sendable {
             }
         }
         app.logger.info("achievement_sweep ok users=\(userIds.count) failed=\(failed)")
+        return unlocked
     }
 
     /// Users with no evaluation row, a null `last_swept_at`, or one older than
