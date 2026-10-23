@@ -7,19 +7,27 @@ struct MailMessage {
     let body: String
     let purpose: String?
     let challengeId: UUID?
+    /// Sent alongside `body` (the plain-text part) when set.
+    let htmlBody: String?
+    /// Extra message headers, e.g. `List-Unsubscribe`.
+    let headers: [String: String]
 
     init(
         to: String,
         subject: String,
         body: String,
         purpose: String? = nil,
-        challengeId: UUID? = nil
+        challengeId: UUID? = nil,
+        htmlBody: String? = nil,
+        headers: [String: String] = [:]
     ) {
         self.to = to
         self.subject = subject
         self.body = body
         self.purpose = purpose
         self.challengeId = challengeId
+        self.htmlBody = htmlBody
+        self.headers = headers
     }
 }
 
@@ -56,7 +64,9 @@ struct ResendMailerService: MailerService {
             from: fromEmail,
             to: [message.to],
             subject: message.subject,
-            text: message.body
+            text: message.body,
+            html: message.htmlBody,
+            headers: message.headers.isEmpty ? nil : message.headers
         )
 
         let response = try await req.client.post(uri) { clientReq in
@@ -91,6 +101,8 @@ private struct ResendEmailPayload: Content {
     let to: [String]
     let subject: String
     let text: String
+    let html: String?
+    let headers: [String: String]?
 }
 
 private struct ResendEmailResponse: Decodable {

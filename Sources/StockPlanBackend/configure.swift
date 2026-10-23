@@ -519,6 +519,14 @@ public func configure(_ app: Application) async throws {
     if envBool("DAILY_BOARD_POST_ENABLED", default: false) {
         app.lifecycle.use(DailyBoardPostJob())
     }
+    // Weekly digest ("Your money, explained"). DIGEST_ENABLED gates the job
+    // and the signed-in routes; the operator command works with it off so
+    // staging can check a digest first. DIGEST_EMAIL_ENABLED gates sending.
+    app.digestConfig = DigestConfig.fromEnvironment()
+    if app.digestConfig.enabled {
+        app.lifecycle.use(WeeklyDigestJob())
+    }
+    app.asyncCommands.use(DigestSendCommand(), as: "digest-send")
     app.asyncCommands.use(MarketBriefGenerateCommand(), as: "market-brief-generate")
     app.asyncCommands.use(DailyBoardPostGenerateCommand(), as: "daily-board-post-generate")
     // Operator-triggered reconstruction of history predating the job above.
