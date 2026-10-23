@@ -190,6 +190,11 @@ struct AchievementHookSitesTests {
         try await withApp { app in
             let author = try await member(app, "va")
             let voter = try await member(app, "vb")
+            let board = try await send(
+                app, .POST, "v1/boards", as: author,
+                body: CreateBoardRequest(slug: "general", name: "Board general", description: "About general")
+            )
+            #expect(board.status == .ok)
             let posted = try await send(
                 app, .POST, "v1/boards/general/posts", as: author,
                 body: CreateBoardPostRequest(kind: .text, title: "A post title", url: nil, body: "Body", tags: [])
