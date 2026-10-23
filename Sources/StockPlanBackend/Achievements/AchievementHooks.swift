@@ -106,7 +106,11 @@ actor AchievementHooks {
             }
             if live {
                 let ctx = AchievementContext(db: app.db, logger: app.logger, app: app, now: Date())
-                await AchievementService.evaluateBestEffort(userId: userId, ctx: ctx)
+                let unlocks = await AchievementService.evaluateBestEffort(userId: userId, ctx: ctx)
+                // Same guard as above: the app may have shut down mid-evaluation.
+                if !unlocks.isEmpty, !app.didShutdown {
+                    await AchievementNotifier.notifyUnlocks(unlocks, userId: userId, app: app)
+                }
             }
             self.finish(userId, app: app)
         }

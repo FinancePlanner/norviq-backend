@@ -80,7 +80,8 @@ final class AchievementSweepJob: LifecycleHandler, @unchecked Sendable {
         var failed = 0
         for userId in userIds {
             do {
-                try await AchievementService.evaluate(userId: userId, scope: .sweep, ctx: ctx)
+                let unlocks = try await AchievementService.evaluate(userId: userId, scope: .sweep, ctx: ctx)
+                await AchievementNotifier.notifyUnlocks(unlocks, userId: userId, app: app)
             } catch {
                 failed += 1
                 app.logger.warning(

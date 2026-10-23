@@ -96,6 +96,9 @@ enum AchievementService {
                     }
                     guard try await insertIgnoringDuplicate(unlock, on: tx, sql: sql) else { continue }
                     inserted.append(unlock)
+                    if !needsBackfill {
+                        await recordActivity(unlock, on: tx, sql: sql, logger: ctx.logger)
+                    }
                     if payXP {
                         await award(
                             spec: spec, key: definition.key, userId: userId,
@@ -124,16 +127,19 @@ enum AchievementService {
         }
     }
 
-    /// Hooks call this (PR B). Swallows errors; no-op when flag off.
+    /// Hooks call this. Swallows errors; no-op when flag off. Returns the newly
+    /// inserted unlocks (none on failure) so the caller can announce them.
     ///
     /// Like `evaluate`, must be called outside any caller transaction — after
     /// the caller's own write has committed, never inside it.
-    static func evaluateBestEffort(userId: UUID, ctx: AchievementContext) async {
-        guard AchievementsConfiguration.fromEnvironment().enabled else { return }
+    @discardableResult
+    static func evaluateBestEffort(userId: UUID, ctx: AchievementContext) async -> [UserAchievement] {
+        guard AchievementsConfiguration.fromEnvironment().enabled else { return [] }
         do {
-            try await evaluate(userId: userId, scope: .live, ctx: ctx)
+            return try await evaluate(userId: userId, scope: .live, ctx: ctx)
         } catch {
             ctx.logger.warning("achievements.evaluate failed error=\(String(reflecting: type(of: error)))")
+            return []
         }
     }
 
@@ -188,6 +194,23 @@ enum AchievementService {
         } catch {
             guard XPService.isConstraintFailure(error) else { throw error }
             return false
+        }
+    }
+
+    /// Writes the friends' feed item for a live or sweep unlock (backfill and
+    /// legacy unlocks are history, never news). A failure is logged and rolled
+    /// back to the savepoint, so it never costs the unlock itself.
+    private static func recordActivity(_ unlock: UserAchievement, on tx: any Database, sql: any SQLDatabase, logger: Logger) async {
+        do {
+            let activity = try SocialActivity(
+                actorId: unlock.$user.id, kind: AchievementNotifier.activityKind,
+                userAchievementId: unlock.requireID(), createdAt: unlock.unlockedAt
+            )
+            try await savepoint(sql) { try await activity.create(on: tx) }
+        } catch {
+            logger.warning(
+                "achievements.activity failed key=\(unlock.achievementKey) tier=\(unlock.tier) error=\(String(reflecting: type(of: error)))"
+            )
         }
     }
 

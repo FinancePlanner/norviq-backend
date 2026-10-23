@@ -93,17 +93,28 @@ protocol PushNotificationSending: Sendable {
     ) async -> TargetPushSendSummary
 }
 
-/// A friend request, or a request that was accepted. The app routes both
-/// `type`s to its Friends tab.
+/// A friend request, or a request that was accepted (the app routes both to
+/// its Friends tab), or achievement news: the user's own unlocks, or a
+/// friend's congratulations on one.
 struct SocialPushMessage: Sendable {
     enum Kind: String, Sendable {
         case friendRequest = "friend_request"
         case friendAccepted = "friend_accepted"
+        case achievementUnlocked = "achievement_unlocked"
+        case achievementCongrats = "achievement_congrats"
     }
 
     let kind: Kind
     let title: String
     let body: String
+
+    /// Achievement news groups in its own notification thread.
+    var threadID: String {
+        switch kind {
+        case .friendRequest, .friendAccepted: "social"
+        case .achievementUnlocked, .achievementCongrats: "achievements"
+        }
+    }
 }
 
 /// A reply or upvote on Boards. The push deep-links to the post.
@@ -391,7 +402,7 @@ struct APNSPushNotificationSender: PushNotificationSending {
             priority: .immediately,
             topic: topic,
             payload: SocialEventPayload(schemaVersion: 1, type: message.kind.rawValue),
-            threadID: "social",
+            threadID: message.threadID,
             category: message.kind.rawValue
         )
         var delivered = 0
