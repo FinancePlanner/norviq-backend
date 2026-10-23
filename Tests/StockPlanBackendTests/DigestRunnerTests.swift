@@ -178,6 +178,25 @@ struct DigestRunnerTests {
         }
     }
 
+    @Test("digest-send refuses users the job would skip")
+    func sendCommandEligibility() async throws {
+        try await withApp { app, _ in
+            let eligible = try await optedIn(app)
+            let empty = try await optedIn(app, holdings: false)
+            let stranger = try await registerUser(app)
+
+            let preference = try await DigestSendCommand.sendablePreference(userId: eligible.id, on: app.db)
+            #expect(preference.userId == eligible.id)
+            await #expect(throws: Abort.self) {
+                try await DigestSendCommand.sendablePreference(userId: empty.id, on: app.db)
+            }
+            await #expect(throws: Abort.self) {
+                try await DigestSendCommand.sendablePreference(userId: stranger.id, on: app.db)
+            }
+            #expect(try await WeeklyDigest.query(on: app.db).count() == 0)
+        }
+    }
+
     @Test("The allowlist limits who is sent to")
     func allowlist() async throws {
         try await withApp { app, mailer in
