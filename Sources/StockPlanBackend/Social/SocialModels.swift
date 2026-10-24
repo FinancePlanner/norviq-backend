@@ -99,6 +99,7 @@ final class SocialSettingsRecord: Model, @unchecked Sendable {
     @Field(key: "show_streaks") var showStreaks: Bool
     @Field(key: "show_xp") var showXP: Bool
     @Field(key: "leaderboard_opt_in") var leaderboardOptIn: Bool
+    @Field(key: "show_achievements") var showAchievements: Bool
     /// HMAC of the normalized account email under the current contact pepper.
     @OptionalField(key: "email_hash") var emailHash: String?
     /// Set by a moderator. A suspended user can't use social and is hidden
@@ -123,6 +124,7 @@ final class SocialSettingsRecord: Model, @unchecked Sendable {
         showStreaks = settings.showStreaks
         showXP = settings.showXP
         leaderboardOptIn = settings.leaderboardOptIn
+        showAchievements = settings.showAchievements
     }
 
     var dto: SocialPrivacySettingsDTO {
@@ -134,7 +136,8 @@ final class SocialSettingsRecord: Model, @unchecked Sendable {
             showReturnPercent: showReturnPercent,
             showStreaks: showStreaks,
             showXP: showXP,
-            leaderboardOptIn: leaderboardOptIn
+            leaderboardOptIn: leaderboardOptIn,
+            showAchievements: showAchievements
         )
     }
 }

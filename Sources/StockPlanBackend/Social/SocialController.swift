@@ -88,12 +88,24 @@ struct SocialController: RouteCollection {
             timeZone: GamificationCalendar.timeZone(from: req),
             on: req.db
         )
+        var badgeCount: Int?
+        var showcase: [AchievementShowcaseEntryDTO]?
+        if AchievementsConfiguration.fromEnvironment().enabled {
+            let access = try await AchievementVisibility.resolve(viewer: viewer, owner: target, on: req.db)
+            if access.canSee {
+                let language = AchievementLanguage.from(acceptLanguage: req.headers.first(name: .acceptLanguage))
+                let rows = try await AchievementVisibility.visibleRows(of: target, access: access, on: req.db)
+                badgeCount = rows.count
+                showcase = AchievementVisibility.showcase(from: rows, language: language)
+            }
+        }
         return SocialProfileDTO(
             user: summary,
             streakDays: stats.streakDays,
             xpLevel: stats.xpLevel,
-            badgeCount: nil,
-            joinedAt: user?.createdAt
+            badgeCount: badgeCount,
+            joinedAt: user?.createdAt,
+            showcase: showcase
         )
     }
 
@@ -229,10 +241,16 @@ struct SocialController: RouteCollection {
             try await SocialService.befriend(userId, inviter, on: req.db)
             req.scheduleAchievementCheck(for: userId, inviter)
             await Self.push(.friendAccepted, to: inviter, about: userId, on: req)
-        }
-        // A new account joining through the link credits the inviter (social.inviter).
-        if let credited = try await SocialService.recordInviteRedemption(code: code, invitee: userId, now: Date(), on: req.db) {
-            req.scheduleAchievementCheck(for: credited)
+            // A new account joining through the link credits the inviter
+            // (social.inviter). Best effort: the friendship is already
+            // committed and must not turn into a 500.
+            do {
+                if let credited = try await SocialService.recordInviteRedemption(code: code, invitee: userId, now: Date(), on: req.db) {
+                    req.scheduleAchievementCheck(for: credited)
+                }
+            } catch {
+                req.logger.warning("social.invite redemption failed error=\(String(reflecting: type(of: error)))")
+            }
         }
         return try await SocialInviteRedeemResponse(inviter: SocialService.summary(of: inviter, viewer: userId, on: req.db))
     }
@@ -258,8 +276,12 @@ struct SocialController: RouteCollection {
             config: SocialConfiguration.fromEnvironment(),
             on: req.db
         )
-        if try req.content.decode(SocialFacebookPrivacyProbe.self).discoverableByFacebook == nil {
+        let probe = try req.content.decode(SocialFacebookPrivacyProbe.self)
+        if probe.discoverableByFacebook == nil {
             settings.discoverableByFacebook = record.discoverableByFacebook
+        }
+        if probe.showAchievements == nil {
+            settings.showAchievements = record.showAchievements
         }
         record.apply(settings)
         try await record.save(on: req.db)

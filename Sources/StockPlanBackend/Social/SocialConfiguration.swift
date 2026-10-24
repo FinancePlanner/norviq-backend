@@ -14,6 +14,8 @@ struct SocialConfiguration: Sendable {
     let facebookImport: Bool
     /// XP, check-ins and friends leaderboards (Phase 3).
     let leaderboards: Bool
+    /// Friend achievements and the activity feed: needs achievements too.
+    let activityFeed: Bool
     let contactPepper: String?
     let inviteBaseURL: String
 
@@ -34,6 +36,8 @@ struct SocialConfiguration: Sendable {
             facebookImport: enabled && !FacebookImportConfig.fromEnvironment().appIDs.isEmpty
                 && envBool("SOCIAL_FACEBOOK_IMPORT_ENABLED", default: false),
             leaderboards: enabled && envBool("SOCIAL_LEADERBOARDS_ENABLED", default: true),
+            activityFeed: enabled && AchievementsConfiguration.fromEnvironment().enabled
+                && envBool("SOCIAL_ACTIVITY_FEED_ENABLED", default: false),
             contactPepper: usablePepper,
             inviteBaseURL: (inviteBase?.isEmpty ?? true) ? "https://norviq.org" : inviteBase ?? "https://norviq.org"
         )
@@ -51,6 +55,7 @@ struct SocialConfiguration: Sendable {
             groups: groups.enabled,
             groupsPublic: groups.publicDirectory,
             achievements: AchievementsConfiguration.fromEnvironment().enabled,
+            activityFeed: activityFeed,
             contactHashVersion: contactsDiscovery ? Self.contactHashVersion : nil,
             contactPepper: contactsDiscovery ? contactPepper : nil
         )

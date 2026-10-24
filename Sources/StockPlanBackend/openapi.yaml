@@ -19,6 +19,7 @@ tags:
   - name: Stocks
   - name: Watchlist
   - name: Achievements
+  - name: Social
     description: The caller's own achievements, tiers, unseen unlocks and profile showcase. Gated by `ACHIEVEMENTS_ENABLED`; every route returns 404 when it is off. Copy follows `Accept-Language` (en, pt-PT). No money is ever exposed.
   - name: Recaps
     description: Per-user monthly and yearly recap decks, generated once. Gated by `RECAP_ENABLED`; every route returns 404 when it is off.
@@ -868,6 +869,77 @@ paths:
                 $ref: '#/components/schemas/BadgesListResponse'
         '401':
           description: Unauthorized
+
+  /v1/social/feed:
+    get:
+      operationId: listSocialFeed
+      tags: [Social]
+      summary: Friends' achievement activity feed
+      description: Newest first. Only friends who share achievements appear. 404 unless social, achievements and the activity feed flag are all on.
+      security:
+        - bearerAuth: []
+      parameters:
+        - { name: cursor, in: query, required: false, schema: { type: string } }
+        - { name: limit, in: query, required: false, schema: { type: integer, minimum: 1, maximum: 50, default: 20 } }
+      responses:
+        '200':
+          description: A page of feed items.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SocialFeedResponseDTO'
+        '400':
+          description: Invalid cursor.
+        '401':
+          description: Unauthorized
+        '404':
+          description: The activity feed is disabled.
+
+  /v1/social/feed/{activityId}/congrats:
+    post:
+      operationId: congratulateSocialActivity
+      tags: [Social]
+      summary: Congratulate a friend on an activity
+      description: Returns 204 whether or not this call created the congrats. The actor is pushed only for a new one, at most once per 10 minutes per activity.
+      security:
+        - bearerAuth: []
+      parameters:
+        - { name: activityId, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '204':
+          description: Congratulated.
+        '400':
+          description: The activity is the caller's own.
+        '401':
+          description: Unauthorized
+        '404':
+          description: Activity not visible to the caller, or the activity feed is disabled.
+        '429':
+          description: Rate limited.
+
+  /v1/social/users/{userId}/achievements:
+    get:
+      operationId: listSocialUserAchievements
+      tags: [Social]
+      summary: A friend's earned achievements
+      description: 404 when the viewer may not see the owner's achievements (not a friend, blocked, suspended, or sharing turned off), so nothing leaks. Also 404 when the activity feed is disabled.
+      security:
+        - bearerAuth: []
+      parameters:
+        - { name: userId, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200':
+          description: Visible unlocks.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/AchievementUnlock'
+        '401':
+          description: Unauthorized
+        '404':
+          description: User not visible, or the activity feed is disabled.
 
   /v1/achievements:
     get:
@@ -12708,6 +12780,103 @@ components:
           maxItems: 3
           items:
             $ref: '#/components/schemas/AchievementShowcaseItem'
+      required: [items]
+
+    SocialUserSummaryDTO:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        username: { type: string }
+        displayName: { type: string, nullable: true }
+        avatarUrl: { type: string, nullable: true }
+        friendshipStatus: { type: string, enum: [none, outgoing_pending, incoming_pending, friends, blocked] }
+        mutualFriendCount: { type: integer, nullable: true }
+      required: [id, username, friendshipStatus]
+    AchievementShowcaseEntryDTO:
+      type: object
+      properties:
+        key: { type: string }
+        tier: { type: string }
+        title: { type: string }
+        iconKey: { type: string }
+      required: [key, tier, title, iconKey]
+    SocialProfileDTO:
+      type: object
+      properties:
+        user: { $ref: '#/components/schemas/SocialUserSummaryDTO' }
+        streakDays: { type: integer, nullable: true }
+        xpLevel: { type: integer, nullable: true }
+        badgeCount:
+          type: integer
+          nullable: true
+          description: Earned achievements count. Populated when the owner shares achievements with the viewer, otherwise null.
+        joinedAt: { type: string, format: date-time, nullable: true }
+        showcase:
+          type: array
+          nullable: true
+          maxItems: 3
+          description: Up to three pinned or best achievements. Null unless the viewer may see them.
+          items:
+            $ref: '#/components/schemas/AchievementShowcaseEntryDTO'
+      required: [user]
+    SocialPrivacySettingsDTO:
+      type: object
+      properties:
+        searchVisibility: { type: string, enum: [everyone, friends_of_friends, nobody] }
+        discoverableByContacts: { type: boolean }
+        discoverableByX: { type: boolean }
+        discoverableByFacebook: { type: boolean }
+        showReturnPercent: { type: boolean }
+        showStreaks: { type: boolean }
+        showXP: { type: boolean }
+        leaderboardOptIn: { type: boolean }
+        showAchievements:
+          type: boolean
+          description: Friends may see badge count, showcase and unlocks. Defaults to true; optional on write.
+      required: [searchVisibility, discoverableByContacts, discoverableByX, discoverableByFacebook, showReturnPercent, showStreaks, showXP, leaderboardOptIn, showAchievements]
+    SocialConfigDTO:
+      type: object
+      properties:
+        enabled: { type: boolean }
+        contactsDiscovery: { type: boolean }
+        xImport: { type: boolean }
+        facebookImport: { type: boolean }
+        leaderboards: { type: boolean }
+        messaging: { type: boolean }
+        groups: { type: boolean }
+        groupsPublic: { type: boolean }
+        achievements: { type: boolean }
+        activityFeed:
+          type: boolean
+          description: Friends' achievements list and activity feed (SOCIAL_ACTIVITY_FEED_ENABLED).
+        contactHashVersion: { type: integer, nullable: true }
+        contactPepper: { type: string, nullable: true }
+      required: [enabled, contactsDiscovery, xImport, facebookImport, leaderboards, messaging, groups, groupsPublic, achievements, activityFeed]
+    SocialFeedAchievementDTO:
+      type: object
+      properties:
+        key: { type: string }
+        tier: { type: string }
+        title: { type: string }
+        iconKey: { type: string }
+      required: [key, tier, title, iconKey]
+    SocialFeedItemDTO:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        actor: { $ref: '#/components/schemas/SocialUserSummaryDTO' }
+        achievement: { $ref: '#/components/schemas/SocialFeedAchievementDTO' }
+        createdAt: { type: string, format: date-time }
+        congratsCount: { type: integer }
+        viewerCongratulated: { type: boolean }
+      required: [id, actor, achievement, createdAt, congratsCount, viewerCongratulated]
+    SocialFeedResponseDTO:
+      type: object
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/SocialFeedItemDTO' }
+        nextCursor: { type: string, nullable: true }
       required: [items]
 
     CryptoAssetResponse:

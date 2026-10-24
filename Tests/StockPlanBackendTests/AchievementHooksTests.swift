@@ -153,7 +153,7 @@ struct AchievementHooksTests {
         try await DatabaseTestLock.withLock {
             setenv("ACHIEVEMENTS_ENABLED", "1", 1)
             let previousDelay = AchievementHooks.delay
-            AchievementHooks.delay = .milliseconds(300)
+            AchievementHooks.delay = .seconds(2)
             defer {
                 AchievementHooks.delay = previousDelay
                 unsetenv("ACHIEVEMENTS_ENABLED")
