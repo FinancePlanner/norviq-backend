@@ -228,3 +228,24 @@ struct SocialFacebookMatchesResponse: Content, Equatable {
     /// How many friend ids Facebook shared, matched or not.
     let friendsGranted: Int
 }
+
+struct SocialFeedAchievementDTO: Content, Equatable {
+    let key: String
+    let tier: String
+    let title: String
+    let iconKey: String
+}
+
+struct SocialFeedItemDTO: Content, Equatable {
+    let id: UUID
+    let actor: SocialUserSummaryDTO
+    let achievement: SocialFeedAchievementDTO
+    let createdAt: Date
+    let congratsCount: Int
+    let viewerCongratulated: Bool
+}
+
+struct SocialFeedResponseDTO: Content, Equatable {
+    let items: [SocialFeedItemDTO]
+    let nextCursor: String?
+}
