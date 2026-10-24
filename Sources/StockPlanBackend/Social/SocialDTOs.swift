@@ -34,6 +34,15 @@ struct SocialProfileDTO: Content, Equatable {
     let xpLevel: Int?
     let badgeCount: Int?
     let joinedAt: Date?
+    /// Up to three pinned or best achievements; nil unless the viewer may see them.
+    let showcase: [AchievementShowcaseEntryDTO]?
+}
+
+struct AchievementShowcaseEntryDTO: Content, Equatable {
+    let key: String
+    let tier: String
+    let title: String
+    let iconKey: String
 }
 
 struct SocialFriendRequestDTO: Content, Equatable {
@@ -81,6 +90,8 @@ struct SocialPrivacySettingsDTO: Content, Equatable {
     var showStreaks: Bool
     var showXP: Bool
     var leaderboardOptIn: Bool
+    /// Friends may see badge count, showcase and unlocks. Default on.
+    var showAchievements: Bool
 
     /// Return % stays private until the user opts in.
     static let `default` = SocialPrivacySettingsDTO(
@@ -91,7 +102,8 @@ struct SocialPrivacySettingsDTO: Content, Equatable {
         showReturnPercent: false,
         showStreaks: true,
         showXP: true,
-        leaderboardOptIn: true
+        leaderboardOptIn: true,
+        showAchievements: true
     )
 }
 
@@ -109,7 +121,8 @@ extension SocialPrivacySettingsDTO {
             showReturnPercent: container.decode(Bool.self, forKey: .showReturnPercent),
             showStreaks: container.decode(Bool.self, forKey: .showStreaks),
             showXP: container.decode(Bool.self, forKey: .showXP),
-            leaderboardOptIn: container.decode(Bool.self, forKey: .leaderboardOptIn)
+            leaderboardOptIn: container.decode(Bool.self, forKey: .leaderboardOptIn),
+            showAchievements: container.decodeIfPresent(Bool.self, forKey: .showAchievements) ?? true
         )
     }
 }
@@ -117,6 +130,8 @@ extension SocialPrivacySettingsDTO {
 /// Only used to tell whether a `PUT /privacy` body carried the field at all.
 struct SocialFacebookPrivacyProbe: Decodable {
     let discoverableByFacebook: Bool?
+    /// Same for `showAchievements`, added after the first social release.
+    let showAchievements: Bool?
 }
 
 struct SocialBlockedUsersResponse: Content, Equatable {
@@ -157,6 +172,8 @@ struct SocialConfigDTO: Content, Equatable {
     let groupsPublic: Bool
     /// Achievements engine (`ACHIEVEMENTS_ENABLED`).
     let achievements: Bool
+    /// Friends' achievements list and activity feed (`SOCIAL_ACTIVITY_FEED_ENABLED`).
+    let activityFeed: Bool
     /// Present when contact matching is on. The pepper is not a secret: it
     /// only stops precomputed tables; rate limits and opt-in do the rest.
     let contactHashVersion: Int?

@@ -89,6 +89,8 @@ func routes(_ app: Application) throws {
     // controller, after the authenticator, so they key per user.
     try api.register(collection: SocialController())
     try api.register(collection: SocialModerationController())
+    // Friend achievements list and activity feed; behind SOCIAL_ACTIVITY_FEED_ENABLED.
+    try api.register(collection: SocialFeedController())
     // XP, check-ins and friends leaderboards; also behind SOCIAL_ENABLED.
     try api.register(collection: GamificationController())
     // User-created topic boards and their admin moderation. Rate limits sit
