@@ -312,6 +312,7 @@ struct StockController: RouteCollection {
             referenceLinks: encodeReferenceLinks(payload.referenceLinks)
         )
         try await note.save(on: req.db)
+        req.scheduleAchievementCheck(for: session.userId)
 
         let created = try makeResearchNoteResponse(from: note)
         let res = Response(status: .created)
@@ -362,6 +363,7 @@ struct StockController: RouteCollection {
         note.catalysts = emptyToNil(payload.catalysts)
         note.referenceLinks = try encodeReferenceLinks(payload.referenceLinks)
         try await note.save(on: req.db)
+        req.scheduleAchievementCheck(for: session.userId)
 
         return try makeResearchNoteResponse(from: note)
     }

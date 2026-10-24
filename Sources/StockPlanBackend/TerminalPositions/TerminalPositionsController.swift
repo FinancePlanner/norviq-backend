@@ -68,7 +68,9 @@ struct TerminalPositionsController: RouteCollection {
     @Sendable
     func create(req: Request) async throws -> Response {
         let input = try req.content.decode(TerminalPositionCreateRequest.self)
-        let row = try await service.create(userId: userId(req), input, on: req.db)
+        let user = try userId(req)
+        let row = try await service.create(userId: user, input, on: req.db)
+        req.scheduleAchievementCheck(for: user)
         return try await row.toResponse().encodeResponse(status: .created, for: req)
     }
 

@@ -284,6 +284,7 @@ struct DefaultBrokersService: BrokersService {
 
             _ = try await IBKRBrokerSyncService(gatewayClient: syncClient)
                 .sync(connection: connection, userId: flow.userId, on: req)
+            req.scheduleAchievementCheck(for: flow.userId)
             return redirectResponse(to: brokerAppRedirectURL(base: flow.redirectURI, status: "success", error: nil))
         } catch {
             _ = try? await upsertBrokerConnection(

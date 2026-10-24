@@ -38,7 +38,8 @@ struct BankCallbackController: RouteCollection {
 
         do {
             let provider = try req.bankProviderRegistry.provider(for: kind)
-            _ = try await provider.completeHostedLink(reference: reference, on: req)
+            let connection = try await provider.completeHostedLink(reference: reference, on: req)
+            req.scheduleAchievementCheck(for: connection.userId)
             return redirect(to: appURL(base: base, status: "connected", message: nil))
         } catch {
             let message = (error as? any AbortError)?.reason ?? error.localizedDescription

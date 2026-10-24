@@ -59,6 +59,7 @@ struct PersonalAccessTokenController: RouteCollection {
             expiresAt: Date().addingTimeInterval(TimeInterval(expiryDays * 86400))
         )
         try await pat.save(on: req.db)
+        req.scheduleAchievementCheck(for: session.userId)
 
         return try PersonalAccessTokenCreateResponse(
             id: pat.requireID(),

@@ -137,6 +137,7 @@ extension StockController {
             }
             try await duplicate.save(on: req.db)
             try await item.delete(on: req.db)
+            req.scheduleAchievementCheck(for: session.userId)
             return makeWatchlistItemResponse(from: duplicate)
         }
 
@@ -180,6 +181,7 @@ extension StockController {
 
         if didChange {
             try await item.save(on: req.db)
+            req.scheduleAchievementCheck(for: session.userId)
         }
 
         return makeWatchlistItemResponse(from: item)

@@ -120,13 +120,15 @@ struct BrokerController: RouteCollection {
     func connectIBKRCredentials(req: Request) async throws -> BrokerConnectionResponse {
         let session = try req.auth.require(SessionToken.self)
         let payload = try req.content.decode(BrokerConnectCredentialsRequest.self)
-        return try await req.application.brokersService.connectIBKRCredentials(
+        let response = try await req.application.brokersService.connectIBKRCredentials(
             token: payload.token,
             queryId: payload.queryId,
             portfolioListId: payload.portfolioListId,
             userId: session.userId,
             on: req
         )
+        req.scheduleAchievementCheck(for: session.userId)
+        return response
     }
 
     @Sendable

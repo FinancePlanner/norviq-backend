@@ -67,6 +67,7 @@ struct BankController: RouteCollection {
         let provider = try req.bankProviderRegistry.provider(for: providerKind(req))
 
         let connection = try await provider.exchange(request, userId: session.userId, on: req)
+        req.scheduleAchievementCheck(for: session.userId)
         // Kick an initial sync so the user immediately sees suggestions.
         _ = try? await provider.sync(connection: connection, on: req)
         let accounts = try await accounts(for: connection, on: req.db)

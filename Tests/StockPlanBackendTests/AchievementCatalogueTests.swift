@@ -7,7 +7,7 @@ struct AchievementCatalogueTests {
     @Test func keysAreUnique() {
         let keys = AchievementCatalogue.all.map(\.key)
         #expect(Set(keys).count == keys.count)
-        #expect(keys.count == 35)
+        #expect(keys.count == 36)
     }
 
     @Test func tiersAscend() {
@@ -41,6 +41,8 @@ struct AchievementCatalogueTests {
         #expect(AchievementCatalogue.definition("perf.comeback")?.tiers.map(\.xp) == [100])
         #expect(AchievementCatalogue.definition("hidden.founding_member")?.tiers.map(\.xp) == [50])
         #expect(AchievementCatalogue.definition("start.first_holding")?.tiers.map(\.xp) == [25])
+        #expect(AchievementCatalogue.definition("social.inviter")?.tiers.map(\.threshold) == [1, 3, 10])
+        #expect(AchievementCatalogue.definition("social.inviter")?.tiers.map(\.xp) == [25, 50, 100])
     }
 
     @Test func flags() throws {

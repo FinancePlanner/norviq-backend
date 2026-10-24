@@ -173,7 +173,8 @@ struct ArticlesController: RouteCollection {
     func view(req: Request) async throws -> HTTPStatus {
         let article = try await ArticleService.requireVisible(ref: req.parameters.get("ref") ?? "", viewer: nil, on: req.db)
         let key: String
-        if let viewer = ArticleService.viewerId(req) {
+        let userViewer = ArticleService.viewerId(req)
+        if let viewer = userViewer {
             key = "u:\(viewer.uuidString)"
         } else if ArticleViewerCredentials.isListed(req),
                   let header = req.headers.first(name: Self.viewerHeader),
@@ -194,6 +195,10 @@ struct ArticlesController: RouteCollection {
         """).all()
         if !inserted.isEmpty {
             try await sql.raw("UPDATE articles SET view_count = view_count + 1 WHERE id = \(bind: articleId)").run()
+            // Only signed-in readers earn; hashed web visitors have no account.
+            if let userViewer {
+                req.scheduleAchievementCheck(for: userViewer)
+            }
         }
         return .noContent
     }

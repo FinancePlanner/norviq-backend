@@ -295,11 +295,15 @@ extension Request {
         application.badgeService
     }
 
+    /// Also queues a live achievement check: every caller has just written
+    /// something an achievement may count, and none calls this inside a
+    /// transaction.
     func reconcileBadges(userId: UUID, on db: any Database) async {
         do {
             _ = try await badgeService.evaluateBadges(userId: userId, req: self, on: db)
         } catch {
             logger.warning("badge reconciliation failed user=\(userId) error=\(error)")
         }
+        scheduleAchievementCheck(for: userId)
     }
 }

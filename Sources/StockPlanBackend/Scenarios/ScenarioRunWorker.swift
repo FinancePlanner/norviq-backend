@@ -91,6 +91,7 @@ final class ScenarioRunWorker: LifecycleHandler, @unchecked Sendable {
             run.result = result; run.state = "completed"; run.progress = 1
             run.completedAt = Date(); run.leaseOwner = nil; run.leaseExpiresAt = nil
             try await run.save(on: app.db)
+            AchievementHooks.shared.schedule(run.userId, app: app)
             await cache(result: result, runID: id, app: app)
             let warningCodes = result.values["warnings"]?.array?.compactMap {
                 $0.object?["code"]?.string

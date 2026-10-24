@@ -222,6 +222,11 @@ enum AchievementCatalogue {
             en: ("Part of Something", "Join a group."), pt: ("Parte de algo", "Junta-te a um grupo.")
         ),
         AchievementDefinition(
+            key: "social.inviter", category: .community, iconKey: "person.badge.plus", tiers: tiered([1, 3, 10]),
+            sweepOnly: false, isPerformance: false, isHidden: false,
+            en: ("Recruiter", "Bring friends to Norviq."), pt: ("Recrutador", "Traz amigos para o Norviq.")
+        ),
+        AchievementDefinition(
             key: "perf.positive_year", category: .performance, iconKey: "arrow.up.right.circle.fill", tiers: single(1, xp: 100),
             sweepOnly: true, isPerformance: true, isHidden: false,
             en: ("Green Year", "Finish a calendar year in the green."), pt: ("Ano no verde", "Termina um ano civil com ganhos.")

@@ -57,12 +57,14 @@ struct GamificationController: RouteCollection {
     @Sendable
     func checkIn(req: Request) async throws -> CheckInResponseDTO {
         let userId = try req.auth.require(SessionToken.self).userId
-        return try await XPService.checkIn(
+        let response = try await XPService.checkIn(
             userId: userId,
             now: Date(),
             timeZone: GamificationCalendar.timeZone(from: req),
             on: req.db
         )
+        req.scheduleAchievementCheck(for: userId)
+        return response
     }
 
     /// The app reports the budget streak it shows; the server re-derives it
@@ -73,6 +75,7 @@ struct GamificationController: RouteCollection {
         let body = try req.content.decode(BudgetStreakReportBody.self)
         let verified = try await XPService.verifiedBudgetStreak(userId: userId, req: req)
         try await XPService.recordBudgetStreak(userId: userId, reported: body.months, verified: verified, on: req.db)
+        req.scheduleAchievementCheck(for: userId)
         return try await XPService.streaks(
             for: userId,
             now: Date(),

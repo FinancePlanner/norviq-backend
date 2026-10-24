@@ -301,6 +301,7 @@ struct BoardsController: RouteCollection {
             UPDATE boards SET post_count = post_count + 1, last_activity_at = \(bind: now) WHERE id = \(bind: boardId)
             """).run()
         }
+        req.scheduleAchievementCheck(for: viewer.userId)
         return BoardsService.summary(
             post,
             boardSlug: board.slug,
@@ -365,6 +366,8 @@ struct BoardsController: RouteCollection {
         }
         if result.voted {
             await BoardNotifier.upvoted(post: post, board: board, actor: viewer, on: req)
+            // The score is the author's achievement, not the voter's.
+            req.scheduleAchievementCheck(for: post.authorId)
         }
         return result
     }

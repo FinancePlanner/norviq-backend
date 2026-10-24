@@ -110,6 +110,7 @@ enum MessagingConversations {
             expiresAt: Date().addingTimeInterval(lifetime)
         )
         try await conversation.create(on: req.db)
+        req.scheduleAchievementCheck(for: userId)
         return conversation
     }
 }

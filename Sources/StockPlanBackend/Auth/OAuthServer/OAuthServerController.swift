@@ -171,6 +171,7 @@ struct OAuthServerController: RouteCollection {
         let issued = try await OAuthServerService.issueTokens(
             clientID: flow.clientID, userID: userID, scopes: flow.scopes, on: req.db
         )
+        req.scheduleAchievementCheck(for: userID)
         return try await tokenResponse(issued, on: req)
     }
 
