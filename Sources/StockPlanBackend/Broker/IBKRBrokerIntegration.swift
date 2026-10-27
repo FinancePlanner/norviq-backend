@@ -219,6 +219,7 @@ struct IBKRBrokerPosition {
     let averageCost: Double
     let currency: String
     let conid: String?
+    var assetClass: String?
 }
 
 struct IBKRBrokerTransaction {
@@ -233,6 +234,21 @@ struct IBKRBrokerTransaction {
     let date: Date
     let settleDate: Date?
     let conid: String?
+    var assetClass: String?
+}
+
+/// IBKR asset classes the ledger does not model yet. IBKR reports them under
+/// the underlying's ticker, so storing one as-is overwrites that stock's
+/// holding and lots. A missing class is treated as stock, as it always was.
+enum IBKRAssetClass {
+    private static let unsupported: Set<String> = ["OPT", "FOP", "FUT", "WAR", "IOPT"]
+
+    static func isUnsupported(_ assetClass: String?) -> Bool {
+        guard let normalized = assetClass?.trimmingCharacters(in: .whitespacesAndNewlines).uppercased() else {
+            return false
+        }
+        return unsupported.contains(normalized)
+    }
 }
 
 struct IBKRContractInfo: Sendable {
@@ -269,7 +285,7 @@ struct IBKRBrokerSyncService {
     func sync(connection: BrokerConnection, userId: UUID, on req: Request) async throws -> BrokerSyncResponse {
         let account = try await resolveGatewayAccount(for: connection, on: req)
         let positions = try await gatewayClient.fetchPositions(accountID: account.externalID, on: req)
-            .filter { $0.quantity > 0 }
+            .filter { $0.quantity > 0 && !IBKRAssetClass.isUnsupported($0.assetClass) }
 
         guard let connectionID = connection.id else {
             throw Abort(.internalServerError, reason: "Broker connection id missing.")
@@ -394,7 +410,7 @@ struct IBKRBrokerSyncService {
             from: from,
             to: to,
             on: req
-        )
+        ).filter { !IBKRAssetClass.isUnsupported($0.assetClass) }
 
         var syncedCount = 0
         var canonicalTransactions = [Transaction]()
@@ -466,6 +482,13 @@ struct IBKRBrokerSyncService {
 
         let accounting = TaxLotAccountingService()
         let taxPlanReconciler = TaxPlanReconciler()
+        let windowIDs = Set(canonicalTransactions.compactMap(\.id))
+        let rebuilt = try await rebuildDamagedLots(
+            sourceAccountId: sourceAccountId,
+            excluding: windowIDs,
+            accounting: accounting,
+            on: req
+        )
         for transaction in canonicalTransactions where transaction.type == "BUY" {
             _ = try await accounting.recordAcquisition(transaction: transaction, on: req.db)
             let match = try await taxPlanReconciler.match(
@@ -519,13 +542,26 @@ struct IBKRBrokerSyncService {
         let spainRuleVersion = TaxRuleRegistry(validatedJurisdictions: [.spain])
             .pack(for: .spain).ruleVersion
 
-        for transaction in canonicalTransactions where transaction.type == "SELL" {
+        // A rebuilt instrument replays every stored sale, not just the window's.
+        // Replayed sales skip tax-plan matching: a plan's lot IDs named the lots
+        // the rebuild just replaced, and the plan was completed when it first ran.
+        let replayedSales = rebuilt.isEmpty ? [] : try await Transaction.query(on: req.db)
+            .filter(\.$accountId == sourceAccountId)
+            .filter(\.$instrumentId ~~ Array(rebuilt))
+            .filter(\.$type == "SELL")
+            .all()
+            .filter { $0.id.map { !windowIDs.contains($0) } ?? false }
+        let sales = (canonicalTransactions.filter { $0.type == "SELL" } + replayedSales)
+            .sorted(by: Self.tradeOrder)
+
+        for transaction in sales {
+            let planned = transaction.id.map(windowIDs.contains) ?? false
             do {
-                let match = try await taxPlanReconciler.match(
+                let match = planned ? try await taxPlanReconciler.match(
                     transaction: transaction,
                     userId: userId,
                     on: req.db
-                )
+                ) : nil
                 let disposals = try await accounting.recordDisposal(
                     transaction: transaction,
                     method: match?.lotIDs.isEmpty == false ? .specificID : disposalMethod,
@@ -549,12 +585,14 @@ struct IBKRBrokerSyncService {
                         on: req.db
                     )
                 }
-                try await taxPlanReconciler.complete(
-                    match,
-                    transaction: transaction,
-                    userId: userId,
-                    on: req.db
-                )
+                if planned {
+                    try await taxPlanReconciler.complete(
+                        match,
+                        transaction: transaction,
+                        userId: userId,
+                        on: req.db
+                    )
+                }
             } catch let TaxLotAccountingError.insufficientQuantity(available, requested) {
                 req.logger.warning("broker.ibkr disposal_unmatched", metadata: [
                     "external_id": .string(transaction.externalId ?? "unknown"),
@@ -565,6 +603,57 @@ struct IBKRBrokerSyncService {
         }
 
         return syncedCount
+    }
+
+    private static let acquisitionTypes = ["BUY", "OPENING_BALANCE"]
+
+    private static func tradeOrder(_ lhs: Transaction, _ rhs: Transaction) -> Bool {
+        (lhs.tradeDate, lhs.externalId ?? "") < (rhs.tradeDate, rhs.externalId ?? "")
+    }
+
+    /// Earlier syncs replaced every lot of a held instrument with one snapshot
+    /// lot that has no opening trade, and the delete cascaded away that
+    /// instrument's disposals. An instrument showing either sign (a lot with no
+    /// opening trade, or a stored acquisition with no lot) has its lots rebuilt
+    /// here from the account's stored acquisitions; the caller then replays its
+    /// sales. Healthy instruments are left alone so their lot IDs stay stable.
+    ///
+    /// `excluding` is this sync's own trades, which get their lots later in the
+    /// same sync and so are not evidence of damage.
+    private func rebuildDamagedLots(
+        sourceAccountId: UUID,
+        excluding windowIDs: Set<UUID>,
+        accounting: TaxLotAccountingService,
+        on req: Request
+    ) async throws -> Set<UUID> {
+        let lots = try await Lot.query(on: req.db)
+            .filter(\.$accountId == sourceAccountId)
+            .all()
+        let acquisitions = try await Transaction.query(on: req.db)
+            .filter(\.$accountId == sourceAccountId)
+            .filter(\.$type ~~ Self.acquisitionTypes)
+            .all()
+            .filter { abs($0.quantity ?? 0) > 0 && ($0.price ?? -1) >= 0 }
+
+        let openedByLot = Set(lots.compactMap(\.openTransactionId))
+        var damaged = Set(lots.filter { $0.openTransactionId == nil }.map(\.instrumentId))
+        for transaction in acquisitions {
+            guard let id = transaction.id, !windowIDs.contains(id), !openedByLot.contains(id) else { continue }
+            damaged.insert(transaction.instrumentId)
+        }
+        guard !damaged.isEmpty else { return [] }
+
+        for lot in lots where damaged.contains(lot.instrumentId) {
+            try await lot.delete(on: req.db)
+        }
+        for transaction in acquisitions.filter({ damaged.contains($0.instrumentId) }).sorted(by: Self.tradeOrder) {
+            _ = try await accounting.recordAcquisition(transaction: transaction, on: req.db)
+        }
+        req.logger.notice("broker.ibkr ledger_rebuilt", metadata: [
+            "account_id": .string(sourceAccountId.uuidString),
+            "instruments": .string("\(damaged.count)"),
+        ])
+        return damaged
     }
 
     private func reconcileOpeningLots(
@@ -845,15 +934,11 @@ private extension IBKRBrokerSyncService {
                 }
             }
 
+            // Lots are not touched here. They come from the account's trades
+            // (and an opening-balance trade for any quantity those don't
+            // explain) in syncTransactions, so they survive across syncs along
+            // with the disposals that point at them.
             let instrumentID = try instrument.requireID()
-            let existingLots = try await Lot.query(on: db)
-                .filter(\.$accountId == sourceAccountId)
-                .filter(\.$instrumentId == instrumentID)
-                .all()
-            for lot in existingLots {
-                try await lot.delete(on: db)
-            }
-
             if let existingPosition = try await Position.query(on: db)
                 .filter(\.$accountId == sourceAccountId)
                 .filter(\.$instrumentId == instrumentID)
@@ -865,18 +950,6 @@ private extension IBKRBrokerSyncService {
             let quantity = max(position.quantity, 0)
             let averageCost = max(position.averageCost, 0)
             let now = Date()
-
-            let lot = Lot(
-                accountId: sourceAccountId,
-                instrumentId: instrumentID,
-                openDate: now,
-                openQuantity: quantity,
-                remainingQuantity: quantity,
-                openPrice: averageCost,
-                currency: position.currency,
-                status: "open"
-            )
-            try await lot.save(on: db)
 
             let dbPosition = Position(
                 accountId: sourceAccountId,
@@ -1054,6 +1127,7 @@ private struct IBKRBrokerPositionPayload: Decodable {
     let avgCost: BrokerLossyValue?
     let currency: String?
     let conid: BrokerLossyValue?
+    let assetClass: String?
 
     func toPosition(defaultCurrency: String) -> IBKRBrokerPosition? {
         let resolvedSymbol = [ticker, symbol, contractDesc]
@@ -1069,7 +1143,8 @@ private struct IBKRBrokerPositionPayload: Decodable {
             quantity: quantity,
             averageCost: averageCost,
             currency: (resolvedCurrency?.isEmpty == false ? resolvedCurrency! : defaultCurrency),
-            conid: conid?.stringValue
+            conid: conid?.stringValue,
+            assetClass: assetClass
         )
     }
 }
@@ -1126,6 +1201,7 @@ private struct IBKRBrokerTransactionPayload: Decodable {
     let tradeDate: String?
     let settleDate: String?
     let conid: BrokerLossyValue?
+    let assetClass: String?
 
     func toTransaction() -> IBKRBrokerTransaction? {
         let externalID = transactionID?.stringValue ?? id?.stringValue
@@ -1146,7 +1222,8 @@ private struct IBKRBrokerTransactionPayload: Decodable {
             currency: currency?.trimmingCharacters(in: .whitespacesAndNewlines).uppercased() ?? "USD",
             date: parsedDate,
             settleDate: Self.parseDate(settleDate),
-            conid: conid?.stringValue
+            conid: conid?.stringValue,
+            assetClass: assetClass
         )
     }
 

@@ -256,7 +256,7 @@ extension StagingGatesTests {
             let position = try await Position.query(on: app.db).filter(\.$accountId == account.requireID()).filter(\.$instrumentId == instrumentId).first()
             #expect(position?.quantity == 3)
             let lots = try await Lot.query(on: app.db).filter(\.$accountId == account.requireID()).filter(\.$instrumentId == instrumentId).all()
-            #expect(lots.reduce(0) { $0 + $1.remainingQuantity } >= 3)
+            #expect(lots.reduce(0) { $0 + $1.remainingQuantity } == 3)
             #expect(try await Stock.query(on: app.db).filter(\.$userId == userId).filter(\.$symbol == symbol).count() == 0)
             #expect(try await stockSnapshot(listId: seeded.listId, on: app.db) == ["AAPL:5.0:pilot"])
             let saved = try #require(try await BrokerConnection.find(connection.requireID(), on: app.db))
